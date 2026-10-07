@@ -1,13 +1,14 @@
 import { useState, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { useGet, useSend, api } from "../../api/client";
 import type { ContractKind, PullDraft, PushView } from "../../api/types";
 import { Badge, Brand, Btn, Chip, Code, Col, Icon, KV, LabelChip, Mono, Muted, Num, Panel, Row, Segmented, Skeleton, Spacer, State, Stepper, Strong, TextLink, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
+import { openForm, openExternal, downloadFile } from "../../ui/demo";
 
 export default function IngestPage() {
   const { tx } = useI18n();
@@ -90,6 +91,8 @@ function Pull() {
   const { data: d } = useGet<PullDraft>("/ingest/pull/pull-ops-metrics");
   const [contract, setContract] = useState<ContractKind>("metric");
   const [accepted, setAccepted] = useState(false);
+  const [step, setStep] = useState<number | null>(null);
+  const [testing, setTesting] = useState(false);
   if (!d)
     return (
       <div className="v3-content">
@@ -115,11 +118,29 @@ function Pull() {
         </Col>
         <Spacer />
         <div style={{ width: 560 }}>
-          <Stepper steps={[tx("连接", "Connect"), tx("请求模板", "Request"), tx("字段映射", "Mapping"), tx("测试", "Test"), tx("启用", "Enable")]} active={d.step} />
+          <Stepper steps={[tx("连接", "Connect"), tx("请求模板", "Request"), tx("字段映射", "Mapping"), tx("测试", "Test"), tx("启用", "Enable")]} active={step ?? d.step} />
         </div>
       </Row>
       <div className="pull-grid">
-        <Panel title={tx("请求模板", "Request template")} right={<TextLink icon="edit">{tx("编辑", "Edit")}</TextLink>} style={{ width: 330, flex: "none" }}>
+        <Panel title={tx("请求模板", "Request template")} right={
+          <TextLink
+            icon="edit"
+            onClick={async () => {
+              const v = await openForm({
+                title: tx("编辑请求模板", "Edit request template"),
+                fields: [
+                  { key: "path", label: tx("路径", "Path"), initial: d.request.path, mono: true, required: true },
+                  { key: "rate", label: tx("拉取频率", "Rate"), initial: d.request.rate },
+                  { key: "paging", label: tx("分页", "Paging"), initial: d.request.paging },
+                ],
+                submit: tx("保存并重新取样", "Save and re-sample"),
+              });
+              if (v) toast(tx("请求模板已更新，样例已重新获取", "Request template updated; sample re-fetched"));
+            }}
+          >
+            {tx("编辑", "Edit")}
+          </TextLink>
+        } style={{ width: 330, flex: "none" }}>
           <Col gap={10}>
             <Col gap={4}>
               <Row gap={8}>
@@ -262,12 +283,33 @@ function Pull() {
           <Icon name="lock" size={13} />
           <span>{tx("遥测数据不落平台：只保存接入配置和查询审计，调查时按需查询。", "Telemetry never lands in the platform — only the config and query audit are stored; data is queried on demand.")}</span>
           <Spacer />
-          <Btn kind="ghost" h={28}>
+          <Btn kind="ghost" h={28} disabled={(step ?? d.step) <= 0} onClick={() => setStep(Math.max(0, (step ?? d.step) - 1))}>
             {tx("上一步", "Back")}
           </Btn>
-          <Btn kind="primary" h={28} iconRight="right">
-            {tx("下一步：测试", "Next: test")}
-          </Btn>
+          {(step ?? d.step) < 3 ? (
+            <Btn kind="primary" h={28} iconRight="right" onClick={() => setStep((step ?? d.step) + 1)}>
+              {tx("下一步", "Next")}
+            </Btn>
+          ) : (step ?? d.step) === 3 ? (
+            <Btn
+              kind="primary"
+              h={28}
+              icon="play"
+              loading={testing}
+              onClick={async () => {
+                setTesting(true);
+                const r = await api<{ ok: boolean; rows: number; dropped: number }>("POST", `/ingest/pull/${d.id}/test`, { body: { contract } }).finally(() => setTesting(false));
+                toast(tx("测试通过：映射 {r} 行，丢弃 {x} 行", "Test passed: {r} rows mapped, {x} dropped", { r: r.rows, x: r.dropped }));
+                setStep(4);
+              }}
+            >
+              {tx("运行测试", "Run test")}
+            </Btn>
+          ) : (
+            <Btn kind="primary" h={28} icon="check" onClick={() => toast(tx("{n} 已启用，按请求模板的频率拉取", "{n} enabled; pulling at the template rate", { n: d.name }))}>
+              {tx("启用", "Enable")}
+            </Btn>
+          )}
         </Row>
       </Panel>
     </div>
@@ -319,10 +361,17 @@ function Push({ stackOnly }: { stackOnly: boolean }) {
         {d.stack.estimate}
       </KV>
       <Row gap={8}>
-        <Btn kind="primary" icon="download" onClick={() => toast(tx("已生成 values.yaml 与部署说明", "values.yaml and instructions generated"))}>
+        <Btn
+          kind="primary"
+          icon="download"
+          onClick={() => {
+            downloadFile(deploy === "helm" ? "aiops-starter-values.yaml" : "aiops-starter-compose.yml", deploy === "helm" ? d.stack.helm : d.stack.compose, "text/yaml");
+            toast(deploy === "helm" ? tx("已下载 values.yaml", "values.yaml downloaded") : tx("已下载 docker-compose.yml", "docker-compose.yml downloaded"));
+          }}
+        >
           {tx("生成部署清单", "Generate manifests")}
         </Btn>
-        <Btn kind="ghost" icon="book">
+        <Btn kind="ghost" icon="book" onClick={() => openExternal(tx("部署说明", "Deployment docs"), "https://docs.example.internal/aiops/starter-stack")}>
           {tx("查看说明", "Docs")}
         </Btn>
       </Row>
@@ -351,7 +400,23 @@ function Push({ stackOnly }: { stackOnly: boolean }) {
             </Col>
           </button>
         ))}
-        <Btn kind="ghost" icon="plus" style={{ justifyContent: "flex-start", marginTop: 6 }}>
+        <Btn
+          kind="ghost"
+          icon="plus"
+          style={{ justifyContent: "flex-start", marginTop: 6 }}
+          onClick={async () => {
+            const v = await openForm({
+              title: tx("自定义事件 schema", "Custom event schema"),
+              desc: tx("自定义事件同样经过 schema 校验、幂等去重和签名校验。", "Custom events are also schema-validated, deduplicated and signature-checked."),
+              fields: [
+                { key: "name", label: tx("事件类型", "Event type"), required: true, mono: true, placeholder: "feature_flag" },
+                { key: "schema", label: "JSON Schema", type: "textarea", initial: '{\n  "type": "object",\n  "required": ["service", "time"]\n}' },
+              ],
+              submit: tx("创建", "Create"),
+            });
+            if (v) toast(tx("事件类型 {n} 已创建，接口为 POST /api/v1/events/{n}", "Event type {n} created at POST /api/v1/events/{n}", { n: v.name }));
+          }}
+        >
           {tx("自定义事件 schema", "Custom event schema")}
         </Btn>
         <div className="push-note">{tx("事件型小数据落到平台（带 schema 校验、幂等去重与签名校验）；遥测大数据请用 Pull 或配套栈。", "Small event data lands in the platform (schema-validated, idempotent, signed); use Pull or the starter stack for telemetry.")}</div>
@@ -376,7 +441,15 @@ function Push({ stackOnly }: { stackOnly: boolean }) {
                 >
                   {tx("复制 curl", "Copy curl")}
                 </Chip>
-                <Chip icon="download">OpenAPI</Chip>
+                <Chip
+                  icon="download"
+                  onClick={() => {
+                    const spec = { openapi: "3.1.0", info: { title: "AIOps push events", version: "1" }, servers: [{ url: `https://${d.endpoint.host}` }], paths: { [path]: { post: { summary: t.name, parameters: d.endpoint.headers.map((h) => ({ in: "header", name: h.k, description: h.note })), responses: Object.fromEntries(d.endpoint.responses.map((r) => [r.code, { description: r.text }])) } } } };
+                    downloadFile(`aiops-events-${sel}.openapi.json`, JSON.stringify(spec, null, 2));
+                  }}
+                >
+                  OpenAPI
+                </Chip>
               </Row>
               <div>
                 {d.endpoint.headers.map((h) => (
@@ -402,7 +475,7 @@ function Push({ stackOnly }: { stackOnly: boolean }) {
               </div>
             </Col>
           </Panel>
-          <Panel title={tx("最近投递", "Recent deliveries")} right={<TextLink>{tx("全部", "All")}</TextLink>}>
+          <Panel title={tx("最近投递", "Recent deliveries")} right={<TextLink to="/integrations/webhooks">{tx("全部", "All")}</TextLink>}>
             <table className="v3-table">
               <thead>
                 <tr>

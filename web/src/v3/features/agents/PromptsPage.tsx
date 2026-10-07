@@ -3,10 +3,11 @@ import { Page } from "../../app/Shell";
 import { useGet, useSend } from "../../api/client";
 import type { PromptDetail, PromptItem, PromptTrial } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Field, Icon, Muted, Num, Panel, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, TextLink, Tile, cx } from "../../ui/core";
-import { toast } from "../../ui/overlays";
+import { toast, MenuButton } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { useI18n } from "../../i18n";
 import "./agents.css";
+import { openForm, ChipSelect } from "../../ui/demo";
 
 function withVars(text: string): ReactNode[] {
   return text.split(/(\{\w+\})/g).map((p, i) => (p.startsWith("{") ? <span key={i} className="pvar">{p}</span> : p));
@@ -26,7 +27,25 @@ export default function PromptsPage() {
   const items = list?.items.filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()));
   const group = (kind: PromptItem["kind"]) => items?.filter((i) => i.kind === kind) ?? [];
   return (
-    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("提示词与 Skills", "Prompts & skills")]} actions={<Btn kind="primary" icon="plus">{tx("新建", "New")}</Btn>}>
+    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("提示词与 Skills", "Prompts & skills")]} actions={
+        <Btn
+          kind="primary"
+          icon="plus"
+          onClick={async () => {
+            const v = await openForm({
+              title: tx("新建提示词或 Skill", "New prompt or skill"),
+              fields: [
+                { key: "kind", label: tx("类型", "Type"), type: "select", options: [{ value: "prompt", label: tx("提示词", "Prompt") }, { value: "skill", label: "Skill" }] },
+                { key: "name", label: tx("标识", "Identifier"), required: true, mono: true, placeholder: "patrol.capacity" },
+              ],
+              submit: tx("创建草稿", "Create draft"),
+            });
+            if (v) toast(tx("已创建草稿 {n}，保存后需要评测才能发布", "Draft {n} created; it needs evals before release", { n: v.name }));
+          }}
+        >
+          {tx("新建", "New")}
+        </Btn>
+      }>
       <div className="v3-split">
         <div className="side" style={{ width: 280, padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
           <SearchBox placeholder={tx("搜索提示词或 Skill", "Search prompts or skills")} value={q} onChange={setQ} width={256} />
@@ -60,9 +79,19 @@ export default function PromptsPage() {
                 {p.status && <State tone="accent">{p.status}</State>}
                 {draft !== null && <Badge tone="warn">{tx("未保存", "Unsaved")}</Badge>}
                 <Spacer />
-                <Btn kind="ghost" icon="clock">
-                  {tx("历史版本", "History")}
-                </Btn>
+                <MenuButton
+                  trigger={({ onClick, ref }) => (
+                    <Btn ref={ref as never} kind="ghost" icon="clock" onClick={onClick}>
+                      {tx("历史版本", "History")}
+                    </Btn>
+                  )}
+                  items={[p.version, "v11", "v10", "v9"].map((v, i) => ({
+                    label: i === 0 ? tx("{v} · 当前", "{v} · current", { v }) : tx("{v} · 与当前对比", "{v} · compare with current", { v }),
+                    icon: "clock" as const,
+                    active: i === 0,
+                    onSelect: () => i > 0 && toast(tx("已在试运行对比中载入 {v}", "Loaded {v} into the trial comparison", { v })),
+                  }))}
+                />
                 <Btn
                   kind="primary"
                   icon="check"
@@ -109,21 +138,18 @@ export default function PromptsPage() {
           </Row>
           <Col gap={12} style={{ padding: 16 }}>
             <Field label={tx("用例", "Case")}>
-              <Chip caret>{tx("INV-187 · 下游超时（回放）", "INV-187 · downstream timeouts (replay)")}</Chip>
+              <ChipSelect label="" showLabel={false} defaultValue="INV-187" options={[{ value: "INV-187", label: tx("INV-187 · 下游超时（回放）", "INV-187 · downstream timeouts (replay)") }, { value: "INV-176", label: tx("INV-176 · 发布后 5xx（回放）", "INV-176 · 5xx after release (replay)") }, { value: "INV-162", label: tx("INV-162 · 磁盘写满（回放）", "INV-162 · disk full (replay)") }]} />
             </Field>
             <Row gap={8}>
               <Field label={tx("版本 A", "Version A")}>
-                <Chip caret>v12</Chip>
+                <ChipSelect label="" showLabel={false} defaultValue="v12" options={["v13", "v12", "v11", "v10"]} />
               </Field>
               <Field label={tx("版本 B", "Version B")}>
-                <Chip caret>v13</Chip>
+                <ChipSelect label="" showLabel={false} defaultValue="v13" options={["v13", "v12", "v11", "v10"]} />
               </Field>
             </Row>
             <Field label={tx("模型", "Model")}>
-              <Chip caret>
-                <Brand name="claude" size={18} />
-                {tx("默认 · Claude", "Default · Claude")}
-              </Chip>
+              <ChipSelect label="" showLabel={false} defaultValue="default" options={[{ value: "default", label: tx("默认 · Claude Opus 5.5", "Default · Claude Opus 5.5") }, { value: "sonnet", label: "Claude Sonnet 5" }, { value: "gpt", label: "GPT-5" }, { value: "qwen", label: tx("Qwen3 32B · 本地", "Qwen3 32B · local") }]} />
             </Field>
             <Btn kind="primary" icon="play" loading={trial.isPending} onClick={() => trial.mutate({ case: "INV-187", a: "v12", b: "v13" })} style={{ alignSelf: "flex-start" }}>
               {tx("运行对比", "Run comparison")}

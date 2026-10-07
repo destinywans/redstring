@@ -7,6 +7,7 @@ import { toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./events.css";
+import { ChipSelect, AddChip } from "../../ui/demo";
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
@@ -111,11 +112,8 @@ export default function RulesPage() {
                 <>
                   <Step n={1} title={tx("查询", "Query")}>
                     <Row gap={8} wrap>
-                      <Chip caret>
-                        <Brand name="prometheus" size={18} />
-                        {r.datasource}
-                      </Chip>
-                      <Chip caret>{tx("已登记查询：{q}", "Registered query: {q}", { q: r.query_ref })}</Chip>
+                      <ChipSelect label="" showLabel={false} icon="database" defaultValue={r.datasource} options={[r.datasource, "VictoriaMetrics · prod", "Prometheus · staging"]} />
+                      <ChipSelect label={tx("已登记查询", "Registered query")} defaultValue={r.query_ref} options={[r.query_ref, "http_5xx_ratio", "http_p99_latency", "db_pool_wait_p95"].filter((v, i, a) => a.indexOf(v) === i)} />
                       <Muted size={11.5}>{tx("或编写 PromQL（需要规则编辑权限）", "or write PromQL (requires rule editor)")}</Muted>
                     </Row>
                     <Code>{r.expr}</Code>
@@ -131,7 +129,7 @@ export default function RulesPage() {
                   <div className="grid-2">
                     <Step n={2} title={tx("触发条件", "Condition")}>
                       <Row gap={8} wrap>
-                        <Chip caret>{tx("大于", "Above")}</Chip>
+                        <ChipSelect label="" showLabel={false} defaultValue="gt" options={[{ value: "gt", label: tx("大于", "Above") }, { value: "lt", label: tx("小于", "Below") }, { value: "eq", label: tx("等于", "Equal to") }]} />
                         <Input type="number" value={threshold} step={0.5} onChange={(e) => setThreshold(Number(e.target.value))} width={90} right={<Muted>%</Muted>} aria-label={tx("阈值", "Threshold")} />
                         <Muted>{tx("持续", "for")}</Muted>
                         <Input type="number" value={forMin} onChange={(e) => setForMin(Number(e.target.value))} width={90} right={<Muted>{tx("分钟", "min")}</Muted>} aria-label={tx("持续时间", "Duration")} />
@@ -148,7 +146,7 @@ export default function RulesPage() {
                       <Row gap={8}>
                         <Input mono defaultValue="0 9 * * *" width={140} disabled={mode !== "cron"} aria-label="cron" />
                         <Muted>{tx("无数据时", "No data")}</Muted>
-                        <Chip caret>{r.evaluation.no_data}</Chip>
+                        <ChipSelect label="" showLabel={false} defaultValue={r.evaluation.no_data} options={[r.evaluation.no_data, tx("保持上次状态", "Keep last state"), tx("视为正常", "Treat as OK"), tx("视为告警", "Treat as firing")].filter((v, i, a) => a.indexOf(v) === i)} />
                       </Row>
                     </Step>
                   </div>
@@ -158,7 +156,7 @@ export default function RulesPage() {
                         {r.labels.map((l) => (
                           <LabelChip key={l.k} k={l.k} v={l.v} />
                         ))}
-                        <Chip icon="plus">{tx("标签", "Label")}</Chip>
+                        <AddChip label={tx("标签", "Label")} free placeholder="team=trade" options={["team=trade", "severity=P2", "slo=availability"]} />
                       </Row>
                       <Input mono defaultValue={r.annotation} aria-label={tx("说明模板", "Annotation")} />
                       <Row gap={8}>

@@ -10,6 +10,7 @@ import { useI18n } from "../../i18n";
 import { NewRunbookDialog } from "./NewRunbookPage";
 import { PageHead } from "../conversation/ConversationsPage";
 import "./knowledge.css";
+import { ChipSelect, useFacet } from "../../ui/demo";
 
 export default function RunbooksPage() {
   const { tx } = useI18n();
@@ -19,6 +20,8 @@ export default function RunbooksPage() {
   const [start, setStart] = useState<null | "postmortem" | "blank">(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
   const { data, isLoading } = useGet<{ items: RunbookSummary[]; counts: Record<string, number>; kpis: KpiT[]; suggestions: RunbookSuggestion[] }>("/runbooks", { tab, q });
+  const fScope = useFacet(data?.items, (r) => r.scope);
+  const fOwner = useFacet(data?.items, (r) => r.owner);
   const ST: Record<RunbookSummary["status"], [Tone, string]> = { published: ["ok", tx("已发布", "Published")], review: ["warn", tx("待复核", "In review")], draft: ["neutral", tx("草稿", "Draft")] };
   return (
     <Page
@@ -43,16 +46,12 @@ export default function RunbooksPage() {
             <Row gap={8}>
               <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: data?.counts.all }, { value: "mine", label: tx("我维护的", "Mine"), count: data?.counts.mine }, { value: "review", label: tx("待复核", "In review"), count: data?.counts.review }, { value: "stale", label: tx("需要验证", "Needs verification"), count: data?.counts.stale }]} />
               <SearchBox placeholder={tx("搜索 Runbook", "Search runbooks")} value={q} onChange={setQ} width={220} />
-              <Chip icon="filter" caret>
-                {tx("服务", "Service")}
-              </Chip>
-              <Chip icon="filter" caret>
-                {tx("团队", "Team")}
-              </Chip>
+              <ChipSelect icon="filter" label={tx("适用范围", "Scope")} {...fScope.props} />
+              <ChipSelect icon="filter" label={tx("维护人", "Owner")} {...fOwner.props} />
             </Row>
             <Card style={{ overflow: "hidden" }}>
               <DataTable
-                rows={data?.items}
+                rows={data?.items.filter((r) => fScope.test(r) && fOwner.test(r))}
                 loading={isLoading}
                 rowKey={(r) => r.id}
                 onRowClick={(r) => nav(`/runbooks/${r.id}`)}

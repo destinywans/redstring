@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { Page } from "../../app/Shell";
 import { useGet, useSend } from "../../api/client";
-import { Badge, Btn, Chip, Field, Input, Muted, Panel, Row, Segmented, Skeleton, Strong } from "../../ui/core";
+import { Badge, Btn, Chip, Field, Input, Muted, Panel, Row, Segmented, Skeleton, Strong, Icon } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import { SettingsHead } from "./common";
 import { API_MODE } from "../../api/client";
 import { useEnv } from "../../app/environment";
 import "./settings.css";
+import { ChipSelect } from "../../ui/demo";
 
 type Workspace = { name: string; slug: string; timezone: string; locale: string; week_start: "monday" | "sunday"; retention_days: number; data_region: string; brand: { name: string; logo: string | null; pending: boolean } };
 
@@ -58,13 +59,13 @@ export default function WorkspacePage() {
                   <Strong>{w.brand.name}</Strong>
                   <Muted size={11.5}>{tx("产品名称和 Logo 确定后在这里替换，侧栏和浏览器标签同步更新。", "Replace the product name and logo here once decided; the sidebar and browser tab follow.")}</Muted>
                 </span>
-                <Btn h={28} icon="upload" disabled>{tx("上传 Logo", "Upload logo")}</Btn>
+                <Btn h={28} icon="upload" disabled title={tx("产品名称和 Logo 还在确定中，确定后开放上传", "Uploads open once the product name and logo are decided")}>{tx("上传 Logo", "Upload logo")}</Btn>
               </Row>
             </Panel>
             <Panel title={tx("新成员默认值", "Defaults for new members")}>
               <div className="form-grid">
                 <Field label={tx("时区", "Time zone")}>
-                  <Chip caret>{w.timezone}</Chip>
+                  <ChipSelect label="" showLabel={false} value={w.timezone} onChange={(v) => up({ timezone: v as string })} options={[...new Set([w.timezone, "Asia/Shanghai (UTC+8)", "Asia/Singapore (UTC+8)", "Europe/London (UTC+0)"])]} />
                 </Field>
                 <Field label={tx("语言", "Language")}>
                   <Segmented label={tx("语言", "Language")} value={w.locale} onChange={(v) => up({ locale: v })} options={[{ value: "zh-CN", label: "中文" }, { value: "en-US", label: "English" }]} />
@@ -77,10 +78,13 @@ export default function WorkspacePage() {
             <Panel title={tx("实例", "Instance")}>
               <div className="form-grid">
                 <Field label={tx("实例类型", "Instance type")} hint={tx("生产单独部署一套；开发、测试、预发和需求验证环境共用一套。部署时确定，界面上不能切换。", "Production runs on its own; development, test, staging and feature environments share one. Set at deploy time, not switchable in the UI.")}>
-                  <Chip icon="lock">{tier === "production" ? tx("生产实例", "Production instance") : tx("非生产实例", "Non-production instance")}</Chip>
+                  <Badge tone={tier === "production" ? "prod" : "neutral"}>
+                    <Icon name="lock" size={11} />
+                    {tier === "production" ? tx("生产实例", "Production instance") : tx("非生产实例", "Non-production instance")}
+                  </Badge>
                 </Field>
                 <Field label={tx("域名", "Domain")}>
-                  <Chip icon="globe">{domain}</Chip>
+                  <Badge mono>{domain}</Badge>
                 </Field>
               </div>
               {API_MODE === "mock" && (
@@ -109,7 +113,10 @@ export default function WorkspacePage() {
                   <Input width={140} value={String(w.retention_days)} onChange={(e) => up({ retention_days: Number(e.target.value.replace(/\D/g, "")) || 0 })} right={<Muted>{tx("天", "days")}</Muted>} />
                 </Field>
                 <Field label={tx("数据位置", "Data location")}>
-                  <Chip icon="lock">{w.data_region}</Chip>
+                  <Badge>
+                    <Icon name="lock" size={11} />
+                    {w.data_region}
+                  </Badge>
                 </Field>
               </div>
             </Panel>

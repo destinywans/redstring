@@ -7,6 +7,8 @@ import { Badge, Btn, Card, Col, Dot, Icon, Mono, Muted, Num, Row, SearchBox, Ske
 import { DataTable } from "../../ui/data";
 import { useI18n } from "../../i18n";
 import "./agents.css";
+import { openForm } from "../../ui/demo";
+import { toast } from "../../ui/overlays";
 
 export function useAgentLabels() {
   const { tx } = useI18n();
@@ -24,7 +26,27 @@ export default function LifecyclePage() {
   const [q, setQ] = useState("");
   const rows = data?.agents.filter((a) => !q || a.id.includes(q) || a.name.includes(q));
   return (
-    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("生命周期", "Lifecycle")]} actions={<Btn kind="primary" icon="plus">{tx("新建 Agent", "New agent")}</Btn>}>
+    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("生命周期", "Lifecycle")]} actions={
+        <Btn
+          kind="primary"
+          icon="plus"
+          onClick={async () => {
+            const v = await openForm({
+              title: tx("新建 Agent", "New agent"),
+              desc: tx("新 Agent 从 L0（只读建议）开始，评测通过后才能提升等级。", "New agents start at L0 (read-only suggestions) and move up only after passing evals."),
+              fields: [
+                { key: "name", label: tx("名称", "Name"), required: true, placeholder: tx("例如：容量巡检", "e.g. Capacity patrol") },
+                { key: "template", label: tx("起点", "Start from"), type: "select", options: [{ value: "investigator", label: tx("复制调查助手", "Copy Investigator") }, { value: "triage", label: tx("复制告警初查", "Copy Alert triage") }, { value: "blank", label: tx("空白", "Blank") }] },
+                { key: "goal", label: tx("职责", "Responsibility"), type: "textarea", placeholder: tx("它负责什么、只读取哪些数据", "What it does and which data it may read") },
+              ],
+              submit: tx("创建 Agent", "Create agent"),
+            });
+            if (v) toast(tx("Agent「{n}」已创建为 v1 草稿，等级 L0", "Agent “{n}” created as a v1 draft at L0", { n: v.name }));
+          }}
+        >
+          {tx("新建 Agent", "New agent")}
+        </Btn>
+      }>
       <div className="v3-split">
         <div className="main">
           <div className="v3-content" style={{ padding: "16px 20px" }}>

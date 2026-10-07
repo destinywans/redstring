@@ -8,6 +8,7 @@ import { DataTable, Kpi, KpiRow } from "../../ui/data";
 import { Donut, Treemap } from "../../charts";
 import { useI18n } from "../../i18n";
 import { PageHead } from "../conversation/ConversationsPage";
+import { ChipSelect, useFacet } from "../../ui/demo";
 
 export default function PostmortemsPage() {
   const { tx } = useI18n();
@@ -16,7 +17,9 @@ export default function PostmortemsPage() {
   const [q, setQ] = useState("");
   const [done, setDone] = useState<Set<number>>(new Set());
   const { data, isLoading } = useGet<PostmortemSummary>("/postmortems", { tab });
-  const rows = (data?.items ?? []).filter((p) => !q || p.title.toLowerCase().includes(q.toLowerCase()));
+  const fCause = useFacet(data?.items, (p) => p.cause);
+  const fSvc = useFacet(data?.items, (p) => p.title.split(" ")[0]);
+  const rows = (data?.items ?? []).filter((p) => (!q || p.title.toLowerCase().includes(q.toLowerCase())) && fCause.test(p) && fSvc.test(p));
   return (
     <Page crumbs={[tx("知识与记忆", "Knowledge"), tx("复盘报告", "Postmortems")]} actions={<Btn kind="primary" icon="plus" to="/postmortems/new">{tx("新建复盘", "New postmortem")}</Btn>}>
       <div className="v3-content">
@@ -25,8 +28,8 @@ export default function PostmortemsPage() {
         <Row gap={8}>
           <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: 57 }, { value: "draft", label: tx("AI 草稿", "AI drafts"), count: 2 }, { value: "published", label: tx("已发布", "Published"), count: 55 }]} />
           <SearchBox placeholder={tx("搜索报告", "Search reports")} value={q} onChange={setQ} width={220} />
-          <Chip icon="filter" caret>{tx("根因类别", "Cause")}</Chip>
-          <Chip icon="filter" caret>{tx("服务", "Service")}</Chip>
+          <ChipSelect icon="filter" label={tx("根因类别", "Cause")} {...fCause.props} />
+          <ChipSelect icon="filter" label={tx("服务", "Service")} {...fSvc.props} />
         </Row>
         <div className="v3-row" style={{ gap: 16, alignItems: "flex-start" }}>
           <Card style={{ overflow: "hidden", flex: "1 1 0", minWidth: 0 }}>
@@ -69,7 +72,7 @@ export default function PostmortemsPage() {
                 </Col>
               )}
             </Panel>
-            <Panel title={tx("需要跟进的改进项", "Follow-ups")} right={<TextLink>{tx("全部 25 项", "All 25")}</TextLink>}>
+            <Panel title={tx("需要跟进的改进项", "Follow-ups")} right={<Muted size={11.5}>{tx("最紧急的 {n} 项 · 共 25 项", "Most urgent {n} of 25", { n: data?.followups.length ?? 0 })}</Muted>}>
               <ul>
                 {data?.followups.map((f, i) => (
                   <li key={f.text} className="v3-row" style={{ gap: 8, padding: "7px 0", borderBottom: "1px solid var(--border)", fontSize: "var(--fs-sm)" }}>

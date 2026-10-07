@@ -8,6 +8,7 @@ import { NextSteps } from "../../ui/Composer";
 import { Heatmap, Lines, VBars, C, CS } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./parts.css";
+import { openExternal } from "../../ui/demo";
 
 export type PartActions = {
   openArtifact?: (a: Partial<Artifact> & { kind: Artifact["kind"] }) => void;
@@ -96,7 +97,7 @@ function ChartPart({ p, actions }: { p: Extract<Part, { type: "chart" }>; action
         {p.source && <Muted size={11.5}>{p.source}</Muted>}
         <PartActionsBar
           onOpen={() => actions?.openArtifact?.({ kind: "chart", title: p.title })}
-          extra={p.deep_link && <IconBtn icon="external" label={tx("在 Grafana 中打开", "Open in Grafana")} size={24} onClick={() => window.open(p.deep_link, "_blank", "noopener")} />}
+          extra={p.deep_link && <IconBtn icon="external" label={tx("在 Grafana 中打开", "Open in Grafana")} size={24} onClick={() => openExternal("Grafana", p.deep_link!)} />}
         />
       </div>
     </Card>

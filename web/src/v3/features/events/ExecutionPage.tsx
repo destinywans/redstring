@@ -9,6 +9,7 @@ import { Markdown } from "../../ui/Markdown";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./events.css";
+import { downloadFile } from "../../ui/demo";
 
 export default function ExecutionPage() {
   const { id = "EXE-51" } = useParams();
@@ -110,7 +111,11 @@ export default function ExecutionPage() {
             <Btn kind="ghost" icon={editing ? "check" : "edit"} onClick={() => setEditing((x) => !x)}>
               {editing ? tx("完成", "Done") : tx("编辑", "Edit")}
             </Btn>
-            <Btn kind="ghost" icon="download" onClick={() => toast(tx("已导出 Markdown", "Exported Markdown"))}>
+            <Btn kind="ghost" icon="download" onClick={() => {
+                const md = [`# ${r.title}`, "", `${r.severity} · ${r.meta}`, "", `## ${tx("摘要", "Summary")}`, r.summary, "", `## ${tx("影响", "Impact")}`, r.impact, "", `## ${tx("时间线", "Timeline")}`, ...r.timeline.map((t) => `- ${t.time} ${t.text}`), "", `## ${tx("改进项", "Action items")}`, ...r.actions.map((a) => `- [${a.done ? "x" : " "}] ${a.text} (${a.owner}, ${a.due})`), "", r.refs].join("\n");
+                downloadFile(`${e.id}-report.md`, md, "text/markdown");
+                toast(tx("已导出 Markdown", "Exported Markdown"));
+              }}>
               {tx("导出 Markdown", "Export Markdown")}
             </Btn>
             <Btn icon="send" onClick={() => toast(tx("已推送飞书 #trade-incident", "Posted to Feishu #trade-incident"))}>

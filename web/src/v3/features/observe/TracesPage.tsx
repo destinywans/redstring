@@ -7,6 +7,8 @@ import { Badge, Brand, Btn, Card, Chip, Dot, Icon, Legend, Muted, Num, Panel, Ro
 import { StackedBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./trace.css";
+import { ChipSelect, RangeChip, openForm } from "../../ui/demo";
+import { toast } from "../../ui/overlays";
 
 export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`);
 
@@ -34,6 +36,7 @@ export default function TracesPage() {
   const [checked, setChecked] = useState<Record<string, boolean>>({ "service:checkout-api": true, [`status:${tx("错误", "Error")}`]: true, "op:POST /api/orders": true, "version:v2.8.1": true });
   const { data, isLoading, refetch } = useGet<TraceList>("/traces", { scope, view, service: params.get("service") ?? undefined });
   const [q, setQ] = useState("");
+  const [saved, setSaved] = useState<{ name: string; query: string }[]>([]);
   useEffect(() => setView(scope === "agent" ? "all" : "errors"), [scope]);
   useEffect(() => {
     const v = data?.views.find((x) => x.id === view);
@@ -49,11 +52,12 @@ export default function TracesPage() {
       actions={
         <>
           <ScopeSwitch scope={scope} onChange={setScope} />
-          <Chip caret>
-            <Brand name={scope === "agent" ? "phoenix" : "tempo"} size={18} />
-            {scope === "agent" ? tx("Agent 运行记录", "Agent runs") : tx("Tempo · 生产", "Tempo · prod")}
-          </Chip>
-          <Chip icon="clock" caret>{scope === "agent" ? tx("最近 24 小时", "Last 24 h") : tx("最近 1 小时", "Last 1 h")}</Chip>
+          {scope === "agent" ? (
+            <Badge>{tx("Agent 运行记录", "Agent runs")}</Badge>
+          ) : (
+            <ChipSelect icon="database" label="" showLabel={false} defaultValue="tempo" options={[{ value: "tempo", label: tx("Tempo · 生产", "Tempo · prod") }, { value: "jaeger", label: "Jaeger · prod" }]} />
+          )}
+          <RangeChip key={scope} defaultValue={scope === "agent" ? "24h" : "1h"} />
         </>
       }
     >
@@ -115,7 +119,23 @@ export default function TracesPage() {
                 {v.count !== undefined && ` ${v.count}`}
               </Chip>
             ))}
-            <Chip icon="plus">{tx("保存视图", "Save view")}</Chip>
+            {saved.map((v) => (
+              <Chip key={v.name} active={q === v.query} onClick={() => setQ(v.query)}>
+                {v.name}
+              </Chip>
+            ))}
+            <Chip
+              icon="plus"
+              onClick={async () => {
+                const v = await openForm({ title: tx("保存视图", "Save view"), desc: tx("保存当前的查询语句，团队成员都能使用。", "Saves the current query for your team."), fields: [{ key: "name", label: tx("名称", "Name"), required: true }, { key: "query", label: tx("查询", "Query"), initial: q, mono: true, required: true }], submit: tx("保存", "Save") });
+                if (v) {
+                  setSaved((s) => [...s, { name: v.name, query: v.query }]);
+                  toast(tx("视图「{n}」已保存", "View “{n}” saved", { n: v.name }));
+                }
+              }}
+            >
+              {tx("保存视图", "Save view")}
+            </Chip>
             <Spacer />
             {data && <Muted size={11.5}>{tx("找到 {n} 条 · {t}", "{n} found · {t}", { n: data.total.toLocaleString(), t: data.took })}</Muted>}
           </Row>

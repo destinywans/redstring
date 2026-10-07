@@ -10,6 +10,7 @@ import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./events.css";
+import { openExternal, copyText } from "../../ui/demo";
 
 const KIND_ICON: Record<InboxItem["kind"], IconName> = { alert: "alert", approval: "shield", mention: "message", runbook: "book", report: "file", access: "user", agent: "cpu" };
 
@@ -56,8 +57,8 @@ export function AlertDetailView({ id }: { id: string }) {
         <MenuButton
           items={[
             { label: tx("创建事件", "Create incident"), icon: "alert", onSelect: () => nav("/incidents/INC-1042") },
-            { label: tx("复制链接", "Copy link"), icon: "link", onSelect: () => toast(tx("链接已复制", "Link copied")) },
-            { label: tx("在 Alertmanager 中打开", "Open in Alertmanager"), icon: "external" },
+            { label: tx("复制链接", "Copy link"), icon: "link", onSelect: () => copyText(`${location.origin}/inbox?alert=${id}`, tx("链接已复制", "Link copied")) },
+            { label: tx("在 Alertmanager 中打开", "Open in Alertmanager"), icon: "external", onSelect: () => openExternal("Alertmanager", `https://alertmanager.example.internal/#/alerts?filter=${encodeURIComponent(`{alert_id="${id}"}`)}`) },
           ]}
           trigger={({ onClick, ref }) => (
             <span ref={ref}>
@@ -98,7 +99,7 @@ export function AlertDetailView({ id }: { id: string }) {
           <Row gap={6} style={{ marginTop: 8 }}>
             <Muted>{tx("阈值 1% · 持续 5 分钟触发", "Threshold 1% · fires after 5 min")}</Muted>
             <Spacer />
-            <TextLink icon="external" onClick={() => window.open("https://grafana.example.internal", "_blank", "noopener")}>
+            <TextLink icon="external" onClick={() => openExternal("Grafana", "https://grafana.example.internal/d/checkout-api")}>
               {tx("在 Grafana 中打开", "Open in Grafana")}
             </TextLink>
           </Row>

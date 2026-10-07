@@ -10,6 +10,7 @@ import { Axis, Gauge, Lines, Swimlane } from "../../charts";
 import { useI18n } from "../../i18n";
 import { ServiceHeader } from "./ServicesPage";
 import "./observe.css";
+import { openExternal } from "../../ui/demo";
 
 function useService() {
   const { id = "checkout-api" } = useParams();
@@ -137,7 +138,7 @@ function Source({ brand, text, link }: { brand: string; text: string; link: stri
       {brand && <Brand name={brand} size={20} />}
       <Muted size={11.5}>{text}</Muted>
       <Spacer />
-      <TextLink icon="external">{link}</TextLink>
+      <TextLink icon="external" onClick={() => openExternal(brand || link, `https://${brand || "tools"}.example.internal/`)}>{link}</TextLink>
     </Row>
   );
 }

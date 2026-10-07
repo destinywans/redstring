@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { useGet, useSend, API_MODE } from "../../api/client";
 import type { RunDetail } from "../../api/types";
 import { Badge, Btn, Card, CardHead, Col, Icon, IconBtn, Mono, Muted, Row, Skeleton, Spacer, Tabs, Tile, cx, type IconName } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -9,6 +9,7 @@ import { Axis } from "../../charts";
 import { useI18n } from "../../i18n";
 import { AgentTrace } from "./AgentTrace";
 import "./agents.css";
+import { openForm, openExternal, downloadFile } from "../../ui/demo";
 
 export default function RunDetailPage() {
   const { tx } = useI18n();
@@ -33,9 +34,31 @@ export default function RunDetailPage() {
           <IconBtn icon="check" label={tx("有用", "Helpful")} active={vote === "up"} onClick={() => rate("up")} />
           <IconBtn icon="x" label={tx("无用", "Not helpful")} active={vote === "down"} onClick={() => rate("down")} />
           <Btn icon="plus" onClick={() => toast(tx("已加入数据集「根因分析 · 回归」", "Added to dataset “Root cause · regression”"))}>{tx("加入数据集", "Add to dataset")}</Btn>
-          <Btn icon="edit" onClick={() => toast(tx("已打开标注：为这次运行打分并写备注", "Annotation opened: score this run and leave a note"))}>{tx("标注", "Annotate")}</Btn>
-          <Btn kind="ghost" icon="external">{tx("在 Phoenix 中打开", "Open in Phoenix")}</Btn>
-          <Btn kind="ghost" icon="download">
+          <Btn
+            icon="edit"
+            onClick={async () => {
+              const v = await openForm({
+                title: tx("标注运行 {id}", "Annotate run {id}", { id }),
+                fields: [
+                  { key: "score", label: tx("结论质量", "Answer quality"), type: "select", initial: "4", options: ["5", "4", "3", "2", "1"].map((s) => ({ value: s, label: s })) },
+                  { key: "note", label: tx("备注", "Note"), type: "textarea", placeholder: tx("哪里对、哪里不对，评测会用到", "What was right or wrong; evals use this") },
+                ],
+                submit: tx("保存标注", "Save annotation"),
+              });
+              if (v) toast(tx("标注已保存：{s} 分", "Annotation saved: {s}/5", { s: v.score }));
+            }}
+          >
+            {tx("标注", "Annotate")}
+          </Btn>
+          <Btn kind="ghost" icon="external" onClick={() => openExternal("Phoenix", `https://phoenix.example.internal/projects/aiops/traces/${id}`)}>{tx("在 Phoenix 中打开", "Open in Phoenix")}</Btn>
+          <Btn
+            kind="ghost"
+            icon="download"
+            onClick={() => {
+              downloadFile(`agent-run-${id}.json`, JSON.stringify({ sample_data: API_MODE === "mock", run: r }, null, 2));
+              toast(tx("运行记录已导出", "Run exported"));
+            }}
+          >
             {tx("导出", "Export")}
           </Btn>
         </>
@@ -188,7 +211,7 @@ export default function RunDetailPage() {
                       <Btn h={26} icon="file" to="/canvas/INV-231">
                         {tx("查看证据", "View evidence")}
                       </Btn>
-                      <Btn h={26} kind="ghost" icon="external">
+                      <Btn h={26} kind="ghost" icon="external" onClick={() => openExternal("Grafana", "https://grafana.example.internal/d/checkout-api")}>
                         {tx("在 Grafana 中打开", "Open in Grafana")}
                       </Btn>
                       <Spacer />

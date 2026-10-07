@@ -10,6 +10,7 @@ import { useI18n } from "../../i18n";
 import { PromoteButton } from "./PromoteDialog";
 import "../../ui/forms.css";
 import "./knowledge.css";
+import { confirmAction } from "../../ui/demo";
 
 export default function RunbookEditorPage() {
   const { id = "rb-db-pool" } = useParams();
@@ -32,7 +33,27 @@ export default function RunbookEditorPage() {
       crumbs={[tx("知识与记忆", "Knowledge"), "Runbook", rb.title]}
       actions={
         <>
-          <Btn kind="ghost" icon="file">
+          <Btn
+            kind="ghost"
+            icon="file"
+            onClick={() =>
+              void confirmAction({
+                title: tx("预览 · {t}", "Preview · {t}", { t: rb.title }),
+                desc: (
+                  <ol className="rb-preview">
+                    {rb.steps.map((s) => (
+                      <li key={s.n}>
+                        <b>{s.title}</b>
+                        {s.body && <p>{s.body}</p>}
+                        {s.code && <pre>{s.code}</pre>}
+                      </li>
+                    ))}
+                  </ol>
+                ),
+                confirm: tx("关闭", "Close"),
+              })
+            }
+          >
             {tx("预览", "Preview")}
           </Btn>
           <PromoteButton kind="runbooks" id={rb.id} title={rb.title} />

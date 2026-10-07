@@ -7,6 +7,7 @@ import { DataTable } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./knowledge.css";
+import { ChipSelect, useFacet, openForm } from "../../ui/demo";
 
 const LAYER_ICON: Record<string, IconName> = { working: "layers", service: "box", episodic: "clock", semantic: "book" };
 
@@ -19,20 +20,37 @@ export default function MemoryPage() {
   const { data } = useGet<MemoryView>("/memory", { service: svc });
   const [facts, setFacts] = useState<Record<string, "confirmed" | "forgotten">>({});
   const [conflict, setConflict] = useState(true);
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const fSrc = useFacet(data?.facts, (f) => f.source);
+  const fConf = useFacet(data?.facts, (f) => f.confidence);
+  const editPolicy = async () => {
+    const v = await openForm({
+      title: tx("记忆策略", "Memory policy"),
+      desc: tx("只有人工确认过的事实会被召回；策略变更写入审计。", "Only human-confirmed facts are recalled; policy changes are audited."),
+      fields: [
+        { key: "ttl", label: tx("未被召回多久后过期", "Expire when not recalled for"), type: "select", initial: "90d", options: [{ value: "30d", label: tx("30 天", "30 days") }, { value: "90d", label: tx("90 天", "90 days") }, { value: "180d", label: tx("180 天", "180 days") }] },
+        { key: "source", label: tx("可以提出记忆的来源", "Who can propose memories"), type: "select", initial: "human+ai", options: [{ value: "human", label: tx("仅人工", "People only") }, { value: "human+ai", label: tx("人工与 AI（AI 提出的需确认）", "People and AI (AI ones need confirmation)") }] },
+      ],
+      submit: tx("保存策略", "Save policy"),
+    });
+    if (v) toast(tx("记忆策略已更新", "Memory policy updated"));
+  };
   const act = async (f: MemoryFact, action: "confirm" | "forget") => {
     await api("POST", `/memory/facts/${f.id}/${action}`);
     setFacts((s) => ({ ...s, [f.id]: action === "confirm" ? "confirmed" : "forgotten" }));
     toast(action === "confirm" ? tx("已确认，之后会被召回", "Confirmed — will be recalled") : tx("已遗忘这条记忆", "Forgotten"), { undo: () => setFacts((s) => { const n = { ...s }; delete n[f.id]; return n; }) });
   };
-  const rows = (data?.facts ?? []).filter((f) => facts[f.id] !== "forgotten" && (!q || f.fact.toLowerCase().includes(q.toLowerCase())));
+  const rows = (data?.facts ?? [])
+    .filter((f) => facts[f.id] !== "forgotten" && (!q || f.fact.toLowerCase().includes(q.toLowerCase())) && fSrc.test(f) && fConf.test(f) && (tab !== "pending" || (!f.confirmed && facts[f.id] !== "confirmed")))
+    .map((f) => (edits[f.id] ? { ...f, fact: edits[f.id] } : f));
   return (
-    <Page flush crumbs={[tx("知识与记忆", "Knowledge"), tx("记忆", "Memory")]} actions={<Btn icon="sliders">{tx("记忆策略", "Memory policy")}</Btn>}>
-      <Tabs value={tab} onChange={setTab} options={[{ value: "service", label: tx("服务记忆", "Service"), count: 96 }, { value: "episodic", label: tx("情景记忆", "Episodic"), count: 214 }, { value: "semantic", label: tx("语义记忆", "Semantic"), count: "1,322" }, { value: "pending", label: tx("待确认", "To confirm"), count: 3 }]} />
+    <Page flush crumbs={[tx("知识与记忆", "Knowledge"), tx("记忆", "Memory")]} actions={<Btn icon="sliders" onClick={editPolicy}>{tx("记忆策略", "Memory policy")}</Btn>}>
+      <Tabs value={tab} onChange={(v) => { setTab(v); if (v !== "pending") setLayer(v); }} options={[{ value: "service", label: tx("服务记忆", "Service"), count: 96 }, { value: "episodic", label: tx("情景记忆", "Episodic"), count: 214 }, { value: "semantic", label: tx("语义记忆", "Semantic"), count: "1,322" }, { value: "pending", label: tx("待确认", "To confirm"), count: 3 }]} />
       <div className="v3-split">
         <div className="side" style={{ width: 280, padding: 14, display: "flex", flexDirection: "column", gap: 14 }}>
           <Section title={tx("记忆分层", "Layers")}>
             {data?.layers.map((l) => (
-              <button key={l.id} type="button" className={cx("mem-layer", layer === l.id && "on")} onClick={() => setLayer(l.id)}>
+              <button key={l.id} type="button" className={cx("mem-layer", layer === l.id && "on")} onClick={() => { setLayer(l.id); setTab(l.id); }}>
                 <Tile icon={LAYER_ICON[l.id]} tone={layer === l.id ? "accent" : "neutral"} size={26} />
                 <Col gap={2} grow>
                   <Row gap={6}>
@@ -62,8 +80,8 @@ export default function MemoryPage() {
               <Badge>{tx("{n} 条", "{n}", { n: rows.length })}</Badge>
               <Spacer />
               <SearchBox placeholder={tx("搜索记忆", "Search memory")} value={q} onChange={setQ} width={220} />
-              <Chip icon="filter" caret>{tx("来源", "Source")}</Chip>
-              <Chip icon="filter" caret>{tx("置信度", "Confidence")}</Chip>
+              <ChipSelect icon="filter" label={tx("来源", "Source")} {...fSrc.props} />
+              <ChipSelect icon="filter" label={tx("置信度", "Confidence")} {...fConf.props} options={fConf.props.options.map((o) => ({ ...o, label: o.value === "high" ? tx("高", "High") : tx("中", "Medium") }))} />
             </Row>
             {conflict && data?.conflict && (
               <div className="mem-conflict anim-rise">
@@ -115,7 +133,18 @@ export default function MemoryPage() {
                     render: (f) => (
                       <span className="hact v3-row" style={{ gap: 0 }}>
                         <IconBtn icon="check" label={tx("确认", "Confirm")} size={24} onClick={() => act(f, "confirm")} />
-                        <IconBtn icon="edit" label={tx("编辑", "Edit")} size={24} />
+                        <IconBtn
+                          icon="edit"
+                          label={tx("编辑", "Edit")}
+                          size={24}
+                          onClick={async () => {
+                            const v = await openForm({ title: tx("编辑记忆", "Edit memory"), fields: [{ key: "fact", label: tx("事实", "Fact"), type: "textarea", initial: f.fact, required: true }], submit: tx("保存（需重新确认）", "Save (needs re-confirmation)") });
+                            if (v) {
+                              setEdits((m) => ({ ...m, [f.id]: v.fact }));
+                              toast(tx("已修改，修改后的记忆需要重新确认", "Edited; the edited memory needs confirming again"));
+                            }
+                          }}
+                        />
                         <IconBtn icon="x" label={tx("遗忘", "Forget")} size={24} onClick={() => act(f, "forget")} />
                       </span>
                     ),
@@ -127,7 +156,7 @@ export default function MemoryPage() {
               <Icon name="shield" size={14} color="var(--muted)" />
               <Muted>{data?.policy}</Muted>
               <Spacer />
-              <TextLink>{tx("修改策略", "Edit policy")}</TextLink>
+              <TextLink onClick={editPolicy}>{tx("修改策略", "Edit policy")}</TextLink>
             </Row>
           </div>
         </div>

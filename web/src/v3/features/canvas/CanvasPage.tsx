@@ -13,6 +13,7 @@ import { WritebackDialog } from "./WritebackDialog";
 import { CompareDialog } from "./CompareDialog";
 import { DetailPanel, useFloatCover, usePinned } from "../../ui/DetailPanel";
 import "./canvas.css";
+import { openExternal } from "../../ui/demo";
 
 type View = { x: number; y: number; k: number };
 const ANCHOR = 30;
@@ -367,7 +368,15 @@ function Inspector({ n, nodes, onClose, onWriteback, pinned, onPin }: { n: Canva
                   <span style={{ fontSize: "var(--fs-sm)" }}>{r}</span>
                   <Muted size={11}>{["GitLab #8812", "Prometheus", "Elasticsearch"][i % 3]}</Muted>
                 </Col>
-                <IconBtn icon="external" label={tx("打开来源", "Open source")} size={24} />
+                <IconBtn
+                  icon="external"
+                  label={tx("打开来源", "Open source")}
+                  size={24}
+                  onClick={() => {
+                    const sys = ["GitLab", "Grafana", "Kibana"][i % 3];
+                    openExternal(sys, ["https://gitlab.example.internal/trade/checkout-api/-/merge_requests/8812", "https://grafana.example.internal/d/checkout-api", "https://kibana.example.internal/app/discover"][i % 3]);
+                  }}
+                />
               </Row>
             ))}
             {!n.evidence_refs?.length && <Muted>{tx("还没有证据，可以从左侧证据托盘拖入。", "No evidence yet — drag some in from the tray.")}</Muted>}

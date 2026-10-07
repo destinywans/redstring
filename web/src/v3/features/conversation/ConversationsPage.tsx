@@ -8,6 +8,7 @@ import { DataTable, Kpi, KpiRow } from "../../ui/data";
 import { MenuButton } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./conversation.css";
+import { ChipSelect, useFacet } from "../../ui/demo";
 
 export function PageHead({ title, desc, right }: { title: string; desc?: string; right?: React.ReactNode }) {
   return (
@@ -28,6 +29,9 @@ export default function ConversationsPage() {
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<string | undefined>();
   const { data, isLoading } = useGet<ConversationList>("/conversations", { tab, q, mode });
+  const [sort, setSort] = useState("recent");
+  const fScope = useFacet(data?.items, (c) => c.scope);
+  const fState = useFacet(data?.items, (c) => c.status);
   const STATUS: Record<ConversationSummary["status"], [Tone, string]> = {
     active: ["accent", tx("进行中", "Active")],
     waiting_approval: ["warn", tx("等待审批", "Awaiting approval")],
@@ -85,20 +89,27 @@ export default function ConversationsPage() {
               </span>
             )}
           />
-          <Chip icon="filter" caret>
-            {tx("服务", "Service")}
-          </Chip>
-          <Chip icon="filter" caret>
-            {tx("状态", "Status")}
-          </Chip>
+          <ChipSelect icon="filter" label={tx("范围", "Scope")} {...fScope.props} />
+          <ChipSelect icon="filter" label={tx("状态", "Status")} {...fState.props} options={fState.props.options.map((o) => ({ ...o, label: STATUS[o.value as ConversationSummary["status"]]?.[1] ?? o.value }))} />
           <Spacer />
-          <Chip icon="sliders" caret>
-            {tx("按最近活动", "Recent activity")}
-          </Chip>
+          <ChipSelect
+            icon="sliders"
+            label=""
+            showLabel={false}
+            value={sort}
+            onChange={(v) => setSort(v as string)}
+            options={[
+              { value: "recent", label: tx("按最近活动", "Recent activity") },
+              { value: "tokens", label: tx("按 token 用量", "Token usage") },
+              { value: "title", label: tx("按标题", "Title") },
+            ]}
+          />
         </Row>
         <Card style={{ overflow: "hidden" }}>
           <DataTable
-            rows={data?.items}
+            rows={data?.items
+              .filter((c) => fScope.test(c) && fState.test(c))
+              .sort((a, b) => (sort === "tokens" ? b.tokens - a.tokens : sort === "title" ? a.title.localeCompare(b.title) : 0))}
             loading={isLoading}
             rowKey={(c) => c.id}
             onRowClick={open}

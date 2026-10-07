@@ -9,6 +9,7 @@ import { useI18n } from "../../i18n";
 import { useEnv } from "../../app/environment";
 import type { LowerSource } from "../../api/types";
 import "./integrations.css";
+import { openForm, confirmAction } from "../../ui/demo";
 
 export const STATUS_TONE: Record<ConnectorStatus, Tone> = { ok: "ok", unverified: "warn", error: "danger" };
 
@@ -190,9 +191,39 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
               >
                 {tx("测试连接", "Test connection")}
               </Btn>
-              <Btn icon="edit">{tx("编辑", "Edit")}</Btn>
+              <Btn
+                icon="edit"
+                onClick={async () => {
+                  const v = await openForm({
+                    title: tx("编辑 {n}", "Edit {n}", { n: c.name }),
+                    desc: tx("凭据只填写 Vault 引用，平台不保存明文。", "Credentials are Vault references only; secrets are never stored."),
+                    fields: [
+                      { key: "address", label: tx("地址", "Address"), initial: c.address, mono: true, required: true },
+                      { key: "secret", label: tx("凭据引用", "Credential reference"), initial: "vault:secret/aiops/" + c.id, mono: true, required: true },
+                      { key: "scope", label: tx("范围", "Scope"), initial: c.scope },
+                    ],
+                    submit: tx("保存并测试连接", "Save and test"),
+                  });
+                  if (v) toast(tx("{n} 已更新，连接测试通过", "{n} updated; connection test passed", { n: c.name }));
+                }}
+              >
+                {tx("编辑", "Edit")}
+              </Btn>
               <Spacer />
-              <Btn kind="danger">{tx("停用", "Disable")}</Btn>
+              <Btn
+                kind="danger"
+                onClick={async () => {
+                  const ok = await confirmAction({
+                    title: tx("停用 {n}？", "Disable {n}?", { n: c.name }),
+                    desc: tx("停用后 Agent 无法再通过它取证，依赖它的告警接入和页面会显示“数据缺失”。凭据引用会保留，可随时重新启用。", "Agents can no longer gather evidence through it, and alerts and pages that depend on it show missing data. The credential reference is kept, so you can re-enable it any time."),
+                    confirm: tx("停用", "Disable"),
+                    danger: true,
+                  });
+                  if (ok) toast(tx("{n} 已停用", "{n} disabled", { n: c.name }), { undo: () => undefined });
+                }}
+              >
+                {tx("停用", "Disable")}
+              </Btn>
             </Row>
           </Col>
         </>

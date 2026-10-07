@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
 import { useGet, useSend } from "../../api/client";
-import type { Member, MembersView, OrgNode } from "../../api/types";
+import type { Member, MembersView, OrgNode, Role } from "../../api/types";
 import { AiAvatar, Avatar, Badge, Brand, Btn, Card, Chip, Col, Field, Icon, Input, Mono, Muted, Pills, Row, SearchBox, Section, Spacer, State, cx } from "../../ui/core";
 import { DataTable } from "../../ui/data";
 import { Dialog, toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./settings.css";
+import { ChipSelect, useFacet, openForm } from "../../ui/demo";
 
 export default function MembersPage() {
   const { tx } = useI18n();
@@ -17,6 +18,10 @@ export default function MembersPage() {
   const [email, setEmail] = useState("");
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const { data } = useGet<MembersView>("/members", { filter, q });
+  const { data: roleList } = useGet<{ items: Role[] }>("/roles");
+  const [inviteRole, setInviteRole] = useState("readonly");
+  const fRole = useFacet(data?.items, (m) => m.roles);
+  const fSrc = useFacet(data?.items, (m) => m.source);
   const sync = useSend<void, { added: number; updated: number }>("POST", "/members/sync", ["/members"]);
   const remind = useSend<void, { sent: number }>("POST", "/members/mfa-reminders");
   const send = useSend<{ email: string }>("POST", "/members/invitations", ["/members"]);
@@ -101,8 +106,8 @@ export default function MembersPage() {
                 ]}
               />
               <SearchBox placeholder={tx("姓名、邮箱或手机号", "Name, email or phone")} value={q} onChange={setQ} width={240} />
-              <Chip caret>{tx("角色", "Role")}</Chip>
-              <Chip caret>{tx("来源", "Source")}</Chip>
+              <ChipSelect label={tx("角色", "Role")} {...fRole.props} />
+              <ChipSelect label={tx("来源", "Source")} {...fSrc.props} options={fSrc.props.options.map((o) => ({ ...o, label: ({ feishu: tx("飞书", "Feishu"), ldap: "LDAP", system: tx("系统", "System"), invite: tx("邀请", "Invitation") } as Record<string, string>)[o.value] ?? o.value }))} />
             </Row>
             {data && !remind.isSuccess && (
               <div className="warn-bar anim-rise">
@@ -117,7 +122,23 @@ export default function MembersPage() {
               <div className="bulk-bar anim-rise">
                 <b>{tx("已选 {n} 人", "{n} selected", { n: checked.size })}</b>
                 <Spacer />
-                <Btn h={26} icon="shield">{tx("分配角色", "Assign role")}</Btn>
+                <Btn
+                  h={26}
+                  icon="shield"
+                  onClick={async () => {
+                    const v = await openForm({
+                      title: tx("为 {n} 人分配角色", "Assign a role to {n} people", { n: checked.size }),
+                      fields: [{ key: "role", label: tx("角色", "Role"), type: "select", options: (roleList?.items ?? []).filter((r) => r.kind !== "machine").map((r) => ({ value: r.name, label: r.name, hint: tx("{n} 人", "{n} people", { n: r.members }) })) }],
+                      submit: tx("分配", "Assign"),
+                    });
+                    if (v) {
+                      toast(tx("已为 {n} 人分配「{r}」，写入审计", "Assigned “{r}” to {n} people; audited", { n: checked.size, r: v.role }));
+                      setChecked(new Set());
+                    }
+                  }}
+                >
+                  {tx("分配角色", "Assign role")}
+                </Btn>
                 <Btn h={26} kind="danger" onClick={() => { const n = checked.size; setChecked(new Set()); toast(tx("已停用 {n} 名成员", "Disabled {n} members", { n }), { undo: () => undefined }); }}>
                   {tx("停用", "Disable")}
                 </Btn>
@@ -125,7 +146,7 @@ export default function MembersPage() {
             )}
             <Card style={{ overflow: "hidden" }}>
               <DataTable<Member>
-                rows={data?.items}
+                rows={data?.items.filter((m) => fRole.test(m) && fSrc.test(m))}
                 loading={!data}
                 rowKey={(m) => m.id}
                 rowHeight={50}
@@ -180,7 +201,7 @@ export default function MembersPage() {
         footer={
           <>
             <Btn kind="ghost" onClick={() => setInvite(false)}>{tx("取消", "Cancel")}</Btn>
-            <Btn kind="primary" disabled={!email.includes("@")} loading={send.isPending} onClick={() => send.mutate({ email }, { onSuccess: () => { setInvite(false); setEmail(""); toast(tx("邀请已发送", "Invitation sent")); } })}>
+            <Btn kind="primary" disabled={!email.includes("@")} loading={send.isPending} onClick={() => send.mutate({ email, role: inviteRole } as never, { onSuccess: () => { setInvite(false); setEmail(""); toast(tx("邀请已发送", "Invitation sent")); } })}>
               {tx("发送邀请", "Send invite")}
             </Btn>
           </>
@@ -191,7 +212,7 @@ export default function MembersPage() {
             <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoFocus />
           </Field>
           <Field label={tx("角色", "Role")} hint={tx("外部成员默认只读，需要单独授权应用范围", "External members start read-only and need app scopes granted")}>
-            <Chip caret>{tx("只读", "Read-only")}</Chip>
+            <ChipSelect label="" showLabel={false} value={inviteRole} onChange={(v) => setInviteRole(v as string)} options={[{ value: "readonly", label: tx("只读", "Read-only") }, ...(roleList?.items ?? []).filter((r) => r.kind === "business").map((r) => ({ value: r.id, label: r.name }))]} />
           </Field>
         </Col>
       </Dialog>

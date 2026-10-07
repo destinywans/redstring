@@ -7,6 +7,7 @@ import { Dialog, toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "../../ui/forms.css";
 import "./knowledge.css";
+import { AddChip, usePickLists } from "../../ui/demo";
 
 type Source = "blank" | "template" | "postmortem" | "conversation" | "import";
 type Draft = {
@@ -107,6 +108,7 @@ export default function NewRunbookPage() {
   const [dlg, setDlg] = useState(!params.get("source"));
   const blank = source === "blank";
   const { data, isLoading } = useGet<Draft>(blank ? null : "/runbooks/draft", { source, from: params.get("from") });
+  const lists = usePickLists();
   const draft: Draft | undefined = blank ? { title: "", applies_to: [], trigger: "", steps: [], sources: [] } : data;
   const [saving, setSaving] = useState<string | null>(null);
   const kindLabel = { check: tx("检查", "Check"), act: tx("操作", "Action"), judge: tx("判断", "Decide"), verify: tx("验证", "Verify") };
@@ -147,7 +149,7 @@ export default function NewRunbookPage() {
                   <Row gap={6} wrap>
                     {draft?.applies_to.map((s) => <Badge key={s}>{s}</Badge>)}
                     {draft?.trigger && <LabelChip k="trigger" v={draft.trigger} />}
-                    <button type="button" className="f-add"><Icon name="plus" size={12} />{tx("范围", "Scope")}</button>
+                    <AddChip label={tx("范围", "Scope")} free placeholder="service=payment-gateway" options={[...lists.services.map((s) => `service=${s.value}`), "env=prod", "team=trade"]} />
                   </Row>
                 </Field>
                 <ol className="rb-steps">

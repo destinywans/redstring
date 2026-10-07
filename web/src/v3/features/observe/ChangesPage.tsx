@@ -8,6 +8,7 @@ import { Kpi, KpiRow } from "../../ui/data";
 import { Axis } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./observe.css";
+import { RangeChip, openExternal } from "../../ui/demo";
 
 const STATUS = { success: "ok", failed: "danger", running: "accent", canceled: "neutral" } as const;
 
@@ -25,9 +26,7 @@ export default function ChangesPage() {
       crumbs={[tx("资源与观测", "Resources"), tx("变更与发布", "Changes & releases")]}
       actions={
         <>
-          <Chip icon="clock" caret>
-            {tx("最近 24 小时", "Last 24 h")}
-          </Chip>
+          <RangeChip />
           <Btn icon="plug" to="/integrations">
             {tx("接入变更源", "Add change source")}
           </Btn>
@@ -215,7 +214,7 @@ export default function ChangesPage() {
                 {tx("提议回滚", "Propose rollback")}
               </Btn>
               <Spacer />
-              <Btn kind="ghost" icon="external">
+              <Btn kind="ghost" icon="external" onClick={() => openExternal("GitLab", "https://gitlab.example.internal/trade/checkout-api/-/pipelines")}>
                 {tx("在 GitLab 中打开", "Open in GitLab")}
               </Btn>
             </Row>

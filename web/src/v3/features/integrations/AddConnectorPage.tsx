@@ -7,6 +7,7 @@ import { Badge, Brand, Btn, Card, Check, Chip, Code, Col, Field, Icon, Input, La
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
+import { ChipSelect, AddChip } from "../../ui/demo";
 
 const CATALOG = [
   ["gitlab", "GitLab"],
@@ -73,10 +74,17 @@ export default function AddConnectorPage() {
                   </Col>
                 </Field>
                 <Field label={tx("凭据来源", "Credential source")} hint={tx("平台只保存引用，不保存也不回显明文", "Only a reference is stored — secrets are never stored or shown")}>
-                  <Chip caret>
-                    <Brand name="vault" size={18} />
-                    HashiCorp Vault · secret/aiops/gitlab
-                  </Chip>
+                  <ChipSelect
+                    icon="key"
+                    label=""
+                    showLabel={false}
+                    defaultValue="vault:secret/aiops/gitlab"
+                    options={[
+                      { value: "vault:secret/aiops/gitlab", label: "HashiCorp Vault · secret/aiops/gitlab" },
+                      { value: "vault:secret/aiops/gitlab-readonly", label: "HashiCorp Vault · secret/aiops/gitlab-readonly" },
+                      { value: "k8s:aiops/gitlab-token", label: tx("Kubernetes Secret · aiops/gitlab-token", "Kubernetes Secret · aiops/gitlab-token") },
+                    ]}
+                  />
                 </Field>
                 <Field label={tx("权限范围", "Scopes")}>
                   <Col gap={6}>
@@ -106,7 +114,7 @@ export default function AddConnectorPage() {
                     <LabelChip k="group" v="platform/*" />
                     <LabelChip k="group" v="shop/*" />
                     <LabelChip k="exclude" v="sandbox/*" />
-                    <Chip icon="plus">{tx("规则", "Rule")}</Chip>
+                    <AddChip label={tx("规则", "Rule")} free placeholder="group=infra/*" options={["group=infra/*", "group=data/*", "exclude=archive/*"]} />
                   </Row>
                 </Field>
                 <Field label={tx("服务映射", "Service mapping")} hint={tx("根据项目名和部署记录自动建议，稍后可在「服务映射」调整", "Suggested from project names and deploy records; adjust later in Service mapping")}>

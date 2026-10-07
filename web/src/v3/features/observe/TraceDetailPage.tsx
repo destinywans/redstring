@@ -9,6 +9,7 @@ import { useI18n } from "../../i18n";
 import { ScopeSwitch, fmtMs } from "./TracesPage";
 import { DetailPanel, usePinned } from "../../ui/DetailPanel";
 import "./trace.css";
+import { openExternal } from "../../ui/demo";
 
 type View = "wf" | "flame" | "graph";
 
@@ -113,7 +114,7 @@ export default function TraceDetailPage() {
           <Btn icon="layers" onClick={() => toast(tx("已与同接口 v2.8.0 基线链路对比：db.pool.acquire +2.97 s", "Compared with the v2.8.0 baseline: db.pool.acquire +2.97 s"))}>{tx("与基线对比", "Compare with baseline")}</Btn>
           <Btn kind="ghost" icon="file" to="/logs">{tx("相关日志", "Related logs")}</Btn>
           <Btn kind="ghost" icon="pin" onClick={() => toast(tx("已钉到画布 INV-231", "Pinned to canvas INV-231"))}>{tx("钉到画布", "Pin to canvas")}</Btn>
-          <Btn kind="ghost" icon="external">{tx("在 Jaeger 中打开", "Open in Jaeger")}</Btn>
+          <Btn kind="ghost" icon="external" onClick={() => openExternal("Jaeger", `https://jaeger.example.internal/trace/${id}`)}>{tx("在 Jaeger 中打开", "Open in Jaeger")}</Btn>
         </>
       }
     >

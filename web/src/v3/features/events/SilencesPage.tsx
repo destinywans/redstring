@@ -3,19 +3,22 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
 import { api, useGet } from "../../api/client";
 import type { Inhibition, Silence } from "../../api/types";
-import { Avatar, Badge, Bar, Btn, Card, CardHead, Col, Icon, IconBtn, Input, LabelChip, Muted, Num, Pills, Row, SearchBox, Section, Spacer, State, Strong, Tabs, Textarea, Tile, type Tone } from "../../ui/core";
+import { Avatar, Badge, Bar, Btn, Card, CardHead, Col, Icon, IconBtn, Input, LabelChip, Muted, Num, Pills, Row, SearchBox, Section, Spacer, State, Strong, Tabs, Textarea, Tile, type Tone, Mono } from "../../ui/core";
 import { DataTable } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import { useCreateParam } from "../../ui/forms";
 import { NewInhibitDrawer } from "./CreateDrawers";
 import "./events.css";
+import { SampleOnly } from "../../ui/demo";
 
 export default function SilencesPage() {
   const { tx } = useI18n();
   const qc = useQueryClient();
   const [state, setState] = useState<"active" | "planned" | "expired">("active");
   const [q, setQ] = useState("");
+  const [tab, setTab] = useState("silences");
+  const [ended, setEnded] = useState<Set<string>>(new Set());
   const list = useGet<{ items: Silence[]; counts: Record<string, number> }>("/silences", { state });
   const inhib = useGet<{ items: Inhibition[] }>("/inhibitions");
   const [matchers, setMatchers] = useState([{ k: "service", op: "=", v: "checkout-api" }, { k: "alertname", op: "=", v: "DownstreamTimeout" }]);
@@ -52,14 +55,19 @@ export default function SilencesPage() {
     });
   };
   const STATE: Record<Silence["state"], [Tone, string]> = { active: ["accent", tx("生效中", "Active")], planned: ["neutral", tx("计划中", "Planned")], expired: ["neutral", tx("已过期", "Expired")] };
-  const rows = (list.data?.items ?? []).filter((s) => !q || s.matchers.some((m) => `${m.k}=${m.v}`.includes(q)));
+  const rows = (list.data?.items ?? [])
+    .filter((s) => !q || s.matchers.some((m) => `${m.k}=${m.v}`.includes(q)))
+    .map((s) => (ended.has(s.id) ? { ...s, state: "expired" as const } : s));
   return (
     <Page flush crumbs={[tx("事件与告警", "Events"), tx("静默与抑制", "Silences")]} actions={<><Btn icon="plus" onClick={() => setInhibitOpen(true)}>{tx("新建抑制规则", "New inhibition")}</Btn><Btn kind="primary" icon="plus" onClick={focusForm}>{tx("新建静默", "New silence")}</Btn></>}>
       <NewInhibitDrawer open={inhibitOpen} onClose={() => setInhibitOpen(false)} />
-      <Tabs value="silences" onChange={() => undefined} options={[{ value: "silences", label: tx("静默", "Silences"), count: list.data?.counts.active }, { value: "inhibit", label: tx("抑制规则", "Inhibition"), count: inhib.data?.items.length }, { value: "windows", label: tx("维护窗口", "Maintenance"), count: 2 }]} />
+      <Tabs value={tab} onChange={setTab} options={[{ value: "silences", label: tx("静默", "Silences"), count: list.data?.counts.active }, { value: "inhibit", label: tx("抑制规则", "Inhibition"), count: inhib.data?.items.length }, { value: "windows", label: tx("维护窗口", "Maintenance"), count: 2 }]} />
       <div className="v3-split">
         <div className="main">
           <div className="v3-content">
+            {tab === "windows" && <MaintenanceWindows />}
+            {tab === "silences" && (
+              <>
             <Row gap={8}>
               <Pills value={state} onChange={setState} options={[{ value: "active", label: tx("生效中", "Active"), count: list.data?.counts.active }, { value: "planned", label: tx("计划中", "Planned"), count: 1 }, { value: "expired", label: tx("已过期", "Expired"), count: 1 }]} />
               <SearchBox placeholder={tx("按标签搜索静默", "Search by label")} value={q} onChange={setQ} />
@@ -78,10 +86,13 @@ export default function SilencesPage() {
                   { key: "a", header: tx("影响", "Affects"), render: (s) => (s.affects ? <Num>{tx("{n} 条", "{n}", { n: s.affects })}</Num> : <Muted>—</Muted>) },
                   { key: "c", header: tx("创建人", "Creator"), render: (s) => <Row gap={6}><Avatar name={s.creator} size={20} /><Muted>{s.creator}</Muted></Row> },
                   { key: "why", header: tx("原因", "Reason"), render: (s) => <Muted>{s.reason}</Muted> },
-                  { key: "x", header: "", width: 40, render: (s) => s.state !== "expired" && <span className="hact"><IconBtn icon="x" label={tx("提前结束", "Expire now")} size={24} onClick={() => toast(tx("静默已结束", "Silence expired"))} /></span> },
+                  { key: "x", header: "", width: 40, render: (s) => s.state !== "expired" && <span className="hact"><IconBtn icon="x" label={tx("提前结束", "Expire now")} size={24} onClick={async () => { await api("DELETE", `/silences/${s.id}`); setEnded((x) => new Set(x).add(s.id)); toast(tx("静默已结束，被静默的告警恢复通知", "Silence expired; its alerts notify again")); }} /></span> },
                 ]}
               />
             </Card>
+              </>
+            )}
+            {tab !== "windows" && (
             <Card>
               <CardHead title={tx("抑制规则", "Inhibition rules")} right={<Btn kind="ghost" icon="plus" h={26} onClick={() => setInhibitOpen(true)}>{tx("新建抑制规则", "New rule")}</Btn>} />
               <ul>
@@ -107,6 +118,7 @@ export default function SilencesPage() {
                 ))}
               </ul>
             </Card>
+            )}
           </div>
         </div>
         <aside ref={form} className="aside silence-form" style={{ width: 380 }}>
@@ -158,5 +170,46 @@ export default function SilencesPage() {
         </aside>
       </div>
     </Page>
+  );
+}
+
+/** Maintenance windows have no endpoint yet: sample data in mock mode, "not connected" otherwise. */
+function MaintenanceWindows() {
+  const { tx } = useI18n();
+  const rows = [
+    [tx("每周四 02:00–04:00", "Thursdays 02:00–04:00"), "service=order-service", tx("数据库例行维护", "Routine database maintenance"), "周航"],
+    [tx("10/12 22:00–23:30", "Oct 12 22:00–23:30"), "cluster=prod-bj-1", tx("节点内核升级", "Node kernel upgrade"), "李明"],
+  ];
+  return (
+    <SampleOnly what={tx("维护窗口", "Maintenance windows")}>
+      <Card style={{ overflow: "hidden" }}>
+        <table className="v3-table">
+          <thead>
+            <tr>
+              <th>{tx("时间", "When")}</th>
+              <th>{tx("范围", "Scope")}</th>
+              <th>{tx("原因", "Reason")}</th>
+              <th>{tx("负责人", "Owner")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r[0]} style={{ height: 44 }}>
+                <td>
+                  <b>{r[0]}</b>
+                </td>
+                <td>
+                  <Mono>{r[1]}</Mono>
+                </td>
+                <td>
+                  <Muted>{r[2]}</Muted>
+                </td>
+                <td>{r[3]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    </SampleOnly>
   );
 }

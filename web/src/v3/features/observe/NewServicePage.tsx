@@ -6,6 +6,7 @@ import { Avatar, Badge, Bar, Brand, Btn, Card, Chip, Col, Field, Icon, Input, Mo
 import { toast } from "../../ui/overlays";
 import { AiBanner, PillSelect, Suggested } from "../../ui/forms";
 import { useI18n } from "../../i18n";
+import { ChipSelect, usePickLists } from "../../ui/demo";
 
 type Workload = { id: string; namespace: string; kind: string; replicas: number; image: string; owner_hint: string; tier_hint: "T0" | "T1" | "T2"; matched: string[]; missing: string[] };
 type Discover = { cluster: string; items: Workload[]; registered: number };
@@ -38,6 +39,7 @@ export default function NewServicePage() {
   const chosen = useMemo(() => (data?.items ?? []).filter((w) => picked[w.id]), [data, picked]);
   const cur = data?.items.find((w) => w.id === focus);
   const form = cur ? forms[cur.id] : undefined;
+  const lists = usePickLists();
   const setForm = (patch: Partial<Form>) => cur && setForms({ ...forms, [cur.id]: { ...forms[cur.id], ...patch } });
   const coverage = cur ? Math.round((100 * cur.matched.length) / (cur.matched.length + cur.missing.length + 1)) : 0;
   const register = async () => {
@@ -66,7 +68,7 @@ export default function NewServicePage() {
               <Segmented label={tx("方式", "Mode")} value={mode} onChange={setMode} options={[{ value: "discover", label: tx("从 Kubernetes 发现", "Discover from Kubernetes"), icon: "grid" }, { value: "manual", label: tx("手动填写", "Fill in manually"), icon: "edit" }]} />
               {mode === "discover" && (
                 <>
-                  <Chip icon="grid" caret>{tx("集群：{c}", "Cluster: {c}", { c: data?.cluster ?? "…" })}</Chip>
+                  <ChipSelect icon="grid" label={tx("集群", "Cluster")} defaultValue={data?.cluster ?? "prod-sh-1"} key={data?.cluster} options={[...new Set([data?.cluster ?? "prod-sh-1", "prod-sh-1", "prod-bj-1"])]} />
                   <Spacer />
                   <Muted size={11.5}>{tx("只读发现 · 发现 {n} 个未登记的工作负载 · 已登记 {r} 个", "Read-only discovery · {n} unregistered workloads · {r} registered", { n: data?.items.length ?? 0, r: data?.registered ?? 0 })}</Muted>
                 </>
@@ -145,10 +147,7 @@ export default function NewServicePage() {
                   </Suggested>
                 </Field>
                 <Field label={tx("负责人", "Owner")}>
-                  <Chip caret>
-                    <Avatar name={form.owner} size={18} />
-                    {form.owner}
-                  </Chip>
+                  <ChipSelect label={tx("负责人", "Owner")} showLabel={false} value={form.owner} onChange={(v) => setForm({ owner: v as string })} options={[{ value: form.owner, label: form.owner }, ...lists.people.filter((p) => p.value !== form.owner)]} />
                 </Field>
               </div>
               <Field label="SLO">

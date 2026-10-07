@@ -7,12 +7,14 @@ import { Markdown } from "../../ui/Markdown";
 import { Lines, C, CS } from "../../charts";
 import { DiffView } from "./Parts";
 import { useI18n } from "../../i18n";
+import { ChipSelect, downloadFile, openExternal } from "../../ui/demo";
 
 export const ARTIFACT_ICON: Record<Artifact["kind"], IconName> = { report: "file", chart: "activity", table: "grid", diff: "code" };
 
 function ReportView({ a }: { a: Extract<Artifact["content"], { kind: "report" }>; meta: Artifact }) {
   const { tx } = useI18n();
   const [editing, setEditing] = useState(false);
+  const [compare, setCompare] = useState(false);
   const [text, setText] = useState(a.markdown);
   return (
     <div className="art-report anim-fade">
@@ -20,11 +22,23 @@ function ReportView({ a }: { a: Extract<Artifact["content"], { kind: "report" }>
         <Badge mono>v3</Badge>
         <Muted size={11.5}>{tx("AI 修改于 14:26 · 基于你的 1 条批注", "AI revised at 14:26 · based on your note")}</Muted>
         <Spacer />
-        <Chip icon="layers">{tx("对比 v2", "Compare v2")}</Chip>
+        <Chip icon="layers" active={compare} onClick={() => setCompare((c) => !c)}>
+          {compare ? tx("收起对比", "Hide comparison") : tx("对比 v2", "Compare v2")}
+        </Chip>
         <Btn h={26} icon={editing ? "check" : "edit"} kind={editing ? "primary" : "secondary"} onClick={() => { setEditing((e) => !e); if (editing) toast(tx("已保存为 v4", "Saved as v4")); }}>
           {editing ? tx("保存", "Save") : tx("编辑", "Edit")}
         </Btn>
       </Row>
+      {compare && (
+        <div className="art-compare anim-rise">
+          <Muted size={11.5}>{tx("v2 → v3 的改动", "Changes from v2 to v3")}</Muted>
+          <div className="cv-diff mono">
+            <div className="del">{tx("- 根因：数据库性能下降", "- Root cause: database slowdown")}</div>
+            <div className="add">{tx("+ 根因：14:03 发布把连接池上限从 200 改为 50（证据 [2][3]）", "+ Root cause: the 14:03 release cut the pool max from 200 to 50 (evidence [2][3])")}</div>
+            <div className="add">{tx("+ 影响：约 38% 下单请求返回 5xx，持续 21 分钟", "+ Impact: ~38% of checkout requests returned 5xx for 21 minutes")}</div>
+          </div>
+        </div>
+      )}
       {a.editing_note && (
         <div className="art-editing">
           <span className="v3-spinner spin" />
@@ -52,9 +66,7 @@ function ChartCompare({ a }: { a: Extract<Artifact["content"], { kind: "chart" }
       <Row gap={8}>
         <Strong>{tx("连接等待 P95 与 5xx 比例 · 联动", "Connection wait P95 vs 5xx · linked")}</Strong>
         <Spacer />
-        <Chip icon="clock" caret>
-          14:00 – 14:35
-        </Chip>
+        <ChipSelect icon="clock" label="" showLabel={false} defaultValue="incident" options={[{ value: "incident", label: "14:00 – 14:35" }, { value: "1h", label: tx("最近 1 小时", "Last 1 hour") }, { value: "6h", label: tx("最近 6 小时", "Last 6 hours") }]} />
       </Row>
       {a.panels.map((p, i) => (
         <Card key={p.title} style={{ padding: "12px 14px" }}>
@@ -85,7 +97,14 @@ function CsvView({ a, title }: { a: Extract<Artifact["content"], { kind: "table"
         <Badge>{tx("{n} 行", "{n} rows", { n: a.rows.length })}</Badge>
         <Spacer />
         <SearchBox placeholder={tx("筛选", "Filter")} value={q} onChange={setQ} width={160} />
-        <Btn icon="download" onClick={() => toast(tx("已导出 CSV", "CSV exported"))}>
+        <Btn
+          icon="download"
+          onClick={() => {
+            const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+            downloadFile(`${String(title).replace(/\s+/g, "-")}.csv`, [a.columns, ...rows].map((l) => l.map(esc).join(",")).join("\n"), "text/csv");
+            toast(tx("已导出 CSV", "CSV exported"));
+          }}
+        >
           {tx("导出", "Export")}
         </Btn>
       </Row>
@@ -139,7 +158,7 @@ export function ArtifactPanel({ artifacts, active, onSelect, onClose }: { artifa
               <Btn kind="soft" icon="shield" to="/review/PRP-88">
                 {tx("生成回滚提案", "Create rollback proposal")}
               </Btn>
-              <Btn kind="ghost" icon="external" onClick={() => window.open("https://gitlab.example.internal", "_blank", "noopener")}>
+              <Btn kind="ghost" icon="external" onClick={() => openExternal("GitLab", "https://gitlab.example.internal/trade/checkout-api/-/merge_requests/8812")}>
                 {tx("在 GitLab 中打开", "Open in GitLab")}
               </Btn>
             </Row>

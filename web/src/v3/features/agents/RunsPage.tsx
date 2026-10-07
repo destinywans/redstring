@@ -8,6 +8,7 @@ import { DataTable, Kpi, KpiRow } from "../../ui/data";
 import { StackedArea, VBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./agents.css";
+import { ChipSelect, RangeChip, openExternal, useFacet } from "../../ui/demo";
 
 export default function RunsPage() {
   const { tx } = useI18n();
@@ -16,16 +17,17 @@ export default function RunsPage() {
   const [q, setQ] = useState("");
   const { data } = useGet<RunsView>("/agent-runs", { filter });
   const st = (s: RunRow["status"]) => ({ success: [tx("成功", "Success"), "ok"], failed: [tx("失败", "Failed"), "danger"], blocked: [tx("已拦截", "Blocked"), "warn"] })[s] as [string, "ok" | "danger" | "warn"];
-  const rows = data?.items.filter((r) => !q || r.id.includes(q) || r.scope.includes(q));
+  const fAgent = useFacet(data?.items, (r) => r.agent);
+  const fVer = useFacet(data?.items, (r) => r.version);
+  const fTrig = useFacet(data?.items, (r) => r.trigger);
+  const rows = data?.items.filter((r) => (!q || r.id.includes(q) || r.scope.includes(q)) && fAgent.test(r) && fVer.test(r) && fTrig.test(r));
   return (
     <Page
       crumbs={[tx("Agent 运行台", "Agent console"), tx("运行与 Trace", "Runs & traces")]}
       actions={
         <>
-          <Chip icon="clock" caret>
-            {tx("最近 24 小时", "Last 24 h")}
-          </Chip>
-          <Btn icon="external">{tx("在 Langfuse 中打开", "Open in Langfuse")}</Btn>
+          <RangeChip />
+          <Btn icon="external" onClick={() => openExternal("Langfuse", "https://langfuse.example.internal/project/aiops/traces")}>{tx("在 Langfuse 中打开", "Open in Langfuse")}</Btn>
         </>
       }
     >
@@ -70,9 +72,9 @@ export default function RunsPage() {
             ]}
           />
           <SearchBox placeholder={tx("运行 ID、服务或事件", "Run ID, service or incident")} value={q} onChange={setQ} width={220} />
-          <Chip caret>Agent</Chip>
-          <Chip caret>{tx("版本", "Version")}</Chip>
-          <Chip caret>{tx("触发方式", "Trigger")}</Chip>
+          <ChipSelect label="Agent" {...fAgent.props} />
+          <ChipSelect label={tx("版本", "Version")} {...fVer.props} />
+          <ChipSelect label={tx("触发方式", "Trigger")} {...fTrig.props} />
           <Spacer />
           <TextLink to="/agents/runs/run_7f3a">{tx("打开运行详情 run_7f3a", "Open run run_7f3a")}</TextLink>
         </Row>

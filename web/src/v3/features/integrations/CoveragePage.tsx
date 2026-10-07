@@ -8,15 +8,18 @@ import { Kpi, KpiRow } from "../../ui/data";
 import { HBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
+import { ChipSelect, useFacet, downloadFile } from "../../ui/demo";
+import { toast } from "../../ui/overlays";
 
 const toneOf = (p: number) => (p >= 85 ? "ok" : p >= 60 ? "warn" : "danger");
 
 export default function CoveragePage() {
   const { tx } = useI18n();
   const { data } = useGet<CoverageView>("/coverage");
+  const fApp = useFacet(data?.rows, (r) => r.service);
   const [filter, setFilter] = useState<"all" | "t0" | "gaps">("gaps");
   const [q, setQ] = useState("");
-  const rows = data?.rows.filter((r) => (filter === "all" || (filter === "t0" ? r.tier === "T0" : r.score < 100)) && (!q || r.service.includes(q)));
+  const rows = data?.rows.filter((r) => (filter === "all" || (filter === "t0" ? r.tier === "T0" : r.score < 100)) && (!q || r.service.includes(q)) && fApp.test(r));
   const Cell = ({ c }: { c?: CoverageCell }) => {
     if (!c) return null;
     if (c.state === "na") return <span style={{ color: "var(--faint)", fontSize: "var(--fs-sub)" }}>{tx("不适用", "N/A")}</span>;
@@ -49,10 +52,19 @@ export default function CoveragePage() {
       crumbs={[tx("集成中心", "Integrations"), tx("数据覆盖度", "Data coverage")]}
       actions={
         <>
-          <Chip icon="grid" caret>
-            {tx("应用：全部", "App: all")}
-          </Chip>
-          <Btn icon="download">{tx("导出", "Export")}</Btn>
+          <ChipSelect icon="grid" label={tx("应用", "App")} allLabel={tx("全部", "All")} {...fApp.props} />
+          <Btn
+            icon="download"
+            onClick={() => {
+              if (!data) return;
+              const head = ["service", "tier", ...data.columns.map((c) => c.label)];
+              const lines = data.rows.map((r) => [r.service, r.tier, ...data.columns.map((c) => r.cells[c.id]?.state ?? "")]);
+              downloadFile(`coverage-${new Date().toISOString().slice(0, 10)}.csv`, [head, ...lines].map((l) => l.join(",")).join("\n"), "text/csv");
+              toast(tx("覆盖矩阵已导出为 CSV", "Coverage matrix exported as CSV"));
+            }}
+          >
+            {tx("导出", "Export")}
+          </Btn>
         </>
       }
     >

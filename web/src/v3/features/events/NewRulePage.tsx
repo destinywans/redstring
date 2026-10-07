@@ -9,6 +9,7 @@ import { Legend } from "../../ui/core";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import "../../ui/forms.css";
+import { ChipSelect } from "../../ui/demo";
 
 type Preview = {
   valid: boolean;
@@ -177,11 +178,17 @@ export default function NewRulePage() {
               <Input value={summary} onChange={(e) => setSummary(e.target.value)} placeholder={tx("支持 $value、$labels.service", "Supports $value and $labels.service")} />
             </Field>
             <Field label={tx("关联 Runbook", "Linked runbook")}>
-              <button type="button" className="f-select" style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left" }}>
-                <Tile icon="book" tone="t1" size={20} />
-                <span className="grow">{tx("数据库连接池耗尽 · rb-db-pool", "DB pool exhaustion · rb-db-pool")}</span>
-                <Icon name="down" size={12} />
-              </button>
+              <ChipSelect
+                label="Runbook"
+                showLabel={false}
+                defaultValue="rb-db-pool"
+                options={[
+                  { value: "rb-db-pool", label: tx("数据库连接池耗尽 · rb-db-pool", "DB pool exhaustion · rb-db-pool") },
+                  { value: "rb-rollback", label: tx("发布回滚规范 · rb-rollback", "Release rollback · rb-rollback") },
+                  { value: "rb-capacity", label: tx("容量扩容 · rb-capacity", "Capacity scale-out · rb-capacity") },
+                  { value: "", label: tx("不关联", "None") },
+                ]}
+              />
             </Field>
             <Row gap={10}>
               <Toggle on={triage} onChange={setTriage} label={tx("触发时自动初查", "Auto-triage on fire")} />

@@ -2,8 +2,9 @@ import type { ReactNode } from "react";
 import { useGet } from "../../api/client";
 import type { PersonPeek, ServicePeek } from "../../api/types";
 import { Avatar, Badge, Btn, Dot, Env, KV, Muted, Row, Skeleton, Strong, Tier, Tile } from "../../ui/core";
-import { HoverPeek } from "../../ui/overlays";
+import { HoverPeek, toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
+import { openExternal, openForm } from "../../ui/demo";
 
 function ServiceCard({ id }: { id: string }) {
   const { tx } = useI18n();
@@ -88,13 +89,36 @@ function PersonCard({ name }: { name: string }) {
         <Muted size={11.5}>{data?.load}</Muted>
       </Row>
       <Row gap={6}>
-        <Btn h={26} icon="message">
+        <Btn h={26} icon="message" onClick={() => openExternal(tx("飞书会话", "Feishu chat"), `https://applink.feishu.cn/client/chat/open?name=${encodeURIComponent(name)}`)}>
           {tx("飞书", "Feishu")}
         </Btn>
-        <Btn h={26} icon="phone">
+        <Btn h={26} icon="phone" onClick={() => openExternal(tx("电话外呼", "Phone call"), "https://oncall.example.internal/call")}>
           {tx("电话", "Call")}
         </Btn>
-        <Btn h={26} kind="ghost" icon="user">
+        <Btn
+          h={26}
+          kind="ghost"
+          icon="user"
+          onClick={async () => {
+            const v = await openForm({
+              title: tx("指派给 {n}", "Assign to {n}", { n: name }),
+              fields: [
+                {
+                  key: "item",
+                  label: tx("事项", "Item"),
+                  type: "select",
+                  options: [
+                    { value: "ALR-7729", label: "ALR-7729", hint: tx("P2 · payment-gateway P99", "P2 · payment-gateway P99") },
+                    { value: "INC-1042", label: "INC-1042", hint: tx("checkout-api 5xx", "checkout-api 5xx") },
+                    { value: "PRP-88", label: "PRP-88", hint: tx("回滚提案复核", "Rollback proposal review") },
+                  ],
+                },
+              ],
+              submit: tx("指派", "Assign"),
+            });
+            if (v) toast(tx("已将 {i} 指派给 {n}，对方会收到通知", "{i} assigned to {n}; they will be notified", { i: v.item, n: name }));
+          }}
+        >
           {tx("指派", "Assign")}
         </Btn>
       </Row>

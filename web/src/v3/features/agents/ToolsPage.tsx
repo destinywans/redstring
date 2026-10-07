@@ -7,6 +7,7 @@ import { DataTable } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./agents.css";
+import { openForm, ChipSelect, useFacet } from "../../ui/demo";
 
 export default function ToolsPage() {
   const { tx } = useI18n();
@@ -16,9 +17,31 @@ export default function ToolsPage() {
   const [level, setLevel] = useState<AgentLevel>("L2");
   const [sel, setSel] = useState<string | null>("rollback_deployment");
   const risk = (r: ToolRow["risk"]) => ({ low: [tx("低", "Low"), "ok"], medium: [tx("中", "Medium"), "warn"], high: [tx("高", "High"), "danger"] })[r] as [string, "ok" | "warn" | "danger"];
-  const rows = data?.items.filter((t) => !q || t.name.includes(q));
+  const fConn = useFacet(data?.items, (t) => t.brand);
+  const fAgent = useFacet(data?.items, (t) => t.agents.split(" · "));
+  const rows = data?.items.filter((t) => (!q || t.name.includes(q)) && fConn.test(t) && fAgent.test(t));
   return (
-    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("工具与权限", "Tools & permissions")]} actions={<Btn kind="primary" icon="plus">{tx("登记工具", "Register tool")}</Btn>}>
+    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("工具与权限", "Tools & permissions")]} actions={
+        <Btn
+          kind="primary"
+          icon="plus"
+          onClick={async () => {
+            const v = await openForm({
+              title: tx("登记工具", "Register a tool"),
+              desc: tx("写操作工具只能被 Agent 用来生成提案，执行仍需人工批准。", "Write tools can only produce proposals; execution still needs human approval."),
+              fields: [
+                { key: "name", label: tx("工具名", "Tool name"), required: true, mono: true, placeholder: "get_pod_events" },
+                { key: "kind", label: tx("类型", "Type"), type: "select", options: [{ value: "read", label: tx("只读", "Read") }, { value: "write", label: tx("写操作（仅提案）", "Write (proposal only)") }] },
+                { key: "connector", label: tx("来源连接器", "Connector"), type: "select", options: ["kubernetes", "prometheus", "gitlab", "elasticsearch"].map((c) => ({ value: c, label: c })) },
+              ],
+              submit: tx("登记", "Register"),
+            });
+            if (v) toast(tx("工具 {n} 已登记，尚未授予任何 Agent", "Tool {n} registered; not granted to any agent yet", { n: v.name }));
+          }}
+        >
+          {tx("登记工具", "Register tool")}
+        </Btn>
+      }>
       <div className="v3-split">
         <div className="main">
           <div className="v3-content" style={{ padding: "18px 20px" }}>
@@ -39,8 +62,8 @@ export default function ToolsPage() {
                 ]}
               />
               <SearchBox placeholder={tx("搜索工具", "Search tools")} value={q} onChange={setQ} width={200} />
-              <Chip caret>{tx("连接器", "Connector")}</Chip>
-              <Chip caret>Agent</Chip>
+              <ChipSelect label={tx("连接器", "Connector")} {...fConn.props} />
+              <ChipSelect label="Agent" {...fAgent.props} />
             </Row>
             <Card style={{ overflow: "hidden" }}>
               <DataTable<ToolRow>

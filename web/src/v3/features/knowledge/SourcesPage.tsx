@@ -8,6 +8,7 @@ import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import { PageHead } from "../conversation/ConversationsPage";
 import "./knowledge.css";
+import { ChipSelect, usePickLists } from "../../ui/demo";
 
 export default function SourcesPage() {
   const { tx, fmt } = useI18n();
@@ -15,13 +16,16 @@ export default function SourcesPage() {
   const [q, setQ] = useState("");
   const { data, isLoading, isError, refetch } = useGet<{ items: KnowledgeSource[]; index: Record<string, string> | null; partial?: boolean; truncated?: boolean }>("/knowledge-sources");
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const lists = usePickLists();
+  const [scopeSvc, setScopeSvc] = useState("checkout-api");
+  const [topK, setTopK] = useState(4);
   const [query, setQuery] = useState(tx("连接池 耗尽 导致 5xx", "connection pool exhausted causing 5xx"));
   const [hits, setHits] = useState<RetrievalHit[] | null>(null);
   const [searching, setSearching] = useState(false);
   const search = async () => {
     setSearching(true);
-    const r = await api<{ hits: RetrievalHit[] }>("POST", "/knowledge/search", { body: { q: query, service: "checkout-api", top_k: 4 } });
-    setHits(r.hits);
+    const r = await api<{ hits: RetrievalHit[] }>("POST", "/knowledge/search", { body: { q: query, service: scopeSvc || undefined, top_k: topK } });
+    setHits(r.hits.slice(0, topK));
     setSearching(false);
   };
   const isEvidence = (source: KnowledgeSource): source is KnowledgeSourceEvidence => "registration_status" in source;
@@ -140,8 +144,8 @@ export default function SourcesPage() {
               <Input icon="search" value={query} onChange={(e) => setQuery(e.target.value)} aria-label={tx("检索问题", "Query")} width="100%" right={searching ? <span className="v3-spinner spin" /> : undefined} />
             </form>
             <Row gap={6}>
-              <Chip icon="box">checkout-api</Chip>
-              <Chip caret>Top 4</Chip>
+              <ChipSelect icon="box" label="" showLabel={false} value={scopeSvc} onChange={(v) => setScopeSvc(v as string)} options={[{ value: "", label: tx("全部服务", "All services") }, ...lists.services]} />
+              <ChipSelect label="" showLabel={false} value={String(topK)} onChange={(v) => setTopK(Number(v))} options={["3", "4", "8"].map((n) => ({ value: n, label: `Top ${n}` }))} />
               <Btn kind="primary" h={26} onClick={search}>{tx("检索", "Search")}</Btn>
             </Row>
             {hits === null && <Muted size={11.5}>{tx("按回车开始检索。", "Press Enter to search.")}</Muted>}

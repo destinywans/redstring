@@ -289,6 +289,7 @@ export function Toaster() {
               onClick={() => {
                 t.undo?.();
                 dismiss(t.id);
+                useToasts.getState().push({ text: tx("已撤销", "Undone") });
               }}
             >
               {tx("撤销", "Undo")}

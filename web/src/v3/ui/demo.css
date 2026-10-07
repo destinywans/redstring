@@ -1,0 +1,25 @@
+.demo-chip { display: inline-flex; }
+.demo-chip-val { font-weight: 600; color: var(--text); display: inline-flex; }
+.v3-menu.demo-menu button { display: flex; align-items: center; gap: 8px; height: auto; min-height: 30px; padding-block: 5px; text-align: left; line-height: 1.4; }
+.v3-menu.demo-menu button.on { background: var(--accent-soft); }
+.demo-menu small { display: block; font-size: var(--fs-cap); color: var(--muted); }
+.demo-req { color: var(--danger); }
+.demo-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.demo-option {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--text); text-align: left; font-size: var(--fs-sm);
+}
+.demo-option:hover { border-color: var(--border-strong); }
+.demo-option.on { border-color: var(--accent); background: var(--accent-soft); }
+.demo-option b { font-weight: 600; }
+.demo-option small { font-size: var(--fs-cap); color: var(--muted); }
+.demo-added {
+  display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 4px 0 8px; border-radius: 6px;
+  background: var(--accent-soft); color: var(--accent-text); font-size: var(--fs-cap);
+}
+.demo-added button { display: inline-flex; border: none; background: transparent; color: inherit; padding: 2px; border-radius: 4px; }
+.demo-added button:hover { background: var(--hover); }
+.demo-add-search { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--muted); }
+.demo-add-search input { flex: 1; border: none; outline: none; background: transparent; color: var(--text); font-size: var(--fs-sm); }
+.demo-secret { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: var(--sunken); border: 1px solid var(--border); }
+.demo-secret code { flex: 1; font-family: var(--mono); font-size: var(--fs-mono); color: var(--text); word-break: break-all; }

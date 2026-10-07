@@ -14,6 +14,7 @@ import { LITE_ZOOM } from "./CanvasPage";
 import { DetailPanel, useFloatCover, usePinned } from "../../ui/DetailPanel";
 import "./canvas.css";
 import "./canvases.css";
+import { downloadFile } from "../../ui/demo";
 
 const ANCHOR = 22;
 const clampK = (k: number) => Math.min(1.8, Math.max(0.4, k));
@@ -318,7 +319,12 @@ export default function DocCanvasPage() {
               ]}
             />
             <AvatarGroup names={doc.participants} />
-            <Btn kind="ghost" icon="file" onClick={() => toast(tx("已导出为文档：plan.md", "Exported as plan.md"))}>
+            <Btn kind="ghost" icon="file" onClick={() => {
+                const blockText = (b: CanvasBlock) => (b.type === "kv" ? b.items.map(([k, v]) => `- ${k}: ${v}`).join("\n") : b.type === "tags" ? b.items.map((t) => `\`${t}\``).join(" ") : "");
+                const md = [`# ${doc.title}`, "", doc.note, "", ...doc.nodes.flatMap((n) => [`## ${n.title}`, n.sub, "", ...n.blocks.map(blockText).filter(Boolean), ""])].join("\n");
+                downloadFile(`${doc.id}.md`, md, "text/markdown");
+                toast(tx("已导出为 {f}", "Exported as {f}", { f: `${doc.id}.md` }));
+              }}>
               {tx("导出为文档", "Export as doc")}
             </Btn>
             {doc.proposal && (

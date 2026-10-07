@@ -9,6 +9,7 @@ import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import { useAgentLabels } from "./LifecyclePage";
 import "./agents.css";
+import { openForm } from "../../ui/demo";
 
 export default function AgentPage() {
   const { tx } = useI18n();
@@ -40,7 +41,22 @@ export default function AgentPage() {
           <Btn icon="rotate" loading={rollback.isPending} onClick={() => rollback.mutate(undefined, { onSuccess: () => toast(tx("已回滚到 {v}，灰度流量清零", "Rolled back to {v}; canary traffic cleared", { v: a.release.from }), { undo: () => undefined }) })}>
             {tx("回滚到 {v}", "Roll back to {v}", { v: a.release.from })}
           </Btn>
-          <Btn kind="primary" icon="plus">
+          <Btn
+            kind="primary"
+            icon="plus"
+            onClick={async () => {
+              const v = await openForm({
+                title: tx("新建 {n} 版本", "New {n} version", { n: a.name }),
+                desc: tx("新版本先以草稿保存，评测门禁通过后才能灰度。", "A new version starts as a draft and can only roll out after it passes the eval gates."),
+                fields: [
+                  { key: "base", label: tx("基于版本", "Based on"), type: "select", options: a.versions.map((x) => ({ value: x.version, label: x.version, hint: x.status })) },
+                  { key: "note", label: tx("变更说明", "What changes"), type: "textarea", required: true, placeholder: tx("例如：提示词增加“先核对最近发布”的步骤", "e.g. prompt checks recent releases first") },
+                ],
+                submit: tx("创建草稿", "Create draft"),
+              });
+              if (v) toast(tx("已基于 {b} 创建草稿版本，下一步运行评测", "Draft created from {b}; run the evals next", { b: v.base }));
+            }}
+          >
             {tx("新建版本", "New version")}
           </Btn>
         </>

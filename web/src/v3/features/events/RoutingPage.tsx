@@ -7,6 +7,7 @@ import { useI18n } from "../../i18n";
 import { useCreateParam } from "../../ui/forms";
 import { NewRouteDrawer } from "./CreateDrawers";
 import "./events.css";
+import { AddChip, SampleOnly } from "../../ui/demo";
 
 const CH_ICON: Record<string, string> = { feishu: "feishu", dingtalk: "dingtalk", slack: "slack" };
 
@@ -72,7 +73,7 @@ export default function RoutingPage() {
       <div className="v3-split">
         <div className="main">
           <div className="v3-content">
-            {!data ? <Skeleton h={400} /> : <Tree n={data.root} sel={cur?.id ?? ""} onSel={setSel} />}
+            {tab !== "tree" ? <RoutingTab tab={tab} root={data?.root} /> : !data ? <Skeleton h={400} /> : <Tree n={data.root} sel={cur?.id ?? ""} onSel={setSel} />}
             <Card style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
               <Row gap={8}>
                 <Icon name="play" size={14} color="var(--accent-text)" />
@@ -115,7 +116,7 @@ export default function RoutingPage() {
                   {cur.matchers.map((m) => (
                     <LabelChip key={m.k + m.v} k={m.k} v={m.v} />
                   ))}
-                  <Chip icon="plus">{tx("条件", "Matcher")}</Chip>
+                  <AddChip label={tx("条件", "Matcher")} free placeholder="severity=P2" options={["severity=P2", "namespace=checkout", "alertname=HighLatency"]} />
                 </Row>
               </Section>
               <Section title={tx("分组与时间", "Grouping & timing")}>
@@ -188,5 +189,104 @@ export default function RoutingPage() {
         )}
       </div>
     </Page>
+  );
+}
+
+/** Receivers come from the route tree; templates, on-call and the delivery log are sample-only until their endpoints exist. */
+function RoutingTab({ tab, root }: { tab: string; root?: RouteNode }) {
+  const { tx } = useI18n();
+  if (tab === "receivers") {
+    const rows: { route: string; channel: string; target: string }[] = [];
+    const walk = (n: RouteNode) => {
+      n.receivers.forEach((r) => rows.push({ route: n.title, channel: r.channel, target: r.target }));
+      n.children.forEach(walk);
+    };
+    if (root) walk(root);
+    return (
+      <Card style={{ overflow: "hidden" }}>
+        <table className="v3-table">
+          <thead>
+            <tr>
+              <th>{tx("接收方", "Receiver")}</th>
+              <th>{tx("渠道", "Channel")}</th>
+              <th>{tx("所属路由", "Route")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.route + r.target} style={{ height: 40 }}>
+                <td>
+                  <b>{r.target}</b>
+                </td>
+                <td>
+                  <Row gap={6}>
+                    <Brand name={r.channel} size={18} />
+                    {r.channel}
+                  </Row>
+                </td>
+                <td>
+                  <Muted>{r.route}</Muted>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    );
+  }
+  const sample: Record<string, { title: string; cols: string[]; rows: string[][] }> = {
+    templates: {
+      title: tx("通知模板", "Templates"),
+      cols: [tx("模板", "Template"), tx("渠道", "Channel"), tx("使用的路由", "Used by")],
+      rows: [
+        [tx("告警卡片 · 默认", "Alert card · default"), "feishu", "4"],
+        [tx("P1 电话播报", "P1 phone readout"), "phone", "1"],
+        [tx("恢复通知", "Resolved notice"), "feishu / dingtalk", "5"],
+      ],
+    },
+    oncall: {
+      title: tx("值班与升级", "On-call & escalation"),
+      cols: [tx("值班表", "Schedule"), tx("当前值班", "On call"), tx("升级策略", "Escalation")],
+      rows: [
+        [tx("交易平台主值班", "Trading primary"), "王晨", tx("5 分钟未认领 → 副值班 → 负责人", "5 min unclaimed → secondary → lead")],
+        [tx("支付值班", "Payments"), "李明", tx("10 分钟未认领 → 负责人", "10 min unclaimed → lead")],
+        [tx("基础设施", "Infrastructure"), "周航", tx("15 分钟未认领 → SRE 负责人", "15 min unclaimed → SRE lead")],
+      ],
+    },
+    log: {
+      title: tx("发送记录", "Delivery log"),
+      cols: [tx("时间", "Time"), tx("告警", "Alert"), tx("接收方 · 结果", "Receiver · result")],
+      rows: [
+        ["14:05", "P1 · checkout-api 5xx", tx("电话 · 王晨 · 已接听", "Phone · Wang Chen · answered")],
+        ["14:05", "P1 · checkout-api 5xx", tx("#sre-oncall · 已送达", "#sre-oncall · delivered")],
+        ["13:40", "P2 · payment-gateway P99", tx("支付值班群 · 已送达", "Payments on-call · delivered")],
+      ],
+    },
+  };
+  const t = sample[tab];
+  if (!t) return null;
+  return (
+    <SampleOnly what={t.title}>
+      <Card style={{ overflow: "hidden" }}>
+        <table className="v3-table">
+          <thead>
+            <tr>
+              {t.cols.map((c) => (
+                <th key={c}>{c}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {t.rows.map((r) => (
+              <tr key={r.join()} style={{ height: 40 }}>
+                {r.map((c, i) => (
+                  <td key={i}>{i === 0 ? <b>{c}</b> : <Muted>{c}</Muted>}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    </SampleOnly>
   );
 }

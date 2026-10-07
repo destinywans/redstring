@@ -3,13 +3,15 @@ import { Page } from "../../app/Shell";
 import { useGet } from "../../api/client";
 import type { Topology, TopologyNode } from "../../api/types";
 import { Avatar, Bar, Brand, Btn, Chip, Col, Dot, Icon, IconBtn, KV, Muted, Row, Section, Segmented, Skeleton, State, Strong, TextLink, Tile, cx } from "../../ui/core";
-import { toast } from "../../ui/overlays";
+import { toast, MenuButton } from "../../ui/overlays";
 import { Gauge, Lines, Sankey } from "../../charts";
 import { useI18n } from "../../i18n";
 import { DetailPanel, useFloatCover, usePinned } from "../../ui/DetailPanel";
 import { useAskAi } from "../../app/askState";
 import { ZoomControl, useViewport, type Bounds } from "../../ui/viewport";
 import "./observe.css";
+import { openExternal, ChipSelect, usePickLists } from "../../ui/demo";
+import { useNavigate } from "react-router-dom";
 
 const TONE_COLOR = { ok: "var(--c2)", warn: "var(--warn)", danger: "var(--danger)" };
 const NODE_W = 172;
@@ -62,6 +64,7 @@ export default function ResourcesPage() {
   const [view_, setViewMode] = useState<"topo" | "tree" | "sankey">("topo");
   const [blast, setBlast] = useState(true);
   const [sel, setSel] = useState<string | null>(null);
+  const lists = usePickLists();
   const [pinned, setPinned] = usePinned("topology");
   const box = useRef<HTMLDivElement>(null);
   const floating = !!sel && !pinned;
@@ -81,6 +84,7 @@ export default function ResourcesPage() {
   }); // eslint-disable-line react-hooks/exhaustive-deps
   const floatCover = useFloatCover();
   const askAi = useAskAi((s) => s.open);
+  const nav = useNavigate();
   // Slide the graph (never the legend or the page) just enough to keep the selected node clear of the card.
   useEffect(() => {
     if (!floating || !box.current) return;
@@ -146,7 +150,7 @@ export default function ResourcesPage() {
               <div className="v3-grid2">
                 <Btn icon="activity" to="/metrics">{tx("查看指标", "Metrics")}</Btn>
                 <Btn icon="pin" to="/canvas/INV-231">{tx("钉到调查", "Pin to investigation")}</Btn>
-                <Btn icon="external">Grafana</Btn>
+                <Btn icon="external" onClick={() => openExternal("Grafana", `https://grafana.example.internal/d/k8s-workload?var-workload=${sel ?? ""}`)}>Grafana</Btn>
                 <Btn kind="soft" icon="sparkles" onClick={() => askAi(tx("{n} 现在健康吗？", "Is {n} healthy right now?", { n: sel ?? "" }))}>{tx("问 AI", "Ask AI")}</Btn>
               </div>
             </Col>
@@ -158,9 +162,7 @@ export default function ResourcesPage() {
       crumbs={[tx("资源与观测", "Resources"), tx("资源与拓扑", "Topology")]}
       actions={
         <>
-          <Chip icon="clock" caret>
-            {tx("快照 14:31", "Snapshot 14:31")}
-          </Chip>
+          <ChipSelect icon="clock" label="" showLabel={false} defaultValue="1431" options={[{ value: "1431", label: tx("快照 14:31 · 最新", "Snapshot 14:31 · latest") }, { value: "1400", label: tx("快照 14:00 · 发布前", "Snapshot 14:00 · before release") }, { value: "y", label: tx("快照 昨天 14:30", "Snapshot yesterday 14:30") }]} />
           <Btn icon="rotate" onClick={() => toast(tx("已刷新拓扑快照", "Topology snapshot refreshed"))}>
             {tx("刷新快照", "Refresh")}
           </Btn>
@@ -171,16 +173,10 @@ export default function ResourcesPage() {
         <div className="main" style={{ display: "flex", flexDirection: "column", padding: "14px 16px", gap: 10, overflow: "hidden" }}>
           <Row gap={8}>
             <Segmented label={tx("视图", "View")} value={view_} onChange={setViewMode} options={[{ value: "topo", label: tx("拓扑", "Topology") }, { value: "tree", label: tx("层级", "Hierarchy") }, { value: "sankey", label: tx("桑基", "Sankey") }]} />
-            <Chip icon="grid" caret>
-              {tx("集群 prod-sh-1", "Cluster prod-sh-1")}
-            </Chip>
-            <Chip icon="box" caret>
-              {tx("围绕：checkout-api", "Around: checkout-api")}
-            </Chip>
-            <Chip caret>{tx("深度 2", "Depth 2")}</Chip>
-            <Chip icon="layers" caret>
-              {tx("按可用区分组", "Group by zone")}
-            </Chip>
+            <ChipSelect icon="grid" label={tx("集群", "Cluster")} defaultValue="prod-sh-1" options={["prod-sh-1", "prod-bj-1"]} />
+            <ChipSelect icon="box" label={tx("围绕", "Around")} defaultValue="checkout-api" options={lists.services.length ? lists.services : ["checkout-api"]} />
+            <ChipSelect label={tx("深度", "Depth")} defaultValue="2" options={["1", "2", "3"]} />
+            <ChipSelect icon="layers" label="" showLabel={false} defaultValue="zone" options={[{ value: "zone", label: tx("按可用区分组", "Group by zone") }, { value: "ns", label: tx("按命名空间分组", "Group by namespace") }, { value: "team", label: tx("按团队分组", "Group by team") }]} />
             <span style={{ flexGrow: 1 }} />
             <Chip icon="alert" active={blast} onClick={() => setBlast((b) => !b)}>
               {tx("影响范围", "Blast radius")}
@@ -292,7 +288,7 @@ export default function ResourcesPage() {
                         <span className="tnum">{r.replicas}</span>
                         <span className="v3-row" style={{ gap: 4 }}>{r.cpu !== undefined && <><Bar pct={r.cpu} tone={r.cpu > 80 ? "danger" : r.cpu > 65 ? "warn" : "ok"} width={70} /><Muted size={11.5}>{r.cpu}%</Muted></>}</span>
                         <span className="v3-row" style={{ gap: 4 }}>{r.mem !== undefined && <><Bar pct={r.mem} tone={r.mem > 75 ? "warn" : "ok"} width={70} /><Muted size={11.5}>{r.mem}%</Muted></>}</span>
-                        <span className="v3-row" style={{ gap: 4 }}>{r.alerts !== undefined && <span className={`v3-badge mono t-${r.alerts ? "danger" : "neutral"}`}>{r.alerts}</span>}<span className="hact"><IconBtn icon="more" label="more" size={22} /></span></span>
+                        <span className="v3-row" style={{ gap: 4 }}>{r.alerts !== undefined && <span className={`v3-badge mono t-${r.alerts ? "danger" : "neutral"}`}>{r.alerts}</span>}<span className="hact" onClick={(ev) => ev.stopPropagation()}><MenuButton trigger={({ onClick, ref }) => <span ref={ref}><IconBtn icon="more" label={tx("更多操作", "More")} size={22} onClick={onClick} /></span>} items={[{ label: tx("查看指标", "Metrics"), icon: "activity", onSelect: () => nav(`/metrics?service=${r.name}`) }, { label: tx("问 AI", "Ask AI"), icon: "sparkles", onSelect: () => askAi(tx("{n} 现在健康吗？", "Is {n} healthy right now?", { n: r.name })) }, { label: tx("在 Grafana 中打开", "Open in Grafana"), icon: "external", onSelect: () => openExternal("Grafana", `https://grafana.example.internal/d/k8s-workload?var-workload=${r.name}`) }]} /></span></span>
                       </div>
                     );
                   })}

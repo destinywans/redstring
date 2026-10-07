@@ -3,9 +3,10 @@ import { Page } from "../../app/Shell";
 import { useGet, useSend } from "../../api/client";
 import type { SecurityView } from "../../api/types";
 import { Badge, Brand, Btn, Check, Chip, Col, Divider, Field, Icon, IconBtn, Input, Muted, Panel, Radio, Row, Skeleton, State, Strong, Toggle } from "../../ui/core";
-import { toast } from "../../ui/overlays";
+import { toast, MenuButton } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./settings.css";
+import { ChipSelect, openExternal } from "../../ui/demo";
 
 export default function SecurityPage() {
   const { tx } = useI18n();
@@ -47,7 +48,18 @@ export default function SecurityPage() {
                       <Muted size={11.5}>{p.sub}</Muted>
                     </Col>
                     <State tone={p.enabled ? "ok" : "neutral"}>{p.enabled ? tx("已启用", "Enabled") : tx("未启用", "Off")}</State>
-                    <IconBtn icon="more" label={tx("{n} 设置", "{n} settings", { n: p.name })} size={26} />
+                    <MenuButton
+                      trigger={({ onClick, ref }) => (
+                        <span ref={ref}>
+                          <IconBtn icon="more" label={tx("{n} 设置", "{n} settings", { n: p.name })} size={26} onClick={onClick} />
+                        </span>
+                      )}
+                      items={[
+                        { label: p.enabled ? tx("停用", "Disable") : tx("启用", "Enable"), icon: p.enabled ? "x" : "check", onSelect: () => up({ sso: s.sso.map((x) => (x.name === p.name ? { ...x, enabled: !x.enabled } : x)) }) },
+                        { label: tx("设为默认登录方式", "Make default"), icon: "star", onSelect: () => up({ sso: s.sso.map((x) => ({ ...x, default: x.name === p.name })) }) },
+                        { label: tx("测试登录", "Test sign-in"), icon: "play", onSelect: () => openExternal(p.name, "https://sso.example.internal/test") },
+                      ]}
+                    />
                   </li>
                 ))}
               </ul>
@@ -80,10 +92,10 @@ export default function SecurityPage() {
             <Panel title={tx("会话与访问", "Sessions & access")}>
               <div className="form-grid">
                 <Field label={tx("空闲超时", "Idle timeout")}>
-                  <Chip caret>{s.session.idle}</Chip>
+                  <ChipSelect label="" showLabel={false} value={s.session.idle} onChange={(v) => up({ session: { ...s.session, idle: v as string } })} options={[...new Set([s.session.idle, tx("30 分钟", "30 min"), tx("1 小时", "1 h"), tx("4 小时", "4 h")])]} />
                 </Field>
                 <Field label={tx("最长会话", "Max session")}>
-                  <Chip caret>{s.session.max}</Chip>
+                  <ChipSelect label="" showLabel={false} value={s.session.max} onChange={(v) => up({ session: { ...s.session, max: v as string } })} options={[...new Set([s.session.max, tx("8 小时", "8 h"), tx("12 小时", "12 h"), tx("7 天", "7 days")])]} />
                 </Field>
                 <Field label={tx("IP 白名单", "IP allow-list")} hint={tx("办公网与 VPN", "Office network and VPN")}>
                   <Input mono value={s.session.ip_allow} onChange={(e) => up({ session: { ...s.session, ip_allow: e.target.value } })} />
@@ -117,10 +129,10 @@ export default function SecurityPage() {
                 </Row>
                 <div className="form-grid">
                   <Field label={tx("API 令牌最长有效期", "Max API token lifetime")}>
-                    <Chip caret>{s.token_ttl}</Chip>
+                    <ChipSelect label="" showLabel={false} value={s.token_ttl} onChange={(v) => up({ token_ttl: v as string })} options={[...new Set([s.token_ttl, tx("30 天", "30 days"), tx("90 天", "90 days"), tx("1 年", "1 year")])]} />
                   </Field>
                   <Field label={tx("密码策略", "Password policy")}>
-                    <Chip caret>{s.password_policy}</Chip>
+                    <ChipSelect label="" showLabel={false} value={s.password_policy} onChange={(v) => up({ password_policy: v as string })} options={[...new Set([s.password_policy, tx("至少 12 位 · 含三类字符", "12+ chars · 3 character classes"), tx("至少 16 位 · 含四类字符", "16+ chars · 4 character classes")])]} />
                   </Field>
                 </div>
               </Col>

@@ -9,6 +9,7 @@ import { KindTag } from "../canvas/CanvasesPage";
 import { useI18n } from "../../i18n";
 import { PageHead } from "./ConversationsPage";
 import "./templates.css";
+import { openForm } from "../../ui/demo";
 
 export default function TemplatesPage() {
   const { tx } = useI18n();
@@ -121,7 +122,23 @@ export default function TemplatesPage() {
                 <Btn kind="primary" icon="branch" onClick={() => start(sel)}>
                   {tx("用此模板新建调查", "Start investigation")}
                 </Btn>
-                <Btn icon="edit">{tx("编辑", "Edit")}</Btn>
+                <Btn
+                  icon="edit"
+                  onClick={async () => {
+                    const v = await openForm({
+                      title: tx("编辑模板", "Edit template"),
+                      fields: [
+                        { key: "name", label: tx("名称", "Name"), initial: sel.name, required: true },
+                        { key: "tools", label: tx("工具调用上限", "Tool-call cap"), initial: String(sel.budget.tools), mono: true },
+                        { key: "minutes", label: tx("时长上限（分钟）", "Time cap (minutes)"), initial: String(sel.budget.minutes), mono: true },
+                      ],
+                      submit: tx("保存为新版本", "Save as new version"),
+                    });
+                    if (v) toast(tx("模板「{n}」已保存为新版本，进行中的调查不受影响", "Template “{n}” saved as a new version; running investigations are unaffected", { n: v.name }));
+                  }}
+                >
+                  {tx("编辑", "Edit")}
+                </Btn>
                 <Btn kind="ghost" onClick={() => toast(tx("已复制为团队模板", "Duplicated as a team template"))}>
                   {tx("复制", "Duplicate")}
                 </Btn>

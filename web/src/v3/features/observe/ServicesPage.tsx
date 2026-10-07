@@ -2,12 +2,13 @@ import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { useGet } from "../../api/client";
-import type { ServiceCatalog, ServiceDetail } from "../../api/types";
-import { Avatar, Bar, Brand, Btn, Card, Check, Col, Dot, Env, Muted, Num, Pills, Row, SearchBox, Section, State, Tier, Tile, Chip, Mono } from "../../ui/core";
+import type { ServiceCatalog, ServiceDetail, Me, WatchedService } from "../../api/types";
+import { Avatar, Bar, Brand, Btn, Card, Check, Col, Dot, Env, Muted, Num, Pills, Row, SearchBox, Section, State, Tier, Tile, Chip, Mono, Badge } from "../../ui/core";
 import { DataTable, Kpi, KpiRow } from "../../ui/data";
 import { useI18n } from "../../i18n";
 import { PageHead } from "../conversation/ConversationsPage";
 import "./observe.css";
+import { ChipSelect } from "../../ui/demo";
 
 /** Header + tab strip shared by the service detail views. */
 export function ServiceHeader({ s }: { s: ServiceDetail }) {
@@ -32,7 +33,7 @@ export function ServiceHeader({ s }: { s: ServiceDetail }) {
             <Row gap={8} wrap>
               <h1 style={{ fontSize: 18, fontWeight: 600 }}>{s.name}</h1>
               <Tier tier={s.tier} />
-              <Chip>{s.team}</Chip>
+              <Badge>{s.team}</Badge>
               <Env env={s.env} />
               <State tone={s.status} pulse={s.status === "danger"}>
                 {s.status === "danger" ? tx("异常", "Degraded") : s.status === "warn" ? tx("告警", "Alerting") : tx("正常", "Healthy")}
@@ -69,6 +70,10 @@ export default function ServicesPage() {
   const [q, setQ] = useState("");
   const [tier, setTier] = useState<string | undefined>();
   const { data, isLoading } = useGet<ServiceCatalog>("/services", { q, tier });
+  const { data: me } = useGet<Me>("/me");
+  const { data: watched } = useGet<{ items: WatchedService[] }>("/me/watched-services");
+  const [sort, setSort] = useState("status");
+  const RANK: Record<string, number> = { danger: 0, warn: 1, ok: 2 };
   return (
     <Page
       flush
@@ -109,11 +114,28 @@ export default function ServicesPage() {
               <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: 8 }, { value: "mine", label: tx("我负责的", "Mine"), count: 3 }, { value: "watched", label: tx("我关注的", "Watched"), count: 4 }]} />
               <SearchBox placeholder={tx("搜索服务", "Search services")} value={q} onChange={setQ} />
               <span style={{ flexGrow: 1 }} />
-              <Chip icon="sliders" caret>{tx("按状态排序", "Sort by status")}</Chip>
+              <ChipSelect
+                icon="sliders"
+                label=""
+                showLabel={false}
+                value={sort}
+                onChange={(v) => setSort(v as string)}
+                options={[
+                  { value: "status", label: tx("按状态排序", "Sort by status") },
+                  { value: "budget", label: tx("按剩余错误预算", "By error budget left") },
+                  { value: "alerts", label: tx("按告警数", "By alerts") },
+                  { value: "name", label: tx("按名称", "By name") },
+                ]}
+              />
             </Row>
             <Card style={{ overflow: "hidden" }}>
               <DataTable
-                rows={data?.items}
+                rows={data?.items
+                  .filter((s) => tab === "all" || (tab === "mine" ? s.oncall === me?.name || s.team === me?.team : watched?.items.some((w) => w.id === s.id)))
+                  .slice()
+                  .sort((a, b) =>
+                    sort === "budget" ? a.slo.budget_left - b.slo.budget_left : sort === "alerts" ? b.alerts - a.alerts : sort === "name" ? a.name.localeCompare(b.name) : RANK[a.status] - RANK[b.status],
+                  )}
                 loading={isLoading}
                 rowKey={(s) => s.id}
                 onRowClick={(s) => nav(`/services/${s.id}`)}

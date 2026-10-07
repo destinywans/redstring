@@ -9,6 +9,7 @@ import { toast } from "../../ui/overlays";
 import { StackedBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./settings.css";
+import { ChipSelect, useFacet, RangeChip } from "../../ui/demo";
 
 export default function AuditPage() {
   const { tx } = useI18n();
@@ -16,6 +17,8 @@ export default function AuditPage() {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<string | null>(null);
   const { data } = useGet<AuditView>("/audit", { filter, q });
+  const fAct = useFacet(data?.items, (a) => a.action);
+  const fRes = useFacet(data?.items, (a) => a.result);
   const exp = useSend<void, { url: string }>("POST", "/audit/export");
   const res = (r: AuditEntry["result"]) => (r === "ok" ? ([tx("成功", "OK"), "ok"] as const) : r === "blocked" ? ([tx("已拦截", "Blocked"), "warn"] as const) : ([tx("失败", "Failed"), "danger"] as const));
   const { data: d } = useGet<AuditDetail>(sel ? `/audit/${sel}` : null);
@@ -45,12 +48,10 @@ export default function AuditPage() {
                 ]}
               />
               <SearchBox placeholder={tx("搜索操作者、对象或运行 ID", "Actor, object or run ID")} value={q} onChange={setQ} width={260} />
-              <Chip caret>{tx("操作", "Action")}</Chip>
-              <Chip caret>{tx("结果", "Result")}</Chip>
+              <ChipSelect label={tx("操作", "Action")} {...fAct.props} />
+              <ChipSelect label={tx("结果", "Result")} {...fRes.props} options={fRes.props.options.map((o) => ({ ...o, label: res(o.value as AuditEntry["result"])[0] }))} />
               <Spacer />
-              <Chip icon="clock" caret>
-                {tx("最近 7 天", "Last 7 days")}
-              </Chip>
+              <RangeChip defaultValue="7d" />
             </Row>
             <Card style={{ padding: "10px 14px" }}>
               <Col gap={6}>
@@ -65,7 +66,7 @@ export default function AuditPage() {
             </Card>
             <Card style={{ overflow: "hidden" }}>
               <DataTable<AuditEntry>
-                rows={data?.items}
+                rows={data?.items.filter((a) => fAct.test(a) && fRes.test(a))}
                 loading={!data}
                 rowKey={(a) => a.id}
                 rowHeight={40}

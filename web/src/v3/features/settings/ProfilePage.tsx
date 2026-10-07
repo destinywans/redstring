@@ -3,11 +3,12 @@ import { Page } from "../../app/Shell";
 import { usePreferences } from "../../app/preferences";
 import { useGet, useSend } from "../../api/client";
 import type { NotifyChannel } from "../../api/types";
-import { Avatar, Badge, Brand, Btn, Chip, Col, Field, Input, Muted, Panel, Row, Section, Segmented, Skeleton, Spacer, State, Strong, TextLink, Tile, Toggle, type IconName } from "../../ui/core";
+import { Avatar, Badge, Brand, Btn, Chip, Col, Field, Input, Muted, Panel, Row, Section, Segmented, Skeleton, Spacer, State, Strong, TextLink, Tile, Toggle, type IconName, Icon } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import { SettingsHead, useProfileForm } from "./common";
 import "./settings.css";
+import { ChipSelect, confirmAction, openForm, openExternal } from "../../ui/demo";
 
 const CHANNELS: NotifyChannel[] = ["feishu", "email", "sms", "phone"];
 
@@ -39,8 +40,31 @@ export default function ProfilePage() {
                   <Avatar name={form.name} size={64} accent />
                   <Col gap={6}>
                     <Row gap={6}>
-                      <Btn h={28} icon="upload">{tx("上传新头像", "Upload photo")}</Btn>
-                      <Btn h={28} kind="ghost">{tx("移除", "Remove")}</Btn>
+                      <label className="v3-btn k-secondary" style={{ height: 28, cursor: "pointer" }}>
+                        <Icon name="upload" size={14} />
+                        {tx("上传新头像", "Upload photo")}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg"
+                          hidden
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            e.target.value = "";
+                            if (!f) return;
+                            if (f.size > 2 * 1024 * 1024) toast(tx("图片超过 2 MB，请压缩后再上传", "The image is over 2 MB; compress it and try again"), { tone: "danger" });
+                            else toast(tx("头像已上传：{n}", "Photo uploaded: {n}", { n: f.name }));
+                          }}
+                        />
+                      </label>
+                      <Btn
+                        h={28}
+                        kind="ghost"
+                        onClick={async () => {
+                          if (await confirmAction({ title: tx("移除头像？", "Remove photo?"), desc: tx("移除后显示姓名首字。", "Your initials will show instead."), confirm: tx("移除", "Remove") })) toast(tx("头像已移除", "Photo removed"));
+                        }}
+                      >
+                        {tx("移除", "Remove")}
+                      </Btn>
                     </Row>
                     <Muted size={11.5}>{tx("PNG 或 JPG，至少 256 × 256，不超过 2 MB", "PNG or JPG, at least 256 × 256, up to 2 MB")}</Muted>
                   </Col>
@@ -53,16 +77,16 @@ export default function ProfilePage() {
                     <Input value={form.display_name} onChange={(e) => set("display_name", e.target.value)} />
                   </Field>
                   <Field label={tx("部门", "Department")}>
-                    <Chip caret>{form.department}</Chip>
+                    <ChipSelect label="" showLabel={false} value={form.department} onChange={(v) => setForm((f) => (f ? { ...f, department: v as string } : f))} options={[...new Set([form.department, tx("交易平台", "Trading"), tx("支付", "Payments"), tx("基础设施", "Infrastructure"), tx("SRE", "SRE")])]} />
                   </Field>
                   <Field label={tx("职位", "Title")}>
                     <Input value={form.title} onChange={(e) => set("title", e.target.value)} />
                   </Field>
                   <Field label={tx("语言", "Language")} hint={<TextLink to="/settings/preferences">{tx("在偏好设置中切换", "Change in Preferences")}</TextLink>}>
-                    <Chip icon="globe">{locale === "zh-CN" ? "简体中文" : "English"}</Chip>
+                    <Badge>{locale === "zh-CN" ? "简体中文" : "English"}</Badge>
                   </Field>
                   <Field label={tx("时区", "Time zone")}>
-                    <Chip caret>{form.timezone}</Chip>
+                    <ChipSelect label="" showLabel={false} value={form.timezone} onChange={(v) => setForm((f) => (f ? { ...f, timezone: v as string } : f))} options={[...new Set([form.timezone, "Asia/Shanghai (UTC+8)", "Asia/Singapore (UTC+8)", "Europe/London (UTC+0)", "America/Los_Angeles (UTC−8)"])]} />
                   </Field>
                 </div>
               </Col>
@@ -77,7 +101,19 @@ export default function ProfilePage() {
                       <span style={{ fontSize: "var(--fs-body)", fontWeight: 500 }}>{c.value}</span>
                     </Col>
                     {c.note ? <Badge tone="accent">{c.note}</Badge> : c.verified && <State tone="ok">{tx("已确认", "Verified")}</State>}
-                    <Btn h={28}>{c.kind === "feishu" ? tx("解绑", "Unlink") : tx("修改", "Change")}</Btn>
+                    <Btn
+                      h={28}
+                      onClick={async () => {
+                        if (c.kind === "feishu") {
+                          if (await confirmAction({ title: tx("解绑飞书？", "Unlink Feishu?"), desc: tx("解绑后不会再收到飞书卡片通知，告警会改用邮件和短信。", "Feishu card notifications stop; alerts fall back to email and SMS."), confirm: tx("解绑", "Unlink"), danger: true })) toast(tx("飞书已解绑", "Feishu unlinked"), { undo: () => undefined });
+                          return;
+                        }
+                        const v = await openForm({ title: tx("修改{l}", "Change {l}", { l: c.label }), desc: tx("新的地址需要验证后才会生效。", "The new value takes effect after verification."), fields: [{ key: "value", label: c.label, initial: c.value, required: true }], submit: tx("发送验证码", "Send verification code") });
+                        if (v) toast(tx("验证码已发送到 {v}", "Verification code sent to {v}", { v: v.value }));
+                      }}
+                    >
+                      {c.kind === "feishu" ? tx("解绑", "Unlink") : tx("修改", "Change")}
+                    </Btn>
                   </li>
                 ))}
               </ul>
@@ -205,7 +241,7 @@ export function AccountSecurityPage() {
                     <Strong>{tx("密码", "Password")}</Strong>
                     <Muted size={11.5}>{form.security.password_changed}</Muted>
                   </Col>
-                  <Btn h={28}>{tx("修改密码", "Change password")}</Btn>
+                  <Btn h={28} icon="external" onClick={() => openExternal(tx("统一身份认证", "Single sign-on"), "https://sso.example.internal/account/password")}>{tx("修改密码", "Change password")}</Btn>
                 </Row>
                 <Row gap={8}>
                   <Strong>{tx("两步验证", "Two-factor")}</Strong>
@@ -221,7 +257,17 @@ export function AccountSecurityPage() {
                         <Strong>{f.name}</Strong>
                         <Muted size={11.5}>{f.sub}</Muted>
                       </Col>
-                      <Btn h={26} kind={f.kind === "passkey" ? "secondary" : "ghost"}>
+                      <Btn
+                        h={26}
+                        kind={f.kind === "passkey" ? "secondary" : "ghost"}
+                        onClick={async () => {
+                          if (f.kind === "passkey") {
+                            if (await confirmAction({ title: tx("添加通行密钥", "Add a passkey"), desc: tx("浏览器会弹出系统对话框，用指纹、面容或安全密钥确认。示意数据模式下不会真的注册。", "Your browser shows a system prompt to confirm with fingerprint, face or a security key. Sample-data mode does not actually register one."), confirm: tx("继续", "Continue") })) toast(tx("通行密钥已添加", "Passkey added"));
+                          } else if (f.kind === "totp") {
+                            if (await confirmAction({ title: tx("重新绑定验证器？", "Re-link the authenticator?"), desc: tx("旧的验证器会立即失效，需要用新的二维码重新绑定。", "The old authenticator stops working right away; scan the new QR code to re-link."), confirm: tx("重新绑定", "Re-link"), danger: true })) toast(tx("请用验证器扫描新二维码完成绑定", "Scan the new QR code with your authenticator to finish"));
+                          } else if (await confirmAction({ title: tx("重新生成恢复码？", "Regenerate recovery codes?"), desc: tx("出于安全原因不再显示旧恢复码。重新生成后旧码全部失效。", "Old codes are never shown again. Regenerating invalidates all of them."), confirm: tx("重新生成", "Regenerate") })) toast(tx("已生成 10 个新恢复码，请下载保存", "10 new recovery codes generated; download and keep them safe"));
+                        }}
+                      >
                         {f.kind === "passkey" ? tx("添加", "Add") : f.kind === "totp" ? tx("重新绑定", "Re-link") : tx("查看", "View")}
                       </Btn>
                     </li>

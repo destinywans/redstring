@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { useGet, useSend, API_MODE } from "../../api/client";
 import type { GuardEvent, GuardrailsView } from "../../api/types";
 import { Badge, Btn, Card, Chip, Code, Col, Icon, Legend, Mono, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, TextLink, Tile, Toggle, cx, type IconName } from "../../ui/core";
 import { DataTable } from "../../ui/data";
@@ -8,6 +8,7 @@ import { toast } from "../../ui/overlays";
 import { StackedBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./agents.css";
+import { ChipSelect, useFacet, downloadFile, openForm } from "../../ui/demo";
 
 export default function GuardrailsPage() {
   const { tx } = useI18n();
@@ -19,12 +20,43 @@ export default function GuardrailsPage() {
   const patch = useSend<{ id: string; enabled: boolean }>("PATCH", (b) => `/guardrails/${b.id}`);
   const act = (a: GuardEvent["action"]) => (a === "blocked" ? ([tx("已拦截", "Blocked"), "danger"] as const) : ([tx("已脱敏", "Masked"), "warn"] as const));
   const d = data?.detail;
-  const rows = data?.events.filter((e) => !q || e.detail.includes(q) || e.run.includes(q));
+  const fAgent = useFacet(data?.events, (e) => e.agent);
+  const fRule = useFacet(data?.events, (e) => e.rule);
+  const rows = data?.events.filter((e) => (!q || e.detail.includes(q) || e.run.includes(q)) && fAgent.test(e) && fRule.test(e));
   return (
-    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("护栏与审计", "Guardrails & audit")]} actions={<Btn icon="download">{tx("导出审计报告", "Export audit report")}</Btn>}>
+    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("护栏与审计", "Guardrails & audit")]} actions={
+        <Btn
+          icon="download"
+          onClick={() => {
+            downloadFile(`guardrails-report-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ generated_at: new Date().toISOString(), sample_data: API_MODE === "mock", policies: data?.policies, events: data?.events }, null, 2));
+            toast(tx("审计报告已导出", "Audit report exported"));
+          }}
+        >
+          {tx("导出审计报告", "Export audit report")}
+        </Btn>
+      }>
       <div className="v3-split">
         <div className="side" style={{ width: 360, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-          <Section title={tx("护栏策略", "Guardrail policies")} right={<TextLink icon="plus">{tx("新建", "New")}</TextLink>}>
+          <Section title={tx("护栏策略", "Guardrail policies")} right={
+            <TextLink
+              icon="plus"
+              onClick={async () => {
+                const v = await openForm({
+                  title: tx("新建护栏策略", "New guardrail policy"),
+                  fields: [
+                    { key: "name", label: tx("名称", "Name"), required: true },
+                    { key: "stage", label: tx("检查位置", "Checks"), type: "select", options: [{ value: "input", label: tx("模型输入", "Model input") }, { value: "tool", label: tx("工具输出", "Tool output") }, { value: "answer", label: tx("最终回答", "Final answer") }] },
+                    { key: "action", label: tx("命中后", "On match"), type: "select", options: [{ value: "block", label: tx("拦截", "Block") }, { value: "mask", label: tx("脱敏", "Mask") }, { value: "flag", label: tx("仅记录", "Log only") }] },
+                    { key: "rule", label: tx("规则", "Rule"), type: "textarea", placeholder: tx("例如：回答中出现内网 IP 时脱敏", "e.g. mask internal IPs in answers") },
+                  ],
+                  submit: tx("创建（先以观察模式运行）", "Create (observe mode first)"),
+                });
+                if (v) toast(tx("策略「{n}」已创建，观察 24 小时后再决定是否强制", "Policy “{n}” created in observe mode for 24 h", { n: v.name }));
+              }}
+            >
+              {tx("新建", "New")}
+            </TextLink>
+          }>
             <ul className="pol-list stagger">
               {data?.policies.map((p) => {
                 const on = !off.has(p.id);
@@ -93,8 +125,8 @@ export default function GuardrailsPage() {
                 ]}
               />
               <SearchBox placeholder={tx("搜索事件", "Search events")} value={q} onChange={setQ} width={220} />
-              <Chip caret>Agent</Chip>
-              <Chip caret>{tx("规则", "Rule")}</Chip>
+              <ChipSelect label="Agent" {...fAgent.props} />
+              <ChipSelect label={tx("规则", "Rule")} {...fRule.props} />
               <Spacer />
               <TextLink to="/settings/audit">{tx("Agent 操作审计", "Agent audit log")}</TextLink>
             </Row>

@@ -12,12 +12,14 @@ import { toast } from "../../ui/overlays";
 import { Axis, BoxPlot, Gauge, HBars, Heatmap, Lines, SmallMultiples, StackedArea } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./observe.css";
+import { ChipSelect, RangeChip, AddChip, openExternal, openForm, usePickLists } from "../../ui/demo";
 
 export default function MetricsPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
   const [params] = useSearchParams();
   const service = params.get("service") ?? "checkout-api";
+  const lists = usePickLists();
   const { data: d } = useGet<MetricsDashboard>("/metrics/dashboard", { service });
   const [align, setAlign] = useState(false);
   const [ai, setAi] = useState(false);
@@ -52,13 +54,17 @@ export default function MetricsPage() {
       ai={false}
       actions={
         <>
-          <Chip icon="clock" caret>
-            <span className="tnum">{align ? w.incident_label : tx("最近 1 小时", "Last hour")}</span>
-          </Chip>
+          {align ? (
+            <Chip icon="clock" onClick={() => setAlign(false)}>
+              <span className="tnum">{w.incident_label}</span>
+            </Chip>
+          ) : (
+            <RangeChip defaultValue="1h" />
+          )}
           <Chip icon="activity" active={align} onClick={() => setAlign((a) => !a)}>
             {tx("对齐到事件时间", "Align to incident")}
           </Chip>
-          <Btn icon="external" onClick={() => window.open("https://grafana.example.internal", "_blank", "noopener")}>
+          <Btn icon="external" onClick={() => openExternal("Grafana", `https://grafana.example.internal/d/golden-signals?var-service=${service}`)}>
             {tx("在 Grafana 中打开", "Open in Grafana")}
           </Btn>
           <Chip icon="sparkles" active={ai} onClick={() => setAi((a) => !a)}>
@@ -69,22 +75,21 @@ export default function MetricsPage() {
     >
       <div className="metrics-wrap">
         <div className="metrics-bar">
-          <Chip caret>
-            <Brand name="prometheus" size={18} />
-            {tx("Prometheus · 生产", "Prometheus · prod")}
-          </Chip>
-          <Chip icon="grid" caret>
-            {tx("看板：{s} 黄金信号", "Dashboard: {s} golden signals", { s: service })}
-          </Chip>
+          <ChipSelect icon="database" label="" showLabel={false} defaultValue="prom" options={[{ value: "prom", label: tx("Prometheus · 生产", "Prometheus · prod") }, { value: "vm", label: "VictoriaMetrics · prod" }]} />
+          <ChipSelect
+            icon="grid"
+            label={tx("看板", "Dashboard")}
+            value={service}
+            onChange={(v) => nav(`/metrics?service=${v}`)}
+            options={(lists.services.length ? lists.services : [{ value: service, label: service }]).map((s) => ({ value: s.value, label: tx("{s} 黄金信号", "{s} golden signals", { s: s.value }) }))}
+          />
           <LabelChip k="service" v={service} />
           <LabelChip k="env" v="prod" />
           <LabelChip k="pod" v={tx("全部 6", "all 6")} />
-          <Chip icon="plus">{tx("添加变量", "Add variable")}</Chip>
+          <AddChip label={tx("添加变量", "Add variable")} free placeholder="namespace=checkout" options={["namespace=checkout", "zone=sh-a", "version=v2.8.1"]} />
           <Spacer />
           <Muted size={11.5}>{tx("悬停任一图表，所有面板同步显示同一时刻", "Hover any chart — all panels follow the same moment")}</Muted>
-          <Chip icon="rotate" caret>
-            {tx("自动刷新 30 s", "Refresh 30 s")}
-          </Chip>
+          <ChipSelect icon="rotate" label={tx("自动刷新", "Refresh")} defaultValue="30s" options={[{ value: "off", label: tx("关闭", "Off") }, { value: "10s", label: "10 s" }, { value: "30s", label: "30 s" }, { value: "1m", label: "1 min" }]} />
         </div>
         <div className="metrics-body">
           <div className="v3-row stagger" style={{ gap: 12, alignItems: "stretch" }}>
@@ -107,7 +112,23 @@ export default function MetricsPage() {
                 <MarkersOverlay markers={markers} n={w.labels.length} band={align ? w.incident : undefined} height={160} />
               </StackedArea>
             </Panel>
-            <Panel title={tx("SLO · 可用性 99.9%", "SLO · availability 99.9%")} style={{ flex: "1 1 0" }} right={<TextLink>{tx("SLO 设置", "SLO settings")}</TextLink>}>
+            <Panel title={tx("SLO · 可用性 99.9%", "SLO · availability 99.9%")} style={{ flex: "1 1 0" }} right={
+                <TextLink
+                  onClick={async () => {
+                    const v = await openForm({
+                      title: tx("SLO 设置 · {s}", "SLO settings · {s}", { s: service }),
+                      fields: [
+                        { key: "target", label: tx("可用性目标", "Availability target"), type: "select", initial: "99.9", options: ["99.5", "99.9", "99.95", "99.99"].map((t) => ({ value: t, label: `${t}%` })) },
+                        { key: "window", label: tx("统计窗口", "Window"), type: "select", initial: "30d", options: [{ value: "7d", label: tx("7 天", "7 days") }, { value: "30d", label: tx("30 天", "30 days") }] },
+                      ],
+                      submit: tx("保存", "Save"),
+                    });
+                    if (v) toast(tx("SLO 已更新为 {t}% / {w}", "SLO set to {t}% / {w}", { t: v.target, w: v.window }));
+                  }}
+                >
+                  {tx("SLO 设置", "SLO settings")}
+                </TextLink>
+              }>
               <Col gap={9}>
                 <Row gap={16}>
                   <Gauge pct={d.slo.remaining / 100} size={140} tone="warn" label={`${d.slo.remaining}%`} sub={tx("错误预算剩余", "budget left")} />
@@ -189,7 +210,7 @@ export default function MetricsPage() {
               </Col>
             </Panel>
           </div>
-          <Panel title={tx("按实例 · 连接等待 P95（ms）", "By instance · connection wait P95 (ms)")} right={<Row gap={6}><Muted size={11.5}>{tx("6 个实例中 4 个异常；7f9c-6 为回滚后新建", "4 of 6 instances degraded; 7f9c-6 was created after the rollback")}</Muted><IconBtn icon="pin" label={tx("钉到调查", "Pin")} size={24} /></Row>}>
+          <Panel title={tx("按实例 · 连接等待 P95（ms）", "By instance · connection wait P95 (ms)")} right={<Row gap={6}><Muted size={11.5}>{tx("6 个实例中 4 个异常；7f9c-6 为回滚后新建", "4 of 6 instances degraded; 7f9c-6 was created after the rollback")}</Muted><IconBtn icon="pin" label={tx("钉到调查", "Pin")} size={24} onClick={() => toast(tx("已钉到 INV-231，作为证据节点", "Pinned to INV-231 as an evidence node"))} /></Row>}>
             <SmallMultiples items={d.instances.map((i) => ({ label: i.label, values: i.values, tone: i.tone }))} cols={6} height={42} />
           </Panel>
         </div>

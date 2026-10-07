@@ -4,9 +4,10 @@ import { useGet, useSend } from "../../api/client";
 import type { McpDetail, McpList, McpServer } from "../../api/types";
 import { Badge, Brand, Btn, Card, Col, Icon, IconBtn, KV, Mono, Muted, Num, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, Tabs, TextLink, Toggle, cx, type Tone } from "../../ui/core";
 import { Kpi, KpiRow } from "../../ui/data";
-import { toast } from "../../ui/overlays";
+import { toast, MenuButton } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
+import { confirmAction } from "../../ui/demo";
 
 const ST: Record<McpServer["status"], Tone> = { ok: "ok", pending: "warn", error: "danger" };
 
@@ -15,6 +16,7 @@ export default function McpPage() {
   const { data } = useGet<McpList>("/mcp-servers");
   const [sel, setSel] = useState<string | null>(null);
   const [q, setQ] = useState("");
+  const [ignored, setIgnored] = useState(false);
   const review = useSend<void>("POST", "/mcp-servers/k8s-mcp/review", ["/mcp-servers"]);
   const stLabel = (s: McpServer["status"]) => ({ ok: tx("正常", "Healthy"), pending: tx("待定", "Pending"), error: tx("异常", "Error") })[s];
   const items = data?.items.filter((s) => !q || s.name.includes(q) || s.caps.toLowerCase().includes(q.toLowerCase()));
@@ -83,13 +85,25 @@ export default function McpPage() {
                   <span>
                     <State tone={ST[s.status]}>{stLabel(s.status)}</State>
                   </span>
-                  <span className="hact">
-                    <IconBtn icon="more" label={tx("更多操作", "More")} size={26} />
+                  <span className="hact" onClick={(e) => e.stopPropagation()}>
+                    <MenuButton
+                      trigger={({ onClick, ref }) => (
+                        <span ref={ref}>
+                          <IconBtn icon="more" label={tx("更多操作", "More")} size={26} onClick={onClick} />
+                        </span>
+                      )}
+                      items={[
+                        { label: tx("查看详情", "Open details"), icon: "panel", onSelect: () => setSel(s.id) },
+                        { label: tx("重新发现工具", "Rediscover tools"), icon: "rotate", onSelect: () => toast(tx("{n}：工具列表已刷新，无新增", "{n}: tools refreshed, nothing new", { n: s.name })) },
+                        { sep: true, label: "" },
+                        { label: tx("停用", "Disable"), icon: "x", danger: true, onSelect: () => void disableServer(s.name) },
+                      ]}
+                    />
                   </span>
                 </div>
               ))}
             </Card>
-            {data?.pending_change && !review.isSuccess && (
+            {data?.pending_change && !review.isSuccess && !ignored && (
               <div className="mcp-change anim-rise">
                 <Icon name="alert" size={16} color="var(--warn)" style={{ marginTop: 2 }} />
                 <Col gap={6} grow>
@@ -106,7 +120,14 @@ export default function McpPage() {
                 <Btn icon="shield" h={28} loading={review.isPending} onClick={() => review.mutate(undefined, { onSuccess: () => toast(tx("已审核：get_events 已开放，exec_in_pod 保持关闭", "Reviewed: get_events enabled, exec_in_pod stays off")) })}>
                   {tx("审核变更", "Review change")}
                 </Btn>
-                <Btn kind="ghost" h={28}>
+                <Btn
+                  kind="ghost"
+                  h={28}
+                  onClick={() => {
+                    setIgnored(true);
+                    toast(tx("已忽略这次变更：新发现的工具保持关闭", "Change ignored: the newly discovered tools stay off"), { undo: () => setIgnored(false) });
+                  }}
+                >
                   {tx("忽略", "Ignore")}
                 </Btn>
               </div>
@@ -158,7 +179,7 @@ function McpAside({ id, onClose }: { id: string; onClose: () => void }) {
           />
           <Col gap={16} style={{ padding: "14px 16px", overflowY: "auto" }} className="anim-fade" key={tab}>
             {tab === "tools" && (
-              <Section title={tx("工具 · 授权给 Agent", "Tools · granted to agents")} right={<TextLink>{tx("全部 {n}", "All {n}", { n: s.counts.tools })}</TextLink>}>
+              <Section title={tx("工具 · 授权给 Agent", "Tools · granted to agents")} right={<TextLink to="/agents/tools">{tx("全部 {n}", "All {n}", { n: s.counts.tools })}</TextLink>}>
                 <ul className="plain-list">
                   {s.tools.map((t) => {
                     const enabled = on[t.name] ?? t.enabled;
@@ -267,11 +288,23 @@ function McpAside({ id, onClose }: { id: string; onClose: () => void }) {
                 {tx("在 Agent 中配置", "Configure in agents")}
               </Btn>
               <Spacer />
-              <Btn kind="danger">{tx("停用", "Disable")}</Btn>
+              <Btn kind="danger" onClick={() => void disableServer(s.name)}>{tx("停用", "Disable")}</Btn>
             </Row>
           </Col>
         </>
       )}
     </aside>
   );
+}
+
+/** Disabling an MCP server stops discovery and every grant of its tools; registration is kept. */
+async function disableServer(name: string) {
+  const zh = document.documentElement.lang.startsWith("zh");
+  const ok = await confirmAction({
+    title: zh ? `停用 ${name}？` : `Disable ${name}?`,
+    desc: zh ? "停用后 Agent 不能再调用它的工具，正在进行的调查会改用其他来源。登记信息和授权配置会保留。" : "Agents can no longer call its tools; running investigations fall back to other sources. Registration and grants are kept.",
+    confirm: zh ? "停用" : "Disable",
+    danger: true,
+  });
+  if (ok) toast(zh ? `${name} 已停用` : `${name} disabled`, { undo: () => undefined });
 }

@@ -19,7 +19,9 @@ const KEY = "aiops-v3-preferences";
 
 function load(): Partial<Preferences> {
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    const v = JSON.parse(localStorage.getItem(KEY) ?? "{}");
+    // Stored data is per-viewer and may be corrupt; anything but an object means "no saved preferences".
+    return v && typeof v === "object" ? v : {};
   } catch {
     return {};
   }

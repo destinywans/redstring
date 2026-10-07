@@ -6,6 +6,7 @@ import { useI18n } from "../i18n";
 import { NAV, SETTINGS_GROUPS, SETTINGS_NAV, locate, type NavItem } from "./nav";
 import { CommandPalette, useCommandPalette } from "./CommandPalette";
 import { AskAiCard, useAskAi, useAskOpenClass } from "./AskAi";
+import { DemoHost } from "../ui/demo";
 import { API_MODE, useGet } from "../api/client";
 import type { Me, WatchedService } from "../api/types";
 import { EnvSwitch, useInstanceLoader } from "./EnvSwitch";
@@ -60,6 +61,7 @@ function Sidebar() {
   const open = useCommandPalette((s) => s.setOpen);
   const me = useGet<Me>("/me");
   const watched = useGet<{ items: WatchedService[] }>("/me/watched-services");
+  const navTo = useNavigate();
   return (
     <nav className="v3-sidebar" aria-label={tx("主导航", "Main navigation")}>
       <div className="brand-row">
@@ -67,7 +69,19 @@ function Sidebar() {
         <span className="grow" style={{ fontWeight: 600, fontSize: "var(--fs-md)" }}>
           AIOps Canvas
         </span>
-        <IconBtn icon="down" label={tx("切换工作区", "Switch workspace")} size={24} />
+        <MenuButton
+          place="bottom-end"
+          trigger={({ onClick, ref }) => (
+            <span ref={ref}>
+              <IconBtn icon="down" label={tx("切换工作区", "Switch workspace")} size={24} onClick={onClick} />
+            </span>
+          )}
+          items={[
+            { label: tx("交易平台 · 当前工作区", "Trading · current workspace"), icon: "check", active: true },
+            { label: tx("工作区设置", "Workspace settings"), icon: "sliders", onSelect: () => navTo("/settings/workspace") },
+            { label: tx("成员与权限", "Members & access"), icon: "users", onSelect: () => navTo("/settings/members") },
+          ]}
+        />
       </div>
       <div className="v3-row" style={{ gap: 6 }}>
         <button type="button" className="search-btn" onClick={() => open(true)}>
@@ -294,6 +308,7 @@ export function Shell() {
       </div>
       <CommandPalette />
       {!inSettings && <AskAiCard />}
+      <DemoHost />
       <Toaster />
     </div>
   );

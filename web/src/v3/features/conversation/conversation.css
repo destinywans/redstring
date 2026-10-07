@@ -165,3 +165,7 @@
 .conv-title-cell .title {
   font-weight: 500;
 }
+.art-compare { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--sunken); }
+.art-compare .cv-diff { display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sub); line-height: 1.6; }
+.art-compare .del { color: var(--danger); }
+.art-compare .add { color: var(--ok); }

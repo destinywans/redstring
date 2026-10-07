@@ -7,6 +7,7 @@ import { Badge, Brand, Btn, Card, Chip, Col, Icon, Input, Muted, Num, Row, Space
 import { StackedBars, Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./observe.css";
+import { RangeChip, openExternal, ChipSelect } from "../../ui/demo";
 
 const LV = { ERROR: "danger", WARN: "warn", INFO: "neutral" } as const;
 
@@ -42,10 +43,8 @@ export default function LogsPage() {
       crumbs={[tx("资源与观测", "Resources"), tx("日志", "Logs")]}
       actions={
         <>
-          <Chip icon="clock" caret>
-            {tx("最近 30 分钟", "Last 30 min")}
-          </Chip>
-          <Btn icon="external">{tx("在 Kibana 中打开", "Open in Kibana")}</Btn>
+          <RangeChip defaultValue="30m" />
+          <Btn icon="external" onClick={() => openExternal("Kibana", `https://kibana.example.internal/app/discover#/?_a=(query:(language:kuery,query:'${encodeURIComponent(query)}'))`)}>{tx("在 Kibana 中打开", "Open in Kibana")}</Btn>
         </>
       }
     >
@@ -53,11 +52,8 @@ export default function LogsPage() {
         <div className="main">
           <div className="v3-content">
             <form className="v3-row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); setApplied(query.includes("checkout") ? "checkout" : query); }}>
-              <Chip caret>
-                <Brand name="elasticsearch" size={18} />
-                {tx("Elasticsearch · 生产", "Elasticsearch · prod")}
-              </Chip>
-              <Chip caret>KQL</Chip>
+              <ChipSelect icon="database" label="" showLabel={false} defaultValue="es" options={[{ value: "es", label: tx("Elasticsearch · 生产", "Elasticsearch · prod") }, { value: "loki", label: "Loki · prod" }]} />
+              <ChipSelect label="" showLabel={false} defaultValue="kql" options={[{ value: "kql", label: "KQL" }, { value: "lucene", label: "Lucene" }]} />
               <Input mono value={query} onChange={(e) => setQuery(e.target.value)} style={{ flexGrow: 1 }} aria-label={tx("日志查询", "Log query")} />
               <Btn kind="primary" icon="search" h={32} type="submit">
                 {tx("搜索", "Search")}

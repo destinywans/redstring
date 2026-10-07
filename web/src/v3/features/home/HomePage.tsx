@@ -11,6 +11,7 @@ import { Sparkline, StackedBars, Axis } from "../../charts";
 import { useI18n } from "../../i18n";
 import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./home.css";
+import { ChipSelect, RangeChip, useFacet } from "../../ui/demo";
 
 const TODO_TONE = { approval: "accent", report: "info", runbook: "t1", access: "warn" } as const;
 const ACT_ICON: Record<string, IconName> = { ai: "sparkles", change: "branch", alert: "bell", runbook: "book", approval: "shield", system: "cpu" };
@@ -130,6 +131,8 @@ export default function HomePage() {
   const { tx, fmt } = useI18n();
   const nav = useNavigate();
   const { data } = useGet<HomeSummary>("/home");
+  const fKind = useFacet(data?.activity, (a) => a.kind);
+  const KIND_LABEL: Record<string, string> = { ai: tx("AI", "AI"), change: tx("变更", "Changes"), alert: tx("告警", "Alerts"), runbook: "Runbook", approval: tx("审批", "Approvals"), system: tx("系统", "System") };
   const ask = (text: string) => nav(`/conversations/new?q=${encodeURIComponent(text)}`);
   const band = useRef<HTMLDivElement>(null);
   const labels = [tx("P1", "P1"), "P2", "P3", "P4"];
@@ -138,9 +141,7 @@ export default function HomePage() {
       title={
         <Row gap={10}>
           <h1 style={{ fontSize: "var(--fs-lg)", fontWeight: 600 }}>{tx("总览", "Overview")}</h1>
-          <Chip icon="clock" caret>
-            {tx("最近 24 小时", "Last 24 hours")}
-          </Chip>
+          <RangeChip />
         </Row>
       }
     >
@@ -292,9 +293,9 @@ export default function HomePage() {
             </div>
           </Card>
           <Card className="home-card anim-rise">
-            <CardHead title={tx("AI 与自动化动态", "AI & automation")} right={<Chip caret>{tx("全部类型", "All types")}</Chip>} />
+            <CardHead title={tx("AI 与自动化动态", "AI & automation")} right={<ChipSelect label={tx("类型", "Type")} allLabel={tx("全部类型", "All types")} {...fKind.props} options={fKind.props.options.map((o) => ({ ...o, label: KIND_LABEL[o.value] ?? o.value }))} />} />
             <ul style={{ padding: "6px 16px 8px" }}>
-              {data?.activity.map((a) => (
+              {data?.activity.filter(fKind.test).map((a) => (
                 <li key={a.id} className="feed" onClick={() => a.href && nav(a.href)}>
                   <span className="tnum muted" style={{ width: 40, flex: "none", fontSize: "var(--fs-sub)" }}>
                     {fmt.time(a.time)}

@@ -7,6 +7,7 @@ import { toast } from "../../ui/overlays";
 import { Callout } from "../../ui/forms";
 import { useI18n } from "../../i18n";
 import "./knowledge.css";
+import { AddChip } from "../../ui/demo";
 
 type SourceType = "confluence" | "notion" | "feishu" | "git_markdown" | "web" | "upload";
 type TestResult = { ok: boolean; message: string; spaces?: { id: string; name: string; docs: number }[] };
@@ -194,7 +195,7 @@ export default function NewSourcePage() {
                   </span>
                 </Row>}
                 {!supported && <Field label={tx("额外可见团队", "Also visible to")}>
-                  <Row gap={6}><Badge>{tx("SRE", "SRE")}</Badge><Badge>{tx("交易平台", "Trading")}</Badge><button type="button" className="f-add"><Icon name="plus" size={12} />{tx("团队", "Team")}</button></Row>
+                  <Row gap={6}><Badge>{tx("SRE", "SRE")}</Badge><Badge>{tx("交易平台", "Trading")}</Badge><AddChip label={tx("团队", "Team")} options={[tx("支付", "Payments"), tx("基础设施", "Infrastructure"), tx("数据平台", "Data platform"), tx("安全", "Security")]} /></Row>
                 </Field>}
               </>
             )}

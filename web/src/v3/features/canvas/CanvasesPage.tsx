@@ -8,6 +8,7 @@ import { Dialog, toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import { PageHead } from "../conversation/ConversationsPage";
 import "./canvases.css";
+import { ChipSelect, AddChip, useFacet, usePickLists } from "../../ui/demo";
 
 export const KIND_META: Record<CanvasKind, { icon: IconName; tone: Tone; zh: string; en: string; subZh: string; subEn: string }> = {
   investigation: { icon: "branch", tone: "accent", zh: "调查", en: "Investigation", subZh: "定位异常与根因", subEn: "Find anomalies and root causes" },
@@ -62,6 +63,9 @@ export default function CanvasesPage() {
   const [kind, setKind] = useState<CanvasKind | "all">("all");
   const [q, setQ] = useState("");
   const { data, isLoading } = useGet<{ items: CanvasSummary[]; counts: Record<string, number> }>("/canvases", { kind: kind === "all" ? undefined : kind, q });
+  const fOwner = useFacet(data?.items, (cv) => cv.participants);
+  const fSvc = useFacet(data?.items, (cv) => cv.services);
+  const fState = useFacet(data?.items, (cv) => cv.status);
   const dlg = params.get("new") !== null;
   const setDlg = (open: boolean) => {
     const next = new URLSearchParams(params);
@@ -99,15 +103,15 @@ export default function CanvasesPage() {
             ]}
           />
           <SearchBox placeholder={tx("搜索画布", "Search canvases")} value={q} onChange={setQ} width={220} />
-          <Chip caret>{tx("负责人", "Owner")}</Chip>
-          <Chip caret>{tx("服务", "Service")}</Chip>
-          <Chip caret>{tx("状态", "Status")}</Chip>
+          <ChipSelect label={tx("参与人", "People")} {...fOwner.props} />
+          <ChipSelect label={tx("服务", "Service")} {...fSvc.props} />
+          <ChipSelect label={tx("状态", "Status")} {...fState.props} options={fState.props.options.map((o) => ({ ...o, label: <CanvasState status={o.value as CanvasSummary["status"]} /> }))} />
           <Spacer />
           <Muted size={11.5}>{tx("按最近更新排序", "Sorted by last update")}</Muted>
         </Row>
         <div className="cv-grid stagger">
           {isLoading && Array.from({ length: 8 }, (_, i) => <Skeleton key={i} h={214} style={{ borderRadius: 10 }} />)}
-          {data?.items.map((cv) => (
+          {data?.items.filter((cv) => fOwner.test(cv) && fSvc.test(cv) && fState.test(cv)).map((cv) => (
             <a
               key={cv.id}
               href={cv.href}
@@ -150,6 +154,8 @@ export function NewCanvasDialog({ open, onClose, initialKind = "plan" }: { open:
   const nav = useNavigate();
   const [kind, setKind] = useState<CanvasKind>(initialKind);
   const [tpl, setTpl] = useState<string | null>(null);
+  const lists = usePickLists();
+  const [svcs, setSvcs] = useState<string[]>(["checkout-api", "payment-gateway", "order-service"]);
   const [title, setTitle] = useState("");
   const [goal, setGoal] = useState("");
   const [draft, setDraft] = useState(true);
@@ -172,7 +178,7 @@ export function NewCanvasDialog({ open, onClose, initialKind = "plan" }: { open:
     }
     setBusy(true);
     try {
-      const r = await api<{ id: string; href: string }>("POST", "/canvases", { body: { title, kind, template_id: tpl, goal, ai_draft: draft, services: ["checkout-api", "payment-gateway", "order-service"] } });
+      const r = await api<{ id: string; href: string }>("POST", "/canvases", { body: { title, kind, template_id: tpl, goal, ai_draft: draft, services: svcs } });
       toast(draft ? tx("画布已创建，AI 正在起草初始节点", "Canvas created — the AI is drafting the first nodes") : tx("画布已创建", "Canvas created"));
       onClose();
       nav(r.href);
@@ -244,10 +250,7 @@ export function NewCanvasDialog({ open, onClose, initialKind = "plan" }: { open:
             </Field>
             <Field label={tx("关联服务", "Services")}>
               <Row gap={6} wrap style={{ minHeight: 30 }}>
-                <Badge>checkout-api</Badge>
-                <Badge>payment-gateway</Badge>
-                <Badge>order-service</Badge>
-                <Chip icon="plus">{tx("服务", "Service")}</Chip>
+                <AddChip label={tx("服务", "Service")} options={lists.services} value={svcs} onChange={setSvcs} />
               </Row>
             </Field>
           </div>

@@ -7,6 +7,8 @@ import { AiBanner, AiTag, Callout, MatcherList, PillSelect, Suggested, type Matc
 import { VBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import { useCurrentEnv } from "../../app/EnvSwitch";
+import { ChipSelect, AddChip, usePickLists } from "../../ui/demo";
+import { useEnv } from "../../app/environment";
 
 type IncidentDraft = {
   title: string;
@@ -25,6 +27,13 @@ type IncidentDraft = {
 export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { tx } = useI18n();
   const curEnv = useCurrentEnv();
+  const instance = useEnv((s) => s.instance);
+  const envs = instance?.environments ?? [];
+  const [envSel, setEnvSel] = useState("");
+  const [commander, setCommander] = useState("");
+  const [extraSvc, setExtraSvc] = useState<string[]>([]);
+  const [extraPeople, setExtraPeople] = useState<string[]>([]);
+  const lists = usePickLists();
   const nav = useNavigate();
   const { data, refetch, isFetching } = useGet<IncidentDraft>(open ? "/incidents/draft" : null, undefined, { staleTime: 0 });
   const [title, setTitle] = useState("");
@@ -41,7 +50,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
     setAlerts(Object.fromEntries(data.alerts.map((a) => [a.id, true])));
   }, [data]);
   const submit = async () => {
-    const r = await create.mutateAsync({ title, severity: sev, impact, env: curEnv && !curEnv.viewOnly ? curEnv.id : data?.env, services: data?.services.map((s) => s.id), alert_ids: Object.keys(alerts).filter((k) => alerts[k]), commander: data?.commander.name, ...opts });
+    const r = await create.mutateAsync({ title, severity: sev, impact, env: envSel || (curEnv && !curEnv.viewOnly ? curEnv.id : data?.env), services: [...(data?.services.map((s) => s.id) ?? []), ...extraSvc], alert_ids: Object.keys(alerts).filter((k) => alerts[k]), commander: commander || data?.commander.name, participants: [...(data?.participants ?? []), ...extraPeople], ...opts });
     toast(tx("已创建事件 {id}", "Created incident {id}", { id: r.id }));
     onClose();
     if (r.investigation_id) nav(`/canvas/${r.investigation_id}`);
@@ -79,10 +88,13 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
             </Suggested>
           </Field>
           <Field label={tx("环境", "Environment")} hint={curEnv?.viewOnly ? tx("当前为全部非生产环境，请选定一个", "Viewing all non-production — pick one") : tx("默认取右上角的当前环境", "Defaults to the current environment")}>
-            <Chip caret>
-              <Dot tone={curEnv?.tone ?? "prod"} size={7} />
-              {curEnv && !curEnv.viewOnly ? curEnv.label : tx("选择环境", "Choose environment")}
-            </Chip>
+            <ChipSelect
+              label={tx("选择环境", "Choose environment")}
+              showLabel={false}
+              value={envSel || (curEnv && !curEnv.viewOnly ? curEnv.id : "")}
+              onChange={(v) => setEnvSel(v as string)}
+              options={envs.map((x) => ({ value: x.id, label: x.label, hint: x.clusters.join(" · ") }))}
+            />
           </Field>
         </div>
         <Field label={tx("影响服务", "Affected services")}>
@@ -95,7 +107,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
                   {s.ai && <AiTag />}
                 </span>
               ))}
-              <Chip icon="plus">{tx("服务", "Service")}</Chip>
+              <AddChip label={tx("服务", "Service")} options={lists.services.filter((s) => !data?.services.some((x) => x.id === s.value))} value={extraSvc} onChange={setExtraSvc} />
             </Row>
           </Suggested>
         </Field>
@@ -118,15 +130,18 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
         </Field>
         <div className="f-grid2">
           <Field label={tx("指挥人", "Commander")}>
-            <Chip caret>
-              <Avatar name={data?.commander.name ?? "?"} size={18} accent />
-              {data?.commander.name} · {data?.commander.note}
-            </Chip>
+            <ChipSelect
+              label={tx("指挥人", "Commander")}
+              showLabel={false}
+              value={commander || data?.commander.name || ""}
+              onChange={(v) => setCommander(v as string)}
+              options={[...(data ? [{ value: data.commander.name, label: data.commander.name, hint: data.commander.note }] : []), ...lists.people.filter((p) => p.value !== data?.commander.name)]}
+            />
           </Field>
           <Field label={tx("参与人", "Participants")}>
             <Row gap={8} style={{ height: 30 }}>
               <AvatarGroup names={data?.participants ?? []} size={22} />
-              <Chip icon="plus">{tx("成员", "Member")}</Chip>
+              <AddChip label={tx("成员", "Member")} options={lists.people.filter((p) => !data?.participants.includes(p.value))} value={extraPeople} onChange={setExtraPeople} />
             </Row>
           </Field>
         </div>
@@ -210,7 +225,9 @@ export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () =
                 <Muted size={11}>{tx("电话 + 短信 · 仅 P1", "Phone + SMS · P1 only")}</Muted>
               </span>
             </Row>
-            <Chip icon="plus">{tx("接收方", "Receiver")}</Chip>
+            <Row gap={6} wrap>
+              <AddChip label={tx("接收方", "Receiver")} free options={[tx("飞书「支付值班群」", "Feishu “Payments on-call”"), tx("值班表「交易平台副值班」", "Schedule “Trading secondary”"), tx("邮件 sre-leads@example.com", "Email sre-leads@example.com"), "Webhook · statuspage"]} />
+            </Row>
           </div>
         </Field>
         <div className="f-grid2">
@@ -335,7 +352,12 @@ export function NewInhibitDrawer({ open, onClose }: { open: boolean; onClose: ()
           </Row>
         </Field>
         <Field label={tx("生效范围", "Scope")}>
-          <Chip caret>{tx("{e} · 全部集群", "{e} · all clusters", { e: curEnv?.label ?? "—" })}</Chip>
+          <ChipSelect
+            label=""
+            showLabel={false}
+            defaultValue="all"
+            options={[{ value: "all", label: tx("{e} · 全部集群", "{e} · all clusters", { e: curEnv?.label ?? "—" }) }, ...(curEnv?.clusters ?? []).map((c) => ({ value: c, label: `${curEnv?.label ?? ""} · ${c}` }))]}
+          />
         </Field>
         <div className="f-section">
           <Row gap={6}>

@@ -6,6 +6,7 @@ import { AvatarGroup, Badge, Btn, Card, Chip, Col, Icon, Muted, Row, SearchBox, 
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./settings.css";
+import { openForm, AddChip, usePickLists } from "../../ui/demo";
 
 export default function RolesPage() {
   const { tx } = useI18n();
@@ -14,6 +15,7 @@ export default function RolesPage() {
   const [q, setQ] = useState("");
   const [tab, setTab] = useState("perm");
   const { data: r } = useGet<RoleDetail>(`/roles/${sel}`);
+  const lists = usePickLists();
   const [matrix, setMatrix] = useState<RoleDetail["matrix"] | null>(null);
   const save = useSend<{ matrix: RoleDetail["matrix"] }>("PUT", `/roles/${sel}`, ["/roles"]);
   useEffect(() => setMatrix(r ? r.matrix : null), [r]);
@@ -44,7 +46,22 @@ export default function RolesPage() {
               {tx("保存权限", "Save permissions")}
             </Btn>
           )}
-          <Btn kind={dirty ? "secondary" : "primary"} icon="plus">
+          <Btn
+            kind={dirty ? "secondary" : "primary"}
+            icon="plus"
+            onClick={async () => {
+              const v = await openForm({
+                title: tx("新建角色", "New role"),
+                desc: tx("新角色从只读权限开始，在右侧权限矩阵中逐项开启。", "New roles start read-only; grant permissions in the matrix."),
+                fields: [
+                  { key: "name", label: tx("名称", "Name"), required: true, placeholder: tx("例如：支付值班", "e.g. Payments on-call") },
+                  { key: "base", label: tx("复制权限自", "Copy permissions from"), type: "select", options: [{ value: "", label: tx("不复制（只读）", "Nothing (read-only)") }, ...(list?.items ?? []).filter((x) => x.kind !== "machine").map((x) => ({ value: x.id, label: x.name }))] },
+                ],
+                submit: tx("创建", "Create"),
+              });
+              if (v) toast(tx("角色「{n}」已创建，写入审计", "Role “{n}” created; audited", { n: v.name }));
+            }}
+          >
             {tx("新建角色", "New role")}
           </Btn>
         </>
@@ -88,7 +105,21 @@ export default function RolesPage() {
                   <Muted>{r.desc}</Muted>
                 </Col>
                 <AvatarGroup names={r.member_names} />
-                <Btn h={28} icon="user">
+                <Btn
+                  h={28}
+                  icon="user"
+                  onClick={async () => {
+                    const v = await openForm({
+                      title: tx("管理「{r}」的成员", "Members of “{r}”", { r: r.name }),
+                      desc: tx("当前成员：{m}", "Current members: {m}", { m: r.member_names.join("、") || "—" }),
+                      fields: [
+                        { key: "add", label: tx("添加成员", "Add a member"), type: "select", options: lists.people.filter((p) => !r.member_names.includes(p.value)).slice(0, 8) },
+                      ],
+                      submit: tx("添加", "Add"),
+                    });
+                    if (v) toast(tx("已将 {p} 加入「{r}」，写入审计", "Added {p} to “{r}”; audited", { p: v.add, r: r.name }));
+                  }}
+                >
                   {tx("管理成员", "Manage members")}
                 </Btn>
               </Row>
@@ -97,7 +128,7 @@ export default function RolesPage() {
                 {r.scope.map((s) => (
                   <Badge key={s}>{s}</Badge>
                 ))}
-                <Chip icon="plus">{tx("范围", "Scope")}</Chip>
+                <AddChip label={tx("范围", "Scope")} free placeholder="app=payment" options={["app=payment", "app=search", "env=staging"]} />
               </Row>
               <Tabs
                 pad="0"

@@ -8,6 +8,7 @@ import { toast } from "../../ui/overlays";
 import { Radar } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./agents.css";
+import { openForm } from "../../ui/demo";
 
 export default function EvalsPage() {
   const { tx } = useI18n();
@@ -18,7 +19,27 @@ export default function EvalsPage() {
   const rerun = useSend<void, { id: string }>("POST", "/evals");
   const Res = ({ ok }: { ok: boolean }) => <Icon name={ok ? "check" : "x"} size={14} color={ok ? "var(--ok)" : "var(--danger)"} />;
   return (
-    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("评测", "Evaluations")]} actions={<Btn kind="primary" icon="play">{tx("新建实验", "New experiment")}</Btn>}>
+    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("评测", "Evaluations")]} actions={
+        <Btn
+          kind="primary"
+          icon="play"
+          onClick={async () => {
+            const v = await openForm({
+              title: tx("新建评测实验", "New experiment"),
+              fields: [
+                { key: "agent", label: "Agent", type: "select", options: [{ value: "investigator", label: tx("调查助手", "Investigator") }, { value: "triage", label: tx("告警初查", "Alert triage") }, { value: "reporter", label: tx("报告撰写", "Reporter") }] },
+                { key: "a", label: tx("基线版本", "Baseline"), initial: "v12", mono: true, required: true },
+                { key: "b", label: tx("候选版本", "Candidate"), initial: "v13", mono: true, required: true },
+                { key: "data", label: tx("数据集", "Dataset"), type: "select", options: (e?.datasets ?? []).map((d) => ({ value: d.name, label: d.name, hint: `${d.count}` })) },
+              ],
+              submit: tx("开始运行", "Start run"),
+            });
+            if (v) toast(tx("实验已排队：{a} 对比 {b}，预计 6 分钟完成", "Experiment queued: {a} vs {b}, about 6 minutes", { a: v.a, b: v.b }));
+          }}
+        >
+          {tx("新建实验", "New experiment")}
+        </Btn>
+      }>
       <Tabs
         value={tab}
         onChange={setTab}
@@ -34,6 +55,10 @@ export default function EvalsPage() {
           {!e ? (
             <div className="v3-content">
               <Skeleton h={300} />
+            </div>
+          ) : tab !== "exp" ? (
+            <div className="v3-content anim-fade" style={{ padding: "14px 20px" }} key={tab}>
+              <EvalsTab tab={tab} e={e} onOpen={(id) => nav(`/agents/evals/${id}`)} />
             </div>
           ) : (
             <div className="v3-content anim-fade" style={{ padding: "14px 20px" }} key={tab}>
@@ -99,7 +124,7 @@ export default function EvalsPage() {
                   </Col>
                 </Panel>
               </Row>
-              <Panel title={tx("用例结果 · 48 例（显示差异项）", "Case results · 48 (showing differences)")} right={<TextLink>{tx("全部用例", "All cases")}</TextLink>}>
+              <Panel title={tx("用例结果 · 48 例（显示差异项）", "Case results · 48 (showing differences)")} right={<TextLink onClick={() => setTab("label")}>{tx("全部用例", "All cases")}</TextLink>}>
                 <table className="v3-table">
                   <thead>
                     <tr>
@@ -144,7 +169,24 @@ export default function EvalsPage() {
           )}
         </div>
         <aside className="aside" style={{ width: 320, padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
-          <Section title={tx("数据集", "Datasets")} right={<TextLink icon="plus">{tx("新建", "New")}</TextLink>}>
+          <Section title={tx("数据集", "Datasets")} right={
+              <TextLink
+                icon="plus"
+                onClick={async () => {
+                  const v = await openForm({
+                    title: tx("新建数据集", "New dataset"),
+                    fields: [
+                      { key: "name", label: tx("名称", "Name"), required: true },
+                      { key: "from", label: tx("来源", "Source"), type: "select", options: [{ value: "incidents", label: tx("历史事件回放", "Replayed incidents") }, { value: "runs", label: tx("标注过的运行", "Annotated runs") }, { value: "manual", label: tx("手工录入", "Manual") }] },
+                    ],
+                    submit: tx("创建", "Create"),
+                  });
+                  if (v) toast(tx("数据集「{n}」已创建，可在运行详情里“加入数据集”", "Dataset “{n}” created; add runs to it from run details", { n: v.name }));
+                }}
+              >
+                {tx("新建", "New")}
+              </TextLink>
+            }>
             <ul className="plain-list">
               {e?.datasets.map((d) => (
                 <li key={d.name}>
@@ -187,5 +229,92 @@ export default function EvalsPage() {
         </aside>
       </div>
     </Page>
+  );
+}
+
+/** Datasets, evaluators and the human-review queue (the experiment tab is the page body above). */
+function EvalsTab({ tab, e, onOpen }: { tab: string; e: EvalExperiment; onOpen: (id: string) => void }) {
+  const { tx } = useI18n();
+  if (tab === "data")
+    return (
+      <Panel title={tx("数据集", "Datasets")}>
+        <table className="v3-table">
+          <thead>
+            <tr>
+              <th>{tx("名称", "Name")}</th>
+              <th>{tx("说明", "Description")}</th>
+              <th style={{ textAlign: "right" }}>{tx("用例数", "Cases")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {e.datasets.map((d) => (
+              <tr key={d.name} style={{ height: 40 }}>
+                <td>
+                  <b>{d.name}</b>
+                </td>
+                <td>
+                  <Muted>{d.desc}</Muted>
+                </td>
+                <td style={{ textAlign: "right" }}>
+                  <Num>{d.count}</Num>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+    );
+  if (tab === "eval")
+    return (
+      <Panel title={tx("评测器", "Evaluators")}>
+        <table className="v3-table">
+          <thead>
+            <tr>
+              <th>{tx("名称", "Name")}</th>
+              <th>{tx("类型", "Type")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {e.evaluators.map((v) => (
+              <tr key={v.name} style={{ height: 40 }}>
+                <td>
+                  <b>{v.name}</b>
+                </td>
+                <td>
+                  <Badge>{v.kind}</Badge>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+    );
+  return (
+    <Panel title={tx("待人工标注", "Awaiting human review")}>
+      <table className="v3-table">
+        <thead>
+          <tr>
+            <th>{tx("用例", "Case")}</th>
+            <th>{tx("期望", "Expected")}</th>
+            <th style={{ textAlign: "right" }}>{tx("得分", "Score")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {e.cases.map((c) => (
+            <tr key={c.id} className="clickable" style={{ height: 40 }} onClick={() => onOpen(c.id)}>
+              <td>
+                <b>{c.id}</b> <Muted>{c.title}</Muted>
+              </td>
+              <td>
+                <Muted>{c.expected}</Muted>
+              </td>
+              <td style={{ textAlign: "right" }}>
+                <Num>{c.score}</Num>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Panel>
   );
 }

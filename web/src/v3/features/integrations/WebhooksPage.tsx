@@ -6,6 +6,7 @@ import { Badge, Brand, Btn, Card, Code, Col, Icon, KV, Mono, Muted, Num, Panel, 
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
+import { openForm, confirmAction, SecretBox } from "../../ui/demo";
 
 export default function WebhooksPage() {
   const { tx } = useI18n();
@@ -13,6 +14,7 @@ export default function WebhooksPage() {
   const [tab, setTab] = useState<"inbound" | "tokens" | "mcp" | "outbound">("inbound");
   const [sel, setSel] = useState("gitlab");
   const [mcpOn, setMcpOn] = useState(true);
+  const [revoked, setRevoked] = useState<Set<string>>(new Set());
   const redeliver = useSend<void>("POST", `/webhooks/${sel}/redeliver`);
   const token = useSend<void, { id: string }>("POST", "/api-tokens");
   const hook = data?.inbound.find((h) => h.id === sel);
@@ -22,8 +24,48 @@ export default function WebhooksPage() {
       crumbs={[tx("集成中心", "Integrations"), tx("Webhook 与 API", "Webhooks & API")]}
       actions={
         <>
-          <Btn icon="plus">{tx("新建 Webhook", "New webhook")}</Btn>
-          <Btn kind="primary" icon="plus" loading={token.isPending} onClick={() => token.mutate(undefined, { onSuccess: () => toast(tx("令牌已创建，明文只显示一次", "Token created — the secret is shown once")) })}>
+          <Btn
+            icon="plus"
+            onClick={async () => {
+              const v = await openForm({
+                title: tx("新建入站 Webhook", "New inbound webhook"),
+                fields: [
+                  { key: "name", label: tx("名称", "Name"), required: true, placeholder: "Jenkins deploys" },
+                  { key: "type", label: tx("事件类型", "Event type"), type: "select", options: [{ value: "change", label: tx("变更", "Change") }, { value: "alert", label: tx("告警", "Alert") }, { value: "incident", label: tx("事件", "Incident") }] },
+                  { key: "verify", label: tx("校验方式", "Verification"), type: "select", options: [{ value: "hmac", label: "HMAC-SHA256" }, { value: "token", label: tx("Bearer 令牌", "Bearer token") }] },
+                ],
+                submit: tx("创建", "Create"),
+              });
+              if (v) await confirmAction({ title: tx("Webhook 已创建", "Webhook created"), desc: <SecretBox label={tx("接收地址", "Endpoint")} value={`https://aiops.example.com/api/v1/events/${v.type}?source=${encodeURIComponent(v.name)}`} />, confirm: tx("完成", "Done") });
+            }}
+          >
+            {tx("新建 Webhook", "New webhook")}
+          </Btn>
+          <Btn
+            kind="primary"
+            icon="plus"
+            loading={token.isPending}
+            onClick={async () => {
+              const v = await openForm({
+                title: tx("新建 API 令牌", "New API token"),
+                fields: [
+                  { key: "name", label: tx("名称", "Name"), required: true, placeholder: "grafana-annotations" },
+                  { key: "scope", label: tx("权限", "Scope"), type: "select", options: [{ value: "read", label: tx("只读", "Read-only") }, { value: "events:write", label: tx("写入事件", "Write events") }] },
+                  { key: "ttl", label: tx("有效期", "Expires in"), type: "select", options: [{ value: "30d", label: tx("30 天", "30 days") }, { value: "90d", label: tx("90 天", "90 days") }, { value: "365d", label: tx("1 年", "1 year") }] },
+                ],
+                submit: tx("创建令牌", "Create token"),
+              });
+              if (!v) return;
+              token.mutate({ name: v.name, scopes: [v.scope], ttl: v.ttl } as never, {
+                onSuccess: () =>
+                  void confirmAction({
+                    title: tx("令牌已创建", "Token created"),
+                    desc: <SecretBox label={tx("明文只显示这一次，请立即保存", "Shown only once — save it now")} value={`aiops_pat_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`} />,
+                    confirm: tx("我已保存", "I saved it"),
+                  }),
+              });
+            }}
+          >
             {tx("新建 API 令牌", "New API token")}
           </Btn>
         </>
@@ -139,7 +181,7 @@ export default function WebhooksPage() {
             {data && tab === "tokens" && (
               <Card>
                 <ul className="plain-list" style={{ padding: "4px 16px" }}>
-                  {data.tokens.map((t) => (
+                  {data.tokens.filter((t) => !revoked.has(t.name)).map((t) => (
                     <li key={t.name}>
                       <Icon name="key" size={14} color="var(--muted)" />
                       <Col gap={4} grow>
@@ -154,10 +196,27 @@ export default function WebhooksPage() {
                         <Muted size={11.5}>{t.used}</Muted>
                       </Col>
                       <Muted size={11.5}>{t.expires}</Muted>
-                      <Btn h={26} kind="ghost">
+                      <Btn
+                        h={26}
+                        kind="ghost"
+                        onClick={async () => {
+                          const ok = await confirmAction({ title: tx("轮换 {n}？", "Rotate {n}?", { n: t.name }), desc: tx("会生成新令牌，旧令牌 24 小时后失效，期间两者都可用。", "A new token is issued; the old one stops working after 24 hours, and both work until then."), confirm: tx("轮换", "Rotate") });
+                          if (ok) void confirmAction({ title: tx("新令牌", "New token"), desc: <SecretBox label={tx("明文只显示这一次，请立即保存", "Shown only once — save it now")} value={`aiops_pat_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`} />, confirm: tx("我已保存", "I saved it") });
+                        }}
+                      >
                         {tx("轮换", "Rotate")}
                       </Btn>
-                      <Btn h={26} kind="danger">
+                      <Btn
+                        h={26}
+                        kind="danger"
+                        onClick={async () => {
+                          const ok = await confirmAction({ title: tx("吊销 {n}？", "Revoke {n}?", { n: t.name }), desc: tx("吊销立即生效，使用它的调用会返回 401。此操作不能撤销。", "Takes effect immediately; calls using it get 401. This cannot be undone."), confirm: tx("吊销", "Revoke"), danger: true });
+                          if (ok) {
+                            setRevoked((s) => new Set(s).add(t.name));
+                            toast(tx("{n} 已吊销", "{n} revoked", { n: t.name }));
+                          }
+                        }}
+                      >
                         {tx("吊销", "Revoke")}
                       </Btn>
                     </li>

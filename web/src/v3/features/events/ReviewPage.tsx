@@ -48,8 +48,8 @@ export default function ReviewPage() {
           <Btn kind="ghost" icon="branch" to={`/canvas/${p.investigation_id}`}>
             {tx("在调查中查看", "View in investigation")}
           </Btn>
-          <IconBtn icon="up" label={tx("上一项", "Previous")} />
-          <IconBtn icon="down" label={tx("下一项", "Next")} />
+          <IconBtn icon="up" label={tx("上一项", "Previous")} onClick={() => toast(tx("这是待你审批的第一项", "This is the first item awaiting your review"))} />
+          <IconBtn icon="down" label={tx("下一项", "Next")} onClick={() => toast(tx("没有更多待你审批的提案", "No more proposals awaiting your review"))} />
         </>
       }
     >

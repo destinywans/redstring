@@ -88,8 +88,20 @@ func (s *Service) changeBinding(w http.ResponseWriter, r *http.Request, bind boo
 		return
 	}
 	if bind {
-		if err = v.validateRecord(); err != nil || !bindableMCP(v.Record) {
+		var origin struct {
+			RegistrationSource string `json:"registration_source"`
+		}
+		if err = json.Unmarshal(v.raw, &origin); err != nil ||
+			(origin.RegistrationSource != "" && origin.RegistrationSource != "v3") {
+			httpapi.Error(w, http.StatusUnprocessableEntity, "mcp_registration_unreviewed", "MCP registration source is invalid")
+			return
+		}
+		if err = v.validateRecord(); err != nil || !validMCPRegistration(v.Record, origin.RegistrationSource == "") {
 			httpapi.Error(w, http.StatusUnprocessableEntity, "mcp_registration_unreviewed", "MCP registration is malformed, disabled or not reviewed for read-only tools")
+			return
+		}
+		if !s.registrationEndpointAllowed(r.Context(), v) {
+			registrationEndpointError(w)
 			return
 		}
 	}
@@ -154,13 +166,19 @@ func (s *Service) changeBinding(w http.ResponseWriter, r *http.Request, bind boo
 // is limited to active, reviewed read-only records; this does not attest to
 // live MCP discovery, health or the server's advertised readOnlyHint.
 func bindableMCP(r aiextensions.Record) bool {
+	return validMCPRegistration(r, true)
+}
+
+// Discovery does not require legacy fixed-argument bindings. New V3 records
+// start with no tools; only a later version-bound human review can approve them.
+func validMCPRegistration(r aiextensions.Record, requireBindings bool) bool {
 	if !r.Enabled || strings.TrimSpace(r.Title) == "" || len(r.Title) > 160 ||
-		strings.TrimSpace(r.Maintainer) == "" || r.Version < 1 || r.MCP == nil ||
-		len(r.MCP.Bindings) == 0 || len(r.MCP.Bindings) > 8 {
+		strings.TrimSpace(r.Maintainer) == "" || len(r.Maintainer) > 160 || r.Version < 1 || r.MCP == nil ||
+		(requireBindings && len(r.MCP.Bindings) == 0) || len(r.MCP.Bindings) > 8 {
 		return false
 	}
 	u, err := url.Parse(r.MCP.Endpoint)
-	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(r.MCP.Endpoint) > 2000 ||
+	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || strings.ContainsAny(r.MCP.Endpoint, "\\\r\n\x00#") || len(r.MCP.Endpoint) > 2000 ||
 		(u.Scheme != "https" && !(u.Scheme == "http" && r.MCP.AllowHTTP &&
 			(u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1"))) {
 		return false

@@ -41,6 +41,7 @@ for _v3_domain in (
     'ingest-push',
     'mcp',
     'mcp-domain',
+    'mcp-registration',
     'alerts',
     'silence-product',
     'alert-rule-writes',

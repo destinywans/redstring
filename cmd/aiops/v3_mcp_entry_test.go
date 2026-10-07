@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -121,25 +120,24 @@ func TestConfiguredV3MCPCatalogAndReviewRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("AIOPS_MCP_CREDENTIAL_ROOT", root)
-	record := aiextensions.Record{ID: "mcp-1", ApplicationID: "app", Kind: "mcp", Title: "App MCP",
-		Maintainer: "platform", Enabled: true, Version: 1, UpdatedAt: time.Now().UTC(),
-		MCP: &aiextensions.MCPConfig{Endpoint: remote.URL, AllowHTTP: true, CredentialRef: "token",
-			Bindings: []aiextensions.Binding{{Name: "read_app", Tool: "read_app", ReadOnlyConfirmed: true, Arguments: map[string]any{}}}}}
-	raw, err := json.Marshal(record)
+	var info v3Instance
+	if err := json.Unmarshal([]byte(`{"tier":"nonprod","domain":"entry.example.invalid","environments":[{"id":"dev"}]}`), &info); err != nil {
+		t.Fatal(err)
+	}
+	registrationConfig, err := json.Marshal(v3MCPRegistrationFile{Tier: info.Tier, InstanceID: info.Domain,
+		Bindings: []v3MCPRegistrationBinding{{ApplicationID: "app", EnvironmentID: "dev", Endpoint: remote.URL, AllowHTTP: true, CredentialRef: "token"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(ctx, `INSERT INTO ai_extensions(id,application_id,kind,version,record) VALUES('mcp-1','app','mcp',1,$1)`, raw); err != nil {
+	registrationPath := filepath.Join(root, "registration-bindings.json")
+	if err := os.WriteFile(registrationPath, registrationConfig, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(ctx, `INSERT INTO v3_mcp_environment_bindings(extension_id,application_id,environment_id,bound_by)
- SELECT 'mcp-1','app','dev',id FROM users WHERE email='mcp-entry-admin@example.invalid'`); err != nil {
-		t.Fatal(err)
-	}
+	t.Setenv("AIOPS_V3_MCP_REGISTRATION_BINDINGS", registrationPath)
 	runner := &v3BindingRunner{}
 	api := httpapi.New(st, runner, true)
 	instance := httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}
-	if err := configureV3(ctx, st, runner, api, nil, nil, &v3Instance{}, instance, operations.Config{}); err != nil {
+	if err := configureV3(ctx, st, runner, api, nil, nil, &info, instance, operations.Config{}); err != nil {
 		t.Fatal(err)
 	}
 	entry := httptest.NewServer(api)
@@ -170,7 +168,11 @@ func TestConfiguredV3MCPCatalogAndReviewRoutes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if resp.StatusCode != 200 {
+		want := http.StatusOK
+		if method == http.MethodPost && path == "/api/v1/mcp-servers" {
+			want = http.StatusCreated
+		}
+		if resp.StatusCode != want {
 			t.Fatalf("%s %s = %d %s", method, path, resp.StatusCode, data)
 		}
 		var result map[string]any
@@ -179,7 +181,15 @@ func TestConfiguredV3MCPCatalogAndReviewRoutes(t *testing.T) {
 		}
 		return result
 	}
-	base := "/api/v1/mcp-servers/mcp-1"
+	created := call(http.MethodPost, "/api/v1/mcp-servers", map[string]any{
+		"application_id": "app", "title": "App MCP", "maintainer": "platform",
+		"endpoint": remote.URL, "allow_http": true, "credential_ref": "token",
+	})
+	id, ok := created["id"].(string)
+	if !ok || id == "" || created["execution_available"] != false || created["reviewed"] != false {
+		t.Fatalf("new registration did not preserve pending state: %+v", created)
+	}
+	base := "/api/v1/mcp-servers/" + id
 	call(http.MethodPost, base+"/discover", nil)
 	detail := call(http.MethodGet, base, nil)
 	if detail["version"] != "1.2.3" || detail["calls"] != nil {

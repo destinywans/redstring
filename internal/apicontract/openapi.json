@@ -31924,6 +31924,119 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "post": {
+        "summary": "Register a pending MCP server in an exact application and environment",
+        "operationId": "post_mcp_servers",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary registration route outside the 166 page contracts. Requires a current session, exact selected environment and connectors.manage on an active persisted application or its owner team. Deployment-owned AIOPS_V3_MCP_REGISTRATION_BINDINGS must exactly admit application, environment, endpoint, credential reference and HTTP opt-in; missing or mismatched admission returns 503. Body cannot supply environment, credentials, headers, tools, reviews or Agent grants. Registration, immutable revision 1, exact environment binding and redacted audit commit atomically; audit failure rolls everything back. Creates no reviewed tools and makes no network request. Endpoint and credential reference are never returned. New registrations support the existing explicit discovery/review/switch lifecycle; discovery and rebind recheck deployment admission. No Agent execution is enabled.",
+        "responses": {
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3McpRegistrationCreated"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "New registration resource path",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "mcp-servers"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3McpRegistrationRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
       }
     },
     "/mcp-servers/{id}": {
@@ -65679,6 +65792,98 @@
           "revision",
           "changed",
           "execution_available"
+        ]
+      },
+      "V3McpRegistrationRequest": {
+        "type": "object",
+        "properties": {
+          "application_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "maintainer": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "endpoint": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "credential_ref": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "allow_http": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "application_id",
+          "title",
+          "maintainer",
+          "endpoint"
+        ]
+      },
+      "V3McpRegistrationCreated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ]
+          },
+          "bound": {
+            "type": "boolean",
+            "const": true
+          },
+          "reviewed": {
+            "type": "boolean",
+            "const": false
+          },
+          "execution_available": {
+            "type": "boolean",
+            "const": false
+          },
+          "health_verified": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "application_id",
+          "environment_id",
+          "version",
+          "status",
+          "bound",
+          "reviewed",
+          "execution_available",
+          "health_verified"
         ]
       },
       "V3InboxItem": {

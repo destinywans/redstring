@@ -80,7 +80,11 @@ func loadDiscoveryRegistration(ctx context.Context, tx pgx.Tx, id, env string, l
 }
 
 func (out *discoveryRegistration) validateDiscoveryRegistration() error {
-	if out.validateRecord() != nil || !bindableMCP(out.Record) || out.version != out.Record.Version {
+	var origin struct {
+		RegistrationSource string `json:"registration_source"`
+	}
+	if json.Unmarshal(out.raw, &origin) != nil || (origin.RegistrationSource != "" && origin.RegistrationSource != "v3") ||
+		out.validateRecord() != nil || !validMCPRegistration(out.Record, origin.RegistrationSource == "") || out.version != out.Record.Version {
 		return errInconsistentDiscoveryRegistration
 	}
 	return nil
@@ -258,6 +262,11 @@ func (s *Service) discover(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP registration is inconsistent")
 		return
 	}
+	if !s.registrationEndpointAllowed(ctx, before.registration) {
+		_ = preTx.Rollback(ctx)
+		registrationEndpointError(w)
+		return
+	}
 	if err = preTx.Commit(ctx); err != nil {
 		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP registration is unavailable")
 		return
@@ -310,6 +319,10 @@ func (s *Service) discover(w http.ResponseWriter, r *http.Request) {
 	}
 	if err = after.validateDiscoveryRegistration(); err != nil {
 		httpapi.Error(w, http.StatusConflict, "mcp_registration_changed", "MCP registration changed during discovery")
+		return
+	}
+	if !s.registrationEndpointAllowed(ctx, after.registration) {
+		registrationEndpointError(w)
 		return
 	}
 	if after.ApplicationID != before.ApplicationID || after.bindingInstanceID != before.bindingInstanceID ||

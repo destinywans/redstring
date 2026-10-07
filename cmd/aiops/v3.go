@@ -368,6 +368,11 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	v3coverage.New(s.DB, policy).Register(api)
 	v3home.New(s.DB, policy).Register(api)
 	mcpService := v3mcp.New(s.DB, policy)
+	mcpService.AuthorizeRegistrationEndpoint, err = loadV3MCPRegistrationBindings(
+		os.Getenv("AIOPS_V3_MCP_REGISTRATION_BINDINGS"), *info)
+	if err != nil {
+		return fmt.Errorf("configure V3 MCP registration: %w", err)
+	}
 	credentialRoot := os.Getenv("AIOPS_MCP_CREDENTIAL_ROOT")
 	mcpService.DiscoverTools = func(ctx context.Context, config aiextensions.MCPConfig) ([]aiextensions.ToolInfo, error) {
 		return aiextensions.DiscoverTools(ctx, credentialRoot, config)

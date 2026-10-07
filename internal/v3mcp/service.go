@@ -34,6 +34,9 @@ type Service struct {
 	Access          Access
 	DiscoverTools   DiscoverFunc
 	DiscoverCatalog func(context.Context, aiextensions.MCPConfig) (aiextensions.MCPCatalog, error)
+	// Deployment-owned exact application/environment/transport admission. Never
+	// supplied by an HTTP request; nil disables new V3 registrations/discovery.
+	AuthorizeRegistrationEndpoint func(context.Context, string, string, aiextensions.MCPConfig) error
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
@@ -44,6 +47,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		handler http.HandlerFunc
 		action  string
 	}{
+		{"POST /api/v1/mcp-servers", s.createRegistration, "manage"},
 		{"GET /api/v1/mcp-servers", s.list, "view"},
 		{"GET /api/v1/mcp-servers/{id}", s.detail, "view"},
 		{"PATCH /api/v1/mcp-servers/{id}/tools/{name}", s.toolChange, "manage"},

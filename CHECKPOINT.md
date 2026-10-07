@@ -1,3 +1,13 @@
+**最新修复记录：[CP-311](#cp-311-current)，2026-10-07 (+08)。两个 review 确认的测试工具问题已修复，92 项离线定向回归通过；本轮未运行 native 或推进整体验收。**
+
+<a id="cp-311-current"></a>
+## CP-311 · 测试接口证据与首失败保留修复
+
+- WAN-138；branch `codex/wan-138-backend-testlab`，修复前基线 `7f8c800ad2ef927b45cd9e55813b4b19bc9d8ca8`。用户已明确授权修复上轮 P2/P3；本记录随限定修复提交，精确提交和推送回读见 Linear 同主题交付记录。
+- 角色校验移至接口成功记录前，实际 HTTP200 的坏 DTO/版本/cache 记 failed；跨实例投影比较同样提前。对象辅助恢复诊断写盘失败保留 primary，外层双份首失败和一次清理有回归。
+- 新反例先在旧实现失败，再最小修复；角色24 + 对象15 + overview53 = 92 离线通过。证据边界、命令和文件范围见[交付记录](docs/releases/2026-10-07-testlab-review-fixes.md)。产品 Go/shared helper/ACL/预算/原 native 证据未改。
+- 本轮未运行真实HTTP/PG、性能24h、前端；接口整体OPEN保持。原未提交 PLAN、接口计划、验收登记以及其它候选均保留。后续 native 准入需要重新冻结 helper hashes，不能复用旧许可冒新工具验收。
+
 **最新入口：[CP-310](#cp-310-current)，2026-10-06 (+08)。五批226P/105HTTP已验，273.898秒实际运行；normal128/166、剩38来源/实现/暂停前置，接口仍OPEN。MCP/知识源与settings故障批已通过；下一三个查询输入边界及三个对象读取故障正在准备；恢复先fresh SQLite/HMAC，不能按快照重启。**
 
 <a id="cp-310-current"></a>

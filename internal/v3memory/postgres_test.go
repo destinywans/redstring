@@ -74,7 +74,7 @@ func TestPersistedFactProvenanceScopeAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
-		`CREATE TABLE users(id text PRIMARY KEY,email text,name text,role text,password_hash text,source text NOT NULL DEFAULT 'local',disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz)`,
+		`CREATE TABLE users(id text PRIMARY KEY,email text,name text,role text,password_hash text,v3_identity_kind text NOT NULL DEFAULT 'human',source text NOT NULL DEFAULT 'local',disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz)`,
 		`CREATE TABLE sessions(token_hash text PRIMARY KEY,user_id text,expires_at timestamptz)`,
 		`CREATE TABLE rbac_platform_administrators(user_id text)`,
 		`CREATE TABLE rbac_user_roles(user_id text,role_id text)`,

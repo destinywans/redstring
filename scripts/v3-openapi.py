@@ -51,6 +51,7 @@ for _v3_domain in (
     'reviews',
     'runbooks',
     'memory',
+    'memory-production',
     'agents',
     'agent-runs',
     'eval-detail',

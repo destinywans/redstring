@@ -204,6 +204,9 @@ func (s *Service) ProposeFromDocument(ctx context.Context, user core.User, in Ca
 		return Fact{}, err
 	}
 	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, "v3-memory-source:"+in.DocumentID); err != nil {
+		return Fact{}, err
+	}
 	var app, body, hash, lifecycle string
 	var version int
 	var metadata []byte
@@ -317,6 +320,10 @@ func (s *Service) Register(api *httpapi.Server) {
 	}{
 		{"GET /api/v1/memory", "view", s.view},
 		{"GET /api/v1/memory/facts", "view", s.list},
+		{"POST /api/v1/memory/facts", "manage", s.produce},
+		{"POST /api/v1/memory/sources", "manage", s.publishSource},
+		{"POST /api/v1/memory/sources/{id}/withdraw", "manage", s.withdrawSource},
+		{"POST /api/v1/memory/conflicts", "manage", s.recordConflict},
 		{"POST /api/v1/memory/facts/{id}/{action}", "manage", s.decide},
 		{"POST /api/v1/memory/conflicts/resolve", "manage", s.resolve},
 	}

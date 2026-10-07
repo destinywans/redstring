@@ -50,6 +50,13 @@ var errMemorySession = errors.New("memory session expired")
 // transactional policy check. A revoke that commits first is observed; one
 // that starts later waits until this short governance write commits.
 func lockWriteAuthority(ctx context.Context, tx pgx.Tx, r *http.Request) error {
+	// Coordinate with account/association/matrix writers before taking user
+	// rows and grant table locks; do not invert their 992 -> 995 -> 998 order.
+	for _, key := range []int64{752018992, 752018995, 752018998} {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared($1)`, key); err != nil {
+			return err
+		}
+	}
 	cookie, err := r.Cookie("aiops_session")
 	if err != nil {
 		return errMemorySession
@@ -192,7 +199,7 @@ func (s *Service) decide(w http.ResponseWriter, r *http.Request) {
 	}
 	// Acquire the catalog row lock before the grant-source locks, but do not
 	// reveal its state until current authority over the fact is established.
-	if err = lockWriteAuthority(r.Context(), tx, r); err != nil {
+	if err = productionAuthority(r, tx); err != nil {
 		failure(w, err)
 		return
 	}
@@ -331,7 +338,7 @@ func (s *Service) resolve(w http.ResponseWriter, r *http.Request) {
 	// Defer the catalog-state response until both objects' current grants have
 	// been checked. An actor with no manage grant cannot probe archive or owner
 	// changes by comparing 403 with 409.
-	if err = lockWriteAuthority(r.Context(), tx, r); err != nil {
+	if err = productionAuthority(r, tx); err != nil {
 		failure(w, err)
 		return
 	}

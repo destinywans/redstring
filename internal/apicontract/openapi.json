@@ -42128,13 +42128,128 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "post": {
+        "summary": "Produce an exact-excerpt memory candidate",
+        "operationId": "post_memory_facts",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a human with current knowledge.view and knowledge.manage over exact environment/application/team and an active Cookie. Source must be an eligible currently published knowledge document with explicit environment attribution, exact expected version and SHA256 matching the actual body. V3 Runbooks and registered external-source content are excluded. Excerpt must occur verbatim. Semantic deduplication binds source version/hash, exact excerpt and scope; identical retries by authorized humans reuse the same fact, preserving rejected/expired states. No model similarity or generated text is treated as truth. Returns 201 on first production and 200 on replay, with one audit for the original production.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemoryProductionResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "New record persisted with atomic audit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemoryProductionResult"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3MemoryProductionRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
       }
     },
     "/memory/facts/{id}/{action}": {
       "post": {
         "summary": "Confirm, reject or expire a source-backed memory fact",
         "operationId": "post_memory_facts_id_action",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Persists a valid source-backed fact state transition and audit in one transaction. Only confirm, reject and expire are supported; no forget action. Requires current account, environment, application/team knowledge.manage. Confirm requires a current published source and matching version; reject and expire may clean up a stale source under its original still-active scope and redact fact text and source identity. Confidence, recall and expiry metrics remain unavailable. The frozen frontend forget action is incompatible.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Persists a valid source-backed fact state transition and audit in one transaction. Only confirm, reject and expire are supported; no forget action. Requires current account, environment, application/team knowledge.manage. Confirm requires a current published source and matching version; reject and expire may clean up a stale source under its original still-active scope and redact fact text and source identity. Confidence, recall and expiry metrics remain unavailable. The frozen frontend forget action is incompatible. Governance writes require a current human identity; machine identities cannot confirm, reject, expire or resolve memory facts.",
         "responses": {
           "200": {
             "description": "Success",
@@ -42252,7 +42367,7 @@
       "post": {
         "summary": "Resolve an open conflict between two persisted facts",
         "operationId": "post_memory_conflicts_resolve",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Atomically resolves an existing open conflict, updates both distinct source-backed facts and writes an audit. Requires actual fact IDs, current source provenance/version and current account, environment, application/team knowledge.manage. The frozen frontend sends a display choice without both IDs, so its interaction remains unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Atomically resolves an existing open conflict, updates both distinct source-backed facts and writes an audit. Requires actual fact IDs, current source provenance/version and current account, environment, application/team knowledge.manage. The frozen frontend sends a display choice without both IDs, so its interaction remains unavailable. Governance writes require a current human identity; machine identities cannot confirm, reject, expire or resolve memory facts.",
         "responses": {
           "200": {
             "description": "Success",
@@ -52259,6 +52374,405 @@
           },
           "503": {
             "$ref": "#/components/responses/Unavailable"
+          }
+        }
+      }
+    },
+    "/memory/sources": {
+      "post": {
+        "summary": "Publish a reviewed human memory source",
+        "operationId": "post_memory_sources",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Exact active Cookie and current human identity, knowledge.view plus knowledge.manage for the current single environment, application and current owner team. Writes a published knowledge document with explicit human provenance, version snapshot, history and audit in one transaction. Application/environment/team are locked and cannot be supplied as arbitrary metadata. Request key is scoped to actor and environment; identical replay returns 200, drift or a withdrawn document returns 409. New publication returns 201. Body is limited to 16 KiB UTF-8. This is explicit human publication, not automatic model extraction or external-source approval; it does not create a vector index. All-environment writes remain 409.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemorySourcePublished"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "New record persisted with atomic audit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemorySourcePublished"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3MemorySourcePublish"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/memory/conflicts": {
+      "post": {
+        "summary": "Record a human-asserted memory conflict",
+        "operationId": "post_memory_conflicts",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a human, exact active Cookie and knowledge.view plus manage over both facts. Both facts must be active, in the same exact scope and backed by current published sources, with matching submitted fact revisions. Reason is an explicit human assertion, never an automatic semantic contradiction. Stable fact lock order prevents reversed-pair deadlocks. The same open pair and reason is idempotent, reason drift or stale state is 409. Existing human conflict resolution decides keep/drop.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemoryConflictRecordResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "New record persisted with atomic audit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemoryConflictRecordResult"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3MemoryConflictRecordRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/memory/sources/{id}/withdraw": {
+      "post": {
+        "summary": "Withdraw a manually published memory source",
+        "operationId": "post_memory_sources_id_withdraw",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only manual memory sources, not arbitrary legacy or external documents. Requires human knowledge.view/manage in original current app/team/environment plus active Cookie. Exact current source version/hash are required. Atomically archives the source, expires up to 500 active derived facts, clears its vector generation and writes version history/audit; retains rejected facts and historical conflicts as nonactionable history. Replays do not duplicate audit. Stale version/hash returns 409 rather than withdrawing a newer source version. Source-scoped lock serializes production and withdrawal. Main reads, confirmation and conflict resolution fail closed after withdrawal.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "document_id": {
+                      "type": "string"
+                    },
+                    "lifecycle": {
+                      "type": "string",
+                      "enum": [
+                        "archived"
+                      ]
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "expired_facts": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "document_id",
+                    "lifecycle",
+                    "changed",
+                    "expired_facts"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "More than 500 active derived facts; expire them individually before withdrawal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "expected_content_hash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_version",
+                  "expected_content_hash"
+                ]
+              }
+            }
           }
         }
       }
@@ -78809,6 +79323,241 @@
           "password_policy"
         ],
         "additionalProperties": false
+      },
+      "V3MemorySourcePublish": {
+        "type": "object",
+        "properties": {
+          "request_key": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          },
+          "application_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384,
+            "description": "At most 16 KiB UTF-8; human-reviewed source text, not an automatic external sync."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "request_key",
+          "application_id",
+          "title",
+          "body"
+        ]
+      },
+      "V3MemorySourcePublished": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "lifecycle": {
+            "type": "string",
+            "enum": [
+              "published"
+            ]
+          },
+          "created": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "document_id",
+          "version",
+          "content_hash",
+          "environment_id",
+          "application_id",
+          "lifecycle",
+          "created"
+        ]
+      },
+      "V3MemoryProductionRequest": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expected_content_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "exact_excerpt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "document_id",
+          "expected_version",
+          "expected_content_hash",
+          "exact_excerpt"
+        ]
+      },
+      "V3MemoryProductionResult": {
+        "type": "object",
+        "properties": {
+          "fact": {
+            "$ref": "#/components/schemas/V3MemoryFactEvidence"
+          },
+          "source_content_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "production": {
+            "type": "string",
+            "enum": [
+              "human_exact_excerpt"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "fact",
+          "source_content_hash",
+          "created",
+          "production"
+        ]
+      },
+      "V3MemoryConflictRecordRequest": {
+        "type": "object",
+        "properties": {
+          "fact_a_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "fact_b_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expected_revision_a": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expected_revision_b": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "fact_a_id",
+          "fact_b_id",
+          "expected_revision_a",
+          "expected_revision_b",
+          "reason"
+        ]
+      },
+      "V3MemoryConflictRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fact_a_id": {
+            "type": "string"
+          },
+          "fact_b_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "fact_a_id",
+          "fact_b_id",
+          "environment_id",
+          "state"
+        ]
+      },
+      "V3MemoryConflictRecordResult": {
+        "type": "object",
+        "properties": {
+          "conflict": {
+            "$ref": "#/components/schemas/V3MemoryConflictRecord"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "assertion": {
+            "type": "string",
+            "enum": [
+              "human"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "conflict",
+          "reason",
+          "created",
+          "assertion"
+        ]
       }
     },
     "parameters": {

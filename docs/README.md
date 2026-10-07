@@ -1,5 +1,6 @@
 # 项目文档
 
+- [历史差异整理待办与工作树退役](plans/2026-10-07-history-reconciliation.md)：CP-315，11 个重复标签清理、19 个独立历史保留及四类重点待办。
 - [main 合并与历史分支清理](releases/2026-10-07-branch-cleanup.md)：WAN-117，删除清单、差异历史归档与恢复方法。
 
 - [记忆、评测与 Agent 执行交付](releases/2026-10-07-runtime-production.md)、[实施范围与取舍](plans/2026-10-07-runtime-production.md)：WAN-240～242。

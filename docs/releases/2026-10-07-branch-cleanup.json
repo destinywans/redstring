@@ -1,0 +1,1197 @@
+{
+  "date": "2026-10-07",
+  "issue": "WAN-117",
+  "merged_baseline": "bde30d557471728ff59facd990c2d0b2bcada4da",
+  "old_main": "a1d8391dd2a01ad91617461f45ff088998c9467b",
+  "merge_kind": "fast_forward",
+  "source_tree": "892951ae0c2a9c29e1f09f4631685c0e75981d65",
+  "before": {
+    "local_branches": 165,
+    "remote_branches": 144
+  },
+  "after": {
+    "local_branches": 1,
+    "remote_branches": 1,
+    "recovery_tags": 30
+  },
+  "branches": [
+    {
+      "branch": "codex/ai-first-agent-visibility",
+      "tip": "556130adf1575bcf35122758d197b56f6c80baec",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/frontend-ui-refactor",
+      "tip": "5bcd1f2fd182de5c938e21af4f2b44bf2365675b",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/v3-backend",
+      "tip": "870e373f611453005f2a8bf875d29b6da19ff366",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/v3-frontend",
+      "tip": "feda8c357234dd7414b084ecba2c9b7a146f3adc",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-100-platform-design-review",
+      "tip": "c16e99aaf118e9b02ef429ddb19476af1863f367",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-101-resource-knowledge-graph",
+      "tip": "083860fb71f9370de92c6aad51ce8521fa77e21b",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-101-resource-workspace",
+      "tip": "914365166c00048321900ceef88dfed8a1d65a92",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-102-infrastructure-design",
+      "tip": "f59433d0bf82c36f71b512a9807e5230570e40fa",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-103-department-settings",
+      "tip": "7db10624a2e267089f5a004a616f00be03fe026c",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-103-settings-workspace",
+      "tip": "52ea7764c057032b0b614bfe6f362d8204909257",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-104-personal-profile",
+      "tip": "301bb338d4ab4a623b653d3c1f6153443effe4d6",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-105-rbac-associations",
+      "tip": "78a3b85910015184801cf4e554857fc7a13a723c",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-105-role-management-refinement",
+      "tip": "b00e1d37718f55163a367feac90f4515df7529de",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-109-live-platform-integration",
+      "tip": "f254b13419cd7102067fc98069f80de17eec4310",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-110-observability-workspace",
+      "tip": "bfd0e38b2095a3ceddd2b7e0130340f4b8bced26",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-112-infrastructure-dashboard",
+      "tip": "0281ff04a4690e7ca259dc5804d5c70ef41a16ed",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-117-proposal-approval",
+      "tip": "ece9f7dc6c921b8b3cb7db6f9aaa0be37d115baa",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-117-proposal-approval"
+    },
+    {
+      "branch": "codex/wan-117-v3-entrypoints",
+      "tip": "09ccc40601717b86ded671d0547c484883f26292",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-117-v3-integration",
+      "tip": "31c5d967af1b13ae5d25b7c414b61b3eb05f7f3d",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-117-v3-live-comparison",
+      "tip": "a4bfdd3c616dee5b4f0b4644b4105622eb1c1ea9",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-117-v3-live-comparison"
+    },
+    {
+      "branch": "codex/wan-117-v3-real-chain",
+      "tip": "bcd0e2792180ce1dd786de3dcaaeb67696d8ce14",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-117-v3-real-chain"
+    },
+    {
+      "branch": "codex/wan-118-alert-detail-claim",
+      "tip": "f86ed8baa526a106c1bf2f3b58964e553548131f",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-alert-group-silence-scope",
+      "tip": "8bed0b7a0401416de9610def7209bf01921f4cab",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-alert-groups",
+      "tip": "fd06765dad49544bf6c3be5b54b37c537b75ddf1",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-alert-groups-bulk",
+      "tip": "0faeab8b85512e8fed9e2a6235af4e2815f2882a",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-118-alert-groups-bulk"
+    },
+    {
+      "branch": "codex/wan-118-alert-rule-drafts",
+      "tip": "e0d98efa259ded052ebcc9b3245f9b03e7e555f5",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-118-alert-rule-drafts"
+    },
+    {
+      "branch": "codex/wan-118-alert-rule-dry-run",
+      "tip": "d512eb82e8cdad6b4acdb85382fd7d42434cce12",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-alert-rule-enable",
+      "tip": "e1d43b752e7760592a0e16c12260aa7d46233b7c",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-alert-rules-routes",
+      "tip": "e0e5e6cd03bd18097445f10bf4282ec4a28deef8",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-execution-report-publish",
+      "tip": "8093faa4d91dec43e42d452daf7f5ce67b2f9765",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-118-execution-report-publish"
+    },
+    {
+      "branch": "codex/wan-118-inbox-incident",
+      "tip": "531588700fdcd1bfac109e424ae9ef11e5429a05",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-incident-create",
+      "tip": "f584c8059c56dc34f94e231db47f72c924885783",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-inhibitions",
+      "tip": "08d38fd9ea692f7057a0e73961f2bfb7e2da93a7",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-notification-routes",
+      "tip": "29247a5aab23dba2775327db5f6db4e22c34d129",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-rule-assistant",
+      "tip": "dfd28397aec760974225d30ceb5494e37bf0570d",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-118-rule-assistant"
+    },
+    {
+      "branch": "codex/wan-118-silence-executor",
+      "tip": "a21090074b8502566d6cf0e02137b44f2ab1756f",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-118-silence-executor"
+    },
+    {
+      "branch": "codex/wan-118-silence-preview-contract",
+      "tip": "5b4ae6f5857f0504b060c2ee2a6c0d0310f4dc2d",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-silence-product",
+      "tip": "f8c85a1a7884fddd8305e156b8b9fde6ac43e596",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-v3-alert-ops",
+      "tip": "fe0c2749e5222ec79e6f1ae11a37644f8739d8e2",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-v3-incident-evidence",
+      "tip": "5583d57e2ba02b2ecddaf7133e8f941995ff295a",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-v3-inhibition-scope",
+      "tip": "eff8a1a6b54971c8ed0b45f44caf483fec2279ad",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-v3-matcher-syntax",
+      "tip": "fc25a41e06dc76440165df411856074a2e630143",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-v3-proposal-snapshot",
+      "tip": "0e2175842699c0d0586f407980ff0660fcf8addb",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-v3-rule-detail",
+      "tip": "b03af9ae31b8d600d617d4ce024eb135003b5ae9",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-v3-rule-detail-live",
+      "tip": "f013595a008a245f1659ea0bda2d478fb9339dd2",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-v3-silence-service",
+      "tip": "b35c33a718f72920c0fce02f9fd6b9be795b30fa",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-v3-silence-write",
+      "tip": "84de3be7a02402171d7435e4283a44fbb056836d",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-118-v3events-revocation",
+      "tip": "072f2d5ee2c5ce7411fe49614dfd7d53c506dc84",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-118-v3events-revocation"
+    },
+    {
+      "branch": "codex/wan-118-v3events-team-scope",
+      "tip": "f4e3bcae3cd453a91eeb9e683a80cdf093a73574",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-118-v3events-team-scope"
+    },
+    {
+      "branch": "codex/wan-119-identity-flow",
+      "tip": "abd16a179074ae9b99a9ebc6fc3a2f149fb3deae",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-119-identity-flow"
+    },
+    {
+      "branch": "codex/wan-119-member-evidence",
+      "tip": "0794e476a93af04ac8a659310fa352ec6cfea88e",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-119-role-detail",
+      "tip": "69356e58501a1995f301e7eedeffef8c188c5987",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-119-role-scope",
+      "tip": "86024e2e0c517dbc61d8de78c9778729b23f761c",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-119-security-policy",
+      "tip": "00c965f9ab6ef45d652150918ffdc0e0475d1a89",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-119-v3-identity-settings",
+      "tip": "9332f531a5631bdf541b376d675c3d7f95c72a34",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-119-workspace-contract",
+      "tip": "f0024390430dbf824157bab2ee7bff24c267bfd9",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-119-workspace-put",
+      "tip": "e6ad636a0f3beb254e4ec4b0c4b74be7b2789320",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-119-workspace-put"
+    },
+    {
+      "branch": "codex/wan-119-workspace-read",
+      "tip": "3fd3e7fd9eafd023ce57f32995203072da5be869",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-120-agent-trace-list",
+      "tip": "9d6a52f7131be8d976a88690a2970f9cffa1ddfb",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-120-metrics-ask",
+      "tip": "eae0c8d6a4ae0334b2143039a69b2fd84fe9207e",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-120-v3-changes-view",
+      "tip": "86f6f4550ecd8f004c33c66c255fc283eb33868d",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-120-v3-discovery",
+      "tip": "1bf9dc448785f5057a8bfef9e0c66694bbbc34f5",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-120-v3-discovery-runbook-alert",
+      "tip": "de19e5153487b424a0250a11a25657b89cff6d01",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-120-v3-log-patterns",
+      "tip": "41548f544d274caf359accd479dea5496b08101b",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-120-v3-log-patterns"
+    },
+    {
+      "branch": "codex/wan-120-v3-mapping-discovery",
+      "tip": "f36e9b6e6597465c4217dca89fce3f80d68de8b8",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-120-v3-mapping-save-boundary",
+      "tip": "4ef3008aa823202ce273ba6758205f1bed702762",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-120-v3-metric-samples",
+      "tip": "251214461938fcee586c840ab05f4e54db6a5a7d",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-120-v3-metrics-dashboard",
+      "tip": "f85b2a9aa4059ae714dd515bf06c607f6fb86dd5",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-120-v3-resources-observe",
+      "tip": "b36c6d3fde6b0fe5842db87383cc345f8c3d589b",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-120-v3-service-discover",
+      "tip": "ce79555a3ac946d26175fcf831d6407cbab14cea",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-120-v3-service-mappings",
+      "tip": "b5053945d997e5995b2564569acca6d8b5d8ae74",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-120-v3-service-views",
+      "tip": "6a15b6df642e8c89fe064304b15584b79c0938a7",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-120-v3-service-views"
+    },
+    {
+      "branch": "codex/wan-120-v3-topology-view",
+      "tip": "dcf6f057ae954035c59388a019fb58e8f224bc38",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-120-v3-traces",
+      "tip": "a979addabd41447f51081ba9b481d6cabeb3f584",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-121-canvas-history-pages",
+      "tip": "20ffef7dc93afc61310987c1b5dcdccf092ffe7a",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-121-canvas-main",
+      "tip": "7308ac71acfc3e4b86551bcfb542f36d49e1d0bf",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-121-canvas-templates",
+      "tip": "b4e9332030fb98c81dc59a6c6302a42472ec1153",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-121-conversation-chain",
+      "tip": "e411dba1a0f54ae88516673a75bf5e493cd2ca15",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-121-conversation-chain"
+    },
+    {
+      "branch": "codex/wan-121-conversation-detail",
+      "tip": "47d03e8b7efae356655877a8be7ad5aa7a1e3502",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-121-conversation-detail"
+    },
+    {
+      "branch": "codex/wan-121-conversation-list",
+      "tip": "7685438e1a0300ce6b2270da49e25978d6ebba50",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-121-conversation-read",
+      "tip": "673acc5a05eca2080da5d3fb692b29447aaff787",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-121-conversation-send",
+      "tip": "9dd47193dd557af1c6c6ce70d50251d7e1a4b546",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-121-conversation-stream",
+      "tip": "23814348cec45f87916fd651a9e2d31797e31884",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-121-generic-canvas-contract",
+      "tip": "d2fbf1d78faea25b4f7613d7b15350e760c40409",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-121-investigation-canvas",
+      "tip": "a977f43a263e07611cb859f38dffaffcfff2571c",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-121-investigation-template-start",
+      "tip": "16b7f7c7e40814fc6668831f5c11901bbf55560b",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-121-investigation-writeback",
+      "tip": "84857b76b14d01240f0651a2df9a37d68b2e9b4e",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-121-template-roundtrip",
+      "tip": "66c3ee74bfea078971d77c7a70ba09119b9097d8",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-121-template-roundtrip"
+    },
+    {
+      "branch": "codex/wan-121-text-attachments",
+      "tip": "a8e8deae43972c61931f42e4fe2dcd8dcbc9334a",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-121-v3-conversation-canvas",
+      "tip": "1ed5a37113ddc0d69430d4f491abf3a75cb742eb",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-122-api-tokens",
+      "tip": "2e50cbe7b14a2bfa69b1d5b6b0030fd30e2bbf7c",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-122-connector-detail",
+      "tip": "885ad6ce70e9354b091e7e4f4811dbb9526d979a",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-122-connector-patch",
+      "tip": "7343c8ffda0c997dd630120bbc4ce3d2a869d018",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-122-connector-patch-close",
+      "tip": "4bdd34795e23c34abe8e8ebfe3c34ca939280304",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-122-connector-patch-close"
+    },
+    {
+      "branch": "codex/wan-122-connector-types",
+      "tip": "1e65691fc501640cf16c909831f0c105bd562c1e",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-122-mcp-read",
+      "tip": "2b39e51cf4dc3c1f3217a57a1eeb00388fd401d0",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-122-mcp-review-tools",
+      "tip": "95b4697d45fcb2c315d440d9f41c567479234ae4",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-122-mcp-server-domain",
+      "tip": "20cde4b19c1c04a62d98dbd45322825c29db25da",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-122-model-admin",
+      "tip": "f632633639d2b7ce6b322e141b561ab80a0fba31",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-122-prometheus-permission",
+      "tip": "62c61c256f35431e38e1e2cd43713ff972029dd5",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-122-prometheus-query",
+      "tip": "75420ed5deff3c714144492d8c8039a6973bb3c0",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-122-pull-ingress-domain",
+      "tip": "c0269703218fabd91a8c776a09e861e0406d9264",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-122-push-ingress",
+      "tip": "d7b500667b1b29f77ec797a04683dbb196cf49c7",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-122-push-ingress"
+    },
+    {
+      "branch": "codex/wan-122-push-ingress-domain",
+      "tip": "de811e1a02c317a87e3ad0d1cd044a4a84308af9",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-122-service-mappings-put",
+      "tip": "346cc2006e4ad9731e3230b17854892b8058bb7d",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-122-v3-connector-chain",
+      "tip": "eddbabaafef1b93704fd69dfd9cf6f587fb43731",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-122-v3-integrations",
+      "tip": "62786a1829928ce57f6e516de367745f5fffb139",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-123-agent-lifecycle",
+      "tip": "39906e1bf8a98715722f6f96f85b8b3f33bc648d",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-123-agent-lifecycle"
+    },
+    {
+      "branch": "codex/wan-123-confluence-notion-sources",
+      "tip": "17b684948154160d845ae4852d83198e412379a3",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-123-confluence-notion-sources"
+    },
+    {
+      "branch": "codex/wan-123-evals-create",
+      "tip": "c3f6346473c11241690388a5665eb225b1a80d24",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-123-evals-detail",
+      "tip": "711ebea6f882d051ae432298d23ba80a4b06cf9e",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-123-feishu-upload-sources",
+      "tip": "97633d7772e516dfc6915964d52dcc2c795eb386",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-123-feishu-upload-sources"
+    },
+    {
+      "branch": "codex/wan-123-knowledge-acl",
+      "tip": "e88182568b7483c6a4be16448f7e654f7e55e74d",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-123-knowledge-source",
+      "tip": "780dfb70e149cb0c1de52c02123a65cefd89fed9",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-123-knowledge-sources",
+      "tip": "f6c6ee90685e9bdbf99eb8c21dc4e80de80aa22c",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-123-knowledge-sources-git-markdown",
+      "tip": "3489de18ca4927e0fa578366291e06424665e147",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-123-knowledge-sources-git-markdown"
+    },
+    {
+      "branch": "codex/wan-123-knowledge-sources-web",
+      "tip": "7e3d28231b2461b1b2c0f85e41c5c0829cd837a2",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-123-knowledge-sources-web"
+    },
+    {
+      "branch": "codex/wan-123-memory-actions",
+      "tip": "9cde953de9e13448cb263e3fed70b344ff5c19f5",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-123-postmortem-reads",
+      "tip": "9700632b65448c735b6a519306658c90100956c6",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-123-postmortem-reads"
+    },
+    {
+      "branch": "codex/wan-123-postmortem-source-binding",
+      "tip": "b0a73eed6e129eddfc0210605b7b2c21b29dfe92",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-123-postmortem-summary",
+      "tip": "69897cc6b491eb6c8ca512e2c0b69875a13adc44",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-123-prompt-detail",
+      "tip": "7a24c54404ed499777317666f59da05c96233c30",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-123-prompt-trial",
+      "tip": "412e6b26fd27d59c184a6e246af6f9add40e01ea",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-123-prompt-trial"
+    },
+    {
+      "branch": "codex/wan-123-prompts-list",
+      "tip": "bb5d1846dce8f3f805e072d5f6df7595c74cb200",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-123-public-web-content",
+      "tip": "a413bdbec8f79a51307d7bf641c104b9bc1d5bda",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-123-runbook-create",
+      "tip": "4fc75c38eec6cf640e24881d714e77a8b0c0da78",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-123-runbook-detail",
+      "tip": "dae5849574271a3c3d464afa6184509d0595854c",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-123-runbook-draft-create",
+      "tip": "b0c7a0c81ee253805760249047bb754012bb083f",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-123-runbook-reads",
+      "tip": "5aee211abe01108f278c4daa726aaee91bae9e84",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-123-runbook-reads"
+    },
+    {
+      "branch": "codex/wan-123-runbook-references",
+      "tip": "6526335cbb9456da9eb73f88fb3505b3075bd9b8",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-123-runtime-production",
+      "tip": "bde30d557471728ff59facd990c2d0b2bcada4da",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-123-source-state-read",
+      "tip": "7ebae2ee26e68c6e1337dac479792f1020605268",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-123-v3-knowledge-agent",
+      "tip": "4484a3fa3dab22e13f2650a4d2744159e009df26",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-123-v3-knowledge-agent"
+    },
+    {
+      "branch": "codex/wan-124-config-roundtrip",
+      "tip": "4deb6a2aea73b854833a252867ec6eb066ee7a6c",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-124-config-sync-four-kinds",
+      "tip": "528f1bad570c3f0d96a1288b6c1aebc27a65241e",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-124-config-sync-writes",
+      "tip": "40761631e73868ebbbcd4eae0d6ff9da7d51cfca",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-124-config-sync-writes"
+    },
+    {
+      "branch": "codex/wan-124-directory-sync",
+      "tip": "bb5d1846dce8f3f805e072d5f6df7595c74cb200",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": false
+    },
+    {
+      "branch": "codex/wan-124-gitlab-live",
+      "tip": "444712086e1e345447dcd0eea8fdc61c88c443f2",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-124-mfa",
+      "tip": "c23f962331f1ce2bc8a42d76acdd5f8323cb178e",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-124-passkey",
+      "tip": "7e9c952f16126e98b9e7d31d28750fc11e3f7107",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-124-profile-evidence",
+      "tip": "06fcb81bd84eff8341141c79c3f15b66cefe2b6b",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-124-template-capacity",
+      "tip": "c6ee03dff7064fa0b02e3a6b0a2dd9281592251f",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-124-template-retention",
+      "tip": "6aaee8a33055307fa5ab1ab2a3f724acc9af15e5",
+      "classification": "unique_patch",
+      "deleted_local": true,
+      "deleted_remote": true,
+      "archive_tag": "archive/2026-10-07/codex/wan-124-template-retention"
+    },
+    {
+      "branch": "codex/wan-124-v3-enterprise-config",
+      "tip": "3e8d6d4f3d95923b790442b7da20df5d2da75ef1",
+      "classification": "nonmerge_patch_equivalent",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-129-oidc-session-fence",
+      "tip": "6182b5a6fde6f01749349ff0825a61d245ce294b",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-130-sse-backpressure",
+      "tip": "2409178c8d6c055e9e76814f3ab06a2443c4f5f1",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-131-tool-stream",
+      "tip": "e2e9d29bce1acf5b9fadcd744593cf7dfea24573",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-132-rule-reconciliation",
+      "tip": "dba3bbb2ca1c64de27e63db5a198dc021c2c0a9a",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-138-backend-testlab",
+      "tip": "1e34477f31a50f2f0c226bd5ddbe180a7ecd519e",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-57-canvas-workspace",
+      "tip": "e757a6e6cb24ce9d690c38ad1b236a7eccd5e304",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-74-sre-workspace-foundation",
+      "tip": "9625ec6a4778580f989c4d1977bc621a90930e37",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-80-member-app-management",
+      "tip": "491c0c9ed0134ccb7e4f4c0c16b08eac57e1d023",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-81-application-list-refinement",
+      "tip": "e713eb10554fac7a9cddf1c5d1b32a508e62edfc",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-82-observability-workspace",
+      "tip": "a04c3358a4c3c165f2da0781ae85421923cc8afd",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-86-live-lab-integration",
+      "tip": "d7ba1162464e007627809bf77d85b78f572ccc20",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-87-delivery-workspace",
+      "tip": "0177557c507189c9c534d038479a731eccc9fe1b",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-95-agent-home",
+      "tip": "20c24e0a901192139857ea1b45ccca18ee529b1b",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-95-composer-feedback",
+      "tip": "808d6890d079ff72cb975a7e0e8a0ef023d895aa",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-96-application-ui-sample",
+      "tip": "50409d0bd5083f8c084f48d3799d0e72b7b3369a",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-96-component-rollout",
+      "tip": "7e28d55a5bec7bc5691b5aad36c09ab440ef6ce4",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-96-search-filters",
+      "tip": "1013a670eda9085eee8e16d3548c7d91a35991e2",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-96-unified-pagination",
+      "tip": "ff81ef8eadce9b813e79e02f8e01e401a689e2b8",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-96-unified-typography",
+      "tip": "41a92bb05d9b58cacfa38dd798e3f60553af40d0",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    },
+    {
+      "branch": "codex/wan-99-resource-navigation",
+      "tip": "173f3729d6a84e0d8450457fc14d230faa20bb64",
+      "classification": "ancestor",
+      "deleted_local": true,
+      "deleted_remote": true
+    }
+  ]
+}

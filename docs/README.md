@@ -1,5 +1,7 @@
 # 项目文档
 
+- [main 合并与历史分支清理](releases/2026-10-07-branch-cleanup.md)：WAN-117，删除清单、差异历史归档与恢复方法。
+
 - [记忆、评测与 Agent 执行交付](releases/2026-10-07-runtime-production.md)、[实施范围与取舍](plans/2026-10-07-runtime-production.md)：WAN-240～242。
 - [记忆生产](api/v3-memory-production.md)、[双版本评测执行](api/v3-evaluation-execution.md)、[Agent 执行治理](api/v3-agent-execution.md)。
 

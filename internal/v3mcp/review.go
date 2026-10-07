@@ -208,6 +208,11 @@ func (s *Service) reviewCurrent(w http.ResponseWriter, r *http.Request, write bo
 		httpapi.Error(w, http.StatusConflict, "mcp_registration_changed", "MCP registration requires a new discovery")
 		return nil, discoveryRegistration{}, reviewSnapshot{}, false
 	}
+	if write && !current.Record.Enabled {
+		_ = tx.Rollback(r.Context())
+		httpapi.Error(w, 409, "mcp_disabled", "MCP registration is disabled")
+		return nil, discoveryRegistration{}, reviewSnapshot{}, false
+	}
 	snap, err := loadLatestReviewSnapshot(r.Context(), tx, current.ID, current.EnvironmentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		_ = tx.Rollback(r.Context())
@@ -282,7 +287,7 @@ func (s *Service) reviewCandidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload, err := json.Marshal(map[string]any{
-		"snapshot_id": snap.id, "mcp_server_id": current.ID, "application_id": current.ApplicationID,
+		"candidate_version": snap.id, "snapshot_id": snap.id, "mcp_server_id": current.ID, "application_id": current.ApplicationID,
 		"environment_id": current.EnvironmentID, "registration_version": current.version,
 		"registration_hash": current.hash, "tools_hash": snap.toolsHash, "tool_count": len(tools),
 		"captured_at": snap.capturedAt.UTC().Format(time.RFC3339Nano), "tools": tools,

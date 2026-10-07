@@ -27,6 +27,32 @@ type V3EnvironmentScope struct {
 
 type v3EnvironmentContextKey struct{}
 
+// A shared witness carries only middleware-validated scope to outer write
+// auditing. WithContext creates a new request, so reading the outer request's
+// ordinary scope alone loses the selected environment after a gate failure.
+type v3AuditWitnessKey struct{}
+type v3AuditWitness struct {
+	scope    V3EnvironmentScope
+	verified bool
+}
+
+func withV3EnvironmentScope(r *http.Request, scope V3EnvironmentScope) *http.Request {
+	if witness, _ := r.Context().Value(v3AuditWitnessKey{}).(*v3AuditWitness); witness != nil {
+		witness.scope, witness.verified = scope, true
+	}
+	return r.WithContext(context.WithValue(r.Context(), v3EnvironmentContextKey{}, scope))
+}
+
+func V3VerifiedAuditScope(r *http.Request) (V3EnvironmentScope, bool) {
+	if scope, ok := V3ScopeFromContext(r.Context()); ok {
+		return scope, true
+	}
+	if witness, _ := r.Context().Value(v3AuditWitnessKey{}).(*v3AuditWitness); witness != nil && witness.verified {
+		return witness.scope, true
+	}
+	return V3EnvironmentScope{}, false
+}
+
 func V3ScopeFromContext(ctx context.Context) (V3EnvironmentScope, bool) {
 	scope, ok := ctx.Value(v3EnvironmentContextKey{}).(V3EnvironmentScope)
 	return scope, ok
@@ -135,7 +161,7 @@ func NewV3EnvironmentHandler(cfg V3InstanceConfig, authorizer V3EnvironmentAutho
 				return
 			}
 			sort.Strings(ids)
-			r = r.WithContext(context.WithValue(r.Context(), v3EnvironmentContextKey{}, V3EnvironmentScope{Tier: cfg.Tier, EnvironmentIDs: ids, All: true}))
+			r = withV3EnvironmentScope(r, V3EnvironmentScope{Tier: cfg.Tier, EnvironmentIDs: ids, All: true})
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -151,7 +177,7 @@ func NewV3EnvironmentHandler(cfg V3InstanceConfig, authorizer V3EnvironmentAutho
 			}
 			return
 		}
-		r = r.WithContext(context.WithValue(r.Context(), v3EnvironmentContextKey{}, V3EnvironmentScope{Tier: cfg.Tier, EnvironmentIDs: []string{env}}))
+		r = withV3EnvironmentScope(r, V3EnvironmentScope{Tier: cfg.Tier, EnvironmentIDs: []string{env}})
 		next.ServeHTTP(w, r)
 	}), nil
 }
@@ -201,6 +227,11 @@ func v3PersistedScopeRead(r *http.Request) bool {
 		return false
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	// Personal avatar ownership is session-bound and has no environment.
+	// A browser image request cannot attach the selected-environment header.
+	if len(parts) == 6 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "me" && parts[3] == "avatar" && parts[4] == "content" && parts[5] != "" {
+		return true
+	}
 	if len(parts) != 5 || parts[0] != "api" || parts[1] != "v1" || parts[3] == "" {
 		return false
 	}

@@ -6,11 +6,15 @@ import (
 
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3interactionaudit"
 )
 
 // Register exposes human-only credential management. Bearer consumption is
 // dispatched separately for exact GET /connectors before the Cookie gate.
 func (s *Service) Register(api *httpapi.Server) {
+	v3interactionaudit.Mark(api, s.DB, "POST /api/v1/api-tokens/{id}/rotate", "v3.api_token.rotate")
+	api.Register("POST /api/v1/api-tokens/{id}/rotate", "viewer", s.rotateHTTP)
+	api.MarkV3Route("POST /api/v1/api-tokens/{id}/rotate", "connectors", "manage")
 	api.Register("POST /api/v1/api-tokens", "viewer", s.issueHTTP)
 	api.MarkV3Route("POST /api/v1/api-tokens", "connectors", "manage")
 	api.Register("GET /api/v1/api-tokens", "viewer", s.listHTTP)
@@ -48,6 +52,8 @@ func tokenError(w http.ResponseWriter, err error) {
 		httpapi.Error(w, http.StatusForbidden, "forbidden", "Token operation denied")
 	case errors.Is(err, store.ErrNotFound):
 		httpapi.Error(w, http.StatusNotFound, "not_found", "Token not found")
+	case errors.Is(err, ErrTokenInactive):
+		httpapi.Error(w, http.StatusConflict, "token_inactive", "Token is expired, revoked or already rotated")
 	case errors.Is(err, ErrTokenLimit):
 		httpapi.Error(w, http.StatusConflict, "token_limit", "Active token limit reached")
 	default:

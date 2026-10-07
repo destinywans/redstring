@@ -19,6 +19,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/searchtext"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3interactionaudit"
 )
 
 type Service struct {
@@ -39,6 +40,7 @@ type tool struct {
 
 type connector struct {
 	ID            string
+	Revision      int64
 	EnvironmentID string
 	Provider      string
 	Name          string
@@ -98,10 +100,16 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.Register("POST /api/v1/connectors/{id}/activate", "admin", s.activate)
 	api.Register("PATCH /api/v1/connectors/{id}", "admin", s.patch)
 	api.Register("POST /api/v1/connectors/{id}/test", "admin", s.test)
+	v3interactionaudit.Mark(api, s.DB, "PUT /api/v1/connectors/{id}/settings", "v3.connector.settings_updated")
+	api.Register("PUT /api/v1/connectors/{id}/settings", "admin", s.settings)
+	v3interactionaudit.Mark(api, s.DB, "POST /api/v1/connectors/{id}/disable", "v3.connector.disabled")
+	api.Register("POST /api/v1/connectors/{id}/disable", "admin", s.disable)
+	v3interactionaudit.Mark(api, s.DB, "POST /api/v1/webhooks", "v3.webhook.registration_unavailable")
+	api.Register("POST /api/v1/webhooks", "admin", s.createWebhook)
 	for _, pattern := range []string{"GET /api/v1/connector-types/{type}", "GET /api/v1/connectors", "GET /api/v1/connectors/{id}", "GET /api/v1/connectors/{id}/tool-settings"} {
 		api.MarkV3Route(pattern, "connectors", "view")
 	}
-	for _, pattern := range []string{"POST /api/v1/connectors", "POST /api/v1/connectors/{id}/activate", "PATCH /api/v1/connectors/{id}", "POST /api/v1/connectors/{id}/test"} {
+	for _, pattern := range []string{"POST /api/v1/connectors", "POST /api/v1/connectors/{id}/activate", "PATCH /api/v1/connectors/{id}", "POST /api/v1/connectors/{id}/test", "PUT /api/v1/connectors/{id}/settings", "POST /api/v1/connectors/{id}/disable", "POST /api/v1/webhooks"} {
 		api.MarkV3Route(pattern, "connectors", "manage")
 	}
 }
@@ -128,7 +136,7 @@ func (s *Service) connectorType(w http.ResponseWriter, r *http.Request) {
 func scanConnector(rows pgx.Row) (connector, error) {
 	var c connector
 	var raw []byte
-	err := rows.Scan(&c.ID, &c.EnvironmentID, &c.Provider, &c.Name, &c.Category, &c.Endpoint, &c.AuthMethod, &c.CredentialRef, &c.Webhook, &c.Enabled, &raw, &c.Status, &c.Checked, &c.LatencyMS, &c.ErrorCode)
+	err := rows.Scan(&c.ID, &c.EnvironmentID, &c.Provider, &c.Name, &c.Category, &c.Endpoint, &c.AuthMethod, &c.CredentialRef, &c.Webhook, &c.Enabled, &raw, &c.Status, &c.Checked, &c.LatencyMS, &c.ErrorCode, &c.Revision)
 	if err != nil {
 		return c, err
 	}
@@ -138,7 +146,7 @@ func scanConnector(rows pgx.Row) (connector, error) {
 	return c, nil
 }
 
-const columns = "id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,webhook_requested,enabled,tools,status,last_checked_at,last_latency_ms,last_error_code"
+const columns = "id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,webhook_requested,enabled,tools,status,last_checked_at,last_latency_ms,last_error_code,revision"
 
 // A connection test is a point-in-time probe, not ongoing health monitoring.
 // The list only calls it current for this short window; older results retain
@@ -468,6 +476,17 @@ func (s *Service) connectorServices(ctx context.Context, c connector, user core.
 	}
 	defer tx.Rollback(ctx)
 
+	services, err := s.connectorServicesTx(ctx, tx, c, user)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return services, nil
+}
+
+func (s *Service) connectorServicesTx(ctx context.Context, tx pgx.Tx, c connector, user core.User) ([]string, error) {
 	services := []string{}
 	afterID := ""
 	for {
@@ -515,9 +534,6 @@ func (s *Service) connectorServices(ctx context.Context, c connector, user core.
 		}
 		afterID = batch[len(batch)-1].id
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
 	return services, nil
 }
 
@@ -556,12 +572,17 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector service bindings are unavailable")
 		return
 	}
-	lang := r.Header.Get("Accept-Language")
+	httpapi.WriteJSON(w, 200, s.detailProjection(c, services, r.Header.Get("Accept-Language")))
+}
+
+func (s *Service) detailProjection(c connector, services []string, lang string) map[string]any {
 	result := s.connectorSummary(c, lang, time.Now())
 	checked := localized(lang, "尚未检查", "Never checked")
 	if c.Checked != nil {
 		checked = c.Checked.UTC().Format(time.RFC3339)
 	}
+	result["revision"] = c.Revision
+	result["enabled"] = s.effectiveConnector(c).Enabled
 	result["scope"] = c.EnvironmentID
 	result["address"] = c.Endpoint
 	if c.AuthMethod == "none" {
@@ -584,7 +605,7 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 	// Connector-backed Agent execution is not wired. Keep registration
 	// preferences in storage, but expose no executable tools in this DTO.
 	result["tools"] = []tool{}
-	httpapi.WriteJSON(w, 200, result)
+	return result
 }
 
 // toolSettings reads the stored connector tool switches separately from the
@@ -887,7 +908,7 @@ func (s *Service) test(w http.ResponseWriter, r *http.Request) {
 	if !s.authorizeLockedWriteTx(w, r, tx, c.EnvironmentID) {
 		return
 	}
-	if !current.Enabled || current.Provider != c.Provider || current.Name != c.Name ||
+	if !current.Enabled || current.Revision != c.Revision || current.Provider != c.Provider || current.Name != c.Name ||
 		current.Category != c.Category || current.Endpoint != c.Endpoint ||
 		current.AuthMethod != c.AuthMethod || current.CredentialRef != c.CredentialRef ||
 		current.Webhook != c.Webhook || !reflect.DeepEqual(current.Tools, c.Tools) {

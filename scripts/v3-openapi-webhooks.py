@@ -41,3 +41,7 @@ P['/webhooks/alertmanager/{source}']['post']['responses']['202']['content']['app
     'accepted': integer(),
     'notification_delivery': {'type': 'string', 'enum': ['not_configured', 'not_connected']},
 }, ['accepted', 'notification_delivery'])
+v3_route('post','/webhooks','Request an inbound Webhook registration',
+    role='human connectors.manage',body=obj({'name':string(maxLength=1000),'type':string(enum=['change','alert','incident']),'verify':string(enum=['hmac','token'])},['name','type','verify']),
+    response=obj({'id':string(),'url':string(),'secret_shown_once':string()},['id','url','secret_shown_once']),status=201,
+    desc='Currently fail-closed with 503 webhook_registration_unavailable after authorized failure audit. The request cannot identify an exact application/environment/source binding and the live ingress consumes deployment-owned static Push sources. No URL, secret or unconsumable registration is minted. Dynamic admission and verified ingress consumption must be implemented before 201 is available.')

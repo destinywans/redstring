@@ -79,3 +79,12 @@ S['V3ModelAdminView'] = obj({
 v3_route('get','/models/admin','Read environment-bound model administration view',
     response=ref('V3ModelAdminView'),
     desc='Requires one selected environment and current models.view authorization. Returns 503 until a server-side exact environment/model binding and the operator-enabled V3 read-tool allowlist are injected into the same V3 selection runtime. Model metadata comes from the configured inference runtime; historical use comes from persisted conversation, canvas, and Agent run records. tools reflects the injected read-tool allowlist, not a proven remote function call. A local metadata observation is point-in-time evidence only: provider and item status remain unverified, and no generation, streaming, vision, token cost, active Agent assignment, model-specific role rule, or API fallback is inferred. The frontend ModelInfo API enum cannot represent native Ollama, which returns 503 instead of a false protocol label. The detail object describes the configured default model for the selected environment.')
+# WAN-246 interaction configuration writes.
+S['V3ConnectorDetail']['properties'].update({'revision':integer(minimum=1),'enabled':v3_bool()})
+S['V3ConnectorDetail']['required'] += ['revision','enabled']
+v3_route('put','/connectors/{id}/settings','Update connector address with revision CAS',role='human connectors.manage',
+    body=obj({'expected_revision':integer(minimum=1),'address':string(),'scope':string()},['expected_revision','address','scope']),response=ref('V3ConnectorDetail'),
+    desc='scope must equal the persisted environment ID. An address change invalidates probe evidence, disables connector/tools and retains the Vault reference; the changed endpoint requires a new exact deployment-owned credential binding and activate. All connector updates advance revision. Stale revisions return 409. No provider is called by this write.')
+v3_route('post','/connectors/{id}/disable','Disable a connector registration',role='human connectors.manage',
+    body=obj({'reason':string(maxLength=1000)}),response=ref('V3ConnectorDetail'),
+    desc='Disables the connector and all stored tool switches, clears probe evidence and preserves credential reference. One selected environment, current human session and management grant; state and redacted audit commit atomically. activate restores only after exact binding/probe validation.')

@@ -30442,6 +30442,261 @@
         ]
       }
     },
+    "/connectors/{id}/settings": {
+      "put": {
+        "summary": "Update connector address with revision CAS",
+        "operationId": "put_connectors_id_settings",
+        "description": "Minimum role: human connectors.manage. V3 instance and environment scope apply. scope must equal the persisted environment ID. An address change invalidates probe evidence, disables connector/tools and retains the Vault reference; the changed endpoint requires a new exact deployment-owned credential binding and activate. All connector updates advance revision. Stale revisions return 409. No provider is called by this write.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ConnectorDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "connectors"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "address": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_revision",
+                  "address",
+                  "scope"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/connectors/{id}/disable": {
+      "post": {
+        "summary": "Disable a connector registration",
+        "operationId": "post_connectors_id_disable",
+        "description": "Minimum role: human connectors.manage. V3 instance and environment scope apply. Disables the connector and all stored tool switches, clears probe evidence and preserves credential reference. One selected environment, current human session and management grant; state and redacted audit commit atomically. activate restores only after exact binding/probe validation.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ConnectorDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "connectors"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 1000
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
     "/coverage": {
       "get": {
         "summary": "Read scoped service configuration and coverage evidence",
@@ -33163,6 +33418,271 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      }
+    },
+    "/mcp-servers/{id}/disable": {
+      "post": {
+        "summary": "Disable a registered MCP server",
+        "operationId": "post_mcp_servers_id_disable",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a current human application/team-scoped connector manager and selected environment. Keeps registration transport/configuration, advances registration version when enabled and revokes every effective tool switch in the same audited transaction. Disabled records cannot discover, review or enable tools; historical review hashes cannot authorize the new version.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "const": false
+                    },
+                    "registration_version": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "environment_id": {
+                      "type": "string"
+                    },
+                    "execution_available": {
+                      "const": false
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "enabled",
+                    "registration_version",
+                    "environment_id",
+                    "execution_available"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "mcp-servers"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "maxLength": 1000
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp-servers/{id}/review-dismiss": {
+      "post": {
+        "summary": "Dismiss the exact current discovery candidate",
+        "operationId": "post_mcp_servers_id_review_dismiss",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. candidate_version is the opaque snapshot ID returned by detail/review-candidate. CAS against the latest discovery in the exact current registration/binding; stale candidates return 409. Stores a separate acknowledgement and audit, never a review or tool grant; newly discovered tools remain disabled. Same snapshot stops being offered in detail, while later discoveries can be offered again.",
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "mcp-servers"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "candidate_version": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "candidate_version"
+                ]
+              }
+            }
+          }
+        }
       }
     },
     "/inbox": {
@@ -54534,6 +55054,155 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "post": {
+        "summary": "Request an inbound Webhook registration",
+        "operationId": "post_webhooks",
+        "description": "Minimum role: human connectors.manage. V3 instance and environment scope apply. Currently fail-closed with 503 webhook_registration_unavailable after authorized failure audit. The request cannot identify an exact application/environment/source binding and the live ingress consumes deployment-owned static Push sources. No URL, secret or unconsumable registration is minted. Dynamic admission and verified ingress consumption must be implemented before 201 is available.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    },
+                    "secret_shown_once": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "url",
+                    "secret_shown_once"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "webhooks"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 1000
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "change",
+                      "alert",
+                      "incident"
+                    ]
+                  },
+                  "verify": {
+                    "type": "string",
+                    "enum": [
+                      "hmac",
+                      "token"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "type",
+                  "verify"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
       }
     },
     "/api-tokens": {
@@ -54746,6 +55415,129 @@
         "responses": {
           "204": {
             "description": "Success"
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "api-tokens"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/api-tokens/{id}/rotate": {
+      "post": {
+        "summary": "Rotate an owned environment API token",
+        "operationId": "post_api_tokens_id_rotate",
+        "description": "Minimum role: human with scoped connectors.manage. V3 instance and environment scope apply. Current human session, ownership, selected environment and current read/management grants required. The successor has the original token lifespan and scopes; only its SHA-256 digest is saved. The old credential expires at the earlier of its original expiry and 24 hours from rotation, never extending a short-lived token. Concurrent/repeated rotation of the same token returns 409. Active-token cap applies to overlap. Success, old expiry and audit share one transaction; no-store one-time secret response.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "secret_shown_once": {
+                      "type": "string"
+                    },
+                    "old_expires_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "secret_shown_once",
+                    "old_expires_at"
+                  ]
+                }
+              }
+            }
           },
           "401": {
             "description": "Authentication required",
@@ -65329,6 +66121,13 @@
               },
               "additionalProperties": false
             }
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "enabled": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
@@ -65347,7 +66146,9 @@
           "checked",
           "services",
           "queries",
-          "tools"
+          "tools",
+          "revision",
+          "enabled"
         ]
       },
       "V3RegisteredConnectorTool": {
@@ -67489,6 +68290,10 @@
           },
           "execution_available": {
             "const": false
+          },
+          "candidate_version": {
+            "type": "string",
+            "description": "Opaque exact discovery snapshot ID; submit unchanged for dismissal."
           }
         },
         "additionalProperties": false,
@@ -67506,7 +68311,8 @@
           "trust",
           "reviewed",
           "health_verified",
-          "execution_available"
+          "execution_available",
+          "candidate_version"
         ]
       },
       "V3McpToolReviewDecision": {
@@ -67831,6 +68637,9 @@
               "pending"
             ]
           },
+          "enabled": {
+            "type": "boolean"
+          },
           "owner_team_id": {
             "anyOf": [
               {
@@ -67885,6 +68694,7 @@
           "status",
           "owner_team_id",
           "registration_version",
+          "enabled",
           "credential",
           "connection",
           "discovery",
@@ -68158,6 +68968,9 @@
               "pending"
             ]
           },
+          "enabled": {
+            "type": "boolean"
+          },
           "owner_team_id": {
             "anyOf": [
               {
@@ -68294,7 +69107,36 @@
             "type": "null"
           },
           "review_candidate": {
-            "type": "null"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "candidate_version": {
+                    "type": "string"
+                  },
+                  "snapshot_id": {
+                    "type": "string"
+                  },
+                  "registration_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "tools_hash": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "candidate_version",
+                  "snapshot_id",
+                  "registration_version",
+                  "tools_hash"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "trust_info": {
             "$ref": "#/components/schemas/V3McpTrustInfoDomain"
@@ -68326,6 +69168,7 @@
           "status",
           "owner_team_id",
           "registration_version",
+          "enabled",
           "credential",
           "connection",
           "discovery",

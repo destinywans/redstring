@@ -43,6 +43,7 @@ type Server struct {
 	v3Environment            http.Handler
 	v3Policy                 V3PolicyFunc
 	v3Routes                 map[string]V3RoutePermission
+	v3FailureAuditors        map[string]func(http.HandlerFunc) http.HandlerFunc
 }
 
 func New(s store.Repository, r inference.Runner, v3Mode ...bool) *Server {
@@ -138,6 +139,33 @@ func (s *Server) Register(pattern, minRole string, h http.HandlerFunc) {
 	})
 }
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Run opted-in write auditing outside both environment and module gates.
+	// Authentication is repeated inside the ordinary gates and before audit
+	// commit, so a revoked session cannot authorize either mutation or audit.
+	_, pattern := s.mux.Handler(r)
+	if decorate := s.v3FailureAuditors[pattern]; decorate != nil {
+		if cookie, err := r.Cookie("aiops_session"); err == nil {
+			if user, err := s.Store.Session(r.Context(), cookie.Value); err == nil && user.ID != "" && !user.Disabled {
+				ctx := store.WithPrincipal(context.WithValue(r.Context(), userKey{}, user), user)
+				ctx = context.WithValue(ctx, v3AuditWitnessKey{}, &v3AuditWitness{})
+				decorate(s.serveHTTP)(w, r.WithContext(ctx))
+				return
+			}
+		}
+	}
+	s.serveHTTP(w, r)
+}
+
+// MarkV3FailureAudit is configured alongside an authenticated write route,
+// before serving requests. The decorator never receives anonymous requests.
+func (s *Server) MarkV3FailureAudit(pattern string, decorate func(http.HandlerFunc) http.HandlerFunc) {
+	if s.v3FailureAuditors == nil {
+		s.v3FailureAuditors = make(map[string]func(http.HandlerFunc) http.HandlerFunc)
+	}
+	s.v3FailureAuditors[pattern] = decorate
+}
+
+func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != "GET" && r.Method != "HEAD" && r.Method != "OPTIONS" {

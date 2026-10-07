@@ -19,6 +19,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3interactionaudit"
 )
 
 type Access interface {
@@ -48,6 +49,8 @@ func (s *Service) Register(api *httpapi.Server) {
 		action  string
 	}{
 		{"POST /api/v1/mcp-servers", s.createRegistration, "manage"},
+		{"POST /api/v1/mcp-servers/{id}/disable", s.disable, "manage"},
+		{"POST /api/v1/mcp-servers/{id}/review-dismiss", s.reviewDismiss, "manage"},
 		{"GET /api/v1/mcp-servers", s.list, "view"},
 		{"GET /api/v1/mcp-servers/{id}", s.detail, "view"},
 		{"PATCH /api/v1/mcp-servers/{id}/tools/{name}", s.toolChange, "manage"},
@@ -59,6 +62,9 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"PUT /api/v1/mcp-servers/{id}/environment-binding", s.bindEnvironment, "manage"},
 		{"DELETE /api/v1/mcp-servers/{id}/environment-binding", s.unbindEnvironment, "manage"},
 	} {
+		if action := map[string]string{"POST /api/v1/mcp-servers/{id}/disable": "v3.mcp.disabled", "POST /api/v1/mcp-servers/{id}/review-dismiss": "v3.mcp.review_dismissed"}[route.pattern]; action != "" {
+			v3interactionaudit.Mark(api, s.DB, route.pattern, action)
+		}
 		api.Register(route.pattern, "viewer", route.handler)
 		api.MarkV3ObjectRoute(route.pattern, "connectors", route.action)
 	}

@@ -15,6 +15,7 @@ type mcpObservation struct {
 	snapshot           reviewSnapshot
 	tools              []observedTool
 	resources, prompts any
+	dismissed          bool
 	reviewed           bool
 	allowed, enabled   int
 }
@@ -55,6 +56,9 @@ func loadMCPObservation(ctx context.Context, tx pgx.Tx, v registration) (*mcpObs
  AND environment_id=$5 AND registration_version=$6 AND registration_hash=$7 AND tools_hash=$8)`,
 		snap.id, v.ID, v.BindingInstanceID, v.ApplicationID, v.EnvironmentID, v.Version, digestBytes(v.raw), snap.toolsHash).Scan(&obs.reviewed)
 	if err != nil {
+		return nil, err
+	}
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_mcp_review_dismissals WHERE snapshot_id=$1)`, snap.id).Scan(&obs.dismissed); err != nil {
 		return nil, err
 	}
 	if obs.reviewed {
@@ -107,6 +111,7 @@ func observedCount(state string, items any, tools []observedTool) any {
 }
 
 func decorateMCPSummary(result map[string]any, v registration, obs *mcpObservation, lang string) {
+	result["enabled"] = v.Record.Enabled
 	result["application_id"] = v.ApplicationID
 	result["environment_id"] = v.EnvironmentID
 	result["binding_instance_id"] = v.BindingInstanceID
@@ -164,6 +169,9 @@ func decorateMCPDetail(result map[string]any, obs *mcpObservation, lang string, 
 		return
 	}
 	snap := obs.snapshot
+	if !obs.reviewed && !obs.dismissed {
+		result["review_candidate"] = map[string]any{"candidate_version": snap.id, "snapshot_id": snap.id, "registration_version": snap.registrationVersion, "tools_hash": snap.toolsHash}
+	}
 	result["version"] = snap.serverVersion
 	result["counts"] = map[string]any{
 		"tools":     observedCount(snap.toolsState, nil, obs.tools),

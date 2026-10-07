@@ -292,6 +292,19 @@ func TestMCPMainRoutesRealCatalogReviewAndToggleIsolated(t *testing.T) {
 		t.Fatalf("candidate: %d %s", candidateResponse.Code, candidateResponse.Body.String())
 	}
 	candidate := decode(candidateResponse)
+	if w := call("POST", base+"/review-dismiss", map[string]any{"candidate_version": "stale"}); w.Code != 409 {
+		t.Fatalf("stale dismiss %d %s", w.Code, w.Body.String())
+	}
+	if w := call("POST", base+"/review-dismiss", map[string]any{"candidate_version": candidate["candidate_version"]}); w.Code != 204 {
+		t.Fatalf("dismiss %d %s", w.Code, w.Body.String())
+	}
+	if count(`SELECT count(*) FROM v3_mcp_tool_reviews`) != 0 || count(`SELECT count(*) FROM v3_mcp_tool_review_decisions`) != 0 {
+		t.Fatal("dismissal granted tools")
+	}
+	if w := call("GET", base, nil); w.Code != 200 || decode(w)["review_candidate"] != nil {
+		t.Fatalf("dismissed candidate still offered %d %s", w.Code, w.Body.String())
+	}
+
 	tools, ok := candidate["tools"].([]any)
 	if !ok || len(tools) != 2 {
 		t.Fatalf("candidate tools: %s", candidateResponse.Body.String())
@@ -361,6 +374,45 @@ func TestMCPMainRoutesRealCatalogReviewAndToggleIsolated(t *testing.T) {
 	if object(state["review"])["reviewed"] != true || object(state["review"])["enabled_count"] != float64(1) ||
 		state["calls"] != nil || object(state["counts"])["resources"] != float64(1) {
 		t.Fatalf("reviewed detail inconsistent: %s", final.Body.String())
+	}
+
+	// A later discovery must not inherit an earlier acknowledgement or grants.
+	if w := call("POST", base+"/discover", nil); w.Code != 200 {
+		t.Fatalf("rediscovery %d %s", w.Code, w.Body.String())
+	}
+	if w := call("GET", base, nil); w.Code != 200 || decode(w)["review_candidate"] == nil || object(decode(w)["review"])["reviewed"] != false {
+		t.Fatalf("new candidate hidden or granted %d %s", w.Code, w.Body.String())
+	}
+	if w := call("POST", base+"/review-dismiss", map[string]any{"candidate_version": candidate["candidate_version"]}); w.Code != 409 {
+		t.Fatalf("old candidate dismissal accepted %d %s", w.Code, w.Body.String())
+	}
+	// A failed disable audit must preserve enabled registration and tool state.
+	if _, err := db.Exec(ctx, `CREATE FUNCTION reject_mcp_disable_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='v3.mcp.disabled' THEN RAISE EXCEPTION 'audit fixture'; END IF;RETURN NEW;END $$;CREATE TRIGGER reject_mcp_disable_audit BEFORE INSERT ON management_audit FOR EACH ROW EXECUTE FUNCTION reject_mcp_disable_audit()`); err != nil {
+		t.Fatal(err)
+	}
+	if w := call("POST", base+"/disable", map[string]any{}); w.Code != 503 {
+		t.Fatalf("disable without audit %d %s", w.Code, w.Body.String())
+	}
+	if count(`SELECT count(*) FROM v3_mcp_tool_review_decisions WHERE enabled`) != 1 {
+		t.Fatal("audit failure revoked switches")
+	}
+	if _, err := db.Exec(ctx, `DROP TRIGGER reject_mcp_disable_audit ON management_audit`); err != nil {
+		t.Fatal(err)
+	}
+	if w := call("POST", base+"/disable", map[string]any{"reason": "operator pause"}); w.Code != 200 {
+		t.Fatalf("disable %d %s", w.Code, w.Body.String())
+	}
+	if count(`SELECT count(*) FROM v3_mcp_tool_review_decisions WHERE enabled`) != 0 {
+		t.Fatal("disable kept tool grant")
+	}
+	if w := call("POST", base+"/discover", nil); w.Code != 409 {
+		t.Fatalf("disabled discovery %d %s", w.Code, w.Body.String())
+	}
+	if w := call("PATCH", base+"/tools/read_app", change); w.Code != 409 {
+		t.Fatalf("disabled tool enabled %d %s", w.Code, w.Body.String())
+	}
+	if w := call("GET", base, nil); w.Code != 200 || decode(w)["enabled"] != false || decode(w)["tools"] != nil {
+		t.Fatalf("disable detail %d %s", w.Code, w.Body.String())
 	}
 	if _, err = db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='connectors' AND action='manage'`); err != nil {
 		t.Fatal(err)

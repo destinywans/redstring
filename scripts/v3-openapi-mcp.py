@@ -99,3 +99,12 @@ v3_route('put','/mcp-servers/{id}/environment-binding','Explicitly bind a regist
 v3_route('delete','/mcp-servers/{id}/environment-binding','Unbind a registered MCP server from the selected environment',
     response=ref('V3McpEnvironmentBinding'),
     desc='Ancillary V3 operation. Uses exactly one selected X-AIOps-Environment and connectors.manage on the registered application. Idempotent and audited when changed.')
+S['V3McpReviewCandidate']['properties']['candidate_version']=string(description='Opaque exact discovery snapshot ID; submit unchanged for dismissal.')
+S['V3McpReviewCandidate']['required'].append('candidate_version')
+v3_route('post','/mcp-servers/{id}/disable','Disable a registered MCP server',
+    body=obj({'reason':string(maxLength=1000)}),
+    response=obj({'id':string(),'enabled':{'const':False},'registration_version':integer(minimum=1),'environment_id':string(),'execution_available':{'const':False}},['id','enabled','registration_version','environment_id','execution_available']),
+    desc='Requires a current human application/team-scoped connector manager and selected environment. Keeps registration transport/configuration, advances registration version when enabled and revokes every effective tool switch in the same audited transaction. Disabled records cannot discover, review or enable tools; historical review hashes cannot authorize the new version.')
+v3_route('post','/mcp-servers/{id}/review-dismiss','Dismiss the exact current discovery candidate',
+    body=obj({'candidate_version':string()},['candidate_version']),status=204,
+    desc='candidate_version is the opaque snapshot ID returned by detail/review-candidate. CAS against the latest discovery in the exact current registration/binding; stale candidates return 409. Stores a separate acknowledgement and audit, never a review or tool grant; newly discovered tools remain disabled. Same snapshot stops being offered in detail, while later discoveries can be offered again.')

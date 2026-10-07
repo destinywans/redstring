@@ -83,8 +83,12 @@ func (out *discoveryRegistration) validateDiscoveryRegistration() error {
 	var origin struct {
 		RegistrationSource string `json:"registration_source"`
 	}
-	if json.Unmarshal(out.raw, &origin) != nil || (origin.RegistrationSource != "" && origin.RegistrationSource != "v3") ||
-		out.validateRecord() != nil || !validMCPRegistration(out.Record, origin.RegistrationSource == "") || out.version != out.Record.Version {
+	if json.Unmarshal(out.raw, &origin) != nil || (origin.RegistrationSource != "" && origin.RegistrationSource != "v3") || out.validateRecord() != nil {
+		return errInconsistentDiscoveryRegistration
+	}
+	shape := out.Record
+	shape.Enabled = true // Disabled is a valid preserved registration state.
+	if !validMCPRegistration(shape, origin.RegistrationSource == "") || out.version != out.Record.Version {
 		return errInconsistentDiscoveryRegistration
 	}
 	return nil
@@ -260,6 +264,11 @@ func (s *Service) discover(w http.ResponseWriter, r *http.Request) {
 	if err = before.validateDiscoveryRegistration(); err != nil {
 		_ = preTx.Rollback(ctx)
 		httpapi.Error(w, http.StatusServiceUnavailable, "mcp_unavailable", "MCP registration is inconsistent")
+		return
+	}
+	if !before.Record.Enabled {
+		_ = preTx.Rollback(ctx)
+		httpapi.Error(w, 409, "mcp_disabled", "MCP registration is disabled")
 		return
 	}
 	if !s.registrationEndpointAllowed(ctx, before.registration) {

@@ -65,6 +65,8 @@ def contract_operations() -> list[tuple[str, str, str, str]]:
             raise ValueError(f"duplicate contract operation: {key}")
         seen.add(key)
         status = line.rsplit("|", 2)[1].strip()
+        if status.startswith("v1.1·"):
+            continue  # Page interaction rows keep a separate count from the frozen v1.
         operations.append((section, method, path, status))
     if len(operations) != 166:
         raise ValueError(f"expected 166 V3 operations including SSE, found {len(operations)}")

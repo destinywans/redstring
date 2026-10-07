@@ -35,6 +35,7 @@ S['V3McpSummaryDomain'] = obj({
     'trust':obj({'label':string(),'tone':string()},['label','tone']),
     'apps':arr(obj({'label':string(),'tone':string()})),
     'status':string(enum=['pending']),
+    'enabled':v3_bool(),
     'owner_team_id':mcp_nullable(string()),
     'registration_version':integer(minimum=1),
     'credential':ref('V3McpCredentialDomain'),
@@ -44,7 +45,7 @@ S['V3McpSummaryDomain'] = obj({
     'call_metrics':{'type':'null'}},
     ['id','brand','name','desc','transport','caps','last','application_id',
      'environment_id','binding_instance_id','trust','apps','status','owner_team_id',
-     'registration_version','credential','connection','discovery','review','call_metrics'])
+     'registration_version','enabled','credential','connection','discovery','review','call_metrics'])
 S['V3McpKpiDomain'] = obj({
     **fieldnames('id label sub'),
     'value':mcp_nullable(string()), 'series':arr(v3_num())},
@@ -79,7 +80,7 @@ S['V3McpDetailDomain'] = obj({
     'resources':mcp_nullable(arr(ref('V3McpResourceDomain'))),
     'prompts':mcp_nullable(arr(ref('V3McpPromptDomain'))),
     'calls':{'type':'null'},
-    'review_candidate':{'type':'null'},
+    'review_candidate':mcp_nullable(obj({'candidate_version':string(),'snapshot_id':string(),'registration_version':integer(minimum=1),'tools_hash':string()},['candidate_version','snapshot_id','registration_version','tools_hash'])),
     'trust_info':ref('V3McpTrustInfoDomain'),
     'complete_v3_dto':{'const':False},
     'unavailable_fields':arr(string())},

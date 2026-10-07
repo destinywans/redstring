@@ -92,6 +92,6 @@ func (s *Server) authorizeV3Route(w http.ResponseWriter, r *http.Request, user c
 		return nil, false
 	}
 	scope.EnvironmentIDs = allowed
-	r = r.WithContext(context.WithValue(r.Context(), v3EnvironmentContextKey{}, scope))
+	r = withV3EnvironmentScope(r, scope)
 	return r, true
 }

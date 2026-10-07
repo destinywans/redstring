@@ -265,7 +265,7 @@ func (s *Service) activate(w http.ResponseWriter, r *http.Request) {
 }
 
 func sameGitLabActivationSnapshot(current connector, currentTargets []activationTarget, initial connector, initialTargets []activationTarget) bool {
-	return !current.Enabled && current.Provider == initial.Provider && current.Name == initial.Name &&
+	return !current.Enabled && current.Revision == initial.Revision && current.Provider == initial.Provider && current.Name == initial.Name &&
 		current.Category == initial.Category && current.Endpoint == initial.Endpoint &&
 		current.AuthMethod == initial.AuthMethod && current.CredentialRef == initial.CredentialRef &&
 		current.Webhook == initial.Webhook && reflect.DeepEqual(current.Tools, initial.Tools) &&

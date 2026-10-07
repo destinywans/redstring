@@ -96,3 +96,6 @@ P['/connectors']['get']['description'] += (
     'a live human owner and current environment grant. Token verification and '
     'the environment-owned connector list run in one bounded database transaction. '
     'No other V3 read or write route accepts this token.')
+v3_route('post','/api-tokens/{id}/rotate','Rotate an owned environment API token',role='human with scoped connectors.manage',
+    response=obj({'id':string(),'secret_shown_once':string(),'old_expires_at':string(format='date-time')},['id','secret_shown_once','old_expires_at']),
+    desc='Current human session, ownership, selected environment and current read/management grants required. The successor has the original token lifespan and scopes; only its SHA-256 digest is saved. The old credential expires at the earlier of its original expiry and 24 hours from rotation, never extending a short-lived token. Concurrent/repeated rotation of the same token returns 409. Active-token cap applies to overlap. Success, old expiry and audit share one transaction; no-store one-time secret response.')

@@ -222,6 +222,7 @@ func (s *Service) Guardrails(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, map[string]any{"policies": policies, "trend": trend,
 		"trend_days": trendDays, "events": events, "counts": counts, "detail": detail,
 		"aggregation_basis": "reported_events", "coverage": "unknown", "partial": true,
+		"manual_execution_connected": s.ExecutionRuntime() != nil, "execution_scope": "governed_manual_runs",
 		"truncated": len(allEvents) > 200 || len(allPolicies) > 200,
 		"missing": []string{"runtime_producer_coverage", "legacy_decision_time",
 			"full_source_content", "masked_payload", "verdict"}})
@@ -336,7 +337,8 @@ func (s *Service) Guardrail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"id": p.ID, "enabled": *body.Enabled,
-		"revision": nextRevision, "runtime_status": "unconnected"})
+		"revision": nextRevision, "runtime_status": s.executionGuardRuntimeStatus(),
+		"manual_execution_connected": s.ExecutionRuntime() != nil, "execution_scope": "governed_manual_runs"})
 }
 
 // RegisterGuardPolicy imports reviewed policy metadata. Forced policies are

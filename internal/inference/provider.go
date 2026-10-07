@@ -227,7 +227,7 @@ func (p *providerModel) request(req *model.LLMRequest) (any, string, error) {
 				msgs = append(msgs, map[string]any{"role": role, "content": blocks})
 			}
 		}
-		b := map[string]any{"model": p.provider.Model, "max_tokens": 4096, "stream": true, "messages": msgs, "system": system}
+		b := map[string]any{"model": p.provider.Model, "max_tokens": p.outputTokenLimit(), "stream": true, "messages": msgs, "system": system}
 		if p.reasoning != "" {
 			if p.provider.ReasoningKind != "claude_adaptive" {
 				return nil, "", ErrUnsupportedReasoning

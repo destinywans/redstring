@@ -1,5 +1,8 @@
 # 项目文档
 
+- [记忆、评测与 Agent 执行交付](releases/2026-10-07-runtime-production.md)、[实施范围与取舍](plans/2026-10-07-runtime-production.md)：WAN-240～242。
+- [记忆生产](api/v3-memory-production.md)、[双版本评测执行](api/v3-evaluation-execution.md)、[Agent 执行治理](api/v3-agent-execution.md)。
+
 - [V3 正常使用入口交付](releases/2026-10-07-v3-entrypoints.md)：WAN-237～239，成员授权、MCP 登记、调查与知识工具接线及验证边界。
 - [V3 成员授权](api/v3-member-access.md)、[MCP 首次登记](api/v3-mcp-registration.md)、[调查与知识取证工具](api/v3-investigation-evidence-tools.md)。
 

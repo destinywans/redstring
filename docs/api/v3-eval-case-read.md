@@ -1,5 +1,7 @@
 # V3 evaluation case read and human label
 
+2026-10-07 更新：正式 `POST /eval-cases` 现在可登记人类输入；[双版本评测执行](v3-evaluation-execution.md)成功时生产此处的不可变快照。下述引用登记、可信进程内来源和历史静态验证边界仍用于旧记录；新链的隔离验证见[交付记录](../releases/2026-10-07-runtime-production.md)。
+
 `GET /api/v1/eval-cases/{id}` reads a registered case and its latest immutable trusted evaluator snapshot. `POST /api/v1/eval-cases/{id}/labels` records a human label for that exact snapshot. The source of the full page is `RecordEvalCaseSnapshot`, an in-process trusted evaluator API; this service does not run a model or create a score from a case registration.
 
 ## Evidence and complete response
@@ -12,4 +14,4 @@ Reads lock the case, Agent, active application/environment, session, and current
 
 The POST contract remains `{ "next": "correct|incorrect|partial|unsure", "note": "optional" }` with `{ "next": "<submitted label>", "id": "<label id>" }`. The frozen `EvalCasePage` currently sends `{cause,evidence,safe,clarity,note,regress}` and interprets `next` as another case ID; this mismatch requires a separate product contract decision and is not silently mapped. The stored label is not an automatic evaluation result or a regression-set assignment.
 
-The in-process producer is ready for a configured evaluator, but no evaluator or external dataset is connected in this change. That producer must redact secrets and private source content from the stored alert, evidence, and model output before submitting a snapshot; the local structural validator does not perform redaction. Migration execution, real evaluator input, authorization races, and browser behavior remain unverified because this batch requested static checks only.
+The original in-process producer remains available for trusted external integrations. The current registered execution path produces bounded single-case snapshots as described above; no external dataset is connected. That producer must redact secrets and private source content from the stored alert, evidence, and model output before submitting a snapshot; the local structural validator does not perform redaction. The original batch covered static checks only. Current isolated migration, HTTP and execution evidence is recorded in the linked 2026-10-07 release note; external datasets and browser behavior remain unverified.

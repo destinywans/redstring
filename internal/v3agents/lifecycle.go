@@ -17,8 +17,8 @@ import (
 // own producer contracts are being completed.
 const unknown = "未接入"
 
-// Lifecycle state is persisted release configuration. There is no traffic
-// router or usage producer attached to this service.
+// Lifecycle state is consumed by the bounded governed manual-run entry point.
+// Aggregate and external runtime traffic remain separately unverified.
 type lifecycleAgent struct {
 	agent
 	Revision int64
@@ -209,7 +209,11 @@ func (s *Service) Lifecycle(w http.ResponseWriter, r *http.Request) {
 		if len(agents) == 200 {
 			break
 		}
-		agents = append(agents, summary(a))
+		item := summary(a)
+		item["routing_connected"] = s.ExecutionRuntime() != nil
+		item["manual_execution_connected"] = s.ExecutionRuntime() != nil
+		item["execution_scope"] = "governed_manual_runs"
+		agents = append(agents, item)
 	}
 	if err = lifecycleSession(r.Context(), tx, r); err != nil {
 		lifecycleAuthorityError(w, err)
@@ -273,7 +277,7 @@ func (s *Service) AgentDetail(w http.ResponseWriter, r *http.Request) {
 			configuredTraffic = percent(a.Percent)
 		}
 		versions = append(versions, map[string]any{"version": v, "status": status,
-			"traffic": nil, "configured_traffic": configuredTraffic, "routing_connected": false,
+			"traffic": nil, "configured_traffic": configuredTraffic, "routing_connected": s.ExecutionRuntime() != nil,
 			"score": nil, "success": nil, "tokens": nil, "created": timeString(created)})
 	}
 	err = rows.Err()
@@ -283,6 +287,9 @@ func (s *Service) AgentDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := summary(a)
+	out["routing_connected"] = s.ExecutionRuntime() != nil
+	out["manual_execution_connected"] = s.ExecutionRuntime() != nil
+	out["execution_scope"] = "governed_manual_runs"
 	out["owner"] = a.Owner
 	out["account"] = nil
 	out["summary"] = a.Summary
@@ -290,7 +297,7 @@ func (s *Service) AgentDetail(w http.ResponseWriter, r *http.Request) {
 	out["truncated"] = truncated
 	out["release"] = map[string]any{"from": a.Stable, "to": a.Canary, "current": nil,
 		"target": a.Percent, "configured_canary_percent": a.Percent, "observed_traffic": nil,
-		"routing_connected": false, "gates": nil, "tokens": nil,
+		"routing_connected": s.ExecutionRuntime() != nil, "gates": nil, "tokens": nil,
 		"missing": []string{"observed_traffic", "eval_gate_detail", "token_comparison"}}
 	out["diff"] = nil
 	out["config"] = nil
@@ -471,6 +478,16 @@ func (s *Service) Rollout(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
+	if gateStatus == "passed" {
+		approved, e := executionGateApproved(r.Context(), tx, a.agent, body.To, gateID, s.ExecutionRuntime() != nil)
+		if e != nil {
+			unavailable(w)
+			return
+		}
+		if !approved {
+			gateStatus = "unverified"
+		}
+	}
 	if gateStatus != "passed" && !body.Override {
 		httpapi.Error(w, 409, "eval_gate_unverified", "A persisted passing evaluation is required")
 		return
@@ -502,7 +519,7 @@ func (s *Service) Rollout(w http.ResponseWriter, r *http.Request) {
 			map[string]any{"environment_id": a.Env, "from": from, "to": body.To,
 				"percent": body.Percent, "gate_experiment_id": gateID, "override": body.Override,
 				"revision_from": a.Revision, "revision_to": a.Revision + 1,
-				"release_effect": "configuration_saved_pending_activation"})
+				"release_effect": s.executionReleaseEffect()})
 	}
 	if err != nil {
 		unavailable(w)
@@ -513,8 +530,8 @@ func (s *Service) Rollout(w http.ResponseWriter, r *http.Request) {
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"id": id, "to": body.To,
 		"configured_percent": body.Percent, "revision": a.Revision + 1,
-		"observed_traffic": nil, "routing_connected": false,
-		"release_effect":     "configuration_saved_pending_activation",
+		"observed_traffic": nil, "routing_connected": s.ExecutionRuntime() != nil,
+		"release_effect":     s.executionReleaseEffect(),
 		"gate_experiment_id": gateID, "override": body.Override})
 }
 
@@ -573,7 +590,7 @@ func (s *Service) Rollback(w http.ResponseWriter, r *http.Request) {
 		err = audit(r.Context(), tx, a.agent, httpapi.CurrentUser(r).ID, "v3.agent.rollback", a.ID,
 			map[string]any{"environment_id": a.Env, "from": from, "to": to,
 				"revision_from": a.Revision, "revision_to": a.Revision + 1,
-				"release_effect": "configuration_saved_pending_activation"})
+				"release_effect": s.executionReleaseEffect()})
 	}
 	if err != nil {
 		unavailable(w)
@@ -585,8 +602,8 @@ func (s *Service) Rollback(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, map[string]any{"id": id, "to": to,
 		"configured_percent": configuredPercent, "revision": a.Revision + 1,
 		"configured_canary_percent": 0,
-		"observed_traffic":          nil, "routing_connected": false,
-		"release_effect": "configuration_saved_pending_activation"})
+		"observed_traffic":          nil, "routing_connected": s.ExecutionRuntime() != nil,
+		"release_effect": s.executionReleaseEffect()})
 }
 
 func levelNumber(level string) int {
@@ -659,6 +676,13 @@ func (s *Service) Level(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"id": a.ID, "level": body.Level, "max_level": max,
-		"revision": a.Revision + 1, "observed_traffic": nil, "routing_connected": false,
-		"release_effect": "configuration_saved_pending_activation"})
+		"revision": a.Revision + 1, "observed_traffic": nil, "routing_connected": s.ExecutionRuntime() != nil,
+		"release_effect": s.executionReleaseEffect()})
+}
+
+func (s *Service) executionReleaseEffect() string {
+	if s.ExecutionRuntime() != nil {
+		return "governed_requests_consume_configuration"
+	}
+	return "configuration_saved_pending_activation"
 }

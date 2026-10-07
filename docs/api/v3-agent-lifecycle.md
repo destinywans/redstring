@@ -2,7 +2,9 @@
 
 ## 范围与事实
 
-这批五条 `/agents` 生命周期接口只读写当前环境中的 Agent、版本、发布意图和权限等级等持久记录。`status`、`version`、金丝雀百分比和回滚目标都是**已保存的配置**。服务目前没有 Agent 流量路由消费者、完整运行用量、聚合生命周期阶段和待办生产者。发布或回滚成功表示配置保存成功，尚未证明真实流量切换。
+2026-10-07 更新：[只读执行治理](v3-agent-execution.md)补齐正式手动运行入口。运行器接通时 `routing_connected: true` 仅描述 `/agents/{id}/runs`，写入效果为 `governed_requests_consume_configuration`。聚合及外部流量仍未声明接通；未知聚合字段语义保持。
+
+这批五条 `/agents` 生命周期接口只读写当前环境中的 Agent、版本、发布意图和权限等级等持久记录。`status`、`version`、金丝雀百分比和回滚目标都是**已保存的配置**。正式手动运行入口消费这些配置；完整运行用量、聚合生命周期阶段和待办尚无完整生产者。发布或回滚成功表示配置已供新治理请求使用，不证明外部流量切换。
 
 列表最多返回 200 条可见 Agent；详情最多返回 100 条版本，并用 `truncated` 标识截断。响应中的 `revision` 是生命周期配置修订号，写入时必须提交读取到的 `expected_revision`（整数且至少为 1）。旧修订返回 `409 version_conflict`；客户端应重新读取并让用户重新确认。此修订用于防止覆盖并发配置，不表示流量路由版本。
 
@@ -10,7 +12,7 @@
 
 | 字段 | 返回语义 |
 | --- | --- |
-| `status`、`version`、`release.from/to/target` | 持久发布配置；`status_source: configured_release`，`routing_connected: false`。 |
+| `status`、`version`、`release.from/to/target` | 持久发布配置；`status_source: configured_release`；`routing_connected` 表示正式手动运行器是否接通。 |
 | `score`、`runs_7d`、`success`、`avg_tokens` | 无完整可信生产者，返回 `null`，不把未知写成 0 或成功。 |
 | `stages`、`todos` | 无聚合生产者，返回 `null`，不以空数组暗示真实零项。 |
 | `versions[].configured_traffic` | 已保存的目标比例；实际 `traffic`、评分、成功率和 token 均为 `null`。版本状态可能是 `draft`。 |
@@ -25,7 +27,7 @@
 
 首次稳定版没有当前稳定基线，而评测创建要求两个已登记且不同的非空版本；因此首次发布只能由符合条件的真人管理员提交非空放行原因。后续如需普通评测门禁完成首次发布，须另行定义基线来源，当前不把缺失基线伪装成评测通过。
 
-写响应返回递增 `revision`、`release_effect: "configuration_saved_pending_activation"`、`routing_connected: false`、`observed_traffic: null`。回滚响应中的 `configured_percent: 100` 是回滚目标稳定版的配置比例，`configured_canary_percent: 0` 表示金丝雀配置已清空，两者都不是实测流量。`release_effect` 对权限等级变更也表示其执行侧尚无消费者；不应解释为真实执行状态。读写的归属、授权、版本检查、变更和审计应在同一事务完成。失败按现有 V3 错误包装返回；修订冲突为 `409 version_conflict`，不满足评测门禁或环境上限也是 409，输入不合法为 422，隐藏或不存在对象为 404，存储及权限检查不可用为 503。
+写响应返回递增 `revision`。运行器接通时 `release_effect: "governed_requests_consume_configuration"` 且 `routing_connected: true`；未接通时仍为 `configuration_saved_pending_activation` 和 false。`observed_traffic` 仍为 null。回滚响应中的 `configured_percent: 100` 是回滚目标稳定版的配置比例，`configured_canary_percent: 0` 表示金丝雀配置已清空，两者都不是实测流量。正式运行入口同样消费权限等级和环境上限，但不据此开放写执行。读写的归属、授权、版本检查、变更和审计应在同一事务完成。失败按现有 V3 错误包装返回；修订冲突为 `409 version_conflict`，不满足评测门禁或环境上限也是 409，输入不合法为 422，隐藏或不存在对象为 404，存储及权限检查不可用为 503。
 
 ## 契约接线与冻结前端
 

@@ -1,5 +1,6 @@
 // Package v3agents owns the persisted V3 Agent console. It records only
-// catalog metadata and sanitized execution facts; it never executes tools.
+// catalog metadata and sanitized execution facts. Explicit governed runs use
+// only the composition root's bounded read-only tool factory.
 package v3agents
 
 import (
@@ -37,6 +38,8 @@ func (s *Service) Register(api *httpapi.Server) {
 		pattern, action string
 		handler         http.HandlerFunc
 	}{
+		{"POST /api/v1/agents", "manage", s.CreateAgent},
+		{"POST /api/v1/agents/{id}/versions", "manage", s.CreateAgentVersion},
 		{"GET /api/v1/agents/lifecycle", "view", s.Lifecycle},
 		{"GET /api/v1/agents/{id}", "view", s.AgentDetail},
 		{"POST /api/v1/agents/{id}/rollout", "manage", s.Rollout},
@@ -50,6 +53,10 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/agent-tools", "view", s.Tools},
 		{"GET /api/v1/evals/{id}", "view", s.EvalDetail},
 		{"POST /api/v1/evals", "change", s.CreateEval},
+		{"POST /api/v1/eval-cases", "change", s.CreateEvalCase},
+		{"POST /api/v1/evals/{id}/execute", "change", s.ExecuteEval},
+		{"GET /api/v1/evals/{id}/execution", "view", s.EvalExecution},
+		{"POST /api/v1/evals/{id}/cancel", "change", s.CancelEval},
 		{"GET /api/v1/eval-cases/{id}", "view", s.EvalCase},
 		{"POST /api/v1/eval-cases/{id}/labels", "change", s.LabelCase},
 		{"GET /api/v1/agent-runs", "view", s.Runs},
@@ -62,6 +69,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		api.Register(route.pattern, "viewer", route.handler)
 		api.MarkV3ObjectRoute(route.pattern, "agents", route.action)
 	}
+	s.RegisterExecution(api)
 }
 
 type agent struct {

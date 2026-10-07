@@ -1,5 +1,9 @@
 # 后端 API 契约
 
+## 记忆、评测与 Agent 执行（WAN-240～242，2026-10-07）
+
+新增[人类来源与记忆事实生产](api/v3-memory-production.md)、[单案例双版本评测](api/v3-evaluation-execution.md)和[正式手动只读 Agent 治理](api/v3-agent-execution.md)。新实例可以通过 HTTP 登记来源、Agent/版本/Prompt、执行配置和案例；评测与运行共用不可变配置，后者消费发布、等级、环境上限、已知护栏和预算。成功结果与审计持久化，失败、撤权及超期不会记成成功。能力与隔离验证边界见[交付记录](releases/2026-10-07-runtime-production.md)；自动提炼、语义评测、生产模型、前端和外部执行器尚未验收。
+
 ## V3 正常使用入口（WAN-237～239，2026-10-07）
 
 新增 `POST /api/v1/roles` 和 `GET/PUT /api/v1/members/{id}/access`，提供明确范围的业务角色创建、完整成员授权快照和带版本的角色分配/启停；详见[成员授权契约](api/v3-member-access.md)。新增 `POST /api/v1/mcp-servers`，由部署侧精确来源准入及当前管理权限共同控制首次登记，登记不自动审核或执行工具；详见[MCP 登记契约](api/v3-mcp-registration.md)。普通对话新增知识工具，调查节点可调用固定应用和环境的四类只读工具，证据与成功回复原子保存；详见[取证边界](api/v3-investigation-evidence-tools.md)。这批辅助入口不增加冻结 166 项页面契约的计数，前端接线及外部模型/服务验收另列。

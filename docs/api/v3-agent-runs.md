@@ -1,5 +1,7 @@
 # V3 Agent 运行记录：持久观测与反馈边界
 
+2026-10-07 更新：[正式手动 Agent 运行器](v3-agent-execution.md)已接入并生产本域 run/span；共享详情仍只返回元数据，原发起人可在当前授权下通过 `/agent-runs/{id}/result` 读取本次执行保存的成功答案。该入口的来源证明不等于其他执行器或完整流量观测。
+
 `GET /api/v1/agent-runs`、`GET /api/v1/agent-runs/{id}` 和 `GET /api/v1/agent-runs/{id}/trace` 展示有权查看的已持久化运行元数据。`POST /api/v1/agent-runs/{id}/feedback` 保存当前用户对已完成运行的投票。四个接口的独立机器契约位于 `scripts/v3-openapi-agent-runs.py`，公共 OpenAPI 生成入口已在基础 Agent 片段之后装入它。这些响应均为 `partial: true`，不证明在线 Agent 运行器或完整链路追踪已经接入。
 
 ## 来源、可见性与计数

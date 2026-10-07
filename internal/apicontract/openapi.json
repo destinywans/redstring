@@ -42511,11 +42511,410 @@
         ]
       }
     },
+    "/memory/sources": {
+      "post": {
+        "summary": "Publish a reviewed human memory source",
+        "operationId": "post_memory_sources",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Exact active Cookie and current human identity, knowledge.view plus knowledge.manage for the current single environment, application and current owner team. Writes a published knowledge document with explicit human provenance, version snapshot, history and audit in one transaction. Application/environment/team are locked and cannot be supplied as arbitrary metadata. Request key is scoped to actor and environment; identical replay returns 200, drift or a withdrawn document returns 409. New publication returns 201. Body is limited to 16 KiB UTF-8. This is explicit human publication, not automatic model extraction or external-source approval; it does not create a vector index. All-environment writes remain 409.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemorySourcePublished"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "New record persisted with atomic audit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemorySourcePublished"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3MemorySourcePublish"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/memory/conflicts": {
+      "post": {
+        "summary": "Record a human-asserted memory conflict",
+        "operationId": "post_memory_conflicts",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a human, exact active Cookie and knowledge.view plus manage over both facts. Both facts must be active, in the same exact scope and backed by current published sources, with matching submitted fact revisions. Reason is an explicit human assertion, never an automatic semantic contradiction. Stable fact lock order prevents reversed-pair deadlocks. The same open pair and reason is idempotent, reason drift or stale state is 409. Existing human conflict resolution decides keep/drop.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemoryConflictRecordResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "New record persisted with atomic audit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemoryConflictRecordResult"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3MemoryConflictRecordRequest"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/memory/sources/{id}/withdraw": {
+      "post": {
+        "summary": "Withdraw a manually published memory source",
+        "operationId": "post_memory_sources_id_withdraw",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only manual memory sources, not arbitrary legacy or external documents. Requires human knowledge.view/manage in original current app/team/environment plus active Cookie. Exact current source version/hash are required. Atomically archives the source, expires up to 500 active derived facts, clears its vector generation and writes version history/audit; retains rejected facts and historical conflicts as nonactionable history. Replays do not duplicate audit. Stale version/hash returns 409 rather than withdrawing a newer source version. Source-scoped lock serializes production and withdrawal. Main reads, confirmation and conflict resolution fail closed after withdrawal.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "document_id": {
+                      "type": "string"
+                    },
+                    "lifecycle": {
+                      "type": "string",
+                      "enum": [
+                        "archived"
+                      ]
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "expired_facts": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "document_id",
+                    "lifecycle",
+                    "changed",
+                    "expired_facts"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "More than 500 active derived facts; expire them individually before withdrawal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "memory"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "expected_content_hash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_version",
+                  "expected_content_hash"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "/agents/lifecycle": {
       "get": {
         "summary": "Read bounded persisted Agent lifecycle configuration",
         "operationId": "get_agents_lifecycle",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 currently visible persisted Agents. Status and version describe configured release metadata only. Aggregate lifecycle stages and todos have no producer and are null. Score and usage are null, routing_connected is false, and partial is true. This is not the frozen frontend Lifecycle DTO.",
+        "description": "V3 environment and current scoped authority apply. Lifecycle configuration is consumed by POST /agents/{id}/runs when the execution runtime is connected; routing_connected describes that manual endpoint only. Release effects do not assert existing traffic completion or external runtime cutover. In-flight runs fail closed on revision changes. Aggregate scores, observed traffic and full usage remain unknown. Management requires a current human and matching expected_revision; rollout still requires a passing evaluation or explicit administrator override. See immutable execution config and manual-run contracts.",
         "responses": {
           "200": {
             "description": "Success",
@@ -42647,7 +43046,7 @@
       "get": {
         "summary": "Read persisted Agent configuration and version metadata",
         "operationId": "get_agents_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 100 real version records are returned. Draft is a valid version status. Configured traffic is distinct from observed traffic, which is null. Release gates, token comparison, diff, config and account binding have no complete producer and are null. The revision is required for conditional writes. Unknown or hidden Agent returns 404.",
+        "description": "V3 environment and current scoped authority apply. Lifecycle configuration is consumed by POST /agents/{id}/runs when the execution runtime is connected; routing_connected describes that manual endpoint only. Release effects do not assert existing traffic completion or external runtime cutover. In-flight runs fail closed on revision changes. Aggregate scores, observed traffic and full usage remain unknown. Management requires a current human and matching expected_revision; rollout still requires a passing evaluation or explicit administrator override. See immutable execution config and manual-run contracts.",
         "responses": {
           "200": {
             "description": "Success",
@@ -42813,6 +43212,15 @@
                         "application_id",
                         "environment_id"
                       ]
+                    },
+                    "manual_execution_connected": {
+                      "type": "boolean"
+                    },
+                    "execution_scope": {
+                      "type": "string",
+                      "enum": [
+                        "governed_manual_runs"
+                      ]
                     }
                   },
                   "additionalProperties": false,
@@ -42840,7 +43248,9 @@
                     "release",
                     "diff",
                     "config",
-                    "scope"
+                    "scope",
+                    "manual_execution_connected",
+                    "execution_scope"
                   ]
                 }
               }
@@ -42939,7 +43349,7 @@
       "post": {
         "summary": "Save a version-bound Agent release configuration",
         "operationId": "post_agents_id_rollout",
-        "description": "Minimum role: viewer with scoped agents.manage and active human identity. V3 instance and environment scope apply. Requires one selected environment, current scoped management authority, matching lifecycle revision and a known candidate version. A latest persisted passing evaluation for stable to candidate is required unless an enabled human administrator provides a nonblank override_reason; the override is audited. Returns 409 version_conflict on stale expected_revision. Persists release intent only; there is no traffic router or cutover.",
+        "description": "V3 environment and current scoped authority apply. Lifecycle configuration is consumed by POST /agents/{id}/runs when the execution runtime is connected; routing_connected describes that manual endpoint only. Release effects do not assert existing traffic completion or external runtime cutover. In-flight runs fail closed on revision changes. Aggregate scores, observed traffic and full usage remain unknown. Management requires a current human and matching expected_revision; rollout still requires a passing evaluation or explicit administrator override. See immutable execution config and manual-run contracts.",
         "responses": {
           "200": {
             "description": "Success",
@@ -42959,7 +43369,8 @@
                     "release_effect": {
                       "type": "string",
                       "enum": [
-                        "configuration_saved_pending_activation"
+                        "configuration_saved_pending_activation",
+                        "governed_requests_consume_configuration"
                       ]
                     },
                     "routing_connected": {
@@ -43130,7 +43541,7 @@
       "post": {
         "summary": "Save a version-bound Agent rollback configuration",
         "operationId": "post_agents_id_rollback",
-        "description": "Minimum role: viewer with scoped agents.manage and active human identity. V3 instance and environment scope apply. Requires a prior persisted release target and matching lifecycle revision; stale expected_revision returns 409 version_conflict. Saves and audits configured rollback intent only. The response does not assert that live traffic changed.",
+        "description": "V3 environment and current scoped authority apply. Lifecycle configuration is consumed by POST /agents/{id}/runs when the execution runtime is connected; routing_connected describes that manual endpoint only. Release effects do not assert existing traffic completion or external runtime cutover. In-flight runs fail closed on revision changes. Aggregate scores, observed traffic and full usage remain unknown. Management requires a current human and matching expected_revision; rollout still requires a passing evaluation or explicit administrator override. See immutable execution config and manual-run contracts.",
         "responses": {
           "200": {
             "description": "Success",
@@ -43150,7 +43561,8 @@
                     "release_effect": {
                       "type": "string",
                       "enum": [
-                        "configuration_saved_pending_activation"
+                        "configuration_saved_pending_activation",
+                        "governed_requests_consume_configuration"
                       ]
                     },
                     "routing_connected": {
@@ -43302,7 +43714,7 @@
       "patch": {
         "summary": "Change version-bound Agent governance level",
         "operationId": "patch_agents_id_level",
-        "description": "Minimum role: viewer with scoped agents.manage and active human identity. V3 instance and environment scope apply. Requires one selected environment, current scoped management authority and matching lifecycle revision. Level above the persisted environment cap returns 409; stale expected_revision returns 409 version_conflict. The saved governance level does not enable an unconnected Agent tool executor.",
+        "description": "V3 environment and current scoped authority apply. Lifecycle configuration is consumed by POST /agents/{id}/runs when the execution runtime is connected; routing_connected describes that manual endpoint only. Release effects do not assert existing traffic completion or external runtime cutover. In-flight runs fail closed on revision changes. Aggregate scores, observed traffic and full usage remain unknown. Management requires a current human and matching expected_revision; rollout still requires a passing evaluation or explicit administrator override. See immutable execution config and manual-run contracts.",
         "responses": {
           "200": {
             "description": "Success",
@@ -43322,7 +43734,8 @@
                     "release_effect": {
                       "type": "string",
                       "enum": [
-                        "configuration_saved_pending_activation"
+                        "configuration_saved_pending_activation",
+                        "governed_requests_consume_configuration"
                       ]
                     },
                     "routing_connected": {
@@ -44587,16 +45000,137 @@
     },
     "/evals/{id}": {
       "get": {
-        "summary": "Read a persisted evaluation experiment",
+        "summary": "Read evaluation metadata and explicit single-case membership",
         "operationId": "get_evals_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns the actual baseline/candidate versions and reported aggregate metrics only after a passed or failed outcome. Pending, running and invalid results have null metrics. There is no experiment-case membership, dataset, per-case output, evaluator catalog or radar producer, so those fields are null with explicit missing reasons; no Agent cases are guessed into an experiment. The immutable creation audit must match the current Agent application/environment and active scope. The active Cookie session and application or current owner-team grants are checked in the same transaction. This partial response cannot render the frozen evaluation page without a null-aware frontend adapter.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current authorized persisted experiment; execution, when present, identifies its exact single case and result endpoint. Dataset, radar and evaluator catalog remain partial. A passed execution means explicit literal checks matched, never a human correctness label.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/V3EvalDetailEvidence"
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "meta": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "baseline_version": {
+                      "type": "string"
+                    },
+                    "candidate_version": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "dataset": {
+                      "type": "null"
+                    },
+                    "metrics": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "radar": {
+                      "type": "null"
+                    },
+                    "cases": {
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": true
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "datasets": {
+                      "type": "null"
+                    },
+                    "evaluators": {
+                      "type": "null"
+                    },
+                    "result_ref": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "finished_at": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "execution": {
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": true
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "missing": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "title",
+                    "meta",
+                    "status",
+                    "baseline_version",
+                    "candidate_version",
+                    "created_at",
+                    "dataset",
+                    "metrics",
+                    "radar",
+                    "cases",
+                    "datasets",
+                    "evaluators",
+                    "result_ref",
+                    "finished_at",
+                    "execution",
+                    "missing",
+                    "partial"
+                  ]
                 }
               }
             }
@@ -44694,7 +45228,7 @@
       "post": {
         "summary": "Create pending Agent evaluation metadata",
         "operationId": "post_evals",
-        "description": "Minimum role: viewer with scoped agents.change. V3 instance and environment scope apply. Requires two distinct known versions. Stores a pending experiment only; it does not queue or execute evaluation, and execution_available is false. The current frontend rerun request has no matching body.",
+        "description": "Creates pending metadata only. A current human session is required. execution_available reflects registered runtime and compatible tool-free version configs; the selected case is admitted only by the separate execute request.",
         "responses": {
           "201": {
             "description": "Success",
@@ -44840,9 +45374,9 @@
     },
     "/eval-cases/{id}": {
       "get": {
-        "summary": "Read a registered evaluation case and any trusted snapshot",
+        "summary": "Read human case inputs and any executed snapshot",
         "operationId": "get_eval_cases_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. A complete frontend case DTO is returned only when a trusted in-process evaluator has persisted a validated immutable snapshot with source references, two distinct known Agent versions and the original case scope. References are producer assertions, not independently verified external artifacts. Without a snapshot, evidence and outputs are null with partial=true. At most 50 labels are returned. The committed label count is returned as revision for the next human label request; labels_truncated marks the 50-label display limit. Case origin is stored in immutable application/environment columns and a trusted snapshot is required for complete case content.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Frozen human inputs are reviewable before execution with source human_supplied_not_run and partial=true. Only a stored two-version result produces a complete case report. Labels retain their individual snapshot IDs and are never written automatically.",
         "responses": {
           "200": {
             "description": "Success",
@@ -45073,6 +45607,22 @@
                         },
                         "labels_truncated": {
                           "type": "boolean"
+                        },
+                        "input_available": {
+                          "type": "boolean"
+                        },
+                        "input_id": {
+                          "type": "string"
+                        },
+                        "human_input": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/V3EvalHumanInput"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "additionalProperties": false,
@@ -45094,6 +45644,16 @@
                         "source_state",
                         "complete_v3_dto",
                         "partial",
+                        "revision",
+                        "labels_truncated",
+                        "input_available",
+                        "input_id",
+                        "human_input",
+                        "revision",
+                        "labels_truncated",
+                        "input_available",
+                        "input_id",
+                        "human_input",
                         "revision",
                         "labels_truncated"
                       ]
@@ -45195,6 +45755,22 @@
                         },
                         "labels_truncated": {
                           "type": "boolean"
+                        },
+                        "input_available": {
+                          "type": "boolean"
+                        },
+                        "input_id": {
+                          "type": "string"
+                        },
+                        "human_input": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/V3EvalHumanInput"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "additionalProperties": false,
@@ -45216,6 +45792,238 @@
                         "source_state",
                         "complete_v3_dto",
                         "partial",
+                        "revision",
+                        "labels_truncated",
+                        "input_available",
+                        "input_id",
+                        "human_input",
+                        "revision",
+                        "labels_truncated",
+                        "input_available",
+                        "input_id",
+                        "human_input",
+                        "revision",
+                        "labels_truncated"
+                      ]
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "queue": {
+                          "type": "string"
+                        },
+                        "expected_ref": {
+                          "type": "string"
+                        },
+                        "snapshot_id": {
+                          "type": "string"
+                        },
+                        "snapshot_sha256": {
+                          "type": "string"
+                        },
+                        "labels": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "label": {
+                                "type": "string"
+                              },
+                              "note": {
+                                "type": "string"
+                              },
+                              "actor": {
+                                "type": "string"
+                              },
+                              "time": {
+                                "type": "string"
+                              },
+                              "snapshot_id": {
+                                "type": "string"
+                              }
+                            },
+                            "additionalProperties": false,
+                            "required": [
+                              "label",
+                              "note",
+                              "actor",
+                              "time",
+                              "snapshot_id"
+                            ]
+                          }
+                        },
+                        "missing": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "alert": {
+                          "type": "object",
+                          "properties": {
+                            "sev": {
+                              "type": "string",
+                              "enum": [
+                                "P1",
+                                "P2",
+                                "P3",
+                                "P4"
+                              ]
+                            },
+                            "title": {
+                              "type": "string",
+                              "maxLength": 500
+                            },
+                            "labels": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "k": {
+                                    "type": "string",
+                                    "maxLength": 160
+                                  },
+                                  "v": {
+                                    "type": "string",
+                                    "maxLength": 1000
+                                  }
+                                },
+                                "additionalProperties": false,
+                                "required": [
+                                  "k",
+                                  "v"
+                                ]
+                              }
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "sev",
+                            "title",
+                            "labels"
+                          ]
+                        },
+                        "evidence": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "brand": {
+                                "type": "string",
+                                "maxLength": 80
+                              },
+                              "title": {
+                                "type": "string",
+                                "maxLength": 500
+                              },
+                              "sub": {
+                                "type": "string",
+                                "maxLength": 2000
+                              }
+                            },
+                            "additionalProperties": false,
+                            "required": [
+                              "brand",
+                              "title",
+                              "sub"
+                            ]
+                          }
+                        },
+                        "expected": {
+                          "type": "object",
+                          "properties": {
+                            "cause": {
+                              "type": "string",
+                              "maxLength": 20000
+                            },
+                            "advice": {
+                              "type": "string",
+                              "maxLength": 20000
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "cause",
+                            "advice"
+                          ]
+                        },
+                        "output": {
+                          "type": "null"
+                        },
+                        "baseline": {
+                          "type": "null"
+                        },
+                        "auto": {
+                          "type": "null"
+                        },
+                        "source_state": {
+                          "type": "string",
+                          "enum": [
+                            "human_supplied_not_run"
+                          ]
+                        },
+                        "complete_v3_dto": {
+                          "type": "boolean",
+                          "const": false
+                        },
+                        "partial": {
+                          "type": "boolean",
+                          "const": true
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "labels_truncated": {
+                          "type": "boolean"
+                        },
+                        "input_available": {
+                          "type": "boolean"
+                        },
+                        "input_id": {
+                          "type": "string"
+                        },
+                        "human_input": {
+                          "oneOf": [
+                            {
+                              "$ref": "#/components/schemas/V3EvalHumanInput"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "title",
+                        "queue",
+                        "expected_ref",
+                        "snapshot_id",
+                        "snapshot_sha256",
+                        "labels",
+                        "missing",
+                        "alert",
+                        "evidence",
+                        "expected",
+                        "output",
+                        "baseline",
+                        "auto",
+                        "source_state",
+                        "complete_v3_dto",
+                        "partial",
+                        "revision",
+                        "labels_truncated",
+                        "input_available",
+                        "input_id",
+                        "human_input",
                         "revision",
                         "labels_truncated"
                       ]
@@ -45986,7 +46794,7 @@
       "get": {
         "summary": "Read persisted Agent guardrail policies and reported events",
         "operationId": "get_guardrails",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Policies are persisted; at most 200 policies and 200 visible events are returned. Counts, each policy reported_events_7d, and seven UTC calendar-day trend pairs [blocked, masked] use the full authorized set of trusted reports with observed_at and policy_revision before the response page limit. Legacy reports lacking that decision evidence are excluded from aggregates. aggregation_basis is reported_events and coverage remains unknown: no live producer or enforcement coverage is attested. Detail is latest listed event metadata only, with unavailable source, snippet, masked payload and verdict null; it is null if no event is listed. partial is true and missing names the unconnected producer and unavailable coverage/payload fields. This partial response does not satisfy the current frontend GuardrailsView.",
+        "description": "Persisted policies and reported events with bounded display, current authorization and revision-backed UTC aggregates. manual_execution_connected describes only governed manual Agent execution; execution_scope is governed_manual_runs. Global coverage, private source content and full enforcement coverage remain unknown. No legacy or external executor connection is implied.",
         "responses": {
           "200": {
             "description": "Success",
@@ -46253,6 +47061,15 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "manual_execution_connected": {
+                      "type": "boolean"
+                    },
+                    "execution_scope": {
+                      "type": "string",
+                      "enum": [
+                        "governed_manual_runs"
+                      ]
                     }
                   },
                   "additionalProperties": false,
@@ -46267,7 +47084,9 @@
                     "coverage",
                     "partial",
                     "truncated",
-                    "missing"
+                    "missing",
+                    "manual_execution_connected",
+                    "execution_scope"
                   ]
                 }
               }
@@ -46364,13 +47183,226 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "post": {
+        "summary": "Register one implemented manual-execution guardrail in an exact environment",
+        "operationId": "post_guardrails",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current human actual platform administrator plus global agents.manage and exact environment required. Registers only implemented built-in rule names; unknown names return 422. Environment/name identity is immutable. First create is 201 with atomic initial revision and sanitized audit; duplicate is 200 without another audit or a toggle. Existing imported ambiguous identities return 409. read_only and bounded_execution are forced; deny_sensitive_content can be toggled through existing PATCH. Registration never accepts code, regex, prompt, model or external endpoint. Guard enforcement applies only to the governed manual run entry point.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "environment_id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "forced": {
+                      "type": "boolean"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "created": {
+                      "type": "boolean"
+                    },
+                    "manual_execution_connected": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "environment_id",
+                    "name",
+                    "description",
+                    "forced",
+                    "enabled",
+                    "revision",
+                    "created",
+                    "manual_execution_connected"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "environment_id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "forced": {
+                      "type": "boolean"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "created": {
+                      "type": "boolean"
+                    },
+                    "manual_execution_connected": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "environment_id",
+                    "name",
+                    "description",
+                    "forced",
+                    "enabled",
+                    "revision",
+                    "created",
+                    "manual_execution_connected"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "guardrails"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "enum": [
+                      "read_only",
+                      "bounded_execution",
+                      "deny_sensitive_content"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
       }
     },
     "/guardrails/{id}": {
       "patch": {
         "summary": "Change one persisted guardrail policy setting",
         "operationId": "patch_guardrails_id",
-        "description": "Minimum role: viewer with scoped agents.manage. V3 instance and environment scope apply. Scoped agents.manage setting persists enabled state and policy revision with transactional audit; an unchanged request is audited as unchanged. A forced guardrail cannot be disabled (409 forced_guardrail). runtime_status remains unconnected until an executor reads a run-bound policy snapshot and validates allow/skip decisions or reports blocked/masked decisions at a final revision-checked handoff. Later policy changes do not retroactively cancel handed-off decisions. This does not attest live enforcement.",
+        "description": "Current scoped agents.manage persists enabled state and revision with atomic audit; forced policies cannot be disabled. runtime_status is manual_readonly when the governed manual-run runtime is bound, otherwise unconnected. manual_execution_connected and execution_scope explicitly limit this connection to governed manual Agent runs. Revision changes block subsequent checks and success commits of in-flight governed runs; other executors and full production enforcement coverage are not asserted.",
         "responses": {
           "200": {
             "description": "Success",
@@ -46392,7 +47424,17 @@
                     "runtime_status": {
                       "type": "string",
                       "enum": [
-                        "unconnected"
+                        "unconnected",
+                        "manual_readonly"
+                      ]
+                    },
+                    "manual_execution_connected": {
+                      "type": "boolean"
+                    },
+                    "execution_scope": {
+                      "type": "string",
+                      "enum": [
+                        "governed_manual_runs"
                       ]
                     }
                   },
@@ -46401,7 +47443,9 @@
                     "id",
                     "enabled",
                     "revision",
-                    "runtime_status"
+                    "runtime_status",
+                    "manual_execution_connected",
+                    "execution_scope"
                   ]
                 }
               }
@@ -46513,6 +47557,1534 @@
             }
           }
         }
+      }
+    },
+    "/agents": {
+      "post": {
+        "summary": "Register a paused L0 Agent in the selected environment",
+        "operationId": "post_agents",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a current human Cookie session, active application/environment and agents.view/manage on the application or its current owner team. New identity is paused L0 without a stable release. Stable ID with identical content returns 200/created:false; conflicting content returns 409; other scopes are hidden. The environment is the selected request scope, never accepted from body metadata. Registration and sanitized audit commit atomically; does not configure or execute a model.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "created": {
+                      "type": "boolean"
+                    },
+                    "application_id": {
+                      "type": "string"
+                    },
+                    "environment_id": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "created",
+                    "application_id",
+                    "environment_id"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created paused Agent identity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "created": {
+                      "type": "boolean"
+                    },
+                    "application_id": {
+                      "type": "string"
+                    },
+                    "environment_id": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "created",
+                    "application_id",
+                    "environment_id"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "agents"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3AgentCatalogCreate"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/agents/{id}/versions": {
+      "post": {
+        "summary": "Register immutable Agent version artifact identity",
+        "operationId": "post_agents_id_versions",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires current human agents.manage and exact environment, session and active scope rechecks. Version and non-secret artifact reference are immutable. Identical retry returns 200/created:false; different reference for the same version returns 409. No artifact URL is fetched. Prompt binding, executable budgets and rollout are separate explicit operations.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agent_id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "created": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "agent_id",
+                    "version",
+                    "created"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Registered immutable version identity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agent_id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "string"
+                    },
+                    "created": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "agent_id",
+                    "version",
+                    "created"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "agents"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3AgentVersionCreate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/eval-cases": {
+      "post": {
+        "summary": "Record a human-supplied runnable evaluation case",
+        "operationId": "post_eval_cases",
+        "description": "Minimum role: human with scoped agents.change. V3 instance and environment scope apply. Atomically stores a case, frozen source material and versioned Prompt Trial input. No model call or human correctness label is created. Input is bounded by UTF-8 bytes; literal checks are case-sensitive.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "input_id": {
+                      "type": "string"
+                    },
+                    "input_sha256": {
+                      "type": "string"
+                    },
+                    "material_sha256": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "human_supplied"
+                      ]
+                    },
+                    "execution_state": {
+                      "type": "string",
+                      "enum": [
+                        "not_run"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "input_id",
+                    "input_sha256",
+                    "material_sha256",
+                    "source",
+                    "execution_state"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Execution/key/state conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid case or incompatible tool-free model configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Runtime, storage or policy unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "eval-cases"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3EvalHumanInput"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/evals/{id}/execute": {
+      "post": {
+        "summary": "Execute one case against two frozen Agent versions",
+        "operationId": "post_evals_id_execute",
+        "description": "Minimum role: human with scoped agents.change. V3 instance and environment scope apply. Requires two compatible tool-free execution configs and the configured model runtime. Each side makes at most one model call; no tools, at most 30 seconds per side and a 70-second persisted deadline. Same actor/key/case replays never call the provider twice. passed means all explicit literal checks matched, not semantic quality or a human label. Errors/cancellation/ambiguous completion never produce a successful report.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3EvalExecution"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Execution/key/state conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid case or incompatible tool-free model configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Runtime, storage or policy unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Execution outcome was not confirmed; inspect saved execution without retrying provider calls",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "evals"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "case_id": {
+                    "type": "string",
+                    "maxLength": 128
+                  },
+                  "request_key": {
+                    "type": "string",
+                    "minLength": 8,
+                    "maxLength": 128
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "case_id",
+                  "request_key"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/evals/{id}/execution": {
+      "get": {
+        "summary": "Read exact evaluation material, outputs and terminal state",
+        "operationId": "get_evals_id_execution",
+        "description": "Minimum role: human with scoped agents.view. V3 instance and environment scope apply. Private no-store read with current session and scope. Expired running executions are terminated as ambiguous/invalid without retry. Output usage is unknown; failed or cancelled execution has no result snapshot.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3EvalExecution"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Execution/key/state conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid case or incompatible tool-free model configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Runtime, storage or policy unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "evals"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/evals/{id}/cancel": {
+      "post": {
+        "summary": "Cancel a running bounded evaluation",
+        "operationId": "post_evals_id_cancel",
+        "description": "Minimum role: human with scoped agents.change. V3 instance and environment scope apply. Terminates the execution and invalidates the experiment. Already dispatched calls may have been accepted or billed upstream; no successful evaluation result is persisted.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "cancelled"
+                      ]
+                    },
+                    "provider_outcome": {
+                      "type": "string",
+                      "enum": [
+                        "may_have_been_billed"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "status",
+                    "provider_outcome"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Execution/key/state conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid case or incompatible tool-free model configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Runtime, storage or policy unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "evals"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/agents/{id}/versions/{version}/execution": {
+      "put": {
+        "summary": "Bind an immutable executable configuration to an Agent version",
+        "operationId": "put_agents_id_versions_version_execution",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current human and scoped agents.manage required. Prompt version must belong to this Agent. Configuration hash includes the immutable Prompt body and artifact reference. Identical replay succeeds; a different configuration returns 409 execution_config_immutable and requires a new Agent version. First configuration on an already stable/canary/previous rollback version returns 409 active_version_unconfigured; register a new draft version before release. This does not release the Agent or call a model. Tool names are the reviewed read-only allowlist; write and MCP execution are unavailable.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "model_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 160
+                    },
+                    "prompt_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "prompt_version": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "tool_names": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "read_service_profile",
+                          "read_service_metrics",
+                          "read_service_logs",
+                          "search_knowledge"
+                        ]
+                      }
+                    },
+                    "max_model_calls": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 5
+                    },
+                    "max_tool_calls": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 4
+                    },
+                    "max_input_bytes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 8192
+                    },
+                    "max_output_bytes": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 32768
+                    },
+                    "max_output_tokens": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 4096
+                    },
+                    "timeout_seconds": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 90
+                    },
+                    "sha256": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "model_id",
+                    "prompt_id",
+                    "prompt_version",
+                    "tool_names",
+                    "max_model_calls",
+                    "max_tool_calls",
+                    "max_input_bytes",
+                    "max_output_bytes",
+                    "max_output_tokens",
+                    "timeout_seconds",
+                    "sha256"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "agents"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3AgentExecutionConfig"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/environment-limit": {
+      "get": {
+        "summary": "Read an environment Agent execution ceiling",
+        "operationId": "get_agents_environment_limit",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. One exact environment, current human platform administrator membership and global agents.manage required. An absent limit is L0.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "environment_id": {
+                      "type": "string"
+                    },
+                    "max_level": {
+                      "type": "string",
+                      "enum": [
+                        "L0",
+                        "L1",
+                        "L2",
+                        "L3"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "environment_id",
+                    "max_level"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "agents"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "put": {
+        "summary": "Conditionally update an environment Agent execution ceiling",
+        "operationId": "put_agents_environment_limit",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Same platform administrator authority as GET. Compare-and-set expected_max_level; stale values return 409. Changes and audit commit atomically. Environment-scoped managers cannot raise this platform ceiling. L2 and L3 never grant write execution through the read-only run entry point.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "environment_id": {
+                      "type": "string"
+                    },
+                    "max_level": {
+                      "type": "string",
+                      "enum": [
+                        "L0",
+                        "L1",
+                        "L2",
+                        "L3"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "environment_id",
+                    "max_level"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "agents"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "max_level": {
+                    "type": "string",
+                    "enum": [
+                      "L0",
+                      "L1",
+                      "L2",
+                      "L3"
+                    ]
+                  },
+                  "expected_max_level": {
+                    "type": "string",
+                    "enum": [
+                      "L0",
+                      "L1",
+                      "L2",
+                      "L3"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "max_level",
+                  "expected_max_level"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/agents/{id}/runs": {
+      "post": {
+        "summary": "Run the selected released Agent version under bounded read-only governance",
+        "operationId": "post_agents_id_runs",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current session and scoped agents.view/change required. A server-generated run ID selects stable/canary using the persisted percentage; paused or unconfigured versions fail closed. Freezes model, Prompt, config digest, lifecycle revision and guard policies. At most 5 model calls, 4 allowlisted reads and 90 seconds; L0 has no tools. Current session, grants, release revision, environment ceiling and policies are rechecked at model/read boundaries and before success commit. Unknown enabled guard policies block execution. Run, spans, sanitized audits and private bounded output are persisted; failed/blocked runs never save successful output. HTTP 200 contains the terminal status, not an unconditional success assertion. POST is non-idempotent: after an uncertain response inspect run records before retrying. Only this manual entry point consumes configuration; aggregate/other runtime traffic is not asserted.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AgentExecutionResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "agents"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "input"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-runs/{id}/result": {
+      "get": {
+        "summary": "Read a private governed Agent execution result",
+        "operationId": "get_agent_runs_id_result",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only the original run actor with current scoped agents.view and active application/environment mapping may read the bounded delivered snapshot. Other actors and inaccessible runs return 404. Shared run/trace views do not include output. Failed/blocked/running output is null. A delivered private snapshot is not retroactively deleted when a source document changes.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AgentExecutionResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "agent-runs"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
       }
     },
     "/executions/{id}/report/publish": {
@@ -52374,405 +54946,6 @@
           },
           "503": {
             "$ref": "#/components/responses/Unavailable"
-          }
-        }
-      }
-    },
-    "/memory/sources": {
-      "post": {
-        "summary": "Publish a reviewed human memory source",
-        "operationId": "post_memory_sources",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Exact active Cookie and current human identity, knowledge.view plus knowledge.manage for the current single environment, application and current owner team. Writes a published knowledge document with explicit human provenance, version snapshot, history and audit in one transaction. Application/environment/team are locked and cannot be supplied as arbitrary metadata. Request key is scoped to actor and environment; identical replay returns 200, drift or a withdrawn document returns 409. New publication returns 201. Body is limited to 16 KiB UTF-8. This is explicit human publication, not automatic model extraction or external-source approval; it does not create a vector index. All-environment writes remain 409.",
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/V3MemorySourcePublished"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden or cross-origin request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict or stale version",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Invalid input",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Dependency unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "New record persisted with atomic audit",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/V3MemorySourcePublished"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "memory"
-        ],
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/V3MemorySourcePublish"
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "X-AIOps-Environment",
-            "in": "header",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Selected environment; all is a read-only non-production aggregate."
-          }
-        ]
-      }
-    },
-    "/memory/conflicts": {
-      "post": {
-        "summary": "Record a human-asserted memory conflict",
-        "operationId": "post_memory_conflicts",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a human, exact active Cookie and knowledge.view plus manage over both facts. Both facts must be active, in the same exact scope and backed by current published sources, with matching submitted fact revisions. Reason is an explicit human assertion, never an automatic semantic contradiction. Stable fact lock order prevents reversed-pair deadlocks. The same open pair and reason is idempotent, reason drift or stale state is 409. Existing human conflict resolution decides keep/drop.",
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/V3MemoryConflictRecordResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden or cross-origin request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict or stale version",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Invalid input",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Dependency unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "New record persisted with atomic audit",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/V3MemoryConflictRecordResult"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "memory"
-        ],
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/V3MemoryConflictRecordRequest"
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "X-AIOps-Environment",
-            "in": "header",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Selected environment; all is a read-only non-production aggregate."
-          }
-        ]
-      }
-    },
-    "/memory/sources/{id}/withdraw": {
-      "post": {
-        "summary": "Withdraw a manually published memory source",
-        "operationId": "post_memory_sources_id_withdraw",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only manual memory sources, not arbitrary legacy or external documents. Requires human knowledge.view/manage in original current app/team/environment plus active Cookie. Exact current source version/hash are required. Atomically archives the source, expires up to 500 active derived facts, clears its vector generation and writes version history/audit; retains rejected facts and historical conflicts as nonactionable history. Replays do not duplicate audit. Stale version/hash returns 409 rather than withdrawing a newer source version. Source-scoped lock serializes production and withdrawal. Main reads, confirmation and conflict resolution fail closed after withdrawal.",
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "document_id": {
-                      "type": "string"
-                    },
-                    "lifecycle": {
-                      "type": "string",
-                      "enum": [
-                        "archived"
-                      ]
-                    },
-                    "changed": {
-                      "type": "boolean"
-                    },
-                    "expired_facts": {
-                      "type": "integer",
-                      "minimum": 0
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "document_id",
-                    "lifecycle",
-                    "changed",
-                    "expired_facts"
-                  ]
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Authentication required",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden or cross-origin request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict or stale version",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Invalid input",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "Dependency unavailable",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "More than 500 active derived facts; expire them individually before withdrawal",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "memory"
-        ],
-        "security": [
-          {
-            "sessionCookie": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "X-AIOps-Environment",
-            "in": "header",
-            "schema": {
-              "type": "string"
-            },
-            "description": "Selected environment; all is a read-only non-production aggregate."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "expected_version": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "expected_content_hash": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{64}$"
-                  }
-                },
-                "additionalProperties": false,
-                "required": [
-                  "expected_version",
-                  "expected_content_hash"
-                ]
-              }
-            }
           }
         }
       }
@@ -72595,6 +74768,241 @@
           "unavailable_fields"
         ]
       },
+      "V3MemorySourcePublish": {
+        "type": "object",
+        "properties": {
+          "request_key": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 128
+          },
+          "application_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384,
+            "description": "At most 16 KiB UTF-8; human-reviewed source text, not an automatic external sync."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "request_key",
+          "application_id",
+          "title",
+          "body"
+        ]
+      },
+      "V3MemorySourcePublished": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "lifecycle": {
+            "type": "string",
+            "enum": [
+              "published"
+            ]
+          },
+          "created": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "document_id",
+          "version",
+          "content_hash",
+          "environment_id",
+          "application_id",
+          "lifecycle",
+          "created"
+        ]
+      },
+      "V3MemoryProductionRequest": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expected_content_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "exact_excerpt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "document_id",
+          "expected_version",
+          "expected_content_hash",
+          "exact_excerpt"
+        ]
+      },
+      "V3MemoryProductionResult": {
+        "type": "object",
+        "properties": {
+          "fact": {
+            "$ref": "#/components/schemas/V3MemoryFactEvidence"
+          },
+          "source_content_hash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "production": {
+            "type": "string",
+            "enum": [
+              "human_exact_excerpt"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "fact",
+          "source_content_hash",
+          "created",
+          "production"
+        ]
+      },
+      "V3MemoryConflictRecordRequest": {
+        "type": "object",
+        "properties": {
+          "fact_a_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "fact_b_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expected_revision_a": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "expected_revision_b": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "fact_a_id",
+          "fact_b_id",
+          "expected_revision_a",
+          "expected_revision_b",
+          "reason"
+        ]
+      },
+      "V3MemoryConflictRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fact_a_id": {
+            "type": "string"
+          },
+          "fact_b_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "team_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "fact_a_id",
+          "fact_b_id",
+          "environment_id",
+          "state"
+        ]
+      },
+      "V3MemoryConflictRecordResult": {
+        "type": "object",
+        "properties": {
+          "conflict": {
+            "$ref": "#/components/schemas/V3MemoryConflictRecord"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "assertion": {
+            "type": "string",
+            "enum": [
+              "human"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "conflict",
+          "reason",
+          "created",
+          "assertion"
+        ]
+      },
       "V3AgentEvidenceSummary": {
         "type": "object",
         "properties": {
@@ -72657,6 +75065,15 @@
           },
           "routing_connected": {
             "type": "boolean"
+          },
+          "manual_execution_connected": {
+            "type": "boolean"
+          },
+          "execution_scope": {
+            "type": "string",
+            "enum": [
+              "governed_manual_runs"
+            ]
           }
         },
         "additionalProperties": false,
@@ -72675,7 +75092,9 @@
           "success",
           "avg_tokens",
           "available",
-          "routing_connected"
+          "routing_connected",
+          "manual_execution_connected",
+          "execution_scope"
         ]
       },
       "V3AgentRunFeedback": {
@@ -73668,6 +76087,432 @@
           "usage_source",
           "trial_id",
           "model"
+        ]
+      },
+      "V3AgentCatalogCreate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._-]+$"
+          },
+          "application_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "application_id",
+          "name"
+        ]
+      },
+      "V3AgentVersionCreate": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "artifact_ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "pattern": "^[A-Za-z0-9._:/@#-]+$"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "artifact_ref"
+        ]
+      },
+      "V3EvalHumanInput": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 240
+          },
+          "input": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "queue": {
+            "type": "string",
+            "maxLength": 240
+          },
+          "alert": {
+            "type": "object",
+            "properties": {
+              "sev": {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3",
+                  "P4"
+                ]
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 500
+              },
+              "labels": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "k": {
+                      "type": "string",
+                      "maxLength": 160
+                    },
+                    "v": {
+                      "type": "string",
+                      "maxLength": 1000
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "k",
+                    "v"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "sev",
+              "title",
+              "labels"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brand": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "title": {
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "sub": {
+                  "type": "string",
+                  "maxLength": 2000
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "brand",
+                "title",
+                "sub"
+              ]
+            }
+          },
+          "expected": {
+            "type": "object",
+            "properties": {
+              "cause": {
+                "type": "string",
+                "maxLength": 20000
+              },
+              "advice": {
+                "type": "string",
+                "maxLength": 20000
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "cause",
+              "advice"
+            ]
+          },
+          "checks": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "agent_id",
+          "title",
+          "input",
+          "queue",
+          "alert",
+          "evidence",
+          "expected",
+          "checks"
+        ]
+      },
+      "V3EvalExecution": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "case_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "succeeded",
+              "failed",
+              "cancelled",
+              "ambiguous"
+            ]
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "material": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "material_sha256": {
+            "type": "string"
+          },
+          "results": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "snapshot_id": {
+            "type": "string"
+          },
+          "started_sides": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "deadline": {
+            "type": "string"
+          },
+          "finished_at": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evaluation_kind": {
+            "type": "string",
+            "enum": [
+              "single_case_literal_checks"
+            ]
+          },
+          "human_labels_modified": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "usage_source": {
+            "type": "string",
+            "enum": [
+              "unknown"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "case_id",
+          "status",
+          "error_code",
+          "material",
+          "material_sha256",
+          "results",
+          "snapshot_id",
+          "started_sides",
+          "created_at",
+          "deadline",
+          "finished_at",
+          "evaluation_kind",
+          "human_labels_modified",
+          "usage_source"
+        ]
+      },
+      "V3AgentExecutionConfig": {
+        "type": "object",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "prompt_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "prompt_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tool_names": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read_service_profile",
+                "read_service_metrics",
+                "read_service_logs",
+                "search_knowledge"
+              ]
+            }
+          },
+          "max_model_calls": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "max_tool_calls": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4
+          },
+          "max_input_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8192
+          },
+          "max_output_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 32768
+          },
+          "max_output_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "model_id",
+          "prompt_id",
+          "prompt_version",
+          "tool_names",
+          "max_model_calls",
+          "max_tool_calls",
+          "max_input_bytes",
+          "max_output_bytes",
+          "max_output_tokens",
+          "timeout_seconds"
+        ]
+      },
+      "V3AgentExecutionResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "prompt_id": {
+            "type": "string"
+          },
+          "config_sha256": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "prompt_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "lifecycle_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "output": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "read_only": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "agent_id",
+          "version",
+          "model_id",
+          "prompt_id",
+          "config_sha256",
+          "status",
+          "error_code",
+          "prompt_version",
+          "lifecycle_revision",
+          "output",
+          "read_only"
         ]
       },
       "V3ExecutionApproval": {
@@ -79323,241 +82168,6 @@
           "password_policy"
         ],
         "additionalProperties": false
-      },
-      "V3MemorySourcePublish": {
-        "type": "object",
-        "properties": {
-          "request_key": {
-            "type": "string",
-            "minLength": 8,
-            "maxLength": 128
-          },
-          "application_id": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128
-          },
-          "title": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "body": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 16384,
-            "description": "At most 16 KiB UTF-8; human-reviewed source text, not an automatic external sync."
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "request_key",
-          "application_id",
-          "title",
-          "body"
-        ]
-      },
-      "V3MemorySourcePublished": {
-        "type": "object",
-        "properties": {
-          "document_id": {
-            "type": "string"
-          },
-          "version": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "content_hash": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{64}$"
-          },
-          "environment_id": {
-            "type": "string"
-          },
-          "application_id": {
-            "type": "string"
-          },
-          "team_id": {
-            "type": "string"
-          },
-          "lifecycle": {
-            "type": "string",
-            "enum": [
-              "published"
-            ]
-          },
-          "created": {
-            "type": "boolean"
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "document_id",
-          "version",
-          "content_hash",
-          "environment_id",
-          "application_id",
-          "lifecycle",
-          "created"
-        ]
-      },
-      "V3MemoryProductionRequest": {
-        "type": "object",
-        "properties": {
-          "document_id": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128
-          },
-          "expected_version": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "expected_content_hash": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{64}$"
-          },
-          "exact_excerpt": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4000
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "document_id",
-          "expected_version",
-          "expected_content_hash",
-          "exact_excerpt"
-        ]
-      },
-      "V3MemoryProductionResult": {
-        "type": "object",
-        "properties": {
-          "fact": {
-            "$ref": "#/components/schemas/V3MemoryFactEvidence"
-          },
-          "source_content_hash": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{64}$"
-          },
-          "created": {
-            "type": "boolean"
-          },
-          "production": {
-            "type": "string",
-            "enum": [
-              "human_exact_excerpt"
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "fact",
-          "source_content_hash",
-          "created",
-          "production"
-        ]
-      },
-      "V3MemoryConflictRecordRequest": {
-        "type": "object",
-        "properties": {
-          "fact_a_id": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128
-          },
-          "fact_b_id": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128
-          },
-          "expected_revision_a": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "expected_revision_b": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "reason": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 1000
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "fact_a_id",
-          "fact_b_id",
-          "expected_revision_a",
-          "expected_revision_b",
-          "reason"
-        ]
-      },
-      "V3MemoryConflictRecord": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "fact_a_id": {
-            "type": "string"
-          },
-          "fact_b_id": {
-            "type": "string"
-          },
-          "environment_id": {
-            "type": "string"
-          },
-          "application_id": {
-            "type": "string"
-          },
-          "team_id": {
-            "type": "string"
-          },
-          "state": {
-            "type": "string",
-            "enum": [
-              "open"
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "fact_a_id",
-          "fact_b_id",
-          "environment_id",
-          "state"
-        ]
-      },
-      "V3MemoryConflictRecordResult": {
-        "type": "object",
-        "properties": {
-          "conflict": {
-            "$ref": "#/components/schemas/V3MemoryConflictRecord"
-          },
-          "reason": {
-            "type": "string"
-          },
-          "created": {
-            "type": "boolean"
-          },
-          "assertion": {
-            "type": "string",
-            "enum": [
-              "human"
-            ]
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "conflict",
-          "reason",
-          "created",
-          "assertion"
-        ]
       }
     },
     "parameters": {

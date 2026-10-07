@@ -184,7 +184,7 @@ func (p *providerModel) requestOllama(contents []*genai.Content, system string, 
 		}
 		msgs = append(msgs, results...)
 	}
-	b := map[string]any{"model": p.provider.Model, "messages": msgs, "stream": true, "options": map[string]any{"num_predict": 4096}}
+	b := map[string]any{"model": p.provider.Model, "messages": msgs, "stream": true, "options": map[string]any{"num_predict": p.outputTokenLimit()}}
 	if p.reasoning != "" {
 		if p.provider.ReasoningKind != "ollama_think" {
 			return nil, "", ErrUnsupportedReasoning

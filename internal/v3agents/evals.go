@@ -215,12 +215,21 @@ func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
+	var execution any
+	var executionCase, executionStatus string
+	err = tx.QueryRow(r.Context(), `SELECT case_id,status FROM v3_agent_eval_executions WHERE experiment_id=$1`, v.ID).Scan(&executionCase, &executionStatus)
+	if err == nil {
+		execution = map[string]any{"case_id": executionCase, "status": executionStatus, "evaluation_kind": "single_case_literal_checks", "detail_ref": "/api/v1/evals/" + v.ID + "/execution"}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		unavailable(w)
+		return
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		unavailable(w)
 		return
 	}
-	// A stored experiment is only a partial projection of the frontend's
-	// EvalExperiment; no dataset, per-case, or radar producer is connected.
+	// Single-case executions have explicit membership and real outputs via
+	// execution.detail_ref. Dataset/radar/catalog remain partial projections.
 	metrics := any(nil)
 	if v.Status == "passed" || v.Status == "failed" {
 		if err = json.Unmarshal(v.Metrics, &metrics); err != nil {
@@ -229,6 +238,14 @@ func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	missing := []string{"dataset_content", "experiment_case_membership", "per_case_output", "radar_without_metric_producer", "evaluator_catalog"}
+	var cases any
+	if execution != nil {
+		cases = []any{map[string]any{"id": executionCase, "execution_status": executionStatus}}
+		missing = []string{"dataset_content", "radar_without_metric_producer", "evaluator_catalog"}
+		if executionStatus != "succeeded" {
+			missing = append(missing, "per_case_output")
+		}
+	}
 	if v.Status == "pending" || v.Status == "running" {
 		missing = append(missing, "evaluation_result")
 	} else if metrics == nil {
@@ -244,9 +261,9 @@ func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"id": v.ID, "title": v.Title, "dataset": nil,
 		"meta": v.Status, "status": v.Status, "baseline_version": v.Baseline, "candidate_version": v.Candidate,
-		"metrics": metrics, "radar": nil, "cases": nil, "datasets": nil, "evaluators": nil,
+		"metrics": metrics, "radar": nil, "cases": cases, "datasets": nil, "evaluators": nil,
 		"result_ref": resultRef, "created_at": timeString(v.Created), "finished_at": finished,
-		"missing": missing, "partial": true})
+		"missing": missing, "partial": true, "execution": execution})
 }
 
 type createEvalBody struct {
@@ -279,6 +296,10 @@ func (s *Service) CreateEval(w http.ResponseWriter, r *http.Request) {
 	// The first authorization only gates discovery. Hold the persisted target
 	// and its active scope through the write so a reassignment or archive
 	// cannot turn that earlier decision into a write for another application.
+	if err = lockEvalHumanSession(r.Context(), tx, r); err != nil {
+		evalHTTPError(w, err)
+		return
+	}
 	lockedAgent, err := lockEvalAgent(r.Context(), tx, a.ID)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (lockedAgent.App != a.App || lockedAgent.Env != a.Env)) {
 		notFound(w)
@@ -333,11 +354,22 @@ func (s *Service) CreateEval(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
+	executionAvailable := s.ExecutionRuntime() != nil
+	for _, version := range []string{body.BaselineVersion, body.CandidateVersion} {
+		config, configErr := LoadExecutionConfigTx(r.Context(), tx, a.ID, version)
+		if configErr != nil || !evalCompatible(config, "x", s.ExecutionRuntime()) {
+			executionAvailable = false
+		}
+	}
+	if err = evalSessionStillActive(r.Context(), tx, r); err != nil {
+		evalHTTPError(w, err)
+		return
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		unavailable(w)
 		return
 	}
-	httpapi.WriteJSON(w, 201, map[string]any{"id": id, "status": "pending", "execution_available": false})
+	httpapi.WriteJSON(w, 201, map[string]any{"id": id, "status": "pending", "execution_available": executionAvailable})
 }
 
 type caseRecord struct{ ID, AgentID, Title, ExpectedRef, OriginApp, OriginEnv string }
@@ -448,6 +480,16 @@ func (s *Service) EvalCase(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
+	var humanInput *EvalInput
+	var inputID string
+	input, loadedID, inputErr := loadEvalInput(r.Context(), tx, c.ID)
+	if inputErr == nil {
+		humanInput = &input
+		inputID = loadedID
+	} else if !errors.Is(inputErr, pgx.ErrNoRows) {
+		unavailable(w)
+		return
+	}
 	if err = evalSessionStillActive(r.Context(), tx, r); errors.Is(err, store.ErrSessionRevoked) {
 		httpapi.Error(w, 401, "unauthorized", "Session expired")
 		return
@@ -463,7 +505,7 @@ func (s *Service) EvalCase(w http.ResponseWriter, r *http.Request) {
 		"expected_ref": c.ExpectedRef, "labels": labels,
 		"snapshot_id": snapshotID, "snapshot_sha256": snapshotHash,
 		"revision": revision, "labels_truncated": revision > int64(len(labels)),
-		"complete_v3_dto": view != nil, "partial": view == nil}
+		"complete_v3_dto": view != nil, "partial": view == nil, "input_available": humanInput != nil, "input_id": inputID, "human_input": humanInput}
 	if view == nil {
 		response["queue"] = unknown
 		response["alert"] = nil
@@ -478,6 +520,14 @@ func (s *Service) EvalCase(w http.ResponseWriter, r *http.Request) {
 			response["source_state"] = "awaiting_trusted_snapshot"
 		}
 		response["missing"] = []string{"case_input", "expected_content", "candidate_output", "baseline_output", "automated_score"}
+		if humanInput != nil {
+			response["queue"] = humanInput.Queue
+			response["alert"] = humanInput.Alert
+			response["evidence"] = humanInput.Evidence
+			response["expected"] = humanInput.Expected
+			response["source_state"] = "human_supplied_not_run"
+			response["missing"] = []string{"candidate_output", "baseline_output", "automated_score"}
+		}
 	} else {
 		response["queue"] = view.Queue
 		response["alert"] = view.Alert

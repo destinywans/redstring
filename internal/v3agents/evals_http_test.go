@@ -217,7 +217,11 @@ func TestCreateEvalPendingHTTP(t *testing.T) {
 		_, disableErr := adminDB.Exec(ctx, `UPDATE `+quoted+`.users SET disabled=true WHERE id=$1`, viewer.ID)
 		return disableErr
 	}}
-	assertNoWrite(request("dev", body), 403, `"code":"forbidden"`, 0)
+	// Disable after middleware/preflight accepted this cookie. The locked
+	// session recheck now runs before grant authorization; LockActiveSession
+	// treats a disabled account as session revocation, hence 401, not the old
+	// grant-source check's 403. The denied request must still write nothing.
+	assertNoWrite(request("dev", body), 401, `"code":"unauthorized"`, 0)
 	svc.Access = policy
 	if _, err = adminDB.Exec(ctx, `UPDATE `+quoted+`.users SET disabled=false WHERE id=$1`, viewer.ID); err != nil {
 		t.Fatal(err)

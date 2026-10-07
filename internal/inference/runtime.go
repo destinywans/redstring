@@ -155,8 +155,11 @@ type Request struct {
 	Messages               []Message
 	Tools                  []EvidenceTool
 	MaxCalls, MaxToolCalls int
-	TimeoutSeconds         int
-	Deadline               time.Time
+	// MaxOutputTokens may lower, never raise, the deployment provider ceiling.
+	// Zero retains the configured limit for existing callers.
+	MaxOutputTokens int
+	TimeoutSeconds  int
+	Deadline        time.Time
 }
 type Runner interface {
 	Models() []Model
@@ -174,7 +177,7 @@ type Provider struct {
 	// ollama. An empty value resolves from Kind for existing configurations.
 	API                        string
 	ContextWindow, InputBudget int
-	// MaxOutputTokens bounds OpenAI-compatible requests; zero uses 4096.
+	// MaxOutputTokens bounds provider requests; zero uses 4096.
 	MaxOutputTokens int
 	// ImageInput and PDFInput are explicit per-model capabilities. They are
 	// available only through the Responses wire adapter; PDF needs vision.
@@ -275,7 +278,7 @@ func New(cfg Config) (*Runtime, error) {
 	seen := map[string]bool{}
 	for i := range cfg.Providers {
 		p := &cfg.Providers[i]
-		if p.Kind == "openai" && (p.MaxOutputTokens < 0 || p.MaxOutputTokens > 4096) {
+		if p.MaxOutputTokens < 0 || p.MaxOutputTokens > 4096 {
 			return nil, fmt.Errorf("model %s: output token limit must be 1 to 4096", p.ID)
 		}
 		if p.ContextWindow == 0 {
@@ -472,6 +475,16 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 	}
 	if p.ID == "" {
 		return "", errors.New("model is not configured")
+	}
+	if req.MaxOutputTokens < 0 {
+		return "", errors.New("output token limit must be nonnegative")
+	}
+	if req.MaxOutputTokens > 0 {
+		ceiling := p.MaxOutputTokens
+		if ceiling == 0 {
+			ceiling = 4096
+		}
+		p.MaxOutputTokens = min(req.MaxOutputTokens, ceiling)
 	}
 	if err := validateReasoningChoice(p, req.Reasoning); err != nil {
 		return "", err

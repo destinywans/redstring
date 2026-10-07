@@ -359,31 +359,33 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | --- | --- | --- | --- | --- |
 | GET | `/agents/lifecycle` | | 当前受权持久 Agent 与配置发布意图；评分、用量、阶段及待办未知 | implemented |
 | GET | `/agents/{id}` | | 当前版本目录、修订及发布配置；实际流量、门禁展示和统计未知 | implemented |
-| POST | `/agents/{id}/rollout` | `{ to, percent, expected_revision, override?, override_reason? }`；门禁放行需真人管理员与原因 | 保存并审计发布意图；`routing_connected=false`，不切流 | implemented |
-| POST | `/agents/{id}/rollback` | `{ expected_revision }` | 保存并审计配置回退意图，未切实际流量 | implemented |
-| PATCH | `/agents/{id}/level` | `{ level: L0..L3, expected_revision }`（受环境上限约束） | 持久权限等级配置和审计，执行侧未接 | implemented |
+| POST | `/agents/{id}/rollout` | `{ to, percent, expected_revision, override?, override_reason? }`；门禁放行需真人管理员与原因 | 保存并审计发布配置；已接通时由正式手动运行入口消费，外部流量未知 | implemented |
+| POST | `/agents/{id}/rollback` | `{ expected_revision }` | 保存并审计配置回退，后续正式手动运行消费 | implemented |
+| PATCH | `/agents/{id}/level` | `{ level: L0..L3, expected_revision }`（受环境上限约束） | 持久权限等级配置和审计，约束正式手动运行 | implemented |
 | GET | `/prompts` | | 当前授权、确有持久正文版本的 Prompt 目录；运行时使用和发布状态未知 | implemented |
 | GET | `/prompts/{id}` | | 当前授权持久版本与原始正文；评测覆盖、使用和发布状态未知 | implemented |
 | POST | `/prompts/{id}/trial` | `Idempotency-Key` 与 `{ case, a, b }`：同一 Prompt 的不同持久版本，案例需可信正文快照 | 两次受限无工具模型调用的真实文本与已记录来源；评分/好坏未知为 `null`，用量可空 | implemented |
 | POST | `/prompts/{id}/versions` | `{ text }` | `{ version }`（`vN`）；正文、指针与审计同事务 | implemented |
 | GET | `/agent-tools` | `kind: all\|read\|write` | 当前有权登记工具与已记录调用；未接执行器和覆盖证明明确未知 | implemented |
 | GET | `/evals/{id}` | | 已保存评测元数据与受信结果汇总；数据集、逐例输出、雷达未知时可空 | implemented |
-| POST | `/evals` | `{ agent_id, title, baseline_version, candidate_version }` | `{ id, status: "pending", execution_available: false }`，未启动评测 | implemented |
+| POST | `/evals` | `{ agent_id, title, baseline_version, candidate_version }` | `{ id, status: "pending", execution_available: boolean }`，未启动评测 | implemented |
 | GET | `/eval-cases/{id}` | | 持久登记及可选可信评测快照；缺快照时输出可空字段和 `missing` | implemented |
 | POST | `/eval-cases/{id}/labels` | `{ next: correct\|incorrect\|partial\|unsure, note?, expected_revision }`；要求已有可信案例快照 | `{ next, id, revision }`；真人标签、快照绑定及审计同事务 | implemented |
 | GET | `/agent-runs` | `filter: all\|failed\|blocked\|negative` | 当前受权持久运行列表、计数与 UTC 趋势；缺记录为可空未知 | implemented |
 | GET | `/agent-runs/{id}` | | 持久运行/Span 元数据和投票；上下文、记忆、模型及工具内容未知 | implemented |
 | POST | `/agent-runs/{id}/feedback` | `{ vote: up\|down }` | 当前本人对已完成运行的持久投票与计数 | implemented |
 | GET | `/guardrails` | `filter: all\|blocked\|masked` | 当前受权持久策略及已上报护栏事件的七日统计；运行覆盖未知 | implemented |
-| PATCH | `/guardrails/{id}` | `{ enabled }`（强制规则不可关闭）；目标须为受信目录已登记策略 | 持久修订及审计；`runtime_status=unconnected` | implemented |
+| PATCH | `/guardrails/{id}` | `{ enabled }`（强制规则不可关闭）；目标须为受信目录已登记策略 | 持久修订及审计；运行接通状态限正式手动执行器 | implemented |
 
-Agent 治理接口保存目录、版本、Prompt 修订、待执行评测、发布意图、已上报运行/Span、反馈和护栏设置；尚无评测执行器、流量路由消费者、Prompt trial 的可信用例输入生产者、完整运行观测覆盖证明或真实调用护栏钩子的执行器。受权 `GET /agent-tools` 从持久工具目录及受信进程内运行 Span 读取已记录调用，缺记录显示未知；开关和风险级别不构成可执行 Agent 工具，响应明确 `execution_available=false` 和部分覆盖。`GET /eval-cases/{id}` 从持久登记及可选的不可变可信评测快照返回；无快照时输出真实登记、可空详情和 `missing`。标签 POST 只对已有可信快照、当前真人会话及匹配修订号写入，快照有受限进程内生产 API，但评测执行器尚未接线；默认新案例因此返回 409，冻结页面请求/返回也不兼容。
+2026-10-07 的 [WAN-240～242 实施范围](../plans/2026-10-07-runtime-production.md)补齐正式输入与手动执行链。辅助入口 `POST /agents`、`POST /agents/{id}/versions` 创建当前应用/环境的暂停 Agent 与不可变版本引用；Prompt 登记和版本 API 保存实际正文。`PUT /agents/{id}/versions/{version}/execution` 固定模型、Prompt、工具和预算，发布后不能首次补配置。主程序连接的正式 `POST /agents/{id}/runs` 消费稳定版、灰度、回滚、权限等级、环境上限及已知护栏；`routing_connected` 仅描述这一入口，外部流量和旧调查执行器不在此声明内。详情见[执行治理](v3-agent-execution.md)。
 
-Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字符的 `q`，超过 200 条可见项返回 413；详情在同一读取事务中核对 Agent、归属、授权和正文，真实正文与 `vN` 可回读，发布状态与运行时使用关系保持未知。辅助 `POST /prompts` 可在当前有权 Agent 下登记首版，主 `POST /prompts/{id}/versions` 保存下一版非空白原文，身份、版本指针与审计同事务。冻结前端默认 ID 在新库不存在且“新建”未调用登记接口，页面未验收。`POST /prompts/{id}/trial` 要求当前会话、单环境、同 Prompt 两个持久版本、幂等键，以及受信进程内登记的有版本案例输入；经显式受保护配置与精确主机名单启用后，最多两次无工具模型调用。调用前和每次结果入库前复核当前权限，失权只保存不含生成文本的计费/不确定元数据。两个结果均持久且最终再授权通过才返回真实文本；评分和好坏无生产者，保持 `null`，用量缺提供者证据也可空。默认模型未配置返回 503，当前启动流程无可信案例输入生产者，普通案例返回 409；同键不重复付费，新的键可能再次计费。跨键累计费用与并发配额尚未接入，启用真实付费模型前须配置部署层配额和限流；真实调用与页面未验收，详见[Prompt 试运行](v3-prompt-trial.md)。`POST /evals` 仅保存 `pending` 元数据，核对两条不同的已登记版本、当前应用/环境与授权，不排队或执行评测；冻结前端重跑发送空请求体却提示“已排队”。创建事务锁定账号与授权来源，但未锁当前 Cookie 会话，并发注销与在途创建的顺序尚未专测。生命周期五路由按受权持久配置、修订冲突和审计计入后端 `implemented`，发布/回滚不改变真实流量；首次稳定版没有既有基线可评测，只能由符合条件的真人管理员填写原因走放行门禁。运行四路由按真实持久运行/Span 与反馈计入，计数仅代表受权已保存记录，缺字段显式可空；详见[生命周期来源](v3-agent-lifecycle.md)及[运行记录来源](v3-agent-runs.md)。现有前端对评分、发布 token/门禁、评测详情、Trace 和运行统计的 DTO 与请求体仍不兼容，也未提交 `expected_revision` 与放行原因，页面未验收。
+`POST /eval-cases` 接受明确的人类案例、输入正文、预期与字面文本检查，同时建立 Prompt trial 的持久用例来源。`POST /evals` 仍只创建 `pending`；`execution_available` 反映运行器及两份兼容无工具配置是否就绪，不意味着已经启动。`POST /evals/{id}/execute` 显式执行一个案例及两个已登记的无工具版本，冻结配置/正文/输入与摘要，执行成功后原子保存逐例输出、有限检查结果和不可变快照。GET execution、cancel 及同键重放支持状态查询、取消和不重复调用。提供者不确定、撤权、超期、审计失败不能产生成功结果；不自动重试。详见[评测执行](v3-evaluation-execution.md)。普通发布门禁要求这一真实完成记录绑定当前两版本配置，旧 `passed` 元数据不能放行新执行配置；首次发布仍须明确的真人管理员 override 及原因。
 
-`GET /evals/{id}` 只读已保存的部分评测记录：同一事务锁定评测、Agent、有效应用/环境、当前会话和授权，并以创建审计核对原始归属；缺审计或 Agent 改属的历史记录隐藏。`metrics` 仅在有可信结果记录时返回已保存值，待执行状态不合成分数；`radar`、用例输出和数据集仍无生产者，以 `null` 和 `missing` 标记。主 GET 按本阶段真实来源与未知值标准计 `implemented`，完整 `EvalExperiment` 页面未验收。已新增按应用/目标/行为定位创建审计的索引，迁移尚未在现有库执行；规模未实测。`GET /eval-cases/{id}` 保留原始应用/环境列和可信快照，新增标签修订号及截断标志；POST 在案例行锁下复核真人、来源、当前权限、修订和快照，并将标签、快照 ID 和审计原子保存。
+`GET /evals/{id}` 和 `GET /eval-cases/{id}` 展示已保存结果；新生产者覆盖单例输出及字面检查，`radar`、外部数据集、语义质量和总体准确率仍未知。人工标签需已有可信快照、原 Cookie、当前授权和 `expected_revision`，只对该快照生效。Prompt trial 另有独立受保护模型配置与精确主机准入，仍不支持工具；有案例输入并不自动启用模型，也不改变其独立的付费、幂等及未知评分语义，见[Prompt 试运行](v3-prompt-trial.md)。
 
-`GET /guardrails` 从当前有权的持久策略及已上报、具备决策时间和修订证明的事件计算七个 UTC 日桶与策略计数；`aggregation_basis=reported_events`、`coverage=unknown`、`partial=true`，零条上报不证明零次实际触发，原始内容与结论保持 `null`。`PATCH /guardrails/{id}` 对已由受信目录登记的策略在单环境 `agents.manage` 下持久修订、阻止关闭强制规则并审计，响应 `runtime_status=unconnected`；当前主程序还没有注册策略的启动来源，干净环境无策略时返回 404。两条路由只按后端持久读取/配置写入能力计 `implemented`，不表示 Agent 执行器消费策略或页面验收。`CompleteRun` 已在取得运行行锁后使用数据库实际时钟写完成时间，仍需在接入执行器时验证顺序与并发，详见[护栏领域边界](v3-guardrails-domain.md)。
+运行列表/详情/trace 返回持久 run、受限 span 和聚合元数据；成功答案经 `GET /agent-runs/{id}/result` 仅供原发起人、当前范围和权限下读取。工具执行只使用经审查的四类只读取证实现、版本白名单和模型准入的交集，工具目录的开关本身不赋予执行能力。运行中权限、配置或策略变化及最终会话/截止时间不满足时失败关闭。普通目录、聚合和完整链路字段仍按真实来源返回可空未知，见[运行记录](v3-agent-runs.md)。
+
+已知护栏可通过正式登记入口配置；环境上限及新增环境级策略登记要求当前真人、实际平台管理员身份与全局管理权限。正式手动运行器消费已知启用策略，未知启用策略拒绝执行；敏感内容策略只检测文档所列字面模式，不声称通用脱敏。`GET /guardrails` 的七日统计仍只代表已上报事件，`aggregation_basis=reported_events`、`coverage=unknown`、`partial=true`。完整运行覆盖、前端接线、生产模型与外部流量验收继续单列；冻结页面的 DTO、修订号和创建/执行交互尚未适配，不能直接视为页面完成。
 
 ## 设置（`settings.ts`）
 
@@ -442,7 +444,7 @@ Prompt 列表只返回有真实版本的已授权记录，支持最多 160 字�
 - `PUT /mcp-servers/{id}/environment-binding`：用请求头选择单一环境，把现有声明为只读且已经人工审核的 MCP 登记显式绑定到该环境；要求对所属应用有 `connectors.manage`，幂等并记录变更审计。该绑定仅使登记元数据可见，不代表端点、固定参数或凭据已经通过所选环境的执行安全审查。
 - `DELETE /mcp-servers/{id}/environment-binding`：从请求头指定的单一环境解绑该登记；同样检查所属应用权限，幂等并记录实际变更。旧登记不会自动绑定或复制到其他环境。
 
-2026-10-07 新增辅助入口：`POST /roles`、`GET/PUT /members/{id}/access` 见[成员授权](v3-member-access.md)；`POST /mcp-servers` 见[MCP 首次登记](v3-mcp-registration.md)。普通 Chat 及调查节点知识工具接线见[取证边界](v3-investigation-evidence-tools.md)。记忆生产、Eval、Agent 执行治理仍为后续待办，不因这些入口完成而升级。
+2026-10-07 新增辅助入口：`POST /roles`、`GET/PUT /members/{id}/access` 见[成员授权](v3-member-access.md)；`POST /mcp-servers` 见[MCP 首次登记](v3-mcp-registration.md)。普通 Chat 及调查节点知识工具接线见[取证边界](v3-investigation-evidence-tools.md)。同日随后经用户授权补充[记忆生产](v3-memory-production.md)、[单案例评测执行](v3-evaluation-execution.md)与[正式手动 Agent 治理](v3-agent-execution.md)；实现和验证边界见[交付记录](../releases/2026-10-07-runtime-production.md)。
 
 ## 变更记录
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -77,9 +78,9 @@ func validEvalCaseView(v EvalCaseView) bool {
 		v.Alert.Labels == nil || len(v.Alert.Labels) > 64 || len(v.Evidence) == 0 || len(v.Evidence) > 64 ||
 		!bounded(v.Expected.Cause, 20000) || !bounded(v.Expected.Advice, 20000) ||
 		!safeCode(v.Output.Version, 80) || !bounded(v.Output.Meta, 1000) ||
-		!bounded(v.Output.Markdown, 100000) || v.Output.Tools == nil || len(v.Output.Tools) > 64 ||
+		!evalReportText(v.Output.Markdown, 100000) || v.Output.Tools == nil || len(v.Output.Tools) > 64 ||
 		!safeCode(v.Baseline.Version, 80) || !bounded(v.Baseline.Score, 80) ||
-		!bounded(v.Baseline.Text, 100000) || !bounded(v.Auto.Score, 80) ||
+		!evalReportText(v.Baseline.Text, 100000) || !bounded(v.Auto.Score, 80) ||
 		!bounded(v.Auto.Note, 2000) || v.Auto.Rules == nil || len(v.Auto.Rules) > 64 {
 		return false
 	}
@@ -104,6 +105,11 @@ func validEvalCaseView(v EvalCaseView) bool {
 		}
 	}
 	return true
+}
+
+// Preserve the actual provider text, including harmless surrounding newlines.
+func evalReportText(text string, limit int) bool {
+	return strings.TrimSpace(text) != "" && utf8.ValidString(text) && !strings.ContainsRune(text, 0) && utf8.RuneCountInString(text) <= limit
 }
 
 func validEvalEvidenceRef(ref string) bool {

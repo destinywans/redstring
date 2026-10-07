@@ -806,6 +806,10 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return fmt.Errorf("configure V3 Prompt trial: %w", err)
 	}
 	agentService.SetPromptTrialModelAdapter(promptTrialAdapter)
+	agentService.SetExecutionRuntime(modelRuntime, readTools.ForTurn)
+	if err := agentService.RecoverExpiredExecutions(ctx); err != nil {
+		return fmt.Errorf("recover V3 Agent executions: %w", err)
+	}
 	agentService.Register(api)
 	if trialRuntime != nil {
 		go func() {

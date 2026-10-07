@@ -49853,6 +49853,121 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "post": {
+        "summary": "Create an explicitly scoped custom business role",
+        "operationId": "post_roles",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires the exact active Cookie session, a human with global roles.manage and global environment.view, and one selected environment. Exactly one explicit scope: the selected environment, or global:* reviewed explicitly. Writes the complete matrix plus environment.view in one audited transaction. Stable custom-* IDs are idempotent only for identical content; conflicting IDs/names return 409. No legacy permission or machine/system role is created. All-environment writes remain 409.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3CreateRoleResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created custom business role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3CreateRoleResult"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "roles"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3CreateRole"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
       }
     },
     "/roles/{id}": {
@@ -50964,6 +51079,224 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/V3MemberContactPatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/members/{id}/access": {
+      "get": {
+        "summary": "Read complete member access for an administrator",
+        "operationId": "get_members_id_access",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires human global roles.manage, members.manage and environment.view, rechecked with the exact Cookie in the same locked transaction. Shows every direct, legacy and department role and its full V3 grants across environments; selected environment is admission, not a snapshot filter. Revision fingerprints the full returned access state. local_login_ready describes stored local credentials only, not external authentication readiness.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemberAccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "members"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "put": {
+        "summary": "Replace direct member roles and activation state",
+        "operationId": "put_members_id_access",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Same human global authority as the access read. Replaces direct roles only; inherited legacy/department roles are preserved. expected_revision must match the complete access snapshot, and role_revisions must match each submitted role current matrix revision. Machine targets/roles, duplicate IDs, unknown fields and password input are rejected. Assigning legacy permissions or changing privileged legacy identities additionally requires actual platform-administrator membership. Enabled members require environment admission. Imported Feishu/LDAP activation does not provision authentication. Protects final usable platform administrator and human global role manager, writes atomic audit and revokes target sessions after changes. Idempotent no-op preserves sessions and audit count. Audit/storage/auth failures roll back the entire edit. Self-disable is rejected; all-environment writes remain 409.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3MemberAccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "members"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3MemberAccessUpdate"
               }
             }
           }
@@ -77293,6 +77626,281 @@
           "code",
           "name",
           "password"
+        ]
+      },
+      "V3AccessScope": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "global",
+              "environment"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ]
+      },
+      "V3AccessGrant": {
+        "type": "object",
+        "properties": {
+          "module": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "scope_kind": {
+            "type": "string"
+          },
+          "scope_id": {
+            "type": "string"
+          },
+          "assurance": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "module",
+          "action",
+          "scope_kind",
+          "scope_id",
+          "assurance"
+        ]
+      },
+      "V3CreateRole": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^custom-[a-z0-9][a-z0-9_-]{0,56}$",
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "scopes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/V3AccessScope"
+            }
+          },
+          "matrix": {
+            "type": "array",
+            "minItems": 13,
+            "maxItems": 13,
+            "items": {
+              "type": "object",
+              "properties": {
+                "resource": {
+                  "type": "string"
+                },
+                "grants": {
+                  "type": "array",
+                  "minItems": 5,
+                  "maxItems": 5,
+                  "items": {
+                    "type": "integer",
+                    "enum": [
+                      0,
+                      1,
+                      2
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "resource",
+                "grants"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "scopes",
+          "matrix"
+        ]
+      },
+      "V3CreateRoleResult": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "business"
+            ]
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3AccessScope"
+            }
+          },
+          "matrix_revision": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]*$"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "created",
+          "kind",
+          "scopes",
+          "matrix_revision"
+        ]
+      },
+      "V3AccessRole": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "system",
+              "business",
+              "machine"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "legacy",
+              "department"
+            ]
+          },
+          "matrix_revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3AccessGrant"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "origin",
+          "matrix_revision",
+          "grants"
+        ]
+      },
+      "V3MemberAccess": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "identity_kind": {
+            "type": "string",
+            "enum": [
+              "human",
+              "machine"
+            ]
+          },
+          "source": {
+            "type": "string"
+          },
+          "local_login_ready": {
+            "type": "boolean"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3AccessRole"
+            }
+          },
+          "revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "enabled",
+          "identity_kind",
+          "source",
+          "local_login_ready",
+          "roles",
+          "revision"
+        ]
+      },
+      "V3MemberAccessUpdate": {
+        "type": "object",
+        "properties": {
+          "expected_revision": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "role_ids": {
+            "type": "array",
+            "maxItems": 64,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "role_revisions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]*$"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "expected_revision",
+          "role_ids",
+          "role_revisions",
+          "enabled"
         ]
       },
       "V3AuditEntry": {

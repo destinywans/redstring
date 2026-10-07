@@ -84,6 +84,9 @@ func respond(w http.ResponseWriter, v any, err error) {
 func (s *Service) Register(api *httpapi.Server) {
 	for _, route := range []struct{ pattern, module, action string }{
 		{"GET /api/v1/roles", "roles", "view"},
+		{"POST /api/v1/roles", "roles", "manage"},
+		{"GET /api/v1/members/{id}/access", "roles", "manage"},
+		{"PUT /api/v1/members/{id}/access", "roles", "manage"},
 		{"GET /api/v1/roles/{id}", "roles", "view"},
 		{"PUT /api/v1/roles/{id}", "roles", "manage"},
 		{"GET /api/v1/members", "members", "view"},
@@ -96,6 +99,9 @@ func (s *Service) Register(api *httpapi.Server) {
 		api.MarkV3Route(route.pattern, route.module, route.action)
 	}
 	api.Register("GET /api/v1/roles", "viewer", s.roles)
+	api.Register("POST /api/v1/roles", "viewer", s.createRole)
+	api.Register("GET /api/v1/members/{id}/access", "viewer", s.getMemberAccess)
+	api.Register("PUT /api/v1/members/{id}/access", "viewer", s.putMemberAccess)
 	api.Register("GET /api/v1/roles/{id}", "viewer", s.role)
 	api.Register("PUT /api/v1/roles/{id}", "viewer", s.putRole)
 	api.Register("GET /api/v1/members", "viewer", s.members)

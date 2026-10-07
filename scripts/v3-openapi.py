@@ -58,6 +58,7 @@ for _v3_domain in (
     'executions',
     'observability',
     'roles',
+    'member-access',
     'audit',
     'webhooks',
     'api-tokens',

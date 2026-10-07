@@ -1,5 +1,7 @@
 # 项目文档
 
+- [本地 Docker 清理记录](releases/2026-10-07-docker-cleanup.md)：CP-316，旧容器/镜像精确清理、保留环境及数据恢复边界。
+
 - [历史差异整理待办与工作树退役](plans/2026-10-07-history-reconciliation.md)：CP-315，11 个重复标签清理、19 个独立历史保留及四类重点待办。
 - [main 合并与历史分支清理](releases/2026-10-07-branch-cleanup.md)：WAN-117，删除清单、差异历史归档与恢复方法。
 

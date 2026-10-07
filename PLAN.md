@@ -1,3 +1,5 @@
+**当前环境整理：[CP-316](CHECKPOINT.md#cp-316-current)，2026-10-07。旧 AIOps 容器删除 26 个、闲置镜像删除 21 个，镜像显示占用减少约 9.53 GB；保留当前 testlab 与实验/演示节点共 13 个容器及全部数据卷，两个 API 数据库连接保持。见[Docker 清理记录](docs/releases/2026-10-07-docker-cleanup.md)。**
+
 **当前整理：[CP-315](CHECKPOINT.md#cp-315-current)，2026-10-07。fd34 旧工作树已删除；本地/远端归档标签 30→19，11 个重复引用清理且 40 个历史补丁全部可恢复。四类重点差异及其余独立历史留作[后续整理](docs/plans/2026-10-07-history-reconciliation.md)，不自动恢复旧实现；原 14 项未提交内容保持。**
 
 **当前基线：[CP-314](CHECKPOINT.md#cp-314-current)，2026-10-07。已验证开发代码已快进合入并推送 main，本地与远端均仅 main；30 组不同历史以远端归档标签保留，原未提交文件保持。见[清理与恢复记录](docs/releases/2026-10-07-branch-cleanup.md)。本轮仅 Git/文档整理，原产品验收与性能/24h状态不升级。**

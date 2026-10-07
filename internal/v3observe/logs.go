@@ -12,6 +12,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3pagequery"
 )
 
 type logLine struct {
@@ -69,6 +70,25 @@ func requestedLogLevels(raw string) ([]string, bool) {
 }
 
 func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
+	duration, err := v3pagequery.ParseRange(r.URL.Query(), 30*time.Minute)
+	if err != nil {
+		httpapi.Error(w, 422, "invalid_range", "Use one supported time range")
+		return
+	}
+	if values, has := r.URL.Query()["source"]; has {
+		if len(values) != 1 || (values[0] != "loki" && values[0] != "elasticsearch") {
+			httpapi.Error(w, 422, "invalid_source", "Choose loki or elasticsearch")
+			return
+		}
+		q := r.URL.Query()
+		if q.Has("provider") && (len(q["provider"]) != 1 || q.Get("provider") != values[0]) {
+			httpapi.Error(w, 422, "conflicting_source", "Source and provider must agree")
+			return
+		}
+		q.Set("provider", values[0])
+		r.URL.RawQuery = q.Encode()
+	}
+
 	envs, ok := s.allowedEnvironments(w, r, "")
 	if !ok {
 		return
@@ -133,7 +153,7 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteJSON(w, 200, map[string]any{"total": "0", "errors": "0", "histogram": [][3]int64{}, "items": []logLine{}, "patterns": []any{}})
 		return
 	}
-	window := observationWindow(30 * time.Minute)
+	window := observationWindow(duration)
 	items := []logLine{}
 	total, errorsCount := int64(0), int64(0)
 	patternCounts := map[logPatternKey]*logPatternCounts{}

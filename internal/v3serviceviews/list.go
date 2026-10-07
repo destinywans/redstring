@@ -72,6 +72,21 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	sort.SliceStable(items, func(i, j int) bool {
+		a, b := items[i], items[j]
+		switch f.sort {
+		case "name":
+			return a.Name < b.Name
+		case "budget":
+			return a.SLO.BudgetLeft < b.SLO.BudgetLeft
+		case "alerts":
+			return a.Alerts > b.Alerts
+		case "status":
+			rank := map[string]int{"danger": 0, "warn": 1, "ok": 2}
+			return rank[a.Status] < rank[b.Status]
+		}
+		return false
+	})
 	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, 200, buildCatalog(items, f, now))
 }

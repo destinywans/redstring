@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -192,6 +193,27 @@ func TestConversationListRegisteredRouteUsesPersistedChatFacts(t *testing.T) {
 		t.Fatal(err)
 	} else if page.Total != 3 || len(page.Items) != 1 || page.Items[0].ID != "CV-own" || page.Items[0].Mode != "canvas" || page.Items[0].Status != "active" || page.Items[0].Source == nil || *page.Items[0].Source != "manual" || page.Items[0].Scope != "billing-api · test" || page.Items[0].Size != "2 nodes" || page.Items[0].Tokens == nil || *page.Items[0].Tokens != 0 {
 		t.Fatalf("generic canvas third page: %+v", page)
+	}
+	for _, query := range []string{"?scope=" + url.QueryEscape("checkout-api · test") + "&status=active&status=resolved", "?sort=tokens&page_size=1"} {
+		rr := get(base+query, "all", "", true)
+		if rr.Code != 200 {
+			t.Fatalf("page query %s: %d %s", query, rr.Code, rr.Body.String())
+		}
+		if e := json.Unmarshal(rr.Body.Bytes(), &page); e != nil {
+			t.Fatal(e)
+		}
+		want := "read-a"
+		total := 1
+		if strings.Contains(query, "sort") {
+			want = "CV-own"
+			total = 3
+		}
+		if page.Total != total || len(page.Items) != 1 || page.Items[0].ID != want {
+			t.Fatalf("filter/sort before pagination %s: %+v", query, page)
+		}
+	}
+	if rr := get(base+"?sort=recent&sort=title", "all", "", true); rr.Code != 422 {
+		t.Fatalf("ambiguous sort accepted: %d", rr.Code)
 	}
 	for _, query := range []string{"?q=jiesuan", "?q=checkout-api"} {
 		if rr := get(base+query, "test", "zh-CN", true); rr.Code != http.StatusOK {

@@ -345,6 +345,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	auditV3.Register(api)
 	canvasV3 := v3canvas.NewWithRuntime(s, modelRuntime)
 	canvasV3.Register(api)
+	canvasV3.RegisterPageInteractions(api)
 	catalog := v3catalog.New(s, policy, cfg.EnvironmentIDs...)
 	catalog.RegisterWithoutServiceReads(api)
 	configSync, err := loadV3ConfigSync(os.Getenv("AIOPS_V3_CONFIG_SYNC_CONFIG"), cfg.Tier, s.DB, policy)
@@ -788,6 +789,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	events.GroupPolicyBindings = alertmanagerPolicyBindings
 	events.RegisterNew(api)
 	events.RegisterV3Incidents(api)
+	events.RegisterPageOperations(api)
 	bulkService.Register(api)
 	pushService.Register(api)
 	pushService.RegisterPublic(api)

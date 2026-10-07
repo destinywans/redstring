@@ -18,6 +18,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3pagequery"
 	"github.com/wans/aiops-canvas/internal/v3templatecapacity"
 )
 
@@ -244,6 +245,9 @@ const canvasListSource = `WITH visible AS (
      OR (a.owner_team_id IS NOT NULL AND g.scope_kind='team' AND g.scope_id=a.owner_team_id)))
 ), searched AS (
  SELECT * FROM visible WHERE ($3='' OR aiops_search_match(title,$3))
+ AND (cardinality($4::text[])=0 OR owner_name=ANY($4))
+ AND (cardinality($5::text[])=0 OR services && $5::text[])
+ AND (cardinality($6::text[])=0 OR (CASE WHEN kind='investigation' THEN CASE status WHEN 'open' THEN 'active' WHEN 'closed' THEN 'resolved' ELSE status END ELSE status END)=ANY($6))
 ) `
 
 func validKind(k string) bool {
@@ -340,6 +344,19 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	participants, pe := v3pagequery.Values(r.URL.Query(), "participant")
+	services, se := v3pagequery.Values(r.URL.Query(), "service")
+	statuses, ste := v3pagequery.Values(r.URL.Query(), "status")
+	if pe != nil || se != nil || ste != nil {
+		httpapi.Error(w, 422, "invalid_filter", "Invalid canvas facet")
+		return
+	}
+	for _, status := range statuses {
+		if status != "draft" && status != "active" && status != "done" && status != "resolved" && status != "archived" {
+			httpapi.Error(w, 422, "invalid_status", "Unknown canvas status")
+			return
+		}
+	}
 	kind := strings.TrimSpace(r.URL.Query().Get("kind"))
 	if kind != "" && kind != "investigation" && !validKind(kind) {
 		httpapi.Error(w, 422, "invalid_kind", "Unknown canvas kind")
@@ -411,7 +428,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	}
 	counts := map[string]int{"all": 0, "investigation": 0, "plan": 0, "review": 0, "analysis": 0, "custom": 0}
 	rows, err := tx.Query(r.Context(), canvasListSource+`SELECT kind,count(*),bool_and(
-   kind<>'investigation' OR status IN ('open','closed')) FROM searched GROUP BY kind`, owner, envs, q)
+   kind<>'investigation' OR status IN ('open','closed')) FROM searched GROUP BY kind`, owner, envs, q, participants, services, statuses)
 	if err != nil {
 		httpapi.Error(w, 503, "canvas_unavailable", "Canvas list unavailable")
 		return
@@ -444,8 +461,8 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		total = counts[kind]
 	}
 	rows, err = tx.Query(r.Context(), canvasListSource+`SELECT id,title,kind,status,services,updated_at,nodes,edges,owner_name,investigation_id,branches,branch_count
- FROM searched WHERE ($4='' OR kind=$4)
- ORDER BY updated_at DESC,id LIMIT $5 OFFSET $6`, owner, envs, q, kind, size, (page-1)*size)
+ FROM searched WHERE ($7='' OR kind=$7)
+ ORDER BY updated_at DESC,id LIMIT $8 OFFSET $9`, owner, envs, q, participants, services, statuses, kind, size, (page-1)*size)
 	if err != nil {
 		httpapi.Error(w, 503, "canvas_unavailable", "Canvas list unavailable")
 		return

@@ -15,6 +15,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/searchtext"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3alertmanager"
+	"github.com/wans/aiops-canvas/internal/v3pagequery"
 )
 
 // A binding is an operator assertion that these webhook source IDs feed the
@@ -222,7 +223,11 @@ func groupSearchMatches(v incidentRecord, q string) bool {
 		"service=" + v.ApplicationID, "environment=" + v.EnvironmentKey}, " "), q)
 }
 
-func aggregateAlertGroups(values []incidentRecord, now time.Time) (map[string]*alertGroupAccumulator, error) {
+func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...string) (map[string]*alertGroupAccumulator, error) {
+	groupBy := ""
+	if len(grouping) > 0 {
+		groupBy = grouping[0]
+	}
 	groups := make(map[string]*alertGroupAccumulator)
 	for _, v := range values {
 		severityCode, valid := alertDetailSeverity(v.Severity)
@@ -232,8 +237,10 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time) (map[string]*a
 		if v.AlertStatus != "firing" && v.AlertStatus != "pending" && v.AlertStatus != "resolved" {
 			return nil, store.ErrInvalidReference
 		}
-		id := localAlertGroupID(v)
-		key := strings.Join([]string{v.EnvironmentID, v.ApplicationID, v.SourceID, v.Fingerprint}, "\x00")
+		id, key, err := displayAlertGroupIdentity(v, groupBy)
+		if err != nil {
+			return nil, err
+		}
 		g := groups[id]
 		if g == nil {
 			g = &alertGroupAccumulator{key: key, earliest: v.StartsAt, ownerID: v.AssigneeID,
@@ -258,6 +265,23 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time) (map[string]*a
 			return nil, store.ErrInvalidReference
 		}
 		g.group.Count++
+		if groupBy != "" {
+			g.group.LocalGrouping = append([]string{"environment_id", "application_id"}, strings.Split(groupBy, ",")...)
+			g.group.Labels = []label{{K: "application_id", V: v.ApplicationID}, {K: "environment", V: v.EnvironmentKey}}
+			for _, name := range strings.Split(groupBy, ",") {
+				value := v.Labels[name]
+				if name == "service" {
+					value = v.ApplicationID
+				}
+				g.group.Labels = append(g.group.Labels, label{K: name, V: value})
+			}
+			if g.group.SourceID != v.SourceID {
+				g.group.SourceID = ""
+			}
+			if g.group.Fingerprint != v.Fingerprint {
+				g.group.Fingerprint = ""
+			}
+		}
 		if severityRank(severityCode) < severityRank(g.group.Severity) {
 			g.group.Severity = severityCode
 		}
@@ -380,6 +404,10 @@ func localNotificationText(status string) string {
 }
 
 func respondAlertGroupError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errGroupingLabelUnavailable) {
+		httpapi.Error(w, 503, "grouping_label_unavailable", "Selected grouping labels are missing from persisted alerts")
+		return
+	}
 	if errors.Is(err, errAlertNotificationScope) {
 		httpapi.Error(w, http.StatusServiceUnavailable, "alert_group_unavailable", "Alert notification scope is inconsistent")
 		return
@@ -392,6 +420,11 @@ func respondAlertGroupError(w http.ResponseWriter, err error) {
 }
 
 func (s *Service) AlertGroups(w http.ResponseWriter, r *http.Request) {
+	groupBy, groupErr := v3pagequery.Single(r.URL.Query(), "group_by", "service,alertname", "service", "alertname", "cluster,namespace")
+	if groupErr != nil {
+		httpapi.Error(w, 422, "invalid_group_by", "Choose service,alertname; service; alertname; or cluster,namespace")
+		return
+	}
 	q, env, state, severities, valid := alertGroupQuery(w, r)
 	if !valid {
 		return
@@ -417,7 +450,7 @@ func (s *Service) AlertGroups(w http.ResponseWriter, r *http.Request) {
 			filtered = append(filtered, v)
 		}
 	}
-	groups, err := aggregateAlertGroups(filtered, time.Now())
+	groups, err := aggregateAlertGroups(filtered, time.Now(), groupBy)
 	if err != nil {
 		respondAlertGroupError(w, err)
 		return
@@ -432,7 +465,12 @@ func (s *Service) AlertGroups(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			continue
 		}
-		g := groups[localAlertGroupID(v)]
+		id, _, identityErr := displayAlertGroupIdentity(v, groupBy)
+		if identityErr != nil {
+			respondAlertGroupError(w, identityErr)
+			return
+		}
+		g := groups[id]
 		if g.latest == nil || n.At.After(g.latest.At) || n.At.Equal(g.latest.At) && n.ID > g.latest.ID {
 			copy := n
 			g.latest = &copy
@@ -481,6 +519,7 @@ func (s *Service) AlertGroups(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"items": items, "counts": counts, "partial": true,
 		"aggregation": "local_persisted_incidents",
+		"group_by":    groupBy, "actionable": groupBy == "",
 		"unavailable": []string{"provider_grouping", "silence_state", "inhibition", "external_notification_status"},
 	})
 }

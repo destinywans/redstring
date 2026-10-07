@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -515,6 +516,20 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 		!strings.Contains(listed.Body.String(), `"complete_v3_dto":false`) {
 		t.Fatalf("Runbook list lost scoped item or claimed unknown usage: %s", listed.Body.String())
 	}
+	var publicList struct {
+		Items []runbookSummary `json:"items"`
+		Total int              `json:"total"`
+	}
+	if err := json.Unmarshal(listed.Body.Bytes(), &publicList); err != nil || len(publicList.Items) != 1 {
+		t.Fatalf("public list: %s %v", listed.Body.String(), err)
+	}
+	facet := publicList.Items[0]
+	filtered := list("q=runbook-public&owner="+url.QueryEscape(facet.Owner)+"&scope="+url.QueryEscape(facet.Scope)+"&page=1&per_page=1", "dev", readerToken)
+	assert(filtered, 200, "")
+	if !strings.Contains(filtered.Body.String(), `"total":1`) {
+		t.Fatalf("owner/scope did not precede page: %s", filtered.Body.String())
+	}
+	assert(list("owner=no-such-maintainer&scope="+url.QueryEscape(facet.Scope), "dev", readerToken), 200, "")
 	assert(get("runbook-other-app", "", "dev", maintainerToken), 404, "not_found")
 	assert(get("runbook-other-env", "", "dev", maintainerToken), 404, "not_found")
 	assert(get("runbook-unknown-env", "", "dev", maintainerToken), 404, "not_found")

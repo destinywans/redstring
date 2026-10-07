@@ -1,5 +1,7 @@
 # 项目文档
 
+- [V3 v1.1 页面交互后端交付](releases/2026-10-07-v3-page-interactions.md)、[范围与取舍](plans/2026-10-07-v3-page-interactions.md)：WAN-245～248，新增路由、持久化、服务端筛选及可信来源 503 边界。
+
 - [本地 Docker 清理记录](releases/2026-10-07-docker-cleanup.md)：CP-316，旧容器/镜像精确清理、保留环境及数据恢复边界。
 
 - [历史差异整理待办与工作树退役](plans/2026-10-07-history-reconciliation.md)：CP-315，11 个重复标签清理、19 个独立历史保留及四类重点待办。

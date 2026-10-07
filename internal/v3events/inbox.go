@@ -157,6 +157,13 @@ func (s *Service) Inbox(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	counts["all"], counts["mine"] = all, mineCount
+	assignments, err := s.readAssignmentNotifications(r, tx, yesterday)
+	if err != nil {
+		respondAlertAuthorityError(w, err)
+		return
+	}
+	items = append(items, assignments...)
+	counts["all"], counts["mine"] = all+len(assignments), mineCount+len(assignments)
 	if err := activeAlertReadSession(r.Context(), tx, r); err != nil {
 		respondAlertAuthorityError(w, err)
 		return
@@ -170,6 +177,7 @@ func (s *Service) Inbox(w http.ResponseWriter, r *http.Request) {
 		"items": items, "counts": counts, "partial": true,
 		"window": "today_and_yesterday", "timezone": loc.String(), "as_of": now.UTC().Format(time.RFC3339Nano),
 		"all_scope": "persisted_alert_incident_updates", "mine_scope": "assigned_alert_incidents",
-		"unavailable": []string{"unread_state", "mentions", "subscriptions", "non_alert_event_types"},
+		"assignment_scope": "current_assignment_notifications",
+		"unavailable":      []string{"unread_state", "mentions", "subscriptions", "non_alert_event_types"},
 	})
 }

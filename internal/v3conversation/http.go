@@ -15,6 +15,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3pagequery"
 	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
@@ -327,6 +328,20 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) list(w http.ResponseWriter, r *http.Request) {
+	scopes, scopeErr := v3pagequery.Values(r.URL.Query(), "scope")
+	statuses, statusErr := v3pagequery.Values(r.URL.Query(), "status")
+	sortBy, sortErr := v3pagequery.Single(r.URL.Query(), "sort", "recent", "title", "tokens")
+	if scopeErr != nil || statusErr != nil || sortErr != nil {
+		apiError(w, 422, "invalid_filter", "Invalid conversation scope, status or sorting")
+		return
+	}
+	for _, status := range statuses {
+		if status != "active" && status != "waiting_approval" && status != "resolved" && status != "archived" {
+			apiError(w, 422, "invalid_status", "Unknown conversation status")
+			return
+		}
+	}
+
 	u, ok := s.user(w, r)
 	if !ok {
 		return
@@ -354,7 +369,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	if filter == "" {
 		filter = "mine"
 	}
-	statusFilter := r.URL.Query().Get("status")
+	statusFilter := ""
 	modeFilter := r.URL.Query().Get("mode")
 	if filter != "mine" && filter != "archived" && filter != "team" && filter != "triage" {
 		apiError(w, 422, "invalid_filter", "Unknown conversation filter")
@@ -377,7 +392,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 401, "unauthorized", "Login required")
 		return
 	}
-	items, total, counts, err := s.readOwnedList(r.Context(), cookie.Value, u, visible, filter, modeFilter, statusFilter, q, page, size, r.Header.Get("Accept-Language"))
+	items, total, counts, err := s.readOwnedList(r.Context(), cookie.Value, u, visible, filter, modeFilter, statusFilter, q, page, size, r.Header.Get("Accept-Language"), conversationPageFilters{Scopes: scopes, Statuses: statuses, Sort: sortBy})
 	if err != nil {
 		operationError(w, err)
 		return

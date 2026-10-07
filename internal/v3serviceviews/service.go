@@ -45,6 +45,7 @@ func New(st *store.Store, access Access, metrics MetricReader, alerts AlertCover
 // http.ServeMux rejects duplicate patterns. Catalog writes and mappings remain
 // with v3catalog.
 func (s *Service) Register(api *httpapi.Server) {
+	s.registerSLO(api)
 	api.Register("GET /api/v1/services", "viewer", s.list)
 	api.MarkV3ObjectRoute("GET /api/v1/services", "services", "view")
 	api.Register("GET /api/v1/services/{id}", "viewer", s.detail)
@@ -128,7 +129,7 @@ func (s *Service) scope(w http.ResponseWriter, r *http.Request) (httpapi.V3Envir
 	return scope, true
 }
 
-type filters struct{ q, tier, team, status string }
+type filters struct{ q, tier, team, status, tab, sort string }
 
 func parseFilters(raw string) (filters, bool) {
 	var out filters
@@ -137,18 +138,24 @@ func parseFilters(raw string) (filters, bool) {
 		return out, false
 	}
 	for key, values := range q {
-		if len(values) != 1 || (key != "q" && key != "tier" && key != "team" && key != "status") {
+		if len(values) != 1 || (key != "q" && key != "tier" && key != "team" && key != "status" && key != "tab" && key != "sort") {
 			return out, false
 		}
 		if len(values[0]) > 200 || strings.TrimSpace(values[0]) != values[0] {
 			return out, false
 		}
 	}
-	out = filters{q: q.Get("q"), tier: q.Get("tier"), team: q.Get("team"), status: q.Get("status")}
+	out = filters{q: q.Get("q"), tier: q.Get("tier"), team: q.Get("team"), status: q.Get("status"), tab: q.Get("tab"), sort: q.Get("sort")}
 	if out.tier != "" && out.tier != "T0" && out.tier != "T1" && out.tier != "T2" {
 		return out, false
 	}
 	if out.status != "" && out.status != "ok" && out.status != "warn" && out.status != "danger" {
+		return out, false
+	}
+	if out.tab != "" && out.tab != "all" && out.tab != "mine" && out.tab != "watched" {
+		return out, false
+	}
+	if out.sort != "" && out.sort != "status" && out.sort != "budget" && out.sort != "alerts" && out.sort != "name" {
 		return out, false
 	}
 	return out, true
@@ -171,6 +178,7 @@ const rowsSQL = `SELECT a.id,a.key,a.name,a.description,ve.environment_id,
  AND ($4='' OR position(lower($4) in lower(a.key))>0 OR position(lower($4) in lower(a.name))>0)
  AND ($5='' OR ep.tier=$5)
  AND ($6='' OR a.owner_team_id=$6 OR t.name=$6)
+ AND ($10::text IN ('','all') OR ($10='mine' AND (ep.oncall_user_id=$11 OR EXISTS(SELECT 1 FROM team_members m WHERE m.user_id=$11 AND m.team_id=a.owner_team_id))) OR ($10='watched' AND EXISTS(SELECT 1 FROM v3_user_watched_services w WHERE w.user_id=$11 AND w.application_id=a.id AND w.environment_id=ve.environment_id)))
  AND (a.key,ve.environment_id,a.id)>($7,$8,$9)
  ORDER BY a.key,ve.environment_id,a.id LIMIT 128`
 
@@ -197,7 +205,7 @@ func (s *Service) rows(ctx context.Context, user core.User, envs []string, app, 
 	result := []serviceRow{}
 	var lastKey, lastEnv, lastID string
 	for {
-		rows, err := s.Store.DB.Query(ctx, rowsSQL, envs, app, env, f.q, f.tier, f.team, lastKey, lastEnv, lastID)
+		rows, err := s.Store.DB.Query(ctx, rowsSQL, envs, app, env, f.q, f.tier, f.team, lastKey, lastEnv, lastID, f.tab, user.ID)
 		if err != nil {
 			return nil, err
 		}

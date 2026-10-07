@@ -17,6 +17,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3interactionaudit"
 )
 
 // Authorize resolves the persisted application and instance environment in
@@ -75,6 +76,9 @@ func (s *Service) RegisterNew(api *httpapi.Server) {
 // Keep these separate from RegisterNew so callers can opt into the V3 handlers
 // only after the legacy routes have been accounted for.
 func (s *Service) RegisterV3Incidents(api *httpapi.Server) {
+	v3interactionaudit.Mark(api, s.DB, "POST /api/v1/incidents/{id}/participants", "incident.participants.add")
+	api.Register("POST /api/v1/incidents/{id}/participants", "viewer", s.AddParticipants)
+	api.MarkV3ObjectRoute("POST /api/v1/incidents/{id}/participants", "events", "change")
 	api.Register("GET /api/v1/incidents", "viewer", s.Incidents)
 	api.MarkV3ObjectRoute("GET /api/v1/incidents", "events", "view")
 	api.Register("GET /api/v1/incidents/{id}", "viewer", s.Incident)

@@ -109,11 +109,11 @@ type dashboardMarkers struct {
 
 func dashboardRequest(r *http.Request) (string, bool, bool) {
 	q, err := url.ParseQuery(r.URL.RawQuery)
-	if err != nil || len(q) < 1 || len(q) > 3 {
+	if err != nil || len(q) < 1 || len(q) > 4 {
 		return "", false, false
 	}
 	for key, values := range q {
-		if len(values) != 1 || (key != "service" && key != "range" && key != "align") {
+		if len(values) != 1 || (key != "service" && key != "range" && key != "align" && key != "source") {
 			return "", false, false
 		}
 	}
@@ -546,6 +546,17 @@ func alignedDashboardEnd(now, incident time.Time) (time.Time, bool) {
 }
 
 func (s *Service) metricDashboard(w http.ResponseWriter, r *http.Request) {
+	if src := r.URL.Query()["source"]; len(src) > 0 {
+		if len(src) != 1 || (src[0] != "prometheus" && src[0] != "victoriametrics") {
+			httpapi.Error(w, 422, "invalid_source", "Select one metrics provider")
+			return
+		}
+		if src[0] == "victoriametrics" {
+			httpapi.Error(w, 503, "metrics_source_not_connected", "VictoriaMetrics dashboard is not connected")
+			return
+		}
+	}
+
 	service, align, valid := dashboardRequest(r)
 	if !valid {
 		httpapi.Error(w, 422, "invalid_metric_request", "Choose one service, a one-hour range and optional alignment")

@@ -435,9 +435,9 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 - **第 1 张表**：前端需要对齐已实现接口的约束。只是前端待办，接口本身不变。
 - **第 2 张表**：后端已经实现、但此前没有列入页面契约的接口。
-- **第 3 张表**：新定义、待后端实现的接口。
+- **第 3 张表**：新增接口的当前后端状态。27 项已具备持久化/真实读取；另 5 项已完成路由、鉴权和失败边界，可信业务来源仍待接入。
 
-本节行的状态写作 `v1.1·已实现` 或 `v1.1·待实现`，不计入上文 166 项；Mock 补齐之前，`scripts/check-v3-contract.py` 只统计这些行，不要求有对应 Mock。所有写接口沿用通用约定：单一 `X-AIOps-Environment`，`all` 返回 `409 env_view_only`，成功和失败都写审计，带版本的对象使用 `expected_revision` 防止覆盖。
+本节行的状态写作 `v1.1·已实现` 或 `v1.1·待实现`，不计入上文 166 项；Mock 补齐之前，`scripts/check-v3-contract.py` 只统计这些行，不要求有对应 Mock。所有写接口沿用通用约定：单一 `X-AIOps-Environment`，`all` 返回 `409 env_view_only`，已认证真人写入的成功和失败都写净化审计（匿名/失效会话不建立业务审计），带版本的对象使用 `expected_revision` 防止覆盖。
 
 ### 1. 前端需对齐的已实现约束
 
@@ -445,7 +445,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | --- | --- | --- |
 | Webhook 与 API › 新建 API 令牌 | `POST /api-tokens` 的 `ttl` 只接受 `3600`、`86400`、`604800`、`2592000` 秒；`scopes` 只接受 `["connectors:view"]` | 有效期选项改为 1 小时 / 1 天 / 7 天 / 30 天，权限固定为“只读连接器”；`ttl` 以秒传 |
 | 成员 › 邀请成员 | `POST /members/invitations` 的 `role` 只接受 `viewer` | 角色固定为“只读”；业务角色在接受邀请后用 `PUT /members/{id}/access` 分配 |
-| 新建事件抽屉 | `POST /incidents` 现在没有参与人字段 | 参与人字段改用第 3 张表新增的可选 `participants`；后端实现前不发送该字段 |
+| 新建事件抽屉 | `POST /incidents` 已增加可选 `participants`，名称去重后最多 50 人，不授予权限 | 初始成员随创建提交；后续追加用第 3 张表的接口 |
 | 连接器 › 编辑 | `PATCH /connectors/{id}` 只修改工具开关 `{ tools }`；更换凭据引用用 `POST /connectors/{id}/activate { credential_ref }` | 地址和范围改用第 3 张表的 `PUT /connectors/{id}/settings`；凭据引用改为调用 activate |
 | 护栏 › 新建策略 | `POST /guardrails` 只登记内置策略：`read_only`、`bounded_execution`、`deny_sensitive_content` | 表单改为从内置策略中选择，不提供自由规则文本 |
 | 评测 › 新建实验 | `POST /evals { agent_id, title, baseline_version, candidate_version }` 只创建待运行实验；执行用 `POST /evals/{id}/execute { case_id, request_key }` | 按钮改为调用这两个接口；去掉“数据集”字段，用例在执行时选择 |
@@ -475,44 +475,44 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | POST | `/connectors/{id}/activate` | `{ credential_ref? }` | 启用后的连接器 | 连接器 › 编辑凭据、重新启用 | v1.1·已实现 |
 | POST | `/memory/facts` | `{ document_id, expected_version, expected_content_hash, exact_excerpt }`，见 [记忆生产](v3-memory-production.md) | 候选事实 | 记忆 › 从资料产生候选 | v1.1·已实现 |
 
-### 3. 新增待实现接口
+### 3. 新增接口当前后端状态
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 页面操作 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| POST | `/incidents/{id}/participants` | `{ names: string[] }`；也可在 `POST /incidents` 请求体中带可选 `participants: string[]` | 更新后的参与人列表 | 新建事件 › + 成员 | v1.1·待实现 |
-| PUT | `/connectors/{id}/settings` | `{ expected_revision, address, scope }`（凭据仍走 activate） | `ConnectorDetail`；修改地址后需要重新探测 | 连接器 › 编辑 | v1.1·待实现 |
-| POST | `/connectors/{id}/disable` | `{ reason? }` | 已停用的连接器；保留凭据引用，可用 activate 恢复 | 连接器 › 停用 | v1.1·待实现 |
-| POST | `/mcp-servers/{id}/disable` | `{ reason? }` | 已停用的登记；撤销所有工具授权的生效状态，保留配置 | MCP › 停用 | v1.1·待实现 |
-| POST | `/mcp-servers/{id}/review-dismiss` | `{ candidate_version }` | `204`；新发现的工具保持关闭，同一版本不再提示 | MCP › 忽略变更 | v1.1·待实现 |
-| POST | `/api-tokens/{id}/rotate` | | `{ id, secret_shown_once, old_expires_at }`；旧令牌 24 小时后失效 | Webhook 与 API › 轮换 | v1.1·待实现 |
-| POST | `/webhooks` | `{ name, type: change\|alert\|incident, verify: hmac\|token }` | `{ id, url, secret_shown_once }` | Webhook 与 API › 新建 Webhook | v1.1·待实现 |
-| POST | `/agent-tools` | `{ name, kind: read\|write, connector_id }`；写工具只能生成提案 | `{ id }`；登记后不授予任何 Agent | 工具与权限 › 登记工具 | v1.1·待实现 |
-| GET | `/eval-datasets` | `agent_id?` | `{ items: [{ id, name, source, count }] }` | 评测 › 数据集 | v1.1·待实现 |
-| POST | `/eval-datasets` | `{ name, source: incidents\|runs\|manual }` | `{ id }` | 评测 › 新建数据集 | v1.1·待实现 |
-| POST | `/eval-datasets/{id}/items` | `{ run_id }` | `{ count }` | 运行详情 › 加入数据集 | v1.1·待实现 |
-| POST | `/agent-runs/{id}/annotations` | `{ score: 1..5, note? }` | 标注；评测可引用 | 运行详情 › 标注 | v1.1·待实现 |
-| GET | `/prompts/{id}/versions` | | `{ items: [{ version, created_at, author, current }] }` | 提示词 › 历史版本 | v1.1·待实现 |
-| PATCH | `/memory/facts/{id}` | `{ expected_revision, fact }` | 事实，状态回到“待确认” | 记忆 › 编辑 | v1.1·待实现 |
-| GET | `/memory/policy` | | `{ ttl_days: 30\|90\|180, proposers: human\|human_ai, revision }` | 记忆 › 记忆策略 | v1.1·待实现 |
-| PUT | `/memory/policy` | `{ expected_revision, ttl_days, proposers }` | 同上 | 记忆 › 修改策略 | v1.1·待实现 |
-| GET | `/services/{id}/slo` | | `{ target: "99.5"\|"99.9"\|"99.95"\|"99.99", window: 7d\|30d, revision }` | 指标 › SLO 设置 | v1.1·待实现 |
-| PUT | `/services/{id}/slo` | `{ expected_revision, target, window }` | 同上 | 指标 › SLO 设置 | v1.1·待实现 |
-| GET | `/trace-views` | `scope: app\|agent` | `{ items: [{ id, name, query, owner }] }`（团队共享） | 链路 › 保存的视图 | v1.1·待实现 |
-| POST | `/trace-views` | `{ scope, name, query }` | `{ id }` | 链路 › 保存视图 | v1.1·待实现 |
-| DELETE | `/trace-views/{id}` | | `204` | 链路 › 删除视图 | v1.1·待实现 |
-| GET | `/notification-templates` | | `{ items: [{ id, name, channel, used_by }] }` | 通知与路由 › 通知模板 | v1.1·待实现 |
-| GET | `/oncall-schedules` | | `{ items: [{ id, name, on_call, escalation }] }` | 通知与路由 › 值班与升级 | v1.1·待实现 |
-| GET | `/notification-deliveries` | `range`, `q` | `{ items: [{ time, alert, receiver, result }] }` | 通知与路由 › 发送记录 | v1.1·待实现 |
-| GET | `/maintenance-windows` | | `{ items: [{ id, schedule, matchers, reason, owner }] }` | 静默与抑制 › 维护窗口 | v1.1·待实现 |
-| POST | `/maintenance-windows` | `{ schedule, matchers, reason }` | `{ id }` | 静默与抑制 › 维护窗口 | v1.1·待实现 |
-| POST | `/assignments` | `{ item_kind: alert\|incident\|proposal, item_id, assignee }` | `{ ok: true }`；被指派人收到通知 | 人员悬浮卡 › 指派 | v1.1·待实现 |
-| PUT | `/investigation-templates/{id}` | `{ expected_revision, name, budget: { tools, minutes } }` | 新版本；进行中的调查不受影响 | 模板 › 编辑 | v1.1·待实现 |
-| POST | `/me/contacts/{kind}/verification` | `{ value }`（`kind: email\|phone`） | `202`；验证码已发送，验证后生效 | 个人资料 › 修改联系方式 | v1.1·待实现 |
-| DELETE | `/me/contacts/feishu` | | `204`；飞书通知改用邮件和短信 | 个人资料 › 解绑飞书 | v1.1·待实现 |
-| PUT | `/me/avatar` | multipart `file`（PNG/JPG，≤ 2 MB，≥ 256×256） | `{ url }` | 个人资料 › 上传头像 | v1.1·待实现 |
-| DELETE | `/me/avatar` | | `204` | 个人资料 › 移除头像 | v1.1·待实现 |
+| POST | `/incidents/{id}/participants` | `{ names: string[] }`；也可在 `POST /incidents` 请求体中带可选 `participants: string[]` | 更新后的参与人列表 | 新建事件 › + 成员 | v1.1·已实现 |
+| PUT | `/connectors/{id}/settings` | `{ expected_revision, address, scope }`（凭据仍走 activate） | `ConnectorDetail`；修改地址后需要重新探测 | 连接器 › 编辑 | v1.1·已实现 |
+| POST | `/connectors/{id}/disable` | `{ reason? }` | 已停用的连接器；保留凭据引用，可用 activate 恢复 | 连接器 › 停用 | v1.1·已实现 |
+| POST | `/mcp-servers/{id}/disable` | `{ reason? }` | 已停用的登记；撤销所有工具授权的生效状态，保留配置 | MCP › 停用 | v1.1·已实现 |
+| POST | `/mcp-servers/{id}/review-dismiss` | `{ candidate_version }` | `204`；新发现的工具保持关闭，同一版本不再提示 | MCP › 忽略变更 | v1.1·已实现 |
+| POST | `/api-tokens/{id}/rotate` | | `{ id, secret_shown_once, old_expires_at }`；旧令牌最迟 24 小时后失效（不延长原有效期） | Webhook 与 API › 轮换 | v1.1·已实现 |
+| POST | `/webhooks` | `{ name, type: change\|alert\|incident, verify: hmac\|token }` | `503 webhook_registration_unavailable；可信入口/密钥来源待接入` | Webhook 与 API › 新建 Webhook | v1.1·待实现 |
+| POST | `/agent-tools` | `{ name, kind: read\|write, connector_id }`；写工具只能生成提案 | `{ id }`；登记后不授予任何 Agent | 工具与权限 › 登记工具 | v1.1·已实现 |
+| GET | `/eval-datasets` | `agent_id?` | `{ items: [{ id, name, source, count }] }` | 评测 › 数据集 | v1.1·已实现 |
+| POST | `/eval-datasets` | `{ name, source: incidents\|runs\|manual }` | `{ id }` | 评测 › 新建数据集 | v1.1·已实现 |
+| POST | `/eval-datasets/{id}/items` | `{ run_id }` | `{ count }` | 运行详情 › 加入数据集 | v1.1·已实现 |
+| POST | `/agent-runs/{id}/annotations` | `{ score: 1..5, note? }` | 标注；评测可引用 | 运行详情 › 标注 | v1.1·已实现 |
+| GET | `/prompts/{id}/versions` | | `{ items: [{ version, created_at, author, current }] }` | 提示词 › 历史版本 | v1.1·已实现 |
+| PATCH | `/memory/facts/{id}` | `{ expected_revision, fact }` | 事实，状态回到“待确认” | 记忆 › 编辑 | v1.1·已实现 |
+| GET | `/memory/policy` | | `{ ttl_days: 30\|90\|180, proposers: human\|human_ai, revision }` | 记忆 › 记忆策略 | v1.1·已实现 |
+| PUT | `/memory/policy` | `{ expected_revision, ttl_days, proposers }` | 同上 | 记忆 › 修改策略 | v1.1·已实现 |
+| GET | `/services/{id}/slo` | | `{ target: "99.5"\|"99.9"\|"99.95"\|"99.99", window: 7d\|30d, revision }` | 指标 › SLO 设置 | v1.1·已实现 |
+| PUT | `/services/{id}/slo` | `{ expected_revision, target, window }` | 同上 | 指标 › SLO 设置 | v1.1·已实现 |
+| GET | `/trace-views` | `scope: app\|agent` | `{ items: [{ id, name, query, owner }] }`（团队共享） | 链路 › 保存的视图 | v1.1·已实现 |
+| POST | `/trace-views` | `{ scope, name, query }` | `{ id }` | 链路 › 保存视图 | v1.1·已实现 |
+| DELETE | `/trace-views/{id}` | | `204` | 链路 › 删除视图 | v1.1·已实现 |
+| GET | `/notification-templates` | | `503 notification_templates_unavailable；完整权威目录待接入` | 通知与路由 › 通知模板 | v1.1·待实现 |
+| GET | `/oncall-schedules` | | `503 oncall_schedules_unavailable；完整排班/升级来源待接入` | 通知与路由 › 值班与升级 | v1.1·待实现 |
+| GET | `/notification-deliveries` | `range`, `q` | `{ items: [{ time, alert, receiver, result }] }` | 通知与路由 › 发送记录 | v1.1·已实现 |
+| GET | `/maintenance-windows` | | `{ items: [{ id, schedule, matchers, reason, owner }] }` | 静默与抑制 › 维护窗口 | v1.1·已实现 |
+| POST | `/maintenance-windows` | `{ schedule, matchers, reason }` | `{ id, status: planned, execution_enabled: false }` | 静默与抑制 › 维护窗口 | v1.1·已实现 |
+| POST | `/assignments` | `{ item_kind: alert\|incident\|proposal, item_id, assignee }` | `{ ok: true }`；`assignee` 是成员 ID，被指派人收到持久站内通知 | 人员悬浮卡 › 指派 | v1.1·已实现 |
+| PUT | `/investigation-templates/{id}` | `{ expected_revision, name, budget: { tools, minutes } }` | 新版本；进行中的调查不受影响 | 模板 › 编辑 | v1.1·已实现 |
+| POST | `/me/contacts/{kind}/verification` | `{ value }`（`kind: email\|phone`） | `503 contact_verification_unavailable`；发送/确认来源待接入 | 个人资料 › 修改联系方式 | v1.1·待实现 |
+| DELETE | `/me/contacts/feishu` | | `503 contact_unlink_unavailable`；权威解绑和已验证后备通知待接入 | 个人资料 › 解绑飞书 | v1.1·待实现 |
+| PUT | `/me/avatar` | multipart `file`（PNG/JPG，≤ 2 MB，≥ 256×256） | `{ url }` | 个人资料 › 上传头像 | v1.1·已实现 |
+| DELETE | `/me/avatar` | | `204` | 个人资料 › 移除头像 | v1.1·已实现 |
 
-**查询参数补充（待实现）**。以下筛选现在只在前端过滤已加载的数据；数据量变大或分页后，应改为服务端参数：
+**服务端查询参数**。以下参数已进入真实查询、聚合或排序；维度内多值 OR、不同维度 AND，均保留当前 ACL。`sort`、`tab`、`source`、`range` 是单值参数：
 
 - 时间范围 `range`（`15m|30m|1h|6h|24h|7d|30d`）：`GET /home`、`/agent-runs`、`/logs`、`/traces`、`/audit`。`GET /changes` 已有 `range`。
 - 数据源 `source`：`GET /logs`（`elasticsearch|loki`）、`GET /traces`（`tempo|jaeger`）、`GET /metrics/dashboard`（`prometheus|victoriametrics`）。
@@ -528,6 +528,18 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
   - `GET /members`：`role`、`source`；
   - `GET /audit`：`action`、`result`；
   - `GET /services`：`tab: all|mine|watched`、`sort`。
+
+**本轮确认的能力边界**（WAN-245～248）：
+
+- 用户确认 Webhook 创建、联系方式验证/解绑、完整通知模板及值班表尚无可信来源时返回明确 503。本批已接线并鉴权；写入拒绝留净化审计，业务能力的五行继续标「待实现」。不会生成假 URL、密钥、验证码发送成功或完整排班。
+- 维护窗口只保存本地计划；`schedule` 是人工描述，匹配器必须显式限定真实 `application_id` 和当前 `environment`。不解析 cron、不调度或自动创建静默。指派按对象与收件人当前权限保存，生成 Inbox `kind=assignment`；同人重试不重复通知，改派使旧通知不可见。旧 incident 告警别名规范为 alert 并同步真实负责人。Inbox 的既有 alert 范围字段继续描述告警部分，assignment 部分另标 `assignment_scope=current_assignment_notifications`。
+- 连接器地址修改使健康/工具证据失效并停用；启用与停用按 revision 复核。MCP 停用关闭已审核工具，忽略仅确认当前候选快照，不授执行权。令牌轮换只返回一次新明文，并发仅一个成功，旧令牌有效期取原期限和当前时间加 24h 的较早值。
+- 工具登记不授予 Agent；数据集只存人工引用的已完成运行，不按 source 自动导入事件或执行评测；标注是人工分数。事实编辑仍须匹配同一当前资料的精确摘录，CAS 后回到 candidate；冲突未决拒绝编辑。记忆策略未保存时返回 configured:false/revision:0 且不启用默认 TTL；保存后主视图与变更入口按确认时间（无则创建时间）执行 TTL。human_ai 不证明已有 AI producer。
+- SLO 未配置返回 503，首次 PUT 用 expected_revision:0；保存目标不证明遥测达标。保存链路视图要求明确的持久团队归属，查询文本只保存不执行。模板修改复用 canvas.change，更新后版本递增，已启动的材料快照保持不变。
+- `range` 改变真实查询窗口；home 当前未解决关注项仍反映当前状态。日志受已配置来源的 max-window/lookback 约束，超限明确 503，不缩小窗口冒充成功；source 与旧 provider 同时给出须一致。Jaeger、VictoriaMetrics、复盘 cause 分类无已连接 producer，显式选择时返回 503。Canvas participant 对应持久创建者姓名，service 为稳定服务 ID；Runbook owner 和成员 role 兼容稳定 ID/当前显示名。显式 alert group_by 生成不可执行的 viewgroup: 展示组，缺少所需真实标签返回 503；默认源级分组及动作 ID 保持。
+- 头像保存实际解码的 PNG/JPEG，最多 2 MiB、每边 256～4096 像素；私有 `GET /me/avatar/content/{revision}` 仅当前本人活动真人会话读取，可无环境头直接作图片 URL，旧/删除/他人版本 404。上传/删除仍要求单一环境与事务审计。
+
+迁移 158～161、OpenAPI 与隔离 PG/受控本地适配器证据见[实施计划](../plans/2026-10-07-v3-page-interactions.md)和[交付记录](../releases/2026-10-07-v3-page-interactions.md)。现有业务库、部署、前端 HTTP 模式和真实外部来源尚未验收，原 166 项状态保持。
 
 **保持仅前端的交互**（不需要接口）：复制链接、导出 JSON / CSV / Markdown / YAML / OpenAPI（由已加载数据生成）、自动刷新间隔、Mock 模式下的外部跳转提示。
 
@@ -552,6 +564,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-10-07 | 后端对齐 v1.1：27 个新接口具备持久化/真实读取，5 个可信来源缺口已接线并按用户决定明确 503；服务端参数、迁移 158～161、OpenAPI 与定向隔离验证已同步，原 166 项不升级。 |
 | 2026-10-07 | 契约 v1.1：新增「v1.1 页面交互接口」一节。第 1 张表列出前端需对齐的已实现约束（令牌有效期与权限、邀请角色、护栏内置策略、新建实验和 Agent 的请求体），第 2 张表补入后端已实现的 19 个接口，第 3 张表新定义 32 个待实现接口，并补充查询参数。原 166 项的路径和字段不变，没有破坏性修改。 |
 | 2026-09-29 | WAN-119 角色详情 GET/PUT 按后端单路由判据标为 `implemented`；矩阵写入新增 `If-Role-Matrix-Revision` 强前置条件，版本随 GET/PUT 响应头返回，用于防止旧页面覆盖持久授权。冻结页面尚未传递该头，页面验收另列。 |
 | 2026-09-29 | 后端单路由证据使 `GET/POST /canvases`、`GET /config-sync`、告警规则 dry-run、服务映射 discover/accept 标为 `implemented`；页面仍待适配和实连。服务映射接受体由展示字符串 `{ cells }` 改为稳定候选身份、版本和绑定修订 `{ candidates }`，以防过期/错绑；本批按后端范围先更新本契约与 OpenAPI，冻结 `types.ts`、Mock 和页面尚未同步，页面继续使用 Mock 模式。 |

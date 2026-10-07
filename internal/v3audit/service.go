@@ -196,6 +196,11 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "environment_required", "Select an environment")
 		return
 	}
+	pageQuery, pageErr := parseAuditPage(r)
+	if pageErr != nil {
+		httpapi.Error(w, 422, "invalid_filter", "Invalid audit range, action or result")
+		return
+	}
 	q, err := parseQuery(query{Filter: r.URL.Query().Get("filter"), Q: r.URL.Query().Get("q")})
 	if err != nil {
 		httpapi.Error(w, 422, "invalid_filter", err.Error())
@@ -215,7 +220,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.DB.Query(r.Context(), visibleCTE+` SELECT id,actor_id,actor_kind,action,target,outcome,created_at,actor_name
-	 FROM visible`+filterWhere+` AND ($5::bigint=0 OR id<$5) ORDER BY id DESC LIMIT 251`, envs, global, q.Filter, q.Q, cursor)
+	 FROM visible`+filterWhere+auditPageWhere(6)+` AND ($5::bigint=0 OR id<$5) ORDER BY id DESC LIMIT 251`, envs, global, q.Filter, q.Q, cursor, pageQuery.start, pageQuery.actions, pageQuery.outcomes)
 	if err != nil {
 		unavailable(w)
 		return
@@ -257,7 +262,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	counts := map[string]int64{"all": 0, "user": 0, "agent": 0, "system": 0}
 	countRows, err := s.DB.Query(r.Context(), visibleCTE+` SELECT actor_kind,count(*) FROM visible
  WHERE aiops_search_match(concat_ws(' ',actor_id,actor_name,action,target,outcome,changes->>'run_id'),$3)
- GROUP BY actor_kind`, envs, global, q.Q)
+ `+auditPageWhere(4)+` GROUP BY actor_kind`, envs, global, q.Q, pageQuery.start, pageQuery.actions, pageQuery.outcomes)
 	if err != nil {
 		unavailable(w)
 		return
@@ -281,7 +286,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	volume, err := s.volume(r.Context(), envs, global)
+	volume, err := s.volume(r.Context(), envs, global, pageQuery)
 	if err != nil {
 		unavailable(w)
 		return
@@ -289,11 +294,25 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "counts": counts, "volume": volume, "next_cursor": nextCursor})
 }
 
-func (s *Service) volume(ctx context.Context, envs []string, global bool) ([][]int64, error) {
+func (s *Service) volume(ctx context.Context, envs []string, global bool, facets ...auditPageQuery) ([][]int64, error) {
 	now := time.Now().UTC()
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).AddDate(0, 0, -6)
-	rows, err := s.DB.Query(ctx, visibleCTE+` SELECT (created_at AT TIME ZONE 'UTC')::date,actor_kind,count(*)
- FROM visible WHERE created_at >= $3 GROUP BY 1,2`, envs, global, start)
+	step := 24 * time.Hour
+	extra := ""
+	args := []any{envs, global, start}
+	if len(facets) > 0 {
+		p := facets[0]
+		if p.start != nil {
+			start = *p.start
+			step = p.duration / 7
+		}
+		args[2] = start
+		extra = auditPageWhere(5)
+		args = append(args, step.Seconds(), p.start, p.actions, p.outcomes)
+	} else {
+		args = append(args, step.Seconds())
+	}
+	rows, err := s.DB.Query(ctx, visibleCTE+` SELECT floor(extract(epoch from (created_at-$3::timestamptz))/$4::double precision)::int,actor_kind,count(*) FROM visible WHERE created_at>=$3 `+extra+` GROUP BY 1,2`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -303,22 +322,19 @@ func (s *Service) volume(ctx context.Context, envs []string, global bool) ([][]i
 		volume[i] = []int64{0, 0, 0}
 	}
 	for rows.Next() {
-		var day time.Time
+		var index int
 		var kind string
 		var count int64
-		if err = rows.Scan(&day, &kind, &count); err != nil {
+		if err = rows.Scan(&index, &kind, &count); err != nil {
 			return nil, err
 		}
-		index := int(day.Sub(start).Hours() / 24)
-		if index < 0 || index >= len(volume) {
-			continue
-		}
-		slot := map[string]int{"user": 0, "agent": 1, "system": 2}
-		i, ok := slot[kind]
+		slot, ok := map[string]int{"user": 0, "agent": 1, "system": 2}[kind]
 		if !ok {
 			return nil, fmt.Errorf("unmapped audit actor kind %q", kind)
 		}
-		volume[index][i] = count
+		if index >= 0 && index < len(volume) {
+			volume[index][slot] = count
+		}
 	}
 	return volume, rows.Err()
 }

@@ -204,6 +204,10 @@ func TestCanvasListIncludesOnlyVisiblePersistedInvestigations(t *testing.T) {
 		(*created.Participants)[0] != "Owner" || created.Meta != "1 个节点" {
 		t.Fatalf("persisted creator was not projected from current user: %+v", created)
 	}
+	filtered := decode(request(readerToken, "/api/v1/canvases?participant=Owner&participant=Nobody&status=active&page_size=1"))
+	if filtered.Total != 1 || filtered.Counts["all"] != 1 || len(filtered.Items) != 1 || filtered.Items[0].ID != createdID {
+		t.Fatalf("facets must precede count/page: %+v", filtered)
+	}
 	pageOne := decode(request(readerToken, "/api/v1/canvases?kind=investigation&page_size=1&page=1"))
 	pageTwo := decode(request(readerToken, "/api/v1/canvases?kind=investigation&page_size=1&page=2"))
 	if pageOne.Total != 2 || pageTwo.Total != 2 || pageOne.Counts["all"] != 2 || pageTwo.Counts["all"] != 2 ||

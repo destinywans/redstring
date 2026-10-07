@@ -17,6 +17,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3pagequery"
 )
 
 type Access interface {
@@ -135,8 +136,9 @@ func (s *Service) Get(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "home_unavailable", "Home storage or policy is unavailable")
 		return
 	}
-	if r.URL.RawQuery != "" {
-		httpapi.Error(w, 422, "invalid_query", "Home does not accept query parameters")
+	duration, rangeErr := v3pagequery.ParseRange(r.URL.Query(), 24*time.Hour)
+	if rangeErr != nil || len(r.URL.Query()) > 1 || (len(r.URL.Query()) == 1 && !r.URL.Query().Has("range")) {
+		httpapi.Error(w, 422, "invalid_query", "Use one supported home range")
 		return
 	}
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
@@ -186,7 +188,7 @@ func (s *Service) Get(w http.ResponseWriter, r *http.Request) {
 			"suggestions": "not_generated", "todo_actions": "not_connected",
 		},
 	}
-	if err = s.populate(ctx, tx, user, targets, scope.EnvironmentIDs, now, &out); err != nil {
+	if err = s.populate(ctx, tx, user, targets, scope.EnvironmentIDs, now, &out, duration); err != nil {
 		readError(w, err)
 		return
 	}

@@ -18,13 +18,15 @@ import (
 )
 
 type sourceStub struct {
-	calls int
-	trace connectors.CompleteTrace
-	after func(context.Context) error
+	calls  int
+	window connectors.TimeWindow
+	trace  connectors.CompleteTrace
+	after  func(context.Context) error
 }
 
 func (s *sourceStub) QueryCompleteTraces(ctx context.Context, q connectors.CompleteTraceQuery) ([]connectors.CompleteTrace, error) {
 	s.calls++
+	s.window = q.Window
 	if len(q.Resources) != 1 || q.Resources[0] != "registered-app" {
 		return nil, &connectors.TelemetryError{Kind: "scope", Message: "unexpected source"}
 	}
@@ -136,6 +138,12 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil || list.Total != 1 || len(list.Items) != 1 || len(list.Histogram.Counts) != 12 {
 		t.Fatalf("incomplete list contract: %s error=%v", w.Body.String(), err)
 	}
+	w = request("/api/v1/traces?service=app&source=tempo&range=6h")
+	if w.Code != 200 || source.window.End.Sub(source.window.Start) != 6*time.Hour {
+		t.Fatalf("requested window not passed upstream: %d %s %+v", w.Code, w.Body.String(), source.window)
+	}
+	assertError(request("/api/v1/traces?service=app&source=jaeger"), 503, "trace_source_not_connected")
+	assertError(request("/api/v1/traces?service=app&range=1h&range=7d"), 422, "invalid_range")
 	w = request("/api/v1/traces/" + id + "?service=app")
 	if w.Code != 200 {
 		t.Fatalf("detail status=%d body=%s", w.Code, w.Body.String())

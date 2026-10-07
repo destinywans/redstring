@@ -92,8 +92,8 @@ func TestAuditRegisteredHTTPScopesListAndVerifiedDetail(t *testing.T) {
 		if row.env == "" {
 			changes = `{}`
 		}
-		if err := s.DB.QueryRow(ctx, `INSERT INTO management_audit(actor_id,actor_kind,action,target,outcome,changes)
-		 VALUES('audit-admin',$1,$2,'target','success',$3::jsonb) RETURNING id`, row.kind, row.name, changes).Scan(row.id); err != nil {
+		if err := s.DB.QueryRow(ctx, `INSERT INTO management_audit(actor_id,actor_kind,action,target,outcome,changes,created_at)
+		 VALUES('audit-admin',$1,$2,'target','success',$3::jsonb,CASE WHEN $2='部署变更' THEN now()-interval '2 hours' ELSE now() END) RETURNING id`, row.kind, row.name, changes).Scan(row.id); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -141,6 +141,29 @@ func TestAuditRegisteredHTTPScopesListAndVerifiedDetail(t *testing.T) {
 	if len(list.Items) != 2 || list.Items[0].ID != strconv.FormatInt(globalID, 10) || list.Items[1].ID != strconv.FormatInt(devID, 10) ||
 		list.Counts["all"] != 2 || list.Counts["user"] != 1 || list.Counts["system"] != 1 || len(list.Volume) != 7 {
 		t.Fatalf("unexpected scoped audit list: %+v", list)
+	}
+	for _, rangeValue := range []string{"15m", "24h"} {
+		w = request(token, "dev", "/api/v1/audit?range="+rangeValue+"&action="+url.QueryEscape("部署变更")+"&result=ok&result=failed")
+		assertStatus(w, 200)
+		if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+			t.Fatal(err)
+		}
+		want := 0
+		if rangeValue == "24h" {
+			want = 1
+		}
+		if len(list.Items) != want || list.Counts["all"] != int64(want) {
+			t.Fatalf("page audit filters %s: %+v", rangeValue, list)
+		}
+		n := int64(0)
+		for _, bucket := range list.Volume {
+			for _, count := range bucket {
+				n += count
+			}
+		}
+		if n != int64(want) {
+			t.Fatalf("volume ignores facets: %v", list.Volume)
+		}
 	}
 	w = request(token, "dev", "/api/v1/audit?filter=user&q=bushubian")
 	assertStatus(w, http.StatusOK)

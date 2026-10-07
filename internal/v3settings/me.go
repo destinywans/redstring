@@ -198,6 +198,7 @@ type meMFA struct {
 }
 
 type meView struct {
+	AvatarURL   *string      `json:"avatar_url"`
 	ID          string       `json:"id"`
 	Name        string       `json:"name"`
 	Email       string       `json:"email"`
@@ -452,6 +453,15 @@ func (s *Service) projectMe(ctx context.Context, tx pgx.Tx, userID string, oncal
 	}
 	if phone != nil {
 		v.Phone = *phone
+	}
+	var avatarRevision string
+	avatarErr := tx.QueryRow(ctx, `SELECT revision FROM v3_user_avatars WHERE user_id=$1`, userID).Scan(&avatarRevision)
+	if avatarErr != nil && !errors.Is(avatarErr, pgx.ErrNoRows) {
+		return meView{}, avatarErr
+	}
+	if avatarErr == nil {
+		avatarURL := "/api/v1/me/avatar/content/" + avatarRevision
+		v.AvatarURL = &avatarURL
 	}
 	if !validTimezone(v.Timezone) || v.Preferences.Theme != "system" && v.Preferences.Theme != "dark" && v.Preferences.Theme != "light" ||
 		v.Preferences.Locale != "zh-CN" && v.Preferences.Locale != "en-US" ||

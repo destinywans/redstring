@@ -71,6 +71,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		t.Fatal(err)
 	}
 	var providerCalls atomic.Int32
+	var lastWindow atomic.Int64
 	var lokiCalls atomic.Int32
 	var completePatterns atomic.Bool
 	var zeroMatches atomic.Bool
@@ -136,7 +137,15 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 			http.Error(w, "invalid test request", http.StatusBadRequest)
 			return
 		}
-		at := start.Add(29 * time.Minute)
+		endText := filters[0].(map[string]any)["range"].(map[string]any)["@timestamp"].(map[string]any)["lt"].(string)
+		end, err := time.Parse(time.RFC3339Nano, endText)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		lastWindow.Store(int64(end.Sub(start)))
+		step := end.Sub(start) / 30
+		at := start.Add(29 * step)
 		count := 1
 		if zeroMatches.Load() {
 			count = 0
@@ -148,7 +157,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 			if i == 29 {
 				bucketCount = count
 			}
-			bucket := map[string]any{"key": start.Add(time.Duration(i) * time.Minute).UnixMilli(), "doc_count": bucketCount}
+			bucket := map[string]any{"key": start.Add(time.Duration(i) * step).UnixMilli(), "doc_count": bucketCount}
 			volume[i], trend[i] = bucket, bucket
 		}
 		hits := []any{}
@@ -345,10 +354,19 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	if providerCalls.Load() != before {
 		t.Fatal("ambiguous log providers must not be queried")
 	}
-	w = request("?service=app&levels=INFO&q=checkout&provider=elasticsearch")
+	w = request("?service=app&levels=INFO&q=checkout&source=elasticsearch&range=1h")
 	if w.Code != 200 || providerCalls.Load() != before+1 {
 		t.Fatalf("explicit persisted Elasticsearch source failed: status=%d calls=%d body=%s", w.Code, providerCalls.Load(), w.Body.String())
 	}
+	if time.Duration(lastWindow.Load()) != time.Hour {
+		t.Fatalf("selected range did not reach Elasticsearch: %s", time.Duration(lastWindow.Load()))
+	}
+	beforeLimit := providerCalls.Load()
+	checkError(request("?service=app&levels=INFO&q=checkout&source=elasticsearch&range=6h"), 503, "telemetry_unavailable")
+	if providerCalls.Load() != beforeLimit {
+		t.Fatal("unsupported provider window should not fall back or query")
+	}
+	checkError(request("?service=app&source=loki&provider=elasticsearch"), 422, "conflicting_source")
 	before = providerCalls.Load()
 	w = request("?service=app&levels=INFO&q=checkout&provider=loki")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"total":"0"`) ||

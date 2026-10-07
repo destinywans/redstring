@@ -11,6 +11,7 @@ import (
 
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3pagequery"
 )
 
 // PostmortemSummary follows the V3 dashboard shape while explicitly identifying
@@ -73,6 +74,16 @@ type summaryRow struct {
 func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 	scope, ok := s.ready(w, r)
 	if !ok {
+		return
+	}
+	services, filterErr := v3pagequery.Values(r.URL.Query(), "service")
+	causes, causeErr := v3pagequery.Values(r.URL.Query(), "cause")
+	if filterErr != nil || causeErr != nil {
+		httpapi.Error(w, 422, "invalid_filter", "Invalid postmortem facet")
+		return
+	}
+	if len(causes) > 0 {
+		httpapi.Error(w, 503, "cause_classification_unavailable", "Postmortem cause categories have no authoritative producer")
 		return
 	}
 	tab := r.URL.Query().Get("tab")
@@ -148,6 +159,9 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 					httpapi.Error(w, 503, "authorization_unavailable", "Postmortem review access could not be checked")
 					return
 				}
+			}
+			if !v3pagequery.Matches(services, v.app) {
+				continue
 			}
 			sev, valid := severity(v.rawSeverity)
 			var visibleSeverity *string

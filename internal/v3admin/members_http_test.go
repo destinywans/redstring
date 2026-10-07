@@ -226,6 +226,14 @@ func TestMembersHTTPRespectsV3ScopeAndShowsDisabledAssignments(t *testing.T) {
 			t.Fatalf("%s search leaked test-only member: body=%s err=%v", environment, w.Body.String(), err)
 		}
 	}
+	w = request("/api/v1/members?role=dev-member&role=NoSuchRole&source=system", "dev", token)
+	assertStatus(w, 200)
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	if len(view.Items) != 2 || view.Counts.All != 2 {
+		t.Fatalf("directory facets must match current visible role/source: %+v", view)
+	}
 	w = request("/api/v1/members", "all", adminToken)
 	assertStatus(w, 200)
 	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil {

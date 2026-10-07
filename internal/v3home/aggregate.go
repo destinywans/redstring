@@ -26,7 +26,11 @@ type proposal struct {
 	created               time.Time
 }
 
-func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targets []target, envs []string, now time.Time, out *Summary) error {
+func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targets []target, envs []string, now time.Time, out *Summary, ranges ...time.Duration) error {
+	duration := 24 * time.Hour
+	if len(ranges) > 0 {
+		duration = ranges[0]
+	}
 	incidents := make([]incident, 0)
 	proposals := make([]proposal, 0)
 	serviceViews, eventViews, proposalViews := 0, 0, 0
@@ -100,9 +104,9 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 	} else {
 		out.Availability["services"] = "no_authorized_target"
 	}
-	buildActivity(incidents, proposals, now, out)
+	buildActivity(incidents, proposals, now, out, duration)
 	if eventViews > 0 {
-		trend, err := loadTrend(ctx, tx, incidents, now)
+		trend, err := loadTrend(ctx, tx, incidents, now, duration)
 		if err != nil {
 			return err
 		}
@@ -111,7 +115,7 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 	} else {
 		out.Availability["alert_trend"] = "no_authorized_target"
 	}
-	if err := s.recentConversations(ctx, tx, user, envs, out); err != nil {
+	if err := s.recentConversations(ctx, tx, user, envs, out, now.Add(-duration)); err != nil {
 		return err
 	}
 	return nil
@@ -148,11 +152,16 @@ func frontendSeverity(value string) *string {
 
 // Arrival counts describe durable ingress only, never live Alertmanager state.
 // The service intentionally says so even when the local count is zero.
-func loadTrend(ctx context.Context, tx pgx.Tx, incidents []incident, now time.Time) (AlertTrend, error) {
+func loadTrend(ctx context.Context, tx pgx.Tx, incidents []incident, now time.Time, ranges ...time.Duration) (AlertTrend, error) {
+	duration := 24 * time.Hour
+	if len(ranges) > 0 {
+		duration = ranges[0]
+	}
+	step := duration / 24
 	out := AlertTrend{Labels: make([]string, 24), Counts: make([][4]int, 24)}
-	start := now.Truncate(time.Hour).Add(-23 * time.Hour)
+	start := now.Add(-duration)
 	for i := range out.Labels {
-		out.Labels[i] = start.Add(time.Duration(i) * time.Hour).Format("15:04")
+		out.Labels[i] = start.Add(time.Duration(i) * step).Format("15:04")
 	}
 	ids := make([]string, 0, len(incidents))
 	severity := make(map[string]int, len(incidents))
@@ -163,10 +172,10 @@ func loadTrend(ctx context.Context, tx pgx.Tx, incidents []incident, now time.Ti
 		}
 	}
 	if len(ids) > 0 {
-		rows, err := tx.Query(ctx, `SELECT incident_id,floor(extract(epoch from received_at)/3600)::bigint,count(*)
+		rows, err := tx.Query(ctx, `SELECT incident_id,floor(extract(epoch from (received_at-$2::timestamptz))/$4::double precision)::bigint,count(*)
 		 FROM ops_alert_occurrences
 		 WHERE incident_id=ANY($1::text[]) AND received_at >= $2 AND received_at <= $3
-		 GROUP BY incident_id,floor(extract(epoch from received_at)/3600)::bigint`, ids, start, now)
+		 GROUP BY incident_id,floor(extract(epoch from (received_at-$2::timestamptz))/$4::double precision)::bigint`, ids, start, now, step.Seconds())
 		if err != nil {
 			return out, err
 		}
@@ -177,7 +186,10 @@ func loadTrend(ctx context.Context, tx pgx.Tx, incidents []incident, now time.Ti
 			if err = rows.Scan(&id, &hour, &count); err != nil {
 				break
 			}
-			index := int(hour - start.Unix()/3600)
+			index := int(hour)
+			if index == 24 {
+				index = 23
+			}
 			if index >= 0 && index < len(out.Counts) {
 				out.Counts[index][severity[id]] += count
 			}
@@ -196,7 +208,7 @@ func loadTrend(ctx context.Context, tx pgx.Tx, incidents []incident, now time.Ti
 			total += count
 		}
 	}
-	out.Summary = fmt.Sprintf("近 24 小时已入库告警接收记录 %d 条；不代表外部来源完整覆盖", total)
+	out.Summary = fmt.Sprintf("近 %s 已入库告警接收记录 %d 条；不代表外部来源完整覆盖", duration.String(), total)
 	return out, nil
 }
 
@@ -279,13 +291,17 @@ func loadProposals(ctx context.Context, tx pgx.Tx, row target) ([]proposal, erro
 	return out, nil
 }
 
-func buildActivity(incidents []incident, proposals []proposal, now time.Time, out *Summary) {
+func buildActivity(incidents []incident, proposals []proposal, now time.Time, out *Summary, ranges ...time.Duration) {
+	duration := 24 * time.Hour
+	if len(ranges) > 0 {
+		duration = ranges[0]
+	}
 	type at struct {
 		when  time.Time
 		event Activity
 	}
 	items := make([]at, 0, len(incidents)+len(proposals))
-	cutoff := now.Add(-24 * time.Hour)
+	cutoff := now.Add(-duration)
 	for _, v := range incidents {
 		if v.updated.Before(cutoff) || v.updated.After(now) {
 			continue
@@ -310,7 +326,7 @@ func buildActivity(incidents []incident, proposals []proposal, now time.Time, ou
 	out.Availability["activity"] = "persisted_scoped"
 }
 
-func (s *Service) recentConversations(ctx context.Context, tx pgx.Tx, user core.User, envs []string, out *Summary) error {
+func (s *Service) recentConversations(ctx context.Context, tx pgx.Tx, user core.User, envs []string, out *Summary, cutoffs ...time.Time) error {
 	allowedEnvs := []string{}
 	for _, env := range envs {
 		err := s.Access.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "conversation", Action: "view", EnvironmentID: env})
@@ -326,9 +342,13 @@ func (s *Service) recentConversations(ctx context.Context, tx pgx.Tx, user core.
 		out.Availability["recent"] = "not_authorized"
 		return nil
 	}
+	var cutoff *time.Time
+	if len(cutoffs) > 0 {
+		cutoff = &cutoffs[0]
+	}
 	rows, err := tx.Query(ctx, `SELECT id,title,environment_id,updated_at
-	 FROM v3_conversations WHERE owner_id=$1 AND environment_id=ANY($2::text[])
-	 ORDER BY updated_at DESC,id DESC LIMIT 9`, user.ID, allowedEnvs)
+	 FROM v3_conversations WHERE owner_id=$1 AND environment_id=ANY($2::text[]) AND ($3::timestamptz IS NULL OR updated_at >= $3)
+	 ORDER BY updated_at DESC,id DESC LIMIT 9`, user.ID, allowedEnvs, cutoff)
 	if err != nil {
 		return err
 	}

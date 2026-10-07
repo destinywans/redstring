@@ -68,6 +68,8 @@ for _v3_domain in (
     'webhooks',
     'api-tokens',
     'agent-interactions',
+    'page-query',
+    'page-operations',
 ):
     _v3_fragment = Path(f'scripts/v3-openapi-{_v3_domain}.py')
     exec(compile(_v3_fragment.read_text(encoding='utf-8'), str(_v3_fragment), 'exec'))

@@ -12,6 +12,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3pagequery"
 )
 
 // The frozen V3 page asks for all investigation citations and resolution
@@ -128,6 +129,12 @@ func (s *Service) listHandler() http.HandlerFunc {
 		if !s.ready(w) {
 			return
 		}
+		owners, ownerErr := v3pagequery.Values(r.URL.Query(), "owner")
+		scopes, scopeErr := v3pagequery.Values(r.URL.Query(), "scope")
+		if ownerErr != nil || scopeErr != nil {
+			httpapi.Error(w, 422, "invalid_filter", "Invalid Runbook owner or scope")
+			return
+		}
 		q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
 		service := strings.TrimSpace(r.URL.Query().Get("service"))
 		tab := r.URL.Query().Get("tab")
@@ -203,6 +210,9 @@ func (s *Service) listHandler() http.HandlerFunc {
 					}
 				}
 				summary := projectRunbookSummary(row, allowedEnvironments, now)
+				if (!v3pagequery.Matches(owners, doc.Metadata.MaintainerID) && !v3pagequery.Matches(owners, summary.Owner)) || !v3pagequery.Matches(scopes, summary.Scope) {
+					continue
+				}
 				counts["all"]++
 				if doc.Metadata.MaintainerID == httpapi.CurrentUser(r).ID {
 					counts["mine"]++

@@ -294,6 +294,12 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	}
 	assertError(call("GET", "/api/v1/postmortems/records", "dev", "", ""), 401, "unauthorized")
 	assertError(call("GET", "/api/v1/postmortems/records?tab=unknown", "dev", teamToken, ""), 422, "invalid_tab")
+	if w := call("GET", "/api/v1/postmortems?service=nonexistent", "dev", teamToken, ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"total":0`) {
+		t.Fatalf("service facet: %d %s", w.Code, w.Body.String())
+	}
+	if w := call("GET", "/api/v1/postmortems?cause=config", "dev", teamToken, ""); w.Code != 503 || !strings.Contains(w.Body.String(), "cause_classification_unavailable") {
+		t.Fatalf("invented classification: %d %s", w.Code, w.Body.String())
+	}
 	listed := call("GET", "/api/v1/postmortems/records?tab=review", "dev", teamToken, "")
 	if listed.Code != 200 {
 		t.Fatalf("records: %d %s", listed.Code, listed.Body.String())

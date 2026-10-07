@@ -7579,7 +7579,7 @@
       "get": {
         "summary": "Read environment-scoped audit events",
         "operationId": "get_audit",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Unknown or ambiguous historical environment rows are omitted; counts reflect visible records only.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Unknown or ambiguous historical environment rows are omitted; counts reflect visible records only. Repeated action is exact persisted action code; result uses ok/blocked/failed with the same canonical outcome mapping as the response. Time/action/result filters apply before cursor selection, counts and volume. range volume uses seven equal-duration buckets; default volume retains seven UTC calendar days.",
         "responses": {
           "200": {
             "description": "Success",
@@ -7689,6 +7689,46 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "range",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "15m",
+                "30m",
+                "1h",
+                "6h",
+                "24h",
+                "7d",
+                "30d"
+              ]
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "result",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
           }
         ]
       }
@@ -21683,7 +21723,7 @@
       "get": {
         "summary": "Read the authenticated scoped home summary",
         "operationId": "get_home",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Uses an active session and a bounded consistent snapshot of application registrations, incidents, pending proposals, and owner conversations. Each section requires its own current V3 module grant and exact application or owner scope. Counts describe persisted visible records, not external platform health. AI briefing, authoritative on-call, service health and SLO numbers remain null until actual producers are wired. The optional trend counts only persisted occurrences with recognized severity, not complete external alert activity; availability explains each gap. The frozen HomeSummary has non-null assumptions for these sections and needs a later frontend type/rendering update.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Uses an active session and a bounded consistent snapshot of application registrations, incidents, pending proposals, and owner conversations. Each section requires its own current V3 module grant and exact application or owner scope. Counts describe persisted visible records, not external platform health. AI briefing, authoritative on-call, service health and SLO numbers remain null until actual producers are wired. The optional trend counts only persisted occurrences with recognized severity, not complete external alert activity; availability explains each gap. The frozen HomeSummary has non-null assumptions for these sections and needs a later frontend type/rendering update. range changes the actual ingress window, 24 equal histogram buckets, activity cutoff and recent-conversation cutoff; current unresolved attention remains current state, independent of range.",
         "responses": {
           "200": {
             "description": "Success",
@@ -21772,6 +21812,22 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "range",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "15m",
+                "30m",
+                "1h",
+                "6h",
+                "24h",
+                "7d",
+                "30d"
+              ]
+            }
           }
         ]
       }
@@ -25406,7 +25462,7 @@
       "get": {
         "summary": "List scoped conversations",
         "operationId": "get_conversations",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Private chats and generic canvases plus application investigations are projected in one current-session, role, environment and object-scope authorization snapshot. Mine uses recorded ownership/creator, team uses current application-team membership, and triage requires a persisted initial-automation run linked to an investigation; an automation run proves triage work, not investigation creation origin. Filters, pagination, total and four counts use the same visible source set. Unknown provider usage, historical creation source and unmapped investigation status are null, never inferred from partial totals or incident links. The frozen frontend still assumes numeric tokens and a conversation-view entry gate, so full page acceptance remains pending.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Private chats and generic canvases plus application investigations are projected in one current-session, role, environment and object-scope authorization snapshot. Mine uses recorded ownership/creator, team uses current application-team membership, and triage requires a persisted initial-automation run linked to an investigation; an automation run proves triage work, not investigation creation origin. Filters, pagination, total and four counts use the same visible source set. Unknown provider usage, historical creation source and unmapped investigation status are null, never inferred from partial totals or incident links. The frozen frontend still assumes numeric tokens and a conversation-view entry gate, so full page acceptance remains pending. Repeated scope matches the displayed scope label; repeated public statuses OR. Sorting is single-valued; title/recent/token usage are computed before pagination. Unknown token totals sort after known totals; no unknown usage is invented.",
         "responses": {
           "200": {
             "description": "Success",
@@ -25510,13 +25566,6 @@
             }
           },
           {
-            "name": "status",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
             "name": "mode",
             "in": "query",
             "schema": {
@@ -25544,6 +25593,42 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "recent",
+                "title",
+                "tokens"
+              ]
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
           }
         ]
       },
@@ -26092,7 +26177,7 @@
       "get": {
         "summary": "List scoped persisted canvases and investigations",
         "operationId": "get_canvases",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Generic canvases are private to their owner; investigations use persisted environment and application/team grants. Current sessions and role sources are checked before a single database snapshot supplies counts and page items. Historical investigations without a recorded creator return an empty participants array. Persisted investigation graph detail is available at /investigations/{id}/canvas; this list does not include graph nodes.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Generic canvases are private to their owner; investigations use persisted environment and application/team grants. Current sessions and role sources are checked before a single database snapshot supplies counts and page items. Historical investigations without a recorded creator return an empty participants array. Persisted investigation graph detail is available at /investigations/{id}/canvas; this list does not include graph nodes. Repeated participant matches recorded creator display names, service matches persisted service IDs, status matches public persisted states. Same-key values OR; dimensions AND; applied before counts and page.",
         "responses": {
           "200": {
             "description": "Success",
@@ -26233,6 +26318,42 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "participant",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "service",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
           }
         ]
       },
@@ -33689,7 +33810,7 @@
       "get": {
         "summary": "Read persisted alert portion of scoped inbox",
         "operationId": "get_inbox",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns currently authorized non-suspected persisted alert incidents updated during today or yesterday in the configured server timezone; AI patrol suspected incidents are outside this alert-only projection. All and mine count only this bounded portion; mine means assignee_id equals the current user. Incident fields are captured by one statement snapshot; concurrent claims may commit while the list is assembled. Current app/environment/team/session and V3 grant locks are held through the response transaction, with session expiry checked again before commit. The system has no durable read receipt, mention membership or subscription ledger: unread and those counts are null, while mentions/subscribed filters return 503 rather than a fabricated empty result. Other inbox event types and older incidents are unavailable. More than 5000 selected recent incident rows returns 503 instead of incomplete totals. Frozen frontend assumes unread is boolean, uses a Mock selected ID and marks read only in component state, so page acceptance remains pending.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns currently authorized non-suspected persisted alert incidents updated during today or yesterday in the configured server timezone; AI patrol suspected incidents are outside this alert-only projection. All and mine include this bounded alert portion and current durable assignment notices; mine means assignee_id equals the current user. Incident fields are captured by one statement snapshot; concurrent claims may commit while the list is assembled. Current app/environment/team/session and V3 grant locks are held through the response transaction, with session expiry checked again before commit. The system has no durable read receipt, mention membership or subscription ledger: unread and those counts are null, while mentions/subscribed filters return 503 rather than a fabricated empty result. Other inbox event types and older incidents are unavailable. More than 5000 selected recent incident rows returns 503 instead of incomplete totals. Frozen frontend assumes unread is boolean, uses a Mock selected ID and marks read only in component state, so page acceptance remains pending. v1.1 also includes durable assignment notices for the current recipient, still rechecking current object/environment grants. Assignment ledger records are not read receipts. all_scope and mine_scope describe only the alert portion; assignment_scope identifies the additional current_assignment_notifications portion. Other non-alert event types remain unavailable.",
         "responses": {
           "200": {
             "description": "Success",
@@ -34036,7 +34157,7 @@
       "get": {
         "summary": "Read incident-backed alert groups",
         "operationId": "get_alert_groups",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. A bounded local aggregation by persisted environment ID, application ID, webhook source ID and alert fingerprint, not an Alertmanager group. Count means persisted incident occurrences; source_id and fingerprint are stored identities. Incident fields come from one statement snapshot, without locking all incident rows against concurrent claims. Only currently authorized events.view records are included; current app/environment/team/session and grant locks remain through commit. Notification rows must match the captured incident application and environment or the read fails closed. Unknown current values, metric series, inhibition and provider grouping are null or named in unavailable. Notify reports only the latest local platform queue transport state and never claims upstream delivery. Counts are before state filtering; silenced count is null because exact silence state is unknown. state=silenced or show_inhibited=false returns 503 rather than a false empty result. Severity accepts repeated form keys. More than 5000 selected incidents returns 503 instead of incomplete totals. Frozen frontend assumes non-null instance metrics and cannot yet render this nullable response.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A bounded local aggregation by persisted environment ID, application ID, webhook source ID and alert fingerprint, not an Alertmanager group. Count means persisted incident occurrences; source_id and fingerprint are stored identities. Incident fields come from one statement snapshot, without locking all incident rows against concurrent claims. Only currently authorized events.view records are included; current app/environment/team/session and grant locks remain through commit. Notification rows must match the captured incident application and environment or the read fails closed. Unknown current values, metric series, inhibition and provider grouping are null or named in unavailable. Notify reports only the latest local platform queue transport state and never claims upstream delivery. Counts are before state filtering; silenced count is null because exact silence state is unknown. state=silenced or show_inhibited=false returns 503 rather than a false empty result. Severity accepts repeated form keys. More than 5000 selected incidents returns 503 instead of incomplete totals. Frozen frontend assumes non-null instance metrics and cannot yet render this nullable response. Explicit group_by performs local display grouping from persisted labels with application/environment implicit boundaries. Missing requested label fails503. IDs begin viewgroup: and are not accepted by exact-source bulk actions/policy; actionable=false. Omitted group_by preserves previous exact-source grouping and IDs.",
         "responses": {
           "200": {
             "description": "Success",
@@ -34179,6 +34300,19 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "group_by",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "service,alertname",
+                "service",
+                "alertname",
+                "cluster,namespace"
+              ]
+            }
           }
         ]
       }
@@ -38328,7 +38462,7 @@
       "get": {
         "summary": "List accessible runbooks",
         "operationId": "get_runbooks",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Scoped persisted Runbook inventory. A repeatable-read snapshot locks the active session and current role grant rows, then checks each document, environment/application/team binding and object grant before counting, filtering and paging. Counts reflect visible q/service matches before tab paging; at most 10000 visible matches are accepted. Without a recorded verification time, stale is null and counts.verification_unknown increases; the stale tab includes only records with an old recorded time. Reference, outcome, KPI and suggestion producers are absent, so their values are null with explicit unknown_fields and complete_v3_dto=false. This partial main-route response does not meet the frozen frontend DTO yet.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Scoped persisted Runbook inventory. A repeatable-read snapshot locks the active session and current role grant rows, then checks each document, environment/application/team binding and object grant before counting, filtering and paging. Counts reflect visible q/service matches before tab paging; at most 10000 visible matches are accepted. Without a recorded verification time, stale is null and counts.verification_unknown increases; the stale tab includes only records with an old recorded time. Reference, outcome, KPI and suggestion producers are absent, so their values are null with explicit unknown_fields and complete_v3_dto=false. This partial main-route response does not meet the frozen frontend DTO yet. Repeated owner accepts maintainer ID or current display name and scope uses the persisted public scope label; filters precede counts and pagination.",
         "responses": {
           "200": {
             "description": "Success",
@@ -38546,6 +38680,30 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "owner",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
           }
         ]
       },
@@ -39959,7 +40117,7 @@
       "get": {
         "summary": "Read scoped persisted postmortem dashboard evidence",
         "operationId": "get_postmortems",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads persisted reports and their exact legacy investigation close or manual case resolved status event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, real source event date, recorded workflow status and action total. A manual case has no proven outage duration, so duration stays null and dashboard duration coverage is unknown. Invalid severity or absent root text are nullable rather than blocking other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid legacy durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads persisted reports and their exact legacy investigation close or manual case resolved status event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, real source event date, recorded workflow status and action total. A manual case has no proven outage duration, so duration stays null and dashboard duration coverage is unknown. Invalid severity or absent root text are nullable rather than blocking other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid legacy durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413. service filters stable application IDs before aggregation/page; cause categories have no producer and requests containing cause return 503 cause_classification_unavailable.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40190,6 +40348,30 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "service",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "cause",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
           }
         ]
       },
@@ -50209,6 +50391,31 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "tab",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "mine",
+                "watched"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "status",
+                "budget",
+                "alerts",
+                "name"
+              ]
+            }
           }
         ]
       },
@@ -52338,7 +52545,7 @@
       "get": {
         "summary": "Read a complete scoped Prometheus metrics dashboard",
         "operationId": "get_metrics_dashboard",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, current services.view, environment connectors.view and incident events.view, exactly one persisted V3 Prometheus metric-resource binding, and an operator-reviewed exact-scope dashboard query. Distinct metric bindings return 409 ambiguous_binding. One bounded one-hour source read must cover the baseline plus 36 visible bin ends for every labeled panel. Request total must conserve 2xx/4xx/5xx and independently observed other statuses must be zero; SLO budget must agree with monthly availability and persisted request-based target; heat intensities must be normalized to 0..1. Empty, partial or conflicting data returns 503, never invented zeroes or trends. Release, rollback and incident markers require matching persisted success/event records within the window; absent evidence returns 503. These are independent timestamps, not proof that one rollback reversed the displayed release. Source, binding and authorization are rechecked after the external read and local marker reads. align requests an incident-anchored window; the frozen frontend currently does not send it and still hardcodes version, causal and analysis text that must be corrected before page acceptance.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, current services.view, environment connectors.view and incident events.view, exactly one persisted V3 Prometheus metric-resource binding, and an operator-reviewed exact-scope dashboard query. Distinct metric bindings return 409 ambiguous_binding. One bounded one-hour source read must cover the baseline plus 36 visible bin ends for every labeled panel. Request total must conserve 2xx/4xx/5xx and independently observed other statuses must be zero; SLO budget must agree with monthly availability and persisted request-based target; heat intensities must be normalized to 0..1. Empty, partial or conflicting data returns 503, never invented zeroes or trends. Release, rollback and incident markers require matching persisted success/event records within the window; absent evidence returns 503. These are independent timestamps, not proof that one rollback reversed the displayed release. Source, binding and authorization are rechecked after the external read and local marker reads. align requests an incident-anchored window; the frozen frontend currently does not send it and still hardcodes version, causal and analysis text that must be corrected before page acceptance. source=prometheus selects the implemented provider; victoriametrics returns 503 metrics_source_not_connected rather than querying Prometheus.",
         "responses": {
           "200": {
             "description": "Success",
@@ -52463,6 +52670,17 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "prometheus",
+                "victoriametrics"
+              ]
+            }
           }
         ]
       }
@@ -52705,7 +52923,7 @@
       "get": {
         "summary": "Search configured log provider",
         "operationId": "get_logs",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team binding and current logs.view. A single provider may be selected when more than one source is bound; arbitrary endpoints or unbound sources are never accepted. A complete 200 requires exact full-window counts and complete pattern trends from the configured source, including an exact zero-match window, or an explicitly empty levels selection with no upstream query. Elasticsearch accepts only a registered message_template.keyword field or its existing categorize_text path on one concrete index. Configured Loki patterns require trusted top-level JSON level and message_template fields and a declared complete historical lookback covering the requested start. Missing, truncated, approximate or unavailable aggregations return 503 rather than inferring patterns from a bounded line sample. Distinct authorized bindings return 409 ambiguous_binding; changed source or grant is rechecked before response. More than 3 targets or other excessive authorized scope returns 422 scope_limit.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team binding and current logs.view. A single provider may be selected when more than one source is bound; arbitrary endpoints or unbound sources are never accepted. A complete 200 requires exact full-window counts and complete pattern trends from the configured source, including an exact zero-match window, or an explicitly empty levels selection with no upstream query. Elasticsearch accepts only a registered message_template.keyword field or its existing categorize_text path on one concrete index. Configured Loki patterns require trusted top-level JSON level and message_template fields and a declared complete historical lookback covering the requested start. Missing, truncated, approximate or unavailable aggregations return 503 rather than inferring patterns from a bounded line sample. Distinct authorized bindings return 409 ambiguous_binding; changed source or grant is rechecked before response. More than 3 targets or other excessive authorized scope returns 422 scope_limit. source is a compatible alias for provider; both must agree. range changes the actual upstream window (default 30m). Existing provider max-window/lookback limits apply; excess returns503 without shrinking the requested window.",
         "responses": {
           "200": {
             "description": "Complete scoped LogSearch, including exact zero matches, or explicitly empty levels selection without an upstream query",
@@ -52870,6 +53088,33 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "range",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "15m",
+                "30m",
+                "1h",
+                "6h",
+                "24h",
+                "7d",
+                "30d"
+              ]
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "elasticsearch",
+                "loki"
+              ]
+            }
           }
         ]
       }
@@ -52878,7 +53123,7 @@
       "get": {
         "summary": "Query scoped traces",
         "operationId": "get_traces",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires persisted service/environment/owner-team Tempo binding and current traces.view. App scope exhausts a one-hour search by bounded window splitting; all 200 counts, facets, histogram and scatter refer to that full result set. At most 40 traces, 64 searches, 6 targets and 500 spans per trace; a reached cap returns 413 rather than a sampled 200. q accepts one bounded TraceQL span selector with simple comparisons and inner AND/OR, but no regex, pipeline or outer union. Complete counts require a server-attested fail-closed Tempo search configuration; otherwise 503. Agent scope instead reads the complete bounded set of currently authorized persisted terminal runs started in the database-clock last 24 hours, requiring both agents.view and traces.view. Current application and owner-team grant boundaries, Agent catalog relationships and Cookie session are checked in one transaction; up to 2000 qualifying runs and 20000 run/model identities, otherwise 413 without sampled counts. Running runs are excluded explicitly rather than assigned fabricated final duration. Optional service matches persisted app ID or key. Agent q accepts at most eight agent/model/status/version/trigger equality terms and duration comparisons joined by AND; unknown grammar returns 422. Token/model/cost or instrumentation coverage with no trusted report remain absent and listed as missing; span/error counts mean persisted reported rows only. Agent rows link to the separately authorized Agent run detail, not the Tempo detail route. Sources and grants are rechecked before response.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires persisted service/environment/owner-team Tempo binding and current traces.view. App scope exhausts a one-hour search by bounded window splitting; all 200 counts, facets, histogram and scatter refer to that full result set. At most 40 traces, 64 searches, 6 targets and 500 spans per trace; a reached cap returns 413 rather than a sampled 200. q accepts one bounded TraceQL span selector with simple comparisons and inner AND/OR, but no regex, pipeline or outer union. Complete counts require a server-attested fail-closed Tempo search configuration; otherwise 503. Agent scope instead reads the complete bounded set of currently authorized persisted terminal runs started in the database-clock last 24 hours, requiring both agents.view and traces.view. Current application and owner-team grant boundaries, Agent catalog relationships and Cookie session are checked in one transaction; up to 2000 qualifying runs and 20000 run/model identities, otherwise 413 without sampled counts. Running runs are excluded explicitly rather than assigned fabricated final duration. Optional service matches persisted app ID or key. Agent q accepts at most eight agent/model/status/version/trigger equality terms and duration comparisons joined by AND; unknown grammar returns 422. Token/model/cost or instrumentation coverage with no trusted report remain absent and listed as missing; span/error counts mean persisted reported rows only. Agent rows link to the separately authorized Agent run detail, not the Tempo detail route. Sources and grants are rechecked before response. App traces default 1h; range changes the actual complete-trace query. Only Tempo has a connected complete trace provider; requested Jaeger returns 503 trace_source_not_connected. Agent traces have no external source and reject source.",
         "responses": {
           "200": {
             "description": "Success",
@@ -53005,6 +53250,33 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "range",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "15m",
+                "30m",
+                "1h",
+                "6h",
+                "24h",
+                "7d",
+                "30d"
+              ]
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tempo",
+                "jaeger"
+              ]
+            }
           }
         ]
       }
@@ -53982,7 +54254,7 @@
       "get": {
         "summary": "List scoped members",
         "operationId": "get_members",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rechecks the exact current session and selected-environment grants in a read transaction, then derives the complete visible account/role set from one database statement. Accepted invitation provenance is shown as source=invite. This is a partial DTO (complete_v3_dto=false): external groups and hierarchy, MFA enrollment and policy, successful last login, and directory sync state are not verified by the account store. Member mfa=na means unknown, not unenrolled; last_login, counts.no_mfa and mfa_grace_days are null. filter=no_mfa returns 503 member_mfa_unavailable instead of a misleading list. The read path does not wait for external MFA evidence while holding the account and role locks.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rechecks the exact current session and selected-environment grants in a read transaction, then derives the complete visible account/role set from one database statement. Accepted invitation provenance is shown as source=invite. This is a partial DTO (complete_v3_dto=false): external groups and hierarchy, MFA enrollment and policy, successful last login, and directory sync state are not verified by the account store. Member mfa=na means unknown, not unenrolled; last_login, counts.no_mfa and mfa_grace_days are null. filter=no_mfa returns 503 member_mfa_unavailable instead of a misleading list. The read path does not wait for external MFA evidence while holding the account and role locks. Repeated role matches visible role IDs or current role display names; source uses feishu/ldap/invite/system. OR within each dimension, AND across dimensions; counts use the same filtered authorized accounts.",
         "responses": {
           "200": {
             "description": "Success",
@@ -54085,6 +54357,30 @@
               "type": "string"
             },
             "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "style": "form",
+            "explode": true
           }
         ]
       }
@@ -56954,6 +57250,2185 @@
           }
         },
         "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/services/{id}/slo": {
+      "get": {
+        "summary": "Read explicit service/environment SLO configuration",
+        "operationId": "get_services_id_slo",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Configuration only; does not assert measured SLO or window coverage. No explicit target/window configuration returns 503 slo_not_configured; initialize via PUT expected_revision=0. The opaque service ID binds application and environment; current services.view and human session are checked transactionally.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ServiceSLOSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "services"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "put": {
+        "summary": "Update explicit service/environment SLO configuration",
+        "operationId": "put_services_id_slo",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current services.manage in exactly one environment. First write uses revision 0; later stale writes return 409 slo_revision_changed. Success audit and profile target synchronize atomically. Runtime budget and telemetry calculations remain independently sourced.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3ServiceSLOSettings"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "services"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "target": {
+                    "type": "string",
+                    "enum": [
+                      "99.5",
+                      "99.9",
+                      "99.95",
+                      "99.99"
+                    ]
+                  },
+                  "window": {
+                    "type": "string",
+                    "enum": [
+                      "7d",
+                      "30d"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_revision",
+                  "target",
+                  "window"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/trace-views": {
+      "get": {
+        "summary": "List team-shared saved trace queries",
+        "operationId": "get_trace_views",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires current team membership and traces.view in each visible environment/team. Scope is required and single-valued. More than 500 visible views returns 413, never a silently truncated list.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3TraceSavedView"
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "trace-views"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "app",
+                "agent"
+              ]
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "post": {
+        "summary": "Save a trace query for the current team",
+        "operationId": "post_trace_views",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, exactly one persisted team membership and current team traces.manage. Ambiguous or missing team returns 422 ambiguous_team. Query is inert saved text, not a query execution or an ACL grant.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "trace-views"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "scope": {
+                    "type": "string",
+                    "enum": [
+                      "app",
+                      "agent"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "query": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "scope",
+                  "name",
+                  "query"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/trace-views/{id}": {
+      "delete": {
+        "summary": "Delete a team-shared saved query",
+        "operationId": "delete_trace_views_id",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires current membership in the persisted team, matching environment and traces.manage. Unrelated or missing IDs return 404; success audit is atomic with deletion.",
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "trace-views"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/incidents/{id}/participants": {
+      "post": {
+        "summary": "Append incident participant display names",
+        "operationId": "post_incidents_id_participants",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Appends and deduplicates at most 50 human display names under the incident lock. Names do not grant access. Requires current human session and both events change/view on the persisted incident application/environment. Success and failure audited; audit failure rolls back business writes.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3IncidentParticipants"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "incidents"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "names": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 100
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "names"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/investigation-templates/{id}": {
+      "put": {
+        "summary": "Create a new bounded investigation template revision",
+        "operationId": "put_investigation_templates_id",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Expected revision is the numeric version from the listed vN. Retains all other template fields and advances by one; ongoing starts retain their immutable snapshots. Requires current human canvas change and view authority. Stale revision returns409. This is local configuration, no model or upstream execution.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "revision": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "template": {
+                      "$ref": "#/components/schemas/V3InvestigationTemplate"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "revision",
+                    "template"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "investigation-templates"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "budget": {
+                    "type": "object",
+                    "properties": {
+                      "tools": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 16
+                      },
+                      "minutes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 5
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "tools",
+                      "minutes"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_revision",
+                  "name",
+                  "budget"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/maintenance-windows": {
+      "get": {
+        "summary": "Read authorized local maintenance plans",
+        "operationId": "get_maintenance_windows",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Local plans only, execution_enabled is always false. Current events view is checked per plan. No external silence exists merely because a plan was recorded. At most500 candidates; excess returns503 instead of incomplete totals.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3MaintenancePlan"
+                      }
+                    },
+                    "execution_enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "execution_enabled"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "maintenance-windows"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "post": {
+        "summary": "Register a local maintenance plan",
+        "operationId": "post_maintenance_windows",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. User confirmed local plan only. Schedule is a human description, not parsed or automatically executed. Matchers are distinct exact key=value strings and must include application_id=<stable app ID> and environment=<selected key>. Requires human events change/view on that application/environment. No Alertmanager, cluster, model or notification call.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "planned"
+                      ]
+                    },
+                    "execution_enabled": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "status",
+                    "execution_enabled"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "maintenance-windows"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "schedule": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  },
+                  "matchers": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 16,
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "schedule",
+                  "matchers",
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/assignments": {
+      "post": {
+        "summary": "Assign an operational item with durable inbox notification",
+        "operationId": "post_assignments",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. User confirmed in-app notification only. Under target lock, recheck current human actor view/change and recipient environment/item view. Persists assignment and inbox notification with audit in one transaction; same assignee retry creates no second notice. Existing alert owner is updated; incident/proposal assignments use the independent assignment ledger. No approval/execution authority is conferred. GET inbox exposes only current assignments still visible to recipient. No external notification is sent.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "notification": {
+                      "type": "string",
+                      "enum": [
+                        "inbox"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "notification"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "assignments"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "item_kind": {
+                    "type": "string",
+                    "enum": [
+                      "alert",
+                      "incident",
+                      "proposal"
+                    ]
+                  },
+                  "item_id": {
+                    "type": "string"
+                  },
+                  "assignee": {
+                    "type": "string",
+                    "description": "Stable active human user ID, never a display name"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "item_kind",
+                  "item_id",
+                  "assignee"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/notification-deliveries": {
+      "get": {
+        "summary": "Read authorized platform delivery ledger",
+        "operationId": "get_notification_deliveries",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Range actually limits created_at, default24h; literal q matches alert ID/channel/status. Current events view is rechecked per app/environment. Receiver is the registered channel ID, not a guessed person. result preserves pending/sending/retrying/sent/failed from the platform ledger; sent is transport acknowledgement, not human receipt. At most500 selected records; excess503.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "time": {
+                            "type": "string"
+                          },
+                          "alert": {
+                            "type": "string"
+                          },
+                          "receiver": {
+                            "type": "string"
+                          },
+                          "result": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "time",
+                          "alert",
+                          "receiver",
+                          "result"
+                        ]
+                      }
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "platform_delivery_ledger"
+                      ]
+                    },
+                    "receiver_kind": {
+                      "type": "string",
+                      "enum": [
+                        "channel_id"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "source",
+                    "receiver_kind"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "notification-deliveries"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "range",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "15m",
+                "30m",
+                "1h",
+                "6h",
+                "24h",
+                "7d",
+                "30d"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/notification-templates": {
+      "get": {
+        "summary": "Require a trusted notification template catalog",
+        "operationId": "get_notification_templates",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. User-approved fail-closed boundary. Current alert_rules view and environment checks apply. No complete trusted catalog is configured; always503 notification_templates_unavailable. Does not derive fake templates or escalation schedules from route names/current-user evidence.",
+        "responses": {
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "notification-templates"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/oncall-schedules": {
+      "get": {
+        "summary": "Require a trusted complete on-call schedule catalog",
+        "operationId": "get_oncall_schedules",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. User-approved fail-closed boundary. Current alert_rules view and environment checks apply. No complete trusted catalog is configured; always503 oncall_schedules_unavailable. Does not derive fake templates or escalation schedules from route names/current-user evidence.",
+        "responses": {
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "oncall-schedules"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/me/contacts/{kind}/verification": {
+      "post": {
+        "summary": "Require a verified contact send-and-confirm authority",
+        "operationId": "post_me_contacts_kind_verification",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. kind=email|phone. Validate plain email or E.164 phone, current human cookie session and selected environment. Always503 contact_verification_unavailable until trusted send-and-confirm authority exists. Never returns202 or mutates contacts without delivery proof. Rejection audited without contact values.",
+        "responses": {
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "maxLength": 254
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "value"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/me/contacts/feishu": {
+      "delete": {
+        "summary": "Require a trusted identity unlink and fallback authority",
+        "operationId": "delete_me_contacts_feishu",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current human cookie session and environment required. Always503 contact_unlink_unavailable until both authoritative unlink and verified fallback delivery exist. No local preference change masquerades as identity unbinding. Rejection audited.",
+        "responses": {
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/me/avatar": {
+      "put": {
+        "summary": "Store the current account private avatar",
+        "operationId": "put_me_avatar",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Exactly one multipart file named file. Decode actual PNG/JPEG: at most2MiB, minimum256x256; maximum4096 pixels per side limits image decoder memory. Stores original bytes with random revision, never client path. Current human cookie session/environment; business write and audit atomic. URL is private current-user authenticated content. GET me avatar_url retains the latest URL when complete profile evidence is available.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "url"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete the current account private avatar",
+        "operationId": "delete_me_avatar",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current human session and one environment required. Idempotent delete with atomic audit. Old revision content URLs become404.",
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/me/avatar/content/{revision}": {
+      "get": {
+        "summary": "Read the current account private avatar revision",
+        "operationId": "get_me_avatar_content_revision",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Selected-environment header is optional for this personal content URL. Authenticated current human only; ownership derives from session, never path. Only latest revision is accessible. Private no-store, decoded PNG/JPEG content type, nosniff. Deleted, replaced and another account revision return404.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "image/png": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "image/jpeg": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "me"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "revision",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
           {
             "name": "X-AIOps-Environment",
             "in": "header",
@@ -61981,7 +64456,10 @@
             "type": "string"
           },
           "avatar_url": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "oncall": {
             "type": "object",
@@ -70777,7 +73255,8 @@
           "kind": {
             "type": "string",
             "enum": [
-              "alert"
+              "alert",
+              "assignment"
             ]
           },
           "tone": {
@@ -70881,6 +73360,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "assignment_scope": {
+            "type": "string",
+            "enum": [
+              "current_assignment_notifications"
+            ]
           }
         },
         "additionalProperties": false,
@@ -71842,6 +74327,15 @@
           },
           "open_canvas": {
             "type": "boolean"
+          },
+          "participants": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            }
           }
         },
         "additionalProperties": false,
@@ -72133,6 +74627,12 @@
             "items": {
               "type": "string"
             }
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false,
@@ -72361,6 +74861,12 @@
             "type": "boolean"
           },
           "unavailable": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "participants": {
             "type": "array",
             "items": {
               "type": "string"
@@ -84301,6 +86807,122 @@
           "ai_production_available",
           "policy_effect",
           "configured"
+        ]
+      },
+      "V3ServiceSLOSettings": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "enum": [
+              "99.5",
+              "99.9",
+              "99.95",
+              "99.99"
+            ]
+          },
+          "window": {
+            "type": "string",
+            "enum": [
+              "7d",
+              "30d"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "target",
+          "window",
+          "revision"
+        ]
+      },
+      "V3TraceSavedView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "query",
+          "owner"
+        ]
+      },
+      "V3IncidentParticipants": {
+        "type": "object",
+        "properties": {
+          "participants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "participants"
+        ]
+      },
+      "V3MaintenancePlan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "schedule": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "matchers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "planned"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "schedule",
+          "matchers",
+          "reason",
+          "owner",
+          "application_id",
+          "environment_id",
+          "status"
         ]
       },
       "SecuritySSOProvider": {

@@ -388,6 +388,11 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 		t.Fatalf("incomplete dashboard: %+v", body)
 	}
 	beforeCalls := calls.Load()
+	check(request("?service=app&source=victoriametrics"), 503, "metrics_source_not_connected")
+	check(request("?service=app&source=unknown"), 422, "invalid_source")
+	if calls.Load() != beforeCalls {
+		t.Fatal("unconnected source fell back to Prometheus")
+	}
 	if _, err = db.Exec(ctx, `INSERT INTO v3_connector_targets(id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
 	 VALUES('second-target','app','dev','connector','metric_resource','another-resource',$1)`, user.ID); err != nil {
 		t.Fatal(err)

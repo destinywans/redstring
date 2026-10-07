@@ -115,11 +115,16 @@ const filteredOwnedConversationSources = ownedConversationSources + `, filtered 
  SELECT * FROM owned` + ownedConversationFilter + `
 )`
 
+type conversationPageFilters struct {
+	Scopes, Statuses []string
+	Sort             string
+}
+
 type conversationListCounts struct {
 	Mine, Team, Triage, Archived int
 }
 
-func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user core.User, envs []string, tab, mode, status, query string, page, size int, language string) ([]map[string]any, int, conversationListCounts, error) {
+func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user core.User, envs []string, tab, mode, status, query string, page, size int, language string, facets ...conversationPageFilters) ([]map[string]any, int, conversationListCounts, error) {
 	empty := conversationListCounts{}
 	// Source authorization uses fresh READ COMMITTED transactions. The list
 	// itself retains its existing coherent REPEATABLE READ snapshot.
@@ -208,23 +213,37 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
 			}
 		}
 	}
-	args := []any{user.ID, envs, tab, mode, status, query, visibleMetrics}
-	countQuery := filteredOwnedConversationSources + ` SELECT
-	 (SELECT count(*) FROM owned WHERE is_mine AND status IS DISTINCT FROM 'archived'),
-	 (SELECT count(*) FROM owned WHERE is_team AND status IS DISTINCT FROM 'archived'),
-	 (SELECT count(*) FROM owned WHERE is_triage AND status IS DISTINCT FROM 'archived'),
-	 (SELECT count(*) FROM owned WHERE is_mine AND status='archived'),
+	p := conversationPageFilters{Scopes: []string{}, Statuses: []string{}}
+	if len(facets) > 0 {
+		p = facets[0]
+	}
+	args := []any{user.ID, envs, tab, mode, status, query, visibleMetrics, p.Statuses, p.Scopes}
+	scopeSQL := `CASE WHEN record_kind='investigation' THEN concat_ws(' · ',incident_id,array_to_string(services,', '),environment_id) WHEN record_kind='generic_canvas' AND cardinality(services)>0 AND services[1]<>'' THEN services[1]||' · '||environment_id ELSE COALESCE((SELECT substring(btrim(ref) from 9)||' · '||environment_id FROM unnest(string_to_array(context_ref,',')) WITH ORDINALITY refs(ref,pos) WHERE btrim(ref) LIKE 'service:%' AND length(btrim(ref))>8 ORDER BY pos LIMIT 1),environment_id) END`
+	source := ownedConversationSources + `, faceted AS (SELECT * FROM owned WHERE (cardinality($8::text[])=0 OR status=ANY($8)) AND (cardinality($9::text[])=0 OR (` + scopeSQL + `)=ANY($9))), filtered AS (SELECT * FROM faceted` + ownedConversationFilter + `)`
+	order := "updated_at DESC,id"
+	if p.Sort == "title" {
+		order = "title,id"
+	}
+	if p.Sort == "tokens" {
+		order = `CASE WHEN record_kind='chat' THEN (SELECT CASE WHEN count(*) FILTER(WHERE role='assistant' AND (state<>'completed' OR (jsonb_typeof(run->'tokens')='number' AND run->>'tokens' ~ '^[0-9]{1,18}$') IS DISTINCT FROM TRUE))=0 AND COALESCE(sum(CASE WHEN role='assistant' AND state='completed' AND jsonb_typeof(run->'tokens')='number' AND run->>'tokens' ~ '^[0-9]{1,18}$' THEN (run->>'tokens')::numeric ELSE 0 END),0)<=9007199254740991 THEN COALESCE(sum(CASE WHEN role='assistant' AND state='completed' AND jsonb_typeof(run->'tokens')='number' AND run->>'tokens' ~ '^[0-9]{1,18}$' THEN (run->>'tokens')::numeric ELSE 0 END),0) END FROM v3_conversation_messages m WHERE m.conversation_id=filtered.id) WHEN record_kind='generic_canvas' AND NOT EXISTS(SELECT 1 FROM v3_canvas_node_exchanges n WHERE n.canvas_id=filtered.id) THEN 0 END DESC NULLS LAST,id`
+	}
+
+	countQuery := source + ` SELECT
+	 (SELECT count(*) FROM faceted WHERE is_mine AND status IS DISTINCT FROM 'archived'),
+	 (SELECT count(*) FROM faceted WHERE is_team AND status IS DISTINCT FROM 'archived'),
+	 (SELECT count(*) FROM faceted WHERE is_triage AND status IS DISTINCT FROM 'archived'),
+	 (SELECT count(*) FROM faceted WHERE is_mine AND status='archived'),
 	 (SELECT count(*) FROM filtered)`
 	var counts conversationListCounts
 	var total int
 	if err = tx.QueryRow(ctx, countQuery, args...).Scan(&counts.Mine, &counts.Team, &counts.Triage, &counts.Archived, &total); err != nil {
 		return nil, 0, empty, err
 	}
-	pageQuery := filteredOwnedConversationSources + `, selected AS MATERIALIZED (
- SELECT id,title,mode,status,environment_id,context_ref,services,updated_at,node_count,
+	pageQuery := source + `, selected AS MATERIALIZED (
+ SELECT row_number() OVER(ORDER BY ` + order + `) AS selection_order,id,title,mode,status,environment_id,context_ref,services,updated_at,node_count,
    branch_count,record_kind,source,creator_name,incident_id
 	FROM filtered
- ORDER BY updated_at DESC,id LIMIT $8 OFFSET $9
+ ORDER BY ` + order + ` LIMIT $10 OFFSET $11
 ) SELECT c.id,c.title,c.mode,c.status,c.environment_id,c.context_ref,c.services,c.updated_at,
  c.node_count,c.branch_count,c.record_kind,c.source,c.creator_name,c.incident_id,
  COALESCE(m.turns,0),COALESCE(m.assistants,0),COALESCE(n.assistants,0),
@@ -251,7 +270,7 @@ func (s *Service) readOwnedList(ctx context.Context, sessionToken string, user c
      count(*) FILTER (WHERE state='completed') AS assistants
    FROM v3_canvas_node_exchanges WHERE canvas_id=c.id
  ) n ON c.record_kind='generic_canvas'
- ORDER BY c.updated_at DESC,c.id`
+ ORDER BY c.selection_order`
 	pageArgs := append(args, size, (page-1)*size)
 	rows, err = tx.Query(ctx, pageQuery, pageArgs...)
 	if err != nil {

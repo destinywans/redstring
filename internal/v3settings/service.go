@@ -368,6 +368,7 @@ func parseWorkspaceIfMatch(value string) (int64, bool) {
 // Register installs the account routes that have durable semantics. Callers
 // register /instance separately because it is public bootstrap configuration.
 func (s *Service) Register(api *httpapi.Server) {
+	s.registerPageAccount(api)
 	s.registerProfile(api)
 	s.registerAI(api)
 	api.Register("GET /api/v1/me", "viewer", func(w http.ResponseWriter, r *http.Request) {

@@ -259,6 +259,15 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 		len(list.Facets) != 4 || list.Items[0].Release.Version == "" || list.Items[0].Connectors[0] != "prometheus" {
 		t.Fatalf("incorrect source projection: %+v", list)
 	}
+	if w = get("/services?tab=watched&sort=name"); w.Code != 200 || !strings.Contains(w.Body.String(), `"items":[]`) {
+		t.Fatalf("empty watched scope: %d %s", w.Code, w.Body.String())
+	}
+	if _, err = st.DB.Exec(t.Context(), `INSERT INTO v3_user_watched_services(user_id,application_id,environment_id) SELECT id,'payments-app','test' FROM users WHERE email='admin@example.invalid'`); err != nil {
+		t.Fatal(err)
+	}
+	if w = get("/services?tab=watched&sort=budget"); w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"Payments"`) || strings.Contains(w.Body.String(), `"name":"Checkout"`) {
+		t.Fatalf("watched SQL filter: %d %s", w.Code, w.Body.String())
+	}
 	if w = get("/services?tier=T1&status=ok"); w.Code != 200 {
 		t.Fatalf("filter status=%d body=%s", w.Code, w.Body.String())
 	}

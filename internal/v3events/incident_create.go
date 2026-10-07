@@ -25,17 +25,18 @@ const maxIncidentCreateAlerts = 20
 var incidentRequestKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$`)
 
 type incidentCreateRequest struct {
-	Title      string   `json:"title"`
-	Severity   string   `json:"severity"`
-	Impact     *string  `json:"impact"`
-	Env        string   `json:"env"`
-	Services   []string `json:"services"`
-	AlertIDs   []string `json:"alert_ids"`
-	Commander  *string  `json:"commander"`
-	WarRoom    bool     `json:"war_room"`
-	Notify     bool     `json:"notify"`
-	StatusPage bool     `json:"status_page"`
-	OpenCanvas bool     `json:"open_canvas"`
+	Title        string   `json:"title"`
+	Severity     string   `json:"severity"`
+	Impact       *string  `json:"impact"`
+	Env          string   `json:"env"`
+	Services     []string `json:"services"`
+	AlertIDs     []string `json:"alert_ids"`
+	Commander    *string  `json:"commander"`
+	WarRoom      bool     `json:"war_room"`
+	Notify       bool     `json:"notify"`
+	StatusPage   bool     `json:"status_page"`
+	OpenCanvas   bool     `json:"open_canvas"`
+	Participants []string `json:"participants,omitempty"`
 }
 
 type incidentCreateResult struct {
@@ -69,6 +70,11 @@ func incidentDraftIDs(r *http.Request) ([]string, bool) {
 }
 
 func validateIncidentCreate(in *incidentCreateRequest) ([]string, bool) {
+	participants, valid := incidentParticipantNames(in.Participants)
+	if !valid {
+		return nil, false
+	}
+	in.Participants = participants
 	in.Title = strings.TrimSpace(in.Title)
 	if n := utf8.RuneCountInString(in.Title); n < 1 || n > 300 || len(in.Title) > 1200 {
 		return nil, false
@@ -380,6 +386,10 @@ func (s *Service) CreateIncident(w http.ResponseWriter, r *http.Request) {
 			respondIncidentCreateError(w, err)
 			return
 		}
+	}
+	if err := saveIncidentParticipants(r, tx, result.ID, in.Participants); err != nil {
+		respondIncidentCreateError(w, err)
+		return
 	}
 	if _, err := tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
 		VALUES($1,'user',$2,'incident.create',$3,'succeeded',jsonb_build_object('environment_id',$4::text,'alert_ids',$5::text[],'investigation_id',NULLIF($6::text,'')))`,

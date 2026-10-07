@@ -18,6 +18,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/searchtext"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3pagequery"
 )
 
 type Service struct {
@@ -426,6 +427,18 @@ func (s *Service) members(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "environment_required", "Select an environment")
 		return
 	}
+	roles, re := v3pagequery.Values(r.URL.Query(), "role")
+	sources, se := v3pagequery.Values(r.URL.Query(), "source")
+	if re != nil || se != nil {
+		httpapi.Error(w, 422, "invalid_filter", "Invalid member facet")
+		return
+	}
+	for _, src := range sources {
+		if !contains([]string{"feishu", "ldap", "invite", "system"}, src) {
+			httpapi.Error(w, 422, "invalid_source", "Unknown member source")
+			return
+		}
+	}
 	filter := r.URL.Query().Get("filter")
 	if filter == "" {
 		filter = "all"
@@ -434,7 +447,7 @@ func (s *Service) members(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_filter", "Invalid member filter")
 		return
 	}
-	v, err := s.getMembers(r.Context(), httpapi.CurrentUser(r), roleSessionToken(r), envs, filter, r.URL.Query().Get("q"), englishLanguage(r.Header.Get("Accept-Language")))
+	v, err := s.getMembers(r.Context(), httpapi.CurrentUser(r), roleSessionToken(r), envs, filter, r.URL.Query().Get("q"), englishLanguage(r.Header.Get("Accept-Language")), roles, sources)
 	respond(w, v, err)
 }
 
@@ -442,7 +455,7 @@ func (s *Service) members(w http.ResponseWriter, r *http.Request) {
 // successful-login history that the current account store cannot prove. Keep
 // the useful directory projection explicitly partial instead of inventing a
 // clean MFA count, zero-day grace period or most-recent login.
-func (s *Service) getMembers(ctx context.Context, actor core.User, sessionToken string, envs []string, filter, q string, english bool) (membersView, error) {
+func (s *Service) getMembers(ctx context.Context, actor core.User, sessionToken string, envs []string, filter, q string, english bool, facets ...[]string) (membersView, error) {
 	v := membersView{
 		Org: []orgNode{}, Groups: []orgNode{}, Items: []member{},
 		UnavailableFields: []string{"groups", "org_hierarchy", "legacy_role_mapping", "items[].mfa", "items[].last_login", "counts.no_mfa", "mfa_grace_days", "directory_sync_source"},
@@ -538,6 +551,8 @@ func (s *Service) getMembers(ctx context.Context, actor core.User, sessionToken 
 	if err != nil {
 		return v, err
 	}
+	roleIDs := map[string][]string{}
+	memberDept := map[string]string{}
 	all := []member{}
 	indices := map[string]int{}
 	adminIDs := map[string]bool{}
@@ -567,6 +582,7 @@ func (s *Service) getMembers(ctx context.Context, actor core.User, sessionToken 
 			}
 			index = len(all)
 			indices[m.ID] = index
+			memberDept[m.ID] = deptID
 			all = append(all, m)
 			if deptID != "" {
 				deptCounts[deptID]++
@@ -575,6 +591,7 @@ func (s *Service) getMembers(ctx context.Context, actor core.User, sessionToken 
 		}
 		if roleID != "" {
 			all[index].Roles = append(all[index].Roles, roleName)
+			roleIDs[m.ID] = append(roleIDs[m.ID], roleID)
 			if roleID == "admin" {
 				adminIDs[m.ID] = true
 			}
@@ -592,6 +609,26 @@ func (s *Service) getMembers(ctx context.Context, actor core.User, sessionToken 
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return v, err
+	}
+	if len(facets) == 2 {
+		kept := []member{}
+		deptCounts = map[string]int{}
+		for _, m := range all {
+			roleOK := len(facets[0]) == 0
+			for _, id := range roleIDs[m.ID] {
+				roleOK = roleOK || v3pagequery.Matches(facets[0], id)
+			}
+			for _, name := range m.Roles {
+				roleOK = roleOK || v3pagequery.Matches(facets[0], name)
+			}
+			if roleOK && v3pagequery.Matches(facets[1], m.Source) {
+				kept = append(kept, m)
+				if dept := memberDept[m.ID]; dept != "" {
+					deptCounts[dept]++
+				}
+			}
+		}
+		all = kept
 	}
 	for _, m := range all {
 		v.Counts.All++

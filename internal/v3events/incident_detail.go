@@ -18,6 +18,7 @@ var errTooManyCaseAlerts = errors.New("incident case alert links exceed read lim
 // In particular, an alert's start time is not an incident lifecycle event,
 // and an assignee is not necessarily the incident commander.
 type IncidentDetailResponse struct {
+	Participants    []string                `json:"participants"`
 	ID              string                  `json:"id"`
 	ApplicationID   string                  `json:"application_id"`
 	EnvironmentID   string                  `json:"environment_id"`
@@ -86,6 +87,7 @@ type incidentDetailLink struct {
 // CaseIncidentDetailResponse keeps alert-only facts nullable. The commander
 // text is human-confirmed display data, not an assigned or verified role.
 type CaseIncidentDetailResponse struct {
+	Participants          []string                `json:"participants"`
 	ID                    string                  `json:"id"`
 	RecordKind            string                  `json:"record_kind"`
 	ApplicationID         string                  `json:"application_id"`
@@ -216,6 +218,11 @@ func (s *Service) caseIncidentDetail(w http.ResponseWriter, r *http.Request, tx 
 		result.ResolvedAt = &resolvedAt
 	} else {
 		result.Unavailable = append(result.Unavailable, "resolved_at")
+	}
+	result.Participants, err = readIncidentParticipants(r, tx, v.ID)
+	if err != nil {
+		respondIncidentDetailError(w, err)
+		return
 	}
 	if v.CommanderText != nil {
 		result.CommanderProvenance = "human_confirmed"
@@ -390,6 +397,11 @@ func (s *Service) Incident(w http.ResponseWriter, r *http.Request) {
 		} else {
 			result.Unavailable = append(result.Unavailable, "resolved_at")
 		}
+	}
+	result.Participants, err = readIncidentParticipants(r, tx, v.ID)
+	if err != nil {
+		respondIncidentDetailError(w, err)
+		return
 	}
 	if err = activeAlertReadSession(r.Context(), tx, r); err != nil {
 		respondIncidentDetailError(w, err)

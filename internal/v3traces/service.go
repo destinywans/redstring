@@ -13,6 +13,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3pagequery"
 )
 
 type Access interface {
@@ -34,6 +35,7 @@ func New(st *store.Store, access Access, source Source) *Service {
 }
 
 func (s *Service) Register(api *httpapi.Server) {
+	s.registerViews(api)
 	api.Register("GET /api/v1/traces", "viewer", s.List)
 	api.MarkV3ObjectRoute("GET /api/v1/traces", "traces", "view")
 	api.Register("GET /api/v1/traces/{id}", "viewer", s.Detail)
@@ -300,6 +302,25 @@ func resources(targets []target) []string {
 }
 
 func (s *Service) List(w http.ResponseWriter, r *http.Request) {
+	duration, rangeErr := v3pagequery.ParseRange(r.URL.Query(), time.Hour)
+	if rangeErr != nil {
+		httpapi.Error(w, 422, "invalid_range", "Use one supported time range")
+		return
+	}
+	source, sourceErr := v3pagequery.Single(r.URL.Query(), "source", "tempo", "jaeger")
+	if sourceErr != nil {
+		httpapi.Error(w, 422, "invalid_source", "Choose one trace provider")
+		return
+	}
+	if source != "" && r.URL.Query().Get("scope") == "agent" {
+		httpapi.Error(w, 422, "invalid_source", "Agent traces are platform records")
+		return
+	}
+	if source == "jaeger" {
+		httpapi.Error(w, 503, "trace_source_not_connected", "Jaeger complete trace provider is not connected")
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
 	r = r.WithContext(ctx)
@@ -335,7 +356,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	}
 	start := time.Now()
 	end := start.UTC().Truncate(time.Second)
-	window := connectors.TimeWindow{Start: end.Add(-time.Hour), End: end}
+	window := connectors.TimeWindow{Start: end.Add(-duration), End: end}
 	traces, err := s.Source.QueryCompleteTraces(r.Context(), connectors.CompleteTraceQuery{
 		Resources: resources(all), SearchResources: resources(targets), Window: window, Filter: filter})
 	if err != nil {

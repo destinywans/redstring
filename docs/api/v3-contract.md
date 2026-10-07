@@ -1,6 +1,6 @@
 # v3 前端 API 契约（Web ⇄ 后端）
 
-- 状态：**契约冻结 v1（2026-09-28）**。前端已按本契约用 Mock 实现；后端按接口逐项迁移，`mock` 仍表示尚未达到后端完成标准，即使已有部分处理逻辑。历史：2026-09-24 初版；v4 增补模型与推理强度、附件、通用画布、各"新建"流程、链路 v2；2026-09-28 增补实例与环境。
+- 状态：**契约 v1.1（2026-10-07）**，在冻结的 v1（2026-09-28）上新增「v1.1 页面交互接口」，原有接口不变。前端已按本契约用 Mock 实现；后端按接口逐项迁移，`mock` 仍表示尚未达到后端完成标准，即使已有部分处理逻辑。历史：2026-09-24 初版；v4 增补模型与推理强度、附件、通用画布、各"新建"流程、链路 v2；2026-09-28 增补实例与环境。
 - 表格每行只写一个方法和一个路径。`scripts/check-v3-contract.py` 会核对本文件和 Mock 路由是否一致，改契约后运行它。
 - 冻结后的修改流程：先改本文件和 `types.ts`，再改 Mock 与后端；破坏性修改（删字段、改语义）在「变更记录」里写明。
 - 冻结页面的类型真相源：`web/src/v3/api/types.ts`。本文件描述路径、参数和语义；本批后端安全字段（服务映射候选身份与修订）先由本文件及 OpenAPI 定义，前端类型/Mock 尚待同一契约适配，不能据此宣称页面已接通。
@@ -429,6 +429,108 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 `GET/PUT /security` 仅在显式配置受审的 HTTPS 运行权威控制器且该来源能证明**全部**安全字段当前生效时有条件成功。两条都要求当前真人平台管理员、全局 `workspace.manage`、单一已授权环境和活动 Cookie 会话；GET 的快照须完整、新鲜、实例/环境绑定并有单调修订。PUT 要求 GET 的强 `If-Match`，只可修改 SCIM、MFA 策略与方法开关、批准 Passkey、IP 白名单和新设备通知；其余字段必须与当前权威快照一致。外部 apply 回执需回显精确操作、范围、前序修订及控制摘要，随后同修订完整读回才将持久操作台账与审计记为成功。`pending`/`unknown` 保留并阻断后续读写，不自动重试或清除；启用真实写入前需部署方具备按操作 ID 审计的人工对账流程。默认未配置来源返回 503；仓库没有能证明整套 SSO/SCIM/MFA/Vault 等策略实际生效的权威服务，新增迁移 `142_v3_security_policy.sql` 未在现有业务库执行。两条仅按代码中的条件式后端成功路径计 `implemented`；冻结安全页没有传 `If-Match`，并含未证实的静态安全文案，页面与真实运行态未验收。详见[安全策略领域边界](../../internal/v3security/README.md)。
 
+## v1.1 页面交互接口（2026-10-07）
+
+前端 2026-10-07 完成「无后端可演示」改造后（[交付记录](../releases/2026-10-07-v3-demo-readiness.md)），所有页面按钮都有了交互，但其中一部分目前只改前端本地状态。本节把这些交互对应的接口补进契约：
+
+- **第 1 张表**：前端需要对齐已实现接口的约束。只是前端待办，接口本身不变。
+- **第 2 张表**：后端已经实现、但此前没有列入页面契约的接口。
+- **第 3 张表**：新定义、待后端实现的接口。
+
+本节行的状态写作 `v1.1·已实现` 或 `v1.1·待实现`，不计入上文 166 项；Mock 补齐之前，`scripts/check-v3-contract.py` 只统计这些行，不要求有对应 Mock。所有写接口沿用通用约定：单一 `X-AIOps-Environment`，`all` 返回 `409 env_view_only`，成功和失败都写审计，带版本的对象使用 `expected_revision` 防止覆盖。
+
+### 1. 前端需对齐的已实现约束
+
+| 页面操作 | 已实现的约束 | 前端应做的修改 |
+| --- | --- | --- |
+| Webhook 与 API › 新建 API 令牌 | `POST /api-tokens` 的 `ttl` 只接受 `3600`、`86400`、`604800`、`2592000` 秒；`scopes` 只接受 `["connectors:view"]` | 有效期选项改为 1 小时 / 1 天 / 7 天 / 30 天，权限固定为“只读连接器”；`ttl` 以秒传 |
+| 成员 › 邀请成员 | `POST /members/invitations` 的 `role` 只接受 `viewer` | 角色固定为“只读”；业务角色在接受邀请后用 `PUT /members/{id}/access` 分配 |
+| 新建事件抽屉 | `POST /incidents` 现在没有参与人字段 | 参与人字段改用第 3 张表新增的可选 `participants`；后端实现前不发送该字段 |
+| 连接器 › 编辑 | `PATCH /connectors/{id}` 只修改工具开关 `{ tools }`；更换凭据引用用 `POST /connectors/{id}/activate { credential_ref }` | 地址和范围改用第 3 张表的 `PUT /connectors/{id}/settings`；凭据引用改为调用 activate |
+| 护栏 › 新建策略 | `POST /guardrails` 只登记内置策略：`read_only`、`bounded_execution`、`deny_sensitive_content` | 表单改为从内置策略中选择，不提供自由规则文本 |
+| 评测 › 新建实验 | `POST /evals { agent_id, title, baseline_version, candidate_version }` 只创建待运行实验；执行用 `POST /evals/{id}/execute { case_id, request_key }` | 按钮改为调用这两个接口；去掉“数据集”字段，用例在执行时选择 |
+| Agent › 新建 Agent | `POST /agents { id, application_id, name, summary? }` 创建暂停的 L0 Agent | 表单补 `id`、所属应用；“从现有 Agent 复制”不在接口内，去掉或改为前端预填 |
+
+### 2. 已实现、补入页面契约的接口
+
+| 方法 | 路径 | 参数 / 请求体 | 响应 | 页面操作 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| POST | `/agents` | `{ id, application_id, name, summary? }` | `201` Agent；暂停、L0 | 生命周期 › 新建 Agent | v1.1·已实现 |
+| POST | `/agents/{id}/versions` | `{ version, artifact_ref }`（非秘密引用） | `201` 不可变版本 | Agent 详情 › 新建版本 | v1.1·已实现 |
+| PUT | `/agents/{id}/versions/{version}/execution` | 模型、Prompt 版本等执行配置，见 [Agent 治理](v3-agent-execution.md) | 配置哈希；修改已固定的配置返回 `409 execution_config_immutable` | Agent 详情 › 新建版本（第二步） | v1.1·已实现 |
+| POST | `/prompts` | `{ agent_id, name, text }` | `201` Prompt | 提示词与 Skills › 新建 | v1.1·已实现 |
+| POST | `/guardrails` | `{ name: read_only\|bounded_execution\|deny_sensitive_content }` | `201` 已登记策略 | 护栏与审计 › 新建 | v1.1·已实现 |
+| POST | `/eval-cases` | `{ agent_id, title, input, queue, alert, evidence, expected, checks }`，见 [评测执行](v3-evaluation-execution.md) | 用例 | 评测 › 数据集（录入用例） | v1.1·已实现 |
+| POST | `/evals/{id}/execute` | `{ case_id, request_key }` | 执行已排队；每个实验只能执行一次 | 评测 › 新建实验后运行 | v1.1·已实现 |
+| GET | `/evals/{id}/execution` | | 固定材料、两侧输出、检查结果、得分 | 评测 › 实验结果 | v1.1·已实现 |
+| POST | `/evals/{id}/cancel` | | 实验置为 invalid；已发出的模型请求可能已计费 | 评测 › 取消运行 | v1.1·已实现 |
+| GET | `/api-tokens` | | 当前用户可见的令牌列表（不含明文） | Webhook 与 API › 令牌列表 | v1.1·已实现 |
+| DELETE | `/api-tokens/{id}` | | `204`；立即失效 | Webhook 与 API › 吊销 | v1.1·已实现 |
+| POST | `/roles` | `{ id, name, description?, scopes, matrix }`，见 [成员授权](v3-member-access.md) | `201` 角色 | 角色 › 新建角色 | v1.1·已实现 |
+| GET | `/members/{id}/access` | | `{ revision, role_ids, role_revisions, enabled }` | 成员 › 分配角色前读取 | v1.1·已实现 |
+| PUT | `/members/{id}/access` | `{ expected_revision, role_ids, role_revisions, enabled }` | 新的授权快照 | 成员 › 分配角色、停用；角色 › 管理成员 | v1.1·已实现 |
+| PATCH | `/members/{id}` | `{ expected_revision, name?, phone? }` | 成员 | 成员详情编辑 | v1.1·已实现 |
+| POST | `/mcp-servers` | `{ application_id, title, maintainer, endpoint, credential_ref?, allow_http? }`，见 [MCP 登记](v3-mcp-registration.md) | `201` 登记 | MCP › 新建 | v1.1·已实现 |
+| POST | `/mcp-servers/{id}/discover` | | 未信任的工具观察快照，见「后端辅助接口」 | MCP › 更多 › 重新发现工具 | v1.1·已实现 |
+| POST | `/connectors/{id}/activate` | `{ credential_ref? }` | 启用后的连接器 | 连接器 › 编辑凭据、重新启用 | v1.1·已实现 |
+| POST | `/memory/facts` | `{ document_id, expected_version, expected_content_hash, exact_excerpt }`，见 [记忆生产](v3-memory-production.md) | 候选事实 | 记忆 › 从资料产生候选 | v1.1·已实现 |
+
+### 3. 新增待实现接口
+
+| 方法 | 路径 | 参数 / 请求体 | 响应 | 页面操作 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| POST | `/incidents/{id}/participants` | `{ names: string[] }`；也可在 `POST /incidents` 请求体中带可选 `participants: string[]` | 更新后的参与人列表 | 新建事件 › + 成员 | v1.1·待实现 |
+| PUT | `/connectors/{id}/settings` | `{ expected_revision, address, scope }`（凭据仍走 activate） | `ConnectorDetail`；修改地址后需要重新探测 | 连接器 › 编辑 | v1.1·待实现 |
+| POST | `/connectors/{id}/disable` | `{ reason? }` | 已停用的连接器；保留凭据引用，可用 activate 恢复 | 连接器 › 停用 | v1.1·待实现 |
+| POST | `/mcp-servers/{id}/disable` | `{ reason? }` | 已停用的登记；撤销所有工具授权的生效状态，保留配置 | MCP › 停用 | v1.1·待实现 |
+| POST | `/mcp-servers/{id}/review-dismiss` | `{ candidate_version }` | `204`；新发现的工具保持关闭，同一版本不再提示 | MCP › 忽略变更 | v1.1·待实现 |
+| POST | `/api-tokens/{id}/rotate` | | `{ id, secret_shown_once, old_expires_at }`；旧令牌 24 小时后失效 | Webhook 与 API › 轮换 | v1.1·待实现 |
+| POST | `/webhooks` | `{ name, type: change\|alert\|incident, verify: hmac\|token }` | `{ id, url, secret_shown_once }` | Webhook 与 API › 新建 Webhook | v1.1·待实现 |
+| POST | `/agent-tools` | `{ name, kind: read\|write, connector_id }`；写工具只能生成提案 | `{ id }`；登记后不授予任何 Agent | 工具与权限 › 登记工具 | v1.1·待实现 |
+| GET | `/eval-datasets` | `agent_id?` | `{ items: [{ id, name, source, count }] }` | 评测 › 数据集 | v1.1·待实现 |
+| POST | `/eval-datasets` | `{ name, source: incidents\|runs\|manual }` | `{ id }` | 评测 › 新建数据集 | v1.1·待实现 |
+| POST | `/eval-datasets/{id}/items` | `{ run_id }` | `{ count }` | 运行详情 › 加入数据集 | v1.1·待实现 |
+| POST | `/agent-runs/{id}/annotations` | `{ score: 1..5, note? }` | 标注；评测可引用 | 运行详情 › 标注 | v1.1·待实现 |
+| GET | `/prompts/{id}/versions` | | `{ items: [{ version, created_at, author, current }] }` | 提示词 › 历史版本 | v1.1·待实现 |
+| PATCH | `/memory/facts/{id}` | `{ expected_revision, fact }` | 事实，状态回到“待确认” | 记忆 › 编辑 | v1.1·待实现 |
+| GET | `/memory/policy` | | `{ ttl_days: 30\|90\|180, proposers: human\|human_ai, revision }` | 记忆 › 记忆策略 | v1.1·待实现 |
+| PUT | `/memory/policy` | `{ expected_revision, ttl_days, proposers }` | 同上 | 记忆 › 修改策略 | v1.1·待实现 |
+| GET | `/services/{id}/slo` | | `{ target: "99.5"\|"99.9"\|"99.95"\|"99.99", window: 7d\|30d, revision }` | 指标 › SLO 设置 | v1.1·待实现 |
+| PUT | `/services/{id}/slo` | `{ expected_revision, target, window }` | 同上 | 指标 › SLO 设置 | v1.1·待实现 |
+| GET | `/trace-views` | `scope: app\|agent` | `{ items: [{ id, name, query, owner }] }`（团队共享） | 链路 › 保存的视图 | v1.1·待实现 |
+| POST | `/trace-views` | `{ scope, name, query }` | `{ id }` | 链路 › 保存视图 | v1.1·待实现 |
+| DELETE | `/trace-views/{id}` | | `204` | 链路 › 删除视图 | v1.1·待实现 |
+| GET | `/notification-templates` | | `{ items: [{ id, name, channel, used_by }] }` | 通知与路由 › 通知模板 | v1.1·待实现 |
+| GET | `/oncall-schedules` | | `{ items: [{ id, name, on_call, escalation }] }` | 通知与路由 › 值班与升级 | v1.1·待实现 |
+| GET | `/notification-deliveries` | `range`, `q` | `{ items: [{ time, alert, receiver, result }] }` | 通知与路由 › 发送记录 | v1.1·待实现 |
+| GET | `/maintenance-windows` | | `{ items: [{ id, schedule, matchers, reason, owner }] }` | 静默与抑制 › 维护窗口 | v1.1·待实现 |
+| POST | `/maintenance-windows` | `{ schedule, matchers, reason }` | `{ id }` | 静默与抑制 › 维护窗口 | v1.1·待实现 |
+| POST | `/assignments` | `{ item_kind: alert\|incident\|proposal, item_id, assignee }` | `{ ok: true }`；被指派人收到通知 | 人员悬浮卡 › 指派 | v1.1·待实现 |
+| PUT | `/investigation-templates/{id}` | `{ expected_revision, name, budget: { tools, minutes } }` | 新版本；进行中的调查不受影响 | 模板 › 编辑 | v1.1·待实现 |
+| POST | `/me/contacts/{kind}/verification` | `{ value }`（`kind: email\|phone`） | `202`；验证码已发送，验证后生效 | 个人资料 › 修改联系方式 | v1.1·待实现 |
+| DELETE | `/me/contacts/feishu` | | `204`；飞书通知改用邮件和短信 | 个人资料 › 解绑飞书 | v1.1·待实现 |
+| PUT | `/me/avatar` | multipart `file`（PNG/JPG，≤ 2 MB，≥ 256×256） | `{ url }` | 个人资料 › 上传头像 | v1.1·待实现 |
+| DELETE | `/me/avatar` | | `204` | 个人资料 › 移除头像 | v1.1·待实现 |
+
+**查询参数补充（待实现）**。以下筛选现在只在前端过滤已加载的数据；数据量变大或分页后，应改为服务端参数：
+
+- 时间范围 `range`（`15m|30m|1h|6h|24h|7d|30d`）：`GET /home`、`/agent-runs`、`/logs`、`/traces`、`/audit`。`GET /changes` 已有 `range`。
+- 数据源 `source`：`GET /logs`（`elasticsearch|loki`）、`GET /traces`（`tempo|jaeger`）、`GET /metrics/dashboard`（`prometheus|victoriametrics`）。
+- 分组 `group_by`：`GET /alert-groups`。`GET /topology` 已有 `cluster`、`around`、`depth`、`group_by`。
+- 多值筛选（重复键）：
+  - `GET /agent-runs`：`agent`、`version`、`trigger`；
+  - `GET /agent-tools`：`connector`、`agent`；
+  - `GET /canvases`：`participant`、`service`、`status`；
+  - `GET /conversations`：`scope`、`status`、`sort`；
+  - `GET /runbooks`：`scope`、`owner`；
+  - `GET /postmortems`：`cause`、`service`；
+  - `GET /memory`：`source`、`confidence`；
+  - `GET /members`：`role`、`source`；
+  - `GET /audit`：`action`、`result`；
+  - `GET /services`：`tab: all|mine|watched`、`sort`。
+
+**保持仅前端的交互**（不需要接口）：复制链接、导出 JSON / CSV / Markdown / YAML / OpenAPI（由已加载数据生成）、自动刷新间隔、Mock 模式下的外部跳转提示。
+
 ## 后端辅助接口（不计入上述 166 项）
 
 - `GET /investigations/{id}/nodes/{node}/messages`：只读当前持久化调查分支的 `{ branch_id, revision, messages }` 与最近的运行/失败尝试。服务端以分支记录核对调查、应用、环境和所属团队，再检查当前 `canvas.view`；消息保留历史 JSON 原貌，旧记录可能没有 `created_at`，不补造时间或 AI 摘要。当前上下文超过 24 KiB、损坏或缺失返回 503；不存在、路径不匹配或无对象访问权返回 404。
@@ -450,6 +552,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-10-07 | 契约 v1.1：新增「v1.1 页面交互接口」一节。第 1 张表列出前端需对齐的已实现约束（令牌有效期与权限、邀请角色、护栏内置策略、新建实验和 Agent 的请求体），第 2 张表补入后端已实现的 19 个接口，第 3 张表新定义 32 个待实现接口，并补充查询参数。原 166 项的路径和字段不变，没有破坏性修改。 |
 | 2026-09-29 | WAN-119 角色详情 GET/PUT 按后端单路由判据标为 `implemented`；矩阵写入新增 `If-Role-Matrix-Revision` 强前置条件，版本随 GET/PUT 响应头返回，用于防止旧页面覆盖持久授权。冻结页面尚未传递该头，页面验收另列。 |
 | 2026-09-29 | 后端单路由证据使 `GET/POST /canvases`、`GET /config-sync`、告警规则 dry-run、服务映射 discover/accept 标为 `implemented`；页面仍待适配和实连。服务映射接受体由展示字符串 `{ cells }` 改为稳定候选身份、版本和绑定修订 `{ candidates }`，以防过期/错绑；本批按后端范围先更新本契约与 OpenAPI，冻结 `types.ts`、Mock 和页面尚未同步，页面继续使用 Mock 模式。 |
 | 2026-09-28 | 冻结 v1。拆分合并行；补 `GET /conversations/{id}/events` 行；画布节点对话请求加 `model`、`reasoning`，响应加 `new_branch`；新增实例与环境一节和 `X-AIOps-Environment`。 |

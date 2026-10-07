@@ -4,6 +4,8 @@
 Each table row in the contract holds one method and one path. The SSE stream is
 simulated directly by the frontend and has no mock-route declaration even when
 its backend route is implemented.
+Rows in the "v1.1 页面交互接口" section (status `v1.1·已实现` / `v1.1·待实现`) are
+counted separately and need no mock yet; they must not repeat a v1 row.
 Exit code 1 when the two sides differ.
 """
 import pathlib
@@ -23,8 +25,11 @@ def norm(path: str) -> str:
     return re.sub(r"\{[^}]+\}|:[A-Za-z_]+", "{}", path)
 
 
-def doc_routes() -> tuple[set[str], list[str]]:
-    routes, problems = set(), []
+V11 = re.compile(r"v1\.1·(已实现|待实现)")
+
+
+def doc_routes() -> tuple[set[str], dict[str, str], list[str]]:
+    routes, v11, problems = set(), {}, []
     for n, line in enumerate(DOC.read_text().splitlines(), 1):
         if not line.startswith("| "):
             continue
@@ -41,10 +46,18 @@ def doc_routes() -> tuple[set[str], list[str]]:
             continue
         if "前端模拟" in rest:
             continue
+        st = V11.search(rest)
+        if st:
+            if key in v11:
+                problems.append(f"{DOC.name}:{n}: duplicate v1.1 row {method} {path}")
+            v11[key] = st.group(1)
+            continue
         if key in routes:
             problems.append(f"{DOC.name}:{n}: duplicate row {method} {path}")
         routes.add(key)
-    return routes, problems
+    for key in v11.keys() & routes:
+        problems.append(f"v1.1 row repeats a v1 row: {key}")
+    return routes, v11, problems
 
 
 def mock_routes() -> set[str]:
@@ -56,7 +69,7 @@ def mock_routes() -> set[str]:
 
 
 def main() -> int:
-    doc, problems = doc_routes()
+    doc, v11, problems = doc_routes()
     mock = mock_routes()
     for p in problems:
         print(p)
@@ -66,6 +79,8 @@ def main() -> int:
         print(f"in contract, missing from mock: {r}")
     ok = not problems and doc == mock
     print(f"{'OK' if ok else 'MISMATCH'}: {len(doc)} contract rows, {len(mock)} mock routes")
+    done = sum(1 for v in v11.values() if v == "已实现")
+    print(f"v1.1: {len(v11)} rows outside the mock check ({done} implemented, {len(v11) - done} planned)")
     return 0 if ok else 1
 
 

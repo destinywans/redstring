@@ -68,11 +68,13 @@ test("invited member joins through /invite and signs in", async ({ browser }) =>
   await page.locator("input[type=password]").fill(password);
   await page.getByRole("button", { name: "登录" }).click();
   await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 20_000 });
-  // A new member has no environment yet: the shell is replaced by the "no access" page.
-  await expect(page.getByText("你还没有任何环境的访问权限")).toBeVisible({ timeout: 15_000 });
+  // D6 (PA-55): inviting as 只读成员 grants read-only access to every environment, so the member
+  // lands in the app shell, not on the "no access" page.
+  await expect(page.getByRole("link", { name: "总览" }).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("你还没有任何环境的访问权限")).toBeHidden();
   await page.screenshot({ path: resolve(LOCAL, "e2e/golden/invite-first-login.png"), fullPage: true });
 
-  // The admin grants the operator role (environment-wide view) through the real access API.
+  // The admin then grants the operator role through the real access API.
   const admin2 = await browser.newContext({ storageState: statePath("prod", "admin") });
   const ap = await admin2.newPage();
   await ap.goto(origin + "/healthz");
@@ -92,8 +94,17 @@ test("invited member joins through /invite and signs in", async ({ browser }) =>
   expect(grant).toBe(200);
   await admin2.close();
 
-  await page.getByRole("button", { name: "重新检查" }).click();
-  await expect(page.getByText("你还没有任何环境的访问权限")).toBeHidden({ timeout: 20_000 });
+  // An access change revokes the member's sessions (docs/api/v3-member-access.md): back to sign-in.
+  await page.reload();
+  await page.waitForURL((url) => url.pathname.startsWith("/login"), { timeout: 20_000 });
+  await page.getByLabel("工作邮箱").fill(invitee);
+  await page.locator("input[type=password]").fill(password);
+  await page.getByRole("button", { name: "登录" }).click();
+  await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 20_000 });
+  await page.waitForLoadState("networkidle").catch(() => undefined);
+  const me = await page.evaluate(async () => { const r = await fetch("/api/v1/me", { headers: { "X-AIOps-Environment": "prod" } }); return { status: r.status, body: await r.text() }; });
+  expect(me.status, me.body.slice(0, 300)).toBe(200);
+  expect(JSON.parse(me.body).roles).toContain("operator");
   await m.quiet(2000, 15_000);
   await page.screenshot({ path: resolve(LOCAL, "e2e/golden/invite-after-grant.png"), fullPage: true });
   writeFileSync(resolve(LOCAL, "e2e/golden/invite-first-login.json"), JSON.stringify({ invitee, api: m.api, pageErrors: m.pageErrors }, null, 2));

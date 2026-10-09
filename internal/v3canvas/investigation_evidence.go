@@ -59,6 +59,10 @@ func validInvestigationEvidence(name, app, env string, e inference.Evidence) boo
 	if name == "search_knowledge" {
 		target = app
 	}
+	// The log tool reads the service's single Loki or Elasticsearch binding.
+	if name == "read_service_logs" && e.Source == "elasticsearch" {
+		source = e.Source
+	}
 	if kind == "" || e.Kind != kind || e.Source != source || e.TargetID != target ||
 		strings.TrimSpace(e.Title) == "" || strings.TrimSpace(e.Content) == "" ||
 		len(e.Title) > 512 || len(e.Kind)+len(e.Title)+len(e.Content)+len(e.Source) > maxInvestigationText {

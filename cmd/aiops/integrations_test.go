@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -39,6 +41,32 @@ func TestLogEvidenceToolLimitIsIndependentFromBrowsing(t *testing.T) {
 				t.Fatalf("browsing limit changed: %d", limit)
 			}
 		})
+	}
+}
+
+// PA-40: the model sees masked line text, label values and templates only.
+func TestLogEvidenceToolMasksBeforeTheModel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"streams","result":[{"stream":{"application":"checkout","user":"bob@example.com"},"values":[["%d","login failed password=hunter2 for 13812345678 trace_id=9d2870f771d3eac3a7faeb4db4515e00"]]}]}}`, time.Now().Add(-time.Minute).UnixNano())
+	}))
+	defer server.Close()
+	client, err := connectors.NewTelemetry(connectors.TelemetryConfig{Loki: connectors.TelemetryEndpoint{URL: server.URL, AllowHTTP: true}, MaxLogEntries: 10, Applications: map[string]connectors.ApplicationTelemetry{"lab": {LokiLabels: map[string]string{"application": "checkout"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := logEvidenceTool(client, "lab").Read(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leaked := range []string{"hunter2", "13812345678", "bob@example.com"} {
+		if strings.Contains(evidence.Content, leaked) {
+			t.Fatalf("%q reached the model: %s", leaked, evidence.Content)
+		}
+	}
+	for _, kept := range []string{"password=[REDACTED:secret]", "[REDACTED:phone]", "9d2870f771d3eac3a7faeb4db4515e00", `"redacted":true`, `"email":1`} {
+		if !strings.Contains(evidence.Content, kept) {
+			t.Fatalf("missing %q: %s", kept, evidence.Content)
+		}
 	}
 }
 

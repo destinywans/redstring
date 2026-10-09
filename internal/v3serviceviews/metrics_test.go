@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/wans/aiops-canvas/internal/v3metricpanels"
 )
 
 type metricsReaderStub struct {
@@ -37,7 +39,7 @@ func serviceFixture(now time.Time) v3integrations.PrometheusMetricEvidence {
 		ApplicationID: "app", EnvironmentID: "dev", BindingID: "binding", ConnectorID: "prom",
 		ResourceID: "app-metrics", QueryID: "dashboard", CapturedAt: now,
 	}
-	for panel := range serviceMetricPanels {
+	for _, panel := range v3metricpanels.ScalarPanels {
 		value := 1.0
 		switch panel {
 		case "requests_2xx":
@@ -76,7 +78,7 @@ func serviceFixture(now time.Time) v3integrations.PrometheusMetricEvidence {
 		}
 		out.Series = append(out.Series, line)
 	}
-	for bucket := range serviceHeatBuckets {
+	for _, bucket := range v3metricpanels.HeatBuckets {
 		addGroup("latency_heat", "bucket", bucket, 0.25)
 	}
 	addGroup("endpoint_p99_ms", "endpoint", "GET /cart", 25)
@@ -94,8 +96,8 @@ func TestReadMetricsProjectsCompleteEvidence(t *testing.T) {
 	if !reader.called || reader.window.StepSeconds != 100 || reader.window.End.Sub(reader.window.Start) != time.Hour {
 		t.Fatalf("unexpected read window: %+v", reader.window)
 	}
-	if got.Status != "warn" || got.Availability != "99.950%" || got.Target != "99.9%" ||
-		math.Abs(got.BudgetLeft-50) > 0.001 || len(got.Burn) != 3 || len(got.Signals) != 5 ||
+	if got.Status != "warn" || got.Availability == nil || *got.Availability != "99.950%" || got.Target != "99.9%" ||
+		got.BudgetLeft == nil || math.Abs(*got.BudgetLeft-50) > 0.001 || len(got.Burn) != 3 || len(got.Signals) != 5 || len(got.Missing) != 0 ||
 		len(got.Signals[0].Series) != metricPoints || !got.CapturedAt.Equal(now) {
 		t.Fatalf("unexpected projection: %+v", got)
 	}
@@ -109,7 +111,8 @@ func TestReadMetricsRejectsIncompleteOrContradictoryEvidence(t *testing.T) {
 		"wrong query":       func(e *v3integrations.PrometheusMetricEvidence) { e.QueryID = "request_rate" },
 		"stale":             func(e *v3integrations.PrometheusMetricEvidence) { e.CapturedAt = now.Add(-3 * time.Minute) },
 		"future":            func(e *v3integrations.PrometheusMetricEvidence) { e.CapturedAt = now.Add(time.Minute) },
-		"missing panel":     func(e *v3integrations.PrometheusMetricEvidence) { e.Series = e.Series[1:] },
+		"unknown panel":     func(e *v3integrations.PrometheusMetricEvidence) { e.Series[0].Labels["panel"] = "requests_teapot" },
+		"no panels":         func(e *v3integrations.PrometheusMetricEvidence) { e.Series = nil },
 		"missing heat": func(e *v3integrations.PrometheusMetricEvidence) {
 			for i := range e.Series {
 				if e.Series[i].Labels["panel"] == "latency_heat" {
@@ -169,5 +172,77 @@ func TestReadMetricsRejectsMissingTarget(t *testing.T) {
 	var metricErr *MetricError
 	if !errors.As(err, &metricErr) || metricErr.Code != "slo_unavailable" || reader.called {
 		t.Fatalf("expected target rejection before source read, got %v", err)
+	}
+}
+
+const metricPoints = v3metricpanels.Points
+
+func withoutPanels(e v3integrations.PrometheusMetricEvidence, panels ...string) v3integrations.PrometheusMetricEvidence {
+	drop := map[string]bool{}
+	for _, panel := range panels {
+		drop[panel] = true
+	}
+	kept := e.Series[:0:0]
+	for _, line := range e.Series {
+		if !drop[line.Labels["panel"]] {
+			kept = append(kept, line)
+		}
+	}
+	e.Series = kept
+	return e
+}
+
+// PA-41: a reviewed query may return any subset of the panels. Each field
+// that needs an absent panel is reported missing; nothing becomes zero.
+func TestReadMetricsAcceptsPartialPanelSets(t *testing.T) {
+	now := time.Date(2026, 9, 29, 8, 30, 15, 0, time.UTC)
+	read := func(e v3integrations.PrometheusMetricEvidence) Metrics {
+		t.Helper()
+		got, err := ReadMetrics(t.Context(), &metricsReaderStub{evidence: e}, httpapi.V3EnvironmentScope{}, core.User{}, "checkout", "app", "dev", 99.9, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	signals := func(m Metrics) string {
+		ids := []string{}
+		for _, s := range m.Signals {
+			ids = append(ids, s.ID)
+		}
+		return strings.Join(ids, ",")
+	}
+	// The lab has no connection-wait metric, heat map or grouped panels.
+	lab := read(withoutPanels(serviceFixture(now), v3metricpanels.ConnectionWaitP95, v3metricpanels.LatencyHeat,
+		v3metricpanels.EndpointP99, v3metricpanels.InstanceWaitP95))
+	if lab.Status != "warn" || lab.Availability == nil || lab.BudgetLeft == nil || len(lab.Burn) != 3 ||
+		signals(lab) != "rps,err,p99,cpu" || lab.Missing["signals.wait"] != "not_configured" || len(lab.Missing) != 1 {
+		t.Fatalf("lab panel set: %+v", lab)
+	}
+	// Minimal status and SLO set: availability and the three burn windows.
+	slo := read(withoutPanels(serviceFixture(now), v3metricpanels.RequestPanels[0], v3metricpanels.RequestPanels[1],
+		v3metricpanels.RequestPanels[2], v3metricpanels.RequestPanels[3], v3metricpanels.RequestsOther,
+		v3metricpanels.LatencyP50, v3metricpanels.LatencyP95, v3metricpanels.LatencyP99, v3metricpanels.ConnectionWaitP95,
+		v3metricpanels.CPUSaturation, v3metricpanels.SLOBudgetRemaining))
+	if slo.Status != "warn" || slo.BudgetLeft == nil || len(slo.Burn) != 3 || len(slo.Signals) != 0 ||
+		slo.Missing["signals.rps"] != "not_configured" || slo.Missing["status"] != "" {
+		t.Fatalf("minimal SLO set: %+v", slo)
+	}
+	// Without the 1 h burn there is no status; other burns stay visible.
+	noBurn := read(withoutPanels(serviceFixture(now), v3metricpanels.SLOBurn1h))
+	if noBurn.Status != "" || noBurn.Missing["status"] != "not_configured" || noBurn.Missing["slo.burn.1h"] != "not_configured" ||
+		len(noBurn.Burn) != 2 || noBurn.BudgetLeft == nil {
+		t.Fatalf("missing 1 h burn: %+v", noBurn)
+	}
+	// Signals only: no availability, budget, burn or status.
+	signalsOnly := read(withoutPanels(serviceFixture(now), v3metricpanels.SLOMonthAvailability, v3metricpanels.SLOBudgetRemaining,
+		v3metricpanels.SLOBurn1h, v3metricpanels.SLOBurn6h, v3metricpanels.SLOBurn3d))
+	if signalsOnly.Status != "" || signalsOnly.Availability != nil || signalsOnly.BudgetLeft != nil || len(signalsOnly.Burn) != 0 ||
+		len(signalsOnly.Signals) != 5 || signalsOnly.Missing["slo.availability"] != "not_configured" {
+		t.Fatalf("signals only: %+v", signalsOnly)
+	}
+	// Request classes without the total cannot prove the request rate.
+	noTotal := read(withoutPanels(serviceFixture(now), v3metricpanels.RequestsTotal))
+	if strings.Contains(signals(noTotal), "rps") || noTotal.Missing["signals.err"] != "not_configured" {
+		t.Fatalf("requests without total: %+v", noTotal)
 	}
 }

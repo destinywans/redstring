@@ -157,7 +157,11 @@ func validExecutionEvidence(name, app, env string, e inference.Evidence) bool {
 	case "read_service_metrics":
 		kind, source = "metrics", "prometheus"
 	case "read_service_logs":
+		// The single Loki or Elasticsearch binding of the service.
 		kind, source = "logs", "loki"
+		if e.Source == "elasticsearch" {
+			source = e.Source
+		}
 	case "search_knowledge":
 		kind, source, target = "knowledge", "knowledge://published-documents", app
 	}

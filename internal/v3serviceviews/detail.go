@@ -186,8 +186,22 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		out.Unavailable["slo.target"] = reason
 	}
 	if m := item.obs.metrics; m != nil {
-		availability, budget := m.Availability, m.BudgetLeft
-		out.SLO.Availability, out.SLO.BudgetLeft, out.SLO.Burn, out.Signals = &availability, &budget, m.Burn, m.Signals
+		// A partial panel set fills what it can; each absent panel's field is
+		// null or omitted from its list and named with its reason (PA-41).
+		out.SLO.Availability, out.SLO.BudgetLeft, out.SLO.Burn, out.Signals = m.Availability, m.BudgetLeft, m.Burn, m.Signals
+		for field, reason := range m.Missing {
+			if field != "status" {
+				out.Unavailable[field] = reason
+			}
+		}
+		if len(m.Burn) == 0 {
+			out.SLO.Burn = nil
+			out.Unavailable["slo.burn"] = reasonNotConfigured
+		}
+		if len(m.Signals) == 0 {
+			out.Signals = nil
+			out.Unavailable["signals"] = reasonNotConfigured
+		}
 	} else {
 		for _, field := range []string{"signals", "slo.availability", "slo.budget_left", "slo.burn"} {
 			out.Unavailable[field] = item.obs.metricsReason

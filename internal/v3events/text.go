@@ -62,3 +62,19 @@ func (t text) timing(key string) (label, help string) {
 }
 
 func (t text) unrecorded() string { return t.pick("未记录", "Not recorded") }
+
+// upstreamBadges labels the reconciled Alertmanager state of a group's firing
+// incidents (PA-47) in a stable order.
+func (t text) upstreamBadges(kinds map[string]bool) []badge {
+	out := []badge{}
+	if kinds["silenced"] {
+		out = append(out, badge{Text: t.pick("已静默（Alertmanager）", "Silenced in Alertmanager"), Tone: "neutral"})
+	}
+	if kinds["inhibited"] {
+		out = append(out, badge{Text: t.pick("已抑制（Alertmanager）", "Inhibited in Alertmanager"), Tone: "neutral"})
+	}
+	if kinds["unverified"] {
+		out = append(out, badge{Text: t.pick("上游状态未核实", "Upstream state unverified"), Tone: "warn"})
+	}
+	return out
+}

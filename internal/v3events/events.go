@@ -90,10 +90,16 @@ type incidentRecord struct {
 	Labels                                                                                                                                                         map[string]string
 	StartsAt, UpdatedAt                                                                                                                                            time.Time
 	ResolvedAt                                                                                                                                                     *time.Time
+	// UpstreamState is the last Alertmanager state the reconciler recorded
+	// (PA-47); UpstreamCheckedAt is nil when it never checked this incident.
+	UpstreamState     string
+	UpstreamCheckedAt *time.Time
 }
 
 const incidentProjection = `i.id,i.source_id,i.fingerprint,i.labels,i.application_id,i.environment_id,e.key,i.title,i.severity,i.status,i.alert_status,i.summary,i.assignee_id,COALESCE(u.name,''),i.investigation_id,i.starts_at,i.updated_at,
- (SELECT MIN(closed.created_at) FROM events closed WHERE closed.investigation_id=i.investigation_id AND closed.type='investigation.closed')`
+ (SELECT MIN(closed.created_at) FROM events closed WHERE closed.investigation_id=i.investigation_id AND closed.type='investigation.closed'),
+ COALESCE((SELECT us.state FROM v3_alert_upstream_states us WHERE us.incident_id=i.id),''),
+ (SELECT us.checked_at FROM v3_alert_upstream_states us WHERE us.incident_id=i.id)`
 
 const incidentSelect = `SELECT ` + incidentProjection + `
  FROM ops_incidents i
@@ -118,7 +124,8 @@ SELECT ` + incidentProjection + `
 
 func scanIncident(row pgx.Row) (incidentRecord, error) {
 	var v incidentRecord
-	err := row.Scan(&v.ID, &v.SourceID, &v.Fingerprint, &v.Labels, &v.ApplicationID, &v.EnvironmentID, &v.EnvironmentKey, &v.Title, &v.Severity, &v.Status, &v.AlertStatus, &v.Summary, &v.AssigneeID, &v.Commander, &v.InvestigationID, &v.StartsAt, &v.UpdatedAt, &v.ResolvedAt)
+	err := row.Scan(&v.ID, &v.SourceID, &v.Fingerprint, &v.Labels, &v.ApplicationID, &v.EnvironmentID, &v.EnvironmentKey, &v.Title, &v.Severity, &v.Status, &v.AlertStatus, &v.Summary, &v.AssigneeID, &v.Commander, &v.InvestigationID, &v.StartsAt, &v.UpdatedAt, &v.ResolvedAt,
+		&v.UpstreamState, &v.UpstreamCheckedAt)
 	return v, err
 }
 

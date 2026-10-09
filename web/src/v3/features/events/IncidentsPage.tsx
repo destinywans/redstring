@@ -16,10 +16,12 @@ type Summary = Pick<Incident, "id" | "severity" | "title" | "status" | "duration
 export default function IncidentsPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
-  const { id = "INC-1042" } = useParams();
+  const { id: routeId } = useParams();
   const [status, setStatus] = useState<"active" | "resolved" | "all">("active");
   const list = useGet<{ items: Summary[]; counts: Record<string, number> }>("/incidents", { status });
-  const { data: inc } = useGet<Incident>(`/incidents/${id}`);
+  // Without an id in the route, show the first incident of the current list (never a fixture id).
+  const id = routeId ?? list.data?.items[0]?.id ?? "";
+  const { data: inc } = useGet<Incident>(id ? `/incidents/${id}` : null);
   const [notes, setNotes] = useState<{ time: string; text: string }[]>([]);
   const [draft, setDraft] = useState("");
   const [stage, setStage] = useState<number | null>(null);

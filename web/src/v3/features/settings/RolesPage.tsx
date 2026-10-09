@@ -7,14 +7,16 @@ import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./settings.css";
 import { openForm, AddChip, usePickLists } from "../../ui/demo";
+import { useFirstSelection } from "../../ui/selection";
 
 export default function RolesPage() {
   const { tx } = useI18n();
   const { data: list } = useGet<{ items: Role[] }>("/roles");
-  const [sel, setSel] = useState("approver");
+  const [sel, setSel] = useState("");
   const [q, setQ] = useState("");
   const [tab, setTab] = useState("perm");
-  const { data: r } = useGet<RoleDetail>(`/roles/${sel}`);
+  useFirstSelection(list?.items, (x) => x.id, sel, setSel);
+  const { data: r } = useGet<RoleDetail>(sel ? `/roles/${sel}` : null);
   const lists = usePickLists();
   const [matrix, setMatrix] = useState<RoleDetail["matrix"] | null>(null);
   const save = useSend<{ matrix: RoleDetail["matrix"] }>("PUT", `/roles/${sel}`, ["/roles"]);

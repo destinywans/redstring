@@ -11,6 +11,7 @@ import { useI18n } from "../../i18n";
 import { PersonPeekLink, ServicePeekLink } from "./peeks";
 import "./events.css";
 import { ChipSelect } from "../../ui/demo";
+import { useFirstSelection } from "../../ui/selection";
 
 export default function AlertsPage() {
   const { tx } = useI18n();
@@ -18,10 +19,14 @@ export default function AlertsPage() {
   const [q, setQ] = useState("");
   const [showInhibited, setShowInhibited] = useState(true);
   const { data, isLoading } = useGet<{ items: AlertGroup[]; counts: Record<string, number> }>("/alert-groups", { state, q, show_inhibited: showInhibited });
-  const [open, setOpen] = useState<Set<string>>(new Set(["g-checkout-5xx"]));
+  const [open, setOpen] = useState<Set<string>>(new Set());
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [focus, setFocus] = useState("g-checkout-5xx");
-  const policy = useGet<AlertGroupPolicy>(`/alert-groups/${focus}/policy`);
+  const [focus, setFocus] = useState("");
+  useFirstSelection(data?.items, (g) => g.id, focus, setFocus);
+  useEffect(() => {
+    if (focus) setOpen((o) => (o.size ? o : new Set([focus])));
+  }, [focus]);
+  const policy = useGet<AlertGroupPolicy>(focus ? `/alert-groups/${focus}/policy` : null);
   const STATE: Record<AlertGroup["state"], [Tone, string]> = {
     firing: ["danger", tx("触发中", "Firing")],
     pending: ["warn", tx("待定", "Pending")],

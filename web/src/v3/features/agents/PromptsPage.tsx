@@ -8,6 +8,7 @@ import { Markdown } from "../../ui/Markdown";
 import { useI18n } from "../../i18n";
 import "./agents.css";
 import { openForm, ChipSelect } from "../../ui/demo";
+import { useFirstSelection } from "../../ui/selection";
 
 function withVars(text: string): ReactNode[] {
   return text.split(/(\{\w+\})/g).map((p, i) => (p.startsWith("{") ? <span key={i} className="pvar">{p}</span> : p));
@@ -16,9 +17,10 @@ function withVars(text: string): ReactNode[] {
 export default function PromptsPage() {
   const { tx } = useI18n();
   const { data: list } = useGet<{ items: PromptItem[] }>("/prompts");
-  const [sel, setSel] = useState("investigator.system");
+  const [sel, setSel] = useState("");
   const [q, setQ] = useState("");
-  const { data: p } = useGet<PromptDetail>(`/prompts/${sel}`);
+  useFirstSelection(list?.items, (x) => x.id, sel, setSel);
+  const { data: p } = useGet<PromptDetail>(sel ? `/prompts/${sel}` : null);
   const [draft, setDraft] = useState<string | null>(null);
   const trial = useSend<{ case: string; a: string; b: string }, PromptTrial[]>("POST", `/prompts/${sel}/trial`);
   const save = useSend<{ text: string }, { version: string }>("POST", `/prompts/${sel}/versions`, ["/prompts"]);

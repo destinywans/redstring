@@ -8,6 +8,7 @@ import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./events.css";
 import { ChipSelect, AddChip } from "../../ui/demo";
+import { useFirstSelection } from "../../ui/selection";
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
@@ -25,10 +26,11 @@ export default function RulesPage() {
   const { tx } = useI18n();
   const [filter, setFilter] = useState<"all" | "firing" | "scheduled">("all");
   const [q, setQ] = useState("");
-  const [sel, setSel] = useState("r-5xx");
+  const [sel, setSel] = useState("");
   const [tab, setTab] = useState<"def" | "history" | "preview">("def");
   const list = useGet<{ items: AlertRuleSummary[]; counts: Record<string, number> }>("/alert-rules");
-  const { data: r } = useGet<AlertRule>(`/alert-rules/${sel}`);
+  useFirstSelection(list.data?.items, (x) => x.id, sel, setSel);
+  const { data: r } = useGet<AlertRule>(sel ? `/alert-rules/${sel}` : null);
   const [threshold, setThreshold] = useState(1);
   const [forMin, setForMin] = useState(5);
   const [mode, setMode] = useState<"continuous" | "cron">("continuous");

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { Runbook, RunbookStep } from "../../api/types";
 import { Avatar, Badge, Brand, Btn, Code, Col, Icon, Mono, Muted, Num, Row, Section, Skeleton, Spacer, State, TextLink, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -57,7 +57,17 @@ export default function RunbookEditorPage() {
             {tx("预览", "Preview")}
           </Btn>
           <PromoteButton kind="runbooks" id={rb.id} title={rb.title} />
-          <Btn kind="primary" icon="check" onClick={() => { void api("POST", `/runbooks/${rb.id}/submit`); toast(tx("已提交复核，已通知王晨", "Submitted for review; Wang Chen notified")); }}>
+          <Btn
+            kind="primary"
+            icon="check"
+            onClick={() =>
+              // Say "submitted" only once the server accepted it; the sample data names its sample reviewer.
+              api("POST", `/runbooks/${rb.id}/submit`).then(
+                () => toast(API_MODE === "mock" ? tx("已提交复核，已通知王晨", "Submitted for review; Wang Chen notified") : tx("已提交复核", "Submitted for review")),
+                (e) => toast(e instanceof ApiError ? e.message : tx("提交失败，请稍后重试", "Couldn't submit; try again later"), { tone: "danger" }),
+              )
+            }
+          >
             {tx("提交复核", "Submit for review")}
           </Btn>
         </>
@@ -196,11 +206,27 @@ export default function RunbookEditorPage() {
                 loading={running}
                 onClick={async () => {
                   setRunning(true);
-                  await api("POST", `/runbooks/${rb.id}/dry-run`);
-                  setTimeout(() => {
+                  try {
+                    const r = await api<{ steps?: number; ok?: boolean; mode?: string }>("POST", `/runbooks/${rb.id}/dry-run`);
+                    if (API_MODE === "mock") {
+                      setTimeout(() => {
+                        setRunning(false);
+                        toast(tx("试跑完成：3 个只读步骤全部通过", "Dry run finished: all 3 read-only steps passed"));
+                      }, 900);
+                      return;
+                    }
+                    // The server only validates the steps' structure; it doesn't run them against any system.
+                    toast(
+                      r.ok
+                        ? tx("结构校验通过：{n} 个步骤（只检查步骤类型、只读标记和连接器，不实际执行）", "Structure check passed: {n} steps (kinds, read-only flags and connectors only; nothing was executed)", { n: r.steps ?? 0 })
+                        : tx("结构校验没有通过，请检查步骤类型、只读标记和连接器", "Structure check failed; review step kinds, read-only flags and connectors"),
+                      r.ok ? {} : { tone: "danger" },
+                    );
                     setRunning(false);
-                    toast(tx("试跑完成：3 个只读步骤全部通过", "Dry run finished: all 3 read-only steps passed"));
-                  }, 900);
+                  } catch (e) {
+                    setRunning(false);
+                    toast(e instanceof ApiError ? e.message : tx("试跑失败，请稍后重试", "Dry run failed; try again later"), { tone: "danger" });
+                  }
                 }}
               >
                 {tx("在预发试跑只读步骤", "Dry-run on staging")}

@@ -1,3 +1,4 @@
+import { API_MODE } from "../../api/client";
 import { useState } from "react";
 import type { Artifact } from "../../api/types";
 import { Avatar, Badge, Btn, Card, Chip, Icon, IconBtn, Muted, Row, SearchBox, Spacer, Strong, Textarea, cx, type IconName } from "../../ui/core";
@@ -142,9 +143,14 @@ export function ArtifactPanel({ artifacts, active, onSelect, onClose }: { artifa
           </button>
         ))}
         <Spacer />
-        <IconBtn icon="download" label={tx("下载", "Download")} size={26} onClick={() => toast(tx("已开始下载 {n}", "Downloading {n}", { n: a.title }))} />
-        <IconBtn icon="send" label={tx("分享到飞书", "Share to Feishu")} size={26} onClick={() => toast(tx("已分享到飞书 #sre-oncall（记入审计）", "Shared to Feishu #sre-oncall (audited)"))} />
-        <IconBtn icon="pin" label={tx("钉到 Canvas", "Pin to canvas")} size={26} onClick={() => toast(tx("已钉到 Canvas INV-231", "Pinned to canvas INV-231"))} />
+        {/* Download / share / pin have no backend writer yet: sample data only. */}
+        {API_MODE === "mock" && (
+          <>
+            <IconBtn icon="download" label={tx("下载", "Download")} size={26} onClick={() => toast(tx("已开始下载 {n}", "Downloading {n}", { n: a.title }))} />
+            <IconBtn icon="send" label={tx("分享到飞书", "Share to Feishu")} size={26} onClick={() => toast(tx("已分享到飞书 #sre-oncall（记入审计）", "Shared to Feishu #sre-oncall (audited)"))} />
+            <IconBtn icon="pin" label={tx("钉到 Canvas", "Pin to canvas")} size={26} onClick={() => toast(tx("已钉到 Canvas INV-231", "Pinned to canvas INV-231"))} />
+          </>
+        )}
         <IconBtn icon={wide ? "minimize" : "fit"} label={wide ? tx("退出全屏", "Exit full screen") : tx("全屏", "Full screen")} size={26} onClick={() => setWide((w) => !w)} />
         <IconBtn icon="x" label={tx("关闭产物面板", "Close panel")} size={26} onClick={onClose} />
       </div>
@@ -155,14 +161,14 @@ export function ArtifactPanel({ artifacts, active, onSelect, onClose }: { artifa
         {a.content.kind === "diff" && (
           <div className="v3-col anim-fade" style={{ gap: 12, padding: "20px 24px" }}>
             <DiffView {...a.content} />
-            <Row gap={6}>
+            {API_MODE === "mock" && <Row gap={6}>
               <Btn kind="soft" icon="shield" to="/review/PRP-88">
                 {tx("生成回滚提案", "Create rollback proposal")}
               </Btn>
               <Btn kind="ghost" icon="external" onClick={() => openExternal("GitLab", "https://gitlab.example.internal/trade/checkout-api/-/merge_requests/8812")}>
                 {tx("在 GitLab 中打开", "Open in GitLab")}
               </Btn>
-            </Row>
+            </Row>}
           </div>
         )}
       </div>

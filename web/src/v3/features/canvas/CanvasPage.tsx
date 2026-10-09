@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as RPE } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
+import { API_MODE, api, useGet } from "../../api/client";
+
+/** Sample-only references (chat C-320, run_7f3a, report EXE-51, sample evidence sources) never show in real mode. */
+const demo = API_MODE === "mock";
 import type { CanvasGraph, CanvasNode, EvidenceTrayItem } from "../../api/types";
 import { AvatarGroup, Badge, Btn, Col, Dot, Env, Icon, IconBtn, Muted, Row, Section, Segmented, Skeleton, Spacer, Strong, Tabs, Tile, KV, Mono, cx, type IconName } from "../../ui/core";
 import { BrandMark } from "../../ui/BrandMark";
@@ -353,11 +356,13 @@ function Inspector({ n, nodes, onClose, onWriteback, pinned, onPin }: { n: Canva
         {tab === "chat" && (
           <Col gap={12}>
             <Muted size={11.5}>{tx("这个节点自己的对话，与其他分支相互隔离。", "This node's own thread, isolated from other branches.")}</Muted>
-            <div className="cv-msg user">{tx("连接等待是从什么时候开始升高的？", "When did connection wait start rising?")}</div>
+            {demo && <div className="cv-msg user">{tx("连接等待是从什么时候开始升高的？", "When did connection wait start rising?")}</div>}
             <div className="cv-msg">{n.summary ? <Markdown text={n.summary} /> : <Muted>—</Muted>}</div>
-            <Btn icon="message" to="/conversations/C-320">
-              {tx("在对话模式中打开", "Open in chat mode")}
-            </Btn>
+            {demo && (
+              <Btn icon="message" to="/conversations/C-320">
+                {tx("在对话模式中打开", "Open in chat mode")}
+              </Btn>
+            )}
           </Col>
         )}
         {tab === "evidence" && (
@@ -367,9 +372,9 @@ function Inspector({ n, nodes, onClose, onWriteback, pinned, onPin }: { n: Canva
                 <Tile icon={(["code", "activity", "terminal"] as IconName[])[i % 3]} size={24} />
                 <Col gap={0} grow>
                   <span style={{ fontSize: "var(--fs-sm)" }}>{r}</span>
-                  <Muted size={11}>{["GitLab #8812", "Prometheus", "Elasticsearch"][i % 3]}</Muted>
+                  {demo && <Muted size={11}>{["GitLab #8812", "Prometheus", "Elasticsearch"][i % 3]}</Muted>}
                 </Col>
-                <IconBtn
+                {demo && <IconBtn
                   icon="external"
                   label={tx("打开来源", "Open source")}
                   size={24}
@@ -377,13 +382,14 @@ function Inspector({ n, nodes, onClose, onWriteback, pinned, onPin }: { n: Canva
                     const sys = ["GitLab", "Grafana", "Kibana"][i % 3];
                     openExternal(sys, ["https://gitlab.example.internal/trade/checkout-api/-/merge_requests/8812", "https://grafana.example.internal/d/checkout-api", "https://kibana.example.internal/app/discover"][i % 3]);
                   }}
-                />
+                />}
               </Row>
             ))}
             {!n.evidence_refs?.length && <Muted>{tx("还没有证据，可以从左侧证据托盘拖入。", "No evidence yet — drag some in from the tray.")}</Muted>}
           </Col>
         )}
-        {tab === "agent" && (
+        {tab === "agent" && !demo && <Muted>{tx("这个节点还没有关联的 Agent 运行记录。", "No agent run is linked to this node yet.")}</Muted>}
+        {tab === "agent" && demo && (
           <Col gap={8}>
             <KV k={tx("Agent", "Agent")}>{tx("调查助手 v12", "Investigator v12")}</KV>
             <KV k={tx("模型", "Model")}>{tx("默认模型", "Default model")}</KV>
@@ -407,11 +413,11 @@ function Inspector({ n, nodes, onClose, onWriteback, pinned, onPin }: { n: Canva
 }
 
 export default function CanvasPage() {
-  const { id = "INV-231" } = useParams();
+  const { id = demo ? "INV-231" : "" } = useParams();
   const { tx } = useI18n();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  const { data, isLoading } = useGet<CanvasGraph>(`/investigations/${id}/canvas`);
+  const { data, isLoading } = useGet<CanvasGraph>(id ? `/investigations/${id}/canvas` : null);
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [pinned, setPinned] = usePinned("canvas");
@@ -721,24 +727,34 @@ export default function CanvasPage() {
         inv && (
           <>
             <Badge mono>{inv.id}</Badge>
-            <Badge tone="warn">
-              <Dot tone="warn" size={6} />
-              {tx("等待审批", "Awaiting approval")}
-            </Badge>
+            {(() => {
+              const st = ({ active: ["accent", tx("进行中", "Active")], waiting_approval: ["warn", tx("等待审批", "Awaiting approval")], resolved: ["ok", tx("已解决", "Resolved")], archived: ["neutral", tx("已归档", "Archived")] } as const)[inv.status] ?? (["neutral", inv.status] as const);
+              return (
+                <Badge tone={st[0]}>
+                  <Dot tone={st[0]} size={6} />
+                  {st[1]}
+                </Badge>
+              );
+            })()}
             <Env env={inv.env} />
             <Segmented
               label={tx("视图", "View")}
               value="canvas"
-              onChange={(v) => v === "chat" && nav(`/conversations/${inv.conversation_id ?? "C-320"}`)}
+              onChange={(v) => {
+                const conv = inv.conversation_id ?? (demo ? "C-320" : null);
+                if (v === "chat" && conv) nav(`/conversations/${conv}`);
+              }}
               options={[
                 { value: "chat", label: tx("对话", "Chat"), icon: "message" },
                 { value: "canvas", label: tx("画布", "Canvas"), icon: "branch" },
               ]}
             />
             <AvatarGroup names={inv.participants} />
-            <Btn icon="file" to="/executions/EXE-51">
-              {tx("复盘报告", "Report")}
-            </Btn>
+            {demo && (
+              <Btn icon="file" to="/executions/EXE-51">
+                {tx("复盘报告", "Report")}
+              </Btn>
+            )}
           </>
         )
       }
@@ -752,7 +768,7 @@ export default function CanvasPage() {
               <Spacer />
               <IconBtn icon="x" label={tx("收起", "Hide")} size={24} onClick={() => setTray(false)} />
             </Row>
-            <Muted size={11.5}>{tx("来自对话 C-320 的部件，拖到画布上成为证据节点。", "Parts from chat C-320 — drag onto the canvas to add evidence.")}</Muted>
+            <Muted size={11.5}>{demo ? tx("来自对话 C-320 的部件，拖到画布上成为证据节点。", "Parts from chat C-320 — drag onto the canvas to add evidence.") : tx("拖到画布上成为证据节点。", "Drag onto the canvas to add evidence.")}</Muted>
             {data.tray.map((t) => (
               <div
                 key={t.id}

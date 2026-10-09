@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, useGet } from "../../api/client";
 import type { PostmortemSummary } from "../../api/types";
 import { Badge, Btn, Card, Chip, Col, Icon, Muted, Num, Panel, Pills, Row, SearchBox, Section, Sev, State, TextLink, Spacer } from "../../ui/core";
 import { DataTable, Kpi, KpiRow } from "../../ui/data";
@@ -27,7 +27,7 @@ export default function PostmortemsPage() {
         <PageHead title={tx("复盘报告", "Postmortems")} desc={tx("AI 根据事件时间线和证据起草，负责人确认后发布；改进项会一直跟踪到完成。", "AI drafts from the incident timeline and evidence; the owner publishes; action items are tracked to completion.")} />
         <KpiRow>{data?.kpis.map((k) => <Kpi key={k.id} label={k.label} value={k.value} unit={k.unit} sub={k.sub} tone={k.tone} values={k.series?.length ? k.series : undefined} />)}</KpiRow>
         <Row gap={8}>
-          <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: 57 }, { value: "draft", label: tx("AI 草稿", "AI drafts"), count: 2 }, { value: "published", label: tx("已发布", "Published"), count: 55 }]} />
+          <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: API_MODE === "mock" ? 57 : undefined }, { value: "draft", label: tx("AI 草稿", "AI drafts"), count: API_MODE === "mock" ? 2 : undefined }, { value: "published", label: tx("已发布", "Published"), count: API_MODE === "mock" ? 55 : undefined }]} />
           <SearchBox placeholder={tx("搜索报告", "Search reports")} value={q} onChange={setQ} width={220} />
           <ChipSelect icon="filter" label={tx("根因类别", "Cause")} {...fCause.props} />
           <ChipSelect icon="filter" label={tx("服务", "Service")} {...fSvc.props} />
@@ -38,13 +38,14 @@ export default function PostmortemsPage() {
               rows={rows}
               loading={isLoading}
               rowKey={(r) => r.id}
-              onRowClick={() => nav("/executions/EXE-51")}
+              // Sample rows open the sample execution report; real rows open their incident (there is no postmortem detail page yet).
+              onRowClick={(r) => (API_MODE === "mock" ? nav("/executions/EXE-51") : r.incident_id && nav(`/incidents/${r.incident_id}`))}
               rowHeight={44}
               columns={[
                 { key: "t", header: tx("标题", "Title"), width: "34%", render: (r) => <Row gap={10}><Icon name="file" size={15} color="var(--muted)" /><span className="ellipsis" style={{ fontWeight: 500 }}>{r.title}</span></Row> },
-                { key: "s", header: tx("等级", "Sev"), render: (r) => <Sev p={r.severity} /> },
+                { key: "s", header: tx("等级", "Sev"), render: (r) => (r.severity ? <Sev p={r.severity} /> : <UnknownValue />) },
                 { key: "d", header: tx("日期", "Date"), render: (r) => <Muted>{r.date}</Muted> },
-                { key: "du", header: tx("持续", "Duration"), render: (r) => <Muted>{r.duration}</Muted> },
+                { key: "du", header: tx("持续", "Duration"), render: (r) => (r.duration ? <Muted>{r.duration}</Muted> : <UnknownValue />) },
                 { key: "c", header: tx("根因类别", "Cause"), render: (r) => <Badge>{r.cause}</Badge> },
                 { key: "a", header: tx("改进项", "Actions"), render: (r) => <Num>{r.actions}</Num> },
                 { key: "st", header: tx("状态", "Status"), render: (r) => (r.status === "draft" ? <Badge tone="accent"><Icon name="sparkles" size={11} />{tx("AI 草稿", "AI draft")}</Badge> : <State tone="ok">{tx("已发布", "Published")}</State>) },

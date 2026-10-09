@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
-import { ApiError, api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { KnowledgeSource, KnowledgeSourceEvidence, RetrievalHit } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Input, KV, Mono, Muted, Num, Panel, Pills, Row, SearchBox, State, Strong, TextLink, Tile } from "../../ui/core";
 import { DataTable } from "../../ui/data";
@@ -17,16 +17,23 @@ export default function SourcesPage() {
   const { data, isLoading, isError, refetch } = useGet<{ items: KnowledgeSource[]; index: Record<string, string> | null; partial?: boolean; truncated?: boolean }>("/knowledge-sources");
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const lists = usePickLists();
-  const [scopeSvc, setScopeSvc] = useState("checkout-api");
+  // The retrieval test starts unscoped and empty in real mode; the sample pre-fills its sample question.
+  const [scopeSvc, setScopeSvc] = useState(API_MODE === "mock" ? "checkout-api" : "");
   const [topK, setTopK] = useState(4);
-  const [query, setQuery] = useState(tx("重试 放大 导致 5xx", "retries amplified causing 5xx"));
+  const [query, setQuery] = useState(API_MODE === "mock" ? tx("重试 放大 导致 5xx", "retries amplified causing 5xx") : "");
   const [hits, setHits] = useState<RetrievalHit[] | null>(null);
   const [searching, setSearching] = useState(false);
   const search = async () => {
+    if (!query.trim()) return;
     setSearching(true);
-    const r = await api<{ hits: RetrievalHit[] }>("POST", "/knowledge/search", { body: { q: query, service: scopeSvc || undefined, top_k: topK } });
-    setHits(r.hits.slice(0, topK));
-    setSearching(false);
+    try {
+      const r = await api<{ hits: RetrievalHit[] }>("POST", "/knowledge/search", { body: { q: query, service: scopeSvc || undefined, top_k: topK } });
+      setHits(r.hits.slice(0, topK));
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : tx("检索失败，请稍后重试", "Search failed; try again later"), { tone: "danger" });
+    } finally {
+      setSearching(false);
+    }
   };
   const isEvidence = (source: KnowledgeSource): source is KnowledgeSourceEvidence => "registration_status" in source;
   const sources = data?.items ?? [];

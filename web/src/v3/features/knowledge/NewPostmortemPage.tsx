@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
+import { API_MODE, api, useGet } from "../../api/client";
 import { AiAvatar, Avatar, Badge, Brand, Btn, Col, Dot, Icon, KV, Mono, Muted, Row, Sev, Skeleton, Spacer, Stepper, Strong, Textarea, TextLink, type Severity, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
@@ -90,9 +90,14 @@ export default function NewPostmortemPage() {
             <Col gap={6}>
               <Muted size={11.5}>{tx("素材", "Materials")}</Muted>
               <KV k={tx("时间线", "Timeline")} kw={56}>{tx("{n} 条", "{n}", { n: data?.timeline.length ?? 0 })}</KV>
-              <KV k={tx("证据", "Evidence")} kw={56}>{tx("12 条", "12")}</KV>
-              <KV k={tx("作战群", "War room")} kw={56}>{tx("飞书 · 146 条消息", "Feishu · 146 messages")}</KV>
-              <KV k={tx("画布", "Canvas")} kw={56}><TextLink to="/canvas/INV-231">INV-231</TextLink></KV>
+              {/* Evidence / war-room counts and the canvas link are sample values; the draft contract doesn't report them. */}
+              {API_MODE === "mock" && (
+                <>
+                  <KV k={tx("证据", "Evidence")} kw={56}>{tx("12 条", "12")}</KV>
+                  <KV k={tx("作战群", "War room")} kw={56}>{tx("飞书 · 146 条消息", "Feishu · 146 messages")}</KV>
+                  <KV k={tx("画布", "Canvas")} kw={56}><TextLink to="/canvas/INV-231">INV-231</TextLink></KV>
+                </>
+              )}
             </Col>
             <Col gap={6}>
               <Muted size={11.5}>{tx("章节", "Sections")}</Muted>
@@ -171,7 +176,7 @@ export default function NewPostmortemPage() {
                       </tbody>
                     </table>
                   </div>
-                  <button type="button" className="f-add" onClick={() => setActions([...actions, { text: tx("新的改进项", "New action item"), owner: "王晨", due: "—" }])}>
+                  <button type="button" className="f-add" onClick={() => setActions([...actions, { text: tx("新的改进项", "New action item"), owner: API_MODE === "mock" ? "王晨" : "", due: "—" }])}>
                     <Icon name="plus" size={12} />
                     {tx("改进项", "Action item")}
                   </button>
@@ -199,7 +204,7 @@ export default function NewPostmortemPage() {
               </Col>
               <Col gap={6}>
                 <Muted size={11.5}>{tx("后续", "Follow-ups")}</Muted>
-                <Btn icon="book" to="/runbooks/new?source=postmortem&from=INC-1042" style={{ justifyContent: "flex-start" }}>{tx("生成 Runbook 修订", "Draft a runbook revision")}</Btn>
+                <Btn icon="book" to={`/runbooks/new?source=postmortem&from=${encodeURIComponent(API_MODE === "mock" ? "INC-1042" : incident ?? "")}`} style={{ justifyContent: "flex-start" }}>{tx("生成 Runbook 修订", "Draft a runbook revision")}</Btn>
               </Col>
               <Row gap={8}>
                 <Btn loading={busy === "draft"} onClick={() => submit("draft")}>{tx("保存草稿", "Save draft")}</Btn>

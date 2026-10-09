@@ -383,7 +383,7 @@ export type Runbook = {
   usage: { refs: number; resolve_rate: number; weekly: number[]; highlight: number };
   incidents: { id: string; title: string }[];
 };
-export type Postmortem = { id: string; title: string; severity: Severity; date: string; duration: string; cause: string; actions: string; status: "draft" | "published" };
+export type Postmortem = { id: string; title: string; severity: Severity | null; date: string; duration: string | null; cause: string; actions: string; status: "draft" | "published"; incident_id?: string };
 export type PostmortemSummary = {
   kpis: Kpi[];
   items: Postmortem[];

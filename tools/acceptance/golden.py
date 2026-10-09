@@ -269,10 +269,13 @@ def ensure_knowledge_reviewer():
     return login('prod', accounts['approver2'])
 
 
-def knowledge(run):
-    """Incident during a real bad-release drill → resolve → postmortem → runbook → knowledge source and search."""
+def knowledge(run, incident=None):
+    """Incident during a real bad-release drill → resolve → postmortem → runbook → knowledge source and search.
+    With an already resolved incident id, start at the postmortem."""
     operator = run.cookie
     _, app = app_id('checkout-api')
+    if incident:
+        return knowledge_after_incident(run, incident, app)
 
     def firing_ids():
         _, groups = call('prod', 'GET', '/alert-groups', cookie=operator)
@@ -320,6 +323,10 @@ def knowledge(run):
                            {'status': target, 'expected_revision': revision, 'request_id': secrets.token_hex(16),
                             'reason': '回滚完成，5xx 归零' if target == 'resolved' else '已回滚，观察中'})
         revision = changed.get('revision', revision + 1 if isinstance(revision, int) else revision)
+    return knowledge_after_incident(run, inc, app)
+
+
+def knowledge_after_incident(run, inc, app):
     run.cookie = None  # admin from here on: the stored browser state (the admin signs in with MFA)
     candidates = run.step('postmortem candidates (admin)', 'GET', '/postmortems/candidates')
     found = [c for c in candidates.get('items') or [] if c.get('incident_id') == inc or c.get('id') == inc]
@@ -327,9 +334,15 @@ def knowledge(run):
     pm_draft = run.step('postmortem draft', 'GET', f'/postmortems/draft?incident={inc}')
     run.note(draft_keys=sorted(pm_draft.keys()))
     # PA-65: a draft postmortem can never move to review, so the author submits for review directly.
+    # Review needs text in every section: the author writes the parts evidence cannot fill.
+    sections = [dict(sec, text=sec.get('text') or f"（作者补充）{sec.get('title')}：坏发布使 /checkout 约一半请求返回 500，"
+                     "order-api 随之报 5xx；回滚后 5xx 归零。") for sec in pm_draft.get('sections') or []]
+    run.note(empty_sections=sum(1 for sec in pm_draft.get('sections') or [] if not (sec.get('text') or '').strip()),
+             sections=len(sections))
+    actions = (pm_draft.get('actions') or []) + [{'text': '发布流水线增加 5xx 比例自动回滚门禁', 'owner': 'Operator', 'due': '2026-10-31'}]
     pm = run.step('submit the postmortem for review', 'POST', '/postmortems', {
         'incident_id': inc, 'source_revision': pm_draft.get('source_revision'),
-        'sections': pm_draft.get('sections') or [], 'actions': pm_draft.get('actions') or [], 'status': 'review'})
+        'sections': sections, 'actions': actions, 'status': 'review'})
     pm_id = pm['id']
     run.note(postmortem=pm_id)
     # The author may not publish their own postmortem (403 self_review_forbidden, checked below).
@@ -516,11 +529,15 @@ def agents(run):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('path', choices=['canvas', 'conversation', 'knowledge', 'settings', 'agents'])
+    ap.add_argument('--incident', help='knowledge: resume at the postmortem of this resolved incident')
     a = ap.parse_args()
     run = Run(a.path)
     accounts = json.loads((LOCAL / 'prod/secrets.json').read_text())['accounts']
     run.cookie = login('prod', accounts['operator'])
-    {'canvas': canvas, 'conversation': conversation, 'knowledge': knowledge, 'settings': settings, 'agents': agents}[a.path](run)
+    if a.path == 'knowledge' and a.incident:
+        knowledge(run, a.incident)
+    else:
+        {'canvas': canvas, 'conversation': conversation, 'knowledge': knowledge, 'settings': settings, 'agents': agents}[a.path](run)
     print(run.save())
 
 

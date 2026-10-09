@@ -78,6 +78,7 @@
 | PA-63 | P2 | “从复盘起草 Runbook”只接受已发布且来自“经调查结案”的旧式事故的复盘（要求已关闭调查、调查报告和结案事件）；V3 手工事件（`INC-*`）的复盘永远不能作为 Runbook 来源，`GET /runbooks/draft?source=postmortem` 返回 `422 invalid_source`“Source was not found or is not accessible” | 已转后端：手工事件的已发布复盘（真实 resolved 状态事件为来源）也可起草 Runbook，来源摘要同样锁定；错误文案区分“未发布”和“来源类型不支持” |
 | PA-64 | P2 | 界面不按权限收起写入口：只读成员的首页仍显示可点击的“发起调查”、可发送的输入框等，点了才 403；`GET /me` 只返回角色名（`["viewer"]`），前端无法判断自定义角色的实际权限 | 已转后端：`/me` 返回当前环境的有效权限（模块 → 动作）；前端据此禁用写入口并提示所需权限（D10） |
 | PA-65 | P2 | 复盘以“草稿”保存后是死路：没有编辑或“提交审核”的接口，发布要求状态为 `review`（`409 invalid_state`），同一事件也不能再起草（`404 Incident is not eligible`），只能永远停在草稿 | 待转后端：增加草稿编辑与提交审核（draft → review，带修订号），或在提交时只允许 `review`；前端相应调整 |
+| PA-66 | P2 | 上传文本登记为知识源并手动同步后（`document_count: 1`、`keyword_content_persisted: true`），证据仍是 `index: null`、`semantic_index_unavailable`（向量模型 bge-m3 已配置可用），`POST /knowledge/search` 无命中且返回 `degraded: false`，用户以为“没有相关资料”；从文档导入的 Runbook 3 个编号步骤只得到 1 步 | 已转后端：已同步的上传文档进入关键词/向量索引，或明确标为缺能力；检索结果说明本次检索覆盖了哪些来源、哪些未就绪 |
 
 ### PA-05/PA-16 五个读接口
 
@@ -126,7 +127,7 @@
 
 - **阶段 2：Agent 运行台黄金路径**（`golden.py agents`，管理员）27/27：新建 Agent（暂停、L0）→ Prompt v1/v2 → 登记版本 v1/v2 并固定执行配置（同配置重放同哈希，改配置 `409 execution_config_immutable`）→ 首次稳定发布需管理员理由 → 正式运行（DeepSeek，只读，答案经 `GET /agent-runs/{id}/result` 读取：“仅凭 5xx 回到 0 不能判定健康”，列出还需的证据）→ 只读成员运行 403 → 等级超过环境上限 `409 agent_level_cap` → 无评测门禁灰度 `409 eval_gate_unverified`，审计放行后可灰度 → 回滚 → 新建评测（v1 对 v2，待执行）→ 运行反馈与标注 → 登记护栏 `deny_sensitive_content`。护栏描述为英文（同 PA-60）。
 - **阶段 2：设置黄金路径**（`golden.py settings`，管理员）22/22：API 令牌签发（TTL 为秒数）后只能 Bearer 读 `GET /connectors`，读服务或写连接器 401；列表不含明文；轮换后新旧密钥都可用，吊销后立即 401（测试令牌已全部吊销）；工作区 `PUT` 当前 ETag 200、旧 ETag 412、缺 `If-Match` 428；通知与 AI 偏好往返保存；审计导出返回下载地址，详情 `chain_ok: true`；安全策略在未配置权威时九项均 `not_configured`。
-- **阶段 2：知识黄金路径（进行中）**（`golden.py knowledge`）：坏发布演练中告警约 90–110 秒触发，运维从告警起草并宣告人工事件、记时间线，关闭演练后事件经“已缓解”到“已解决”；管理员起草复盘，作者自己发布被拒（`403 self_review_forbidden`，正确）；草稿复盘无法推进（PA-65）；手工事件的复盘不能起草 Runbook（PA-63）。
+- **阶段 2：知识黄金路径**（`golden.py knowledge`）：坏发布演练中告警 80–110 秒触发，运维从告警起草并宣告人工事件、记时间线，关闭演练后事件经“已缓解”到“已解决”；复盘草稿 3 个章节都需作者手写（手工事件不编造调查内容）；作者提交审核后自己发布被拒（`403 self_review_forbidden`，正确），approver2 以自定义角色（D9）发布成功；草稿复盘无法推进（PA-65）；手工事件复盘不能起草 Runbook（PA-63），改为从上传 Markdown 导入 Runbook → 演练 → 提交审核；上传文本登记为知识源 → 探测 → 登记 → 手动同步成功，但检索无命中（PA-66）。
 - **PA-52/53/55/56/57 部署验证（6ffa67a）**：权限矩阵重跑两个实例 0 条不一致；只读成员现在能进入应用（截图 `pa55-viewer-*`），但带合法请求体提静默、改 Agent 上限、新建对话、批准、驳回均被拒绝；变更审批员驳回提案 200（PA-57），审批员和只读成员读通知路由树 200（PA-56）。合并后 `internal/v3conversation` 的 `TestConversationListRealMigrationGrantAndPinyin` 失败（撤销环境授权后仍可见，疑与迁移 167 相关），已转后端。
 - **阶段 2：画布与对话黄金路径**（`tools/acceptance/golden.py`，运维账号、DeepSeek）：
   - 画布：新建调查 → 根节点提问（AI 只读取证，p95 有值；错误率修正前为“无样本”，AI 注明空结果不等于 0）→ 派生分支 → 分支提问 → 改名（旧布局版本 `409 layout_version_conflict`）→ 回写预览 → 回写根节点（修订 1→2）→ 旧修订回写 `409 writeback_revision_conflict`。问超出调查授权的 order-api 时，AI 说明只授权了 checkout-api 并拒答。界面显示见 PA-62。

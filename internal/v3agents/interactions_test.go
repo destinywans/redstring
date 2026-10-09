@@ -182,6 +182,9 @@ func TestAgentInteractionsHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Migration 162 gives the built-in viewer role global agents.view; this
+	// editor must only see application "app".
+	exec(`DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='agents'`)
 	exec(`INSERT INTO rbac_roles(id,name) VALUES('interaction-editor','Interaction Editor')`)
 	exec(`INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'interaction-editor')`, editor.ID)
 	exec(`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('interaction-editor','environment','view','environment','dev'),('interaction-editor','agents','change','environment','dev'),('interaction-editor','agents','view','application','app')`)

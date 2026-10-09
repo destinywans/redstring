@@ -65085,6 +65085,24 @@
           },
           "preferences": {
             "$ref": "#/components/schemas/V3Preferences"
+          },
+          "permissions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": [
+                    "all",
+                    "scoped",
+                    "conditional"
+                  ]
+                }
+              }
+            },
+            "description": "Effective grants per selected environment: environment ID -> module code (as in route permissions, e.g. environment, conversation, canvas, events, alert_rules, silences, proposals, runbooks, knowledge, services, resources, connectors, agents, models, members, roles, audit) -> action -> reach. all: a global or environment-wide grant; scoped: only some applications or teams, so the object decides; conditional: approve, which still needs a human identity, a passkey and the proposal checks. An absent action is not granted. Computed with the V3 policy scope rules after the environment.view gate (PA-64); the server still authorizes every request."
           }
         },
         "additionalProperties": false,
@@ -65101,7 +65119,8 @@
           "oncall_state",
           "roles",
           "mfa",
-          "preferences"
+          "preferences",
+          "permissions"
         ]
       },
       "V3MePreferencesPatch": {

@@ -239,11 +239,11 @@ func profileIncludesSession(rows []profileSessionRow, currentID string) bool {
 	return false
 }
 
+// profileLive serves the account fields this instance proves and adds the
+// identity evidence fields only when a configured source currently proves
+// them. Unknown fields are null and named in Unavailable; they never become
+// false, empty or a placeholder text.
 func (s *Service) profileLive(r *http.Request, input *profileView) (profileView, error) {
-	if s.ProfileEvidence == nil || s.ProfileInstanceID == "" ||
-		s.ProfileInstanceID != s.MeEvidence.MFAInstanceID || s.MeEvidence.PasskeyRPID == "" {
-		return profileView{}, errIdentityUnavailable
-	}
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok || scope.All || len(scope.EnvironmentIDs) != 1 {
 		return profileView{}, errInvalid
@@ -266,14 +266,33 @@ func (s *Service) profileLive(r *http.Request, input *profileView) (profileView,
 	request := ProfileEvidenceRequest{InstanceID: s.ProfileInstanceID, UserID: userID,
 		EnvironmentID: scope.EnvironmentIDs[0], CurrentSessionID: currentID,
 		Contacts: profileContacts(account), SessionIDs: profileSessionIDs(sessionRows)}
-	answer, err := s.ProfileEvidence.Snapshot(r.Context(), request)
-	if err != nil || !validProfileEvidence(request, answer, time.Now()) {
-		return profileView{}, errIdentityUnavailable
+	answer, reason, err := s.profileEvidence(r.Context(), request)
+	if err != nil {
+		return profileView{}, err
 	}
-	return s.profileTransaction(r.Context(), r, request, answer, input)
+	return s.profileTransaction(r.Context(), r, request, answer, reason, input)
 }
 
-func (s *Service) profileTransaction(ctx context.Context, r *http.Request, request ProfileEvidenceRequest, answer ProfileEvidenceSnapshot, input *profileView) (profileView, error) {
+// profileEvidence returns a currently valid snapshot, or nil and the reason
+// it is unknown. Only a cancelled request is an error.
+func (s *Service) profileEvidence(ctx context.Context, request ProfileEvidenceRequest) (*ProfileEvidenceSnapshot, string, error) {
+	// The snapshot's factors are cross-checked against local enrollment, so
+	// it needs the same instance and passkey relying party as /me.
+	if s.ProfileEvidence == nil || s.ProfileInstanceID == "" ||
+		s.ProfileInstanceID != s.MeEvidence.MFAInstanceID || s.MeEvidence.PasskeyRPID == "" {
+		return nil, "not_configured", nil
+	}
+	answer, err := s.ProfileEvidence.Snapshot(ctx, request)
+	if ctx.Err() != nil {
+		return nil, "", ctx.Err()
+	}
+	if err != nil || !validProfileEvidence(request, answer, time.Now()) {
+		return nil, "unavailable", nil
+	}
+	return &answer, "", nil
+}
+
+func (s *Service) profileTransaction(ctx context.Context, r *http.Request, request ProfileEvidenceRequest, answer *ProfileEvidenceSnapshot, reason string, input *profileView) (profileView, error) {
 	tx, err := s.Store.DB.Begin(ctx)
 	if err != nil {
 		return profileView{}, err
@@ -327,38 +346,50 @@ func (s *Service) profileTransaction(ctx context.Context, r *http.Request, reque
 	if err != nil {
 		return profileView{}, err
 	}
-	if !reflect.DeepEqual(profileContacts(account), request.Contacts) ||
+	// A snapshot that no longer covers the locked contacts and sessions, or
+	// whose validity ended, is stale: its fields fall back to unknown.
+	if answer != nil && (!reflect.DeepEqual(profileContacts(account), request.Contacts) ||
 		!reflect.DeepEqual(profileSessionIDs(sessions), request.SessionIDs) ||
-		!validProfileEvidence(request, answer, time.Now()) {
-		return profileView{}, errIdentityUnavailable
+		!validProfileEvidence(request, *answer, time.Now())) {
+		answer, reason = nil, "stale"
 	}
-	// /me reads these registrations from this same instance. A remote factor
-	// snapshot may add verified descriptions, but cannot contradict local
-	// enrollment or the two account pages would assert opposite MFA states.
-	var localTOTP bool
-	var localPasskeys int
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_mfa_totp WHERE instance_id=$1 AND user_id=$2 AND state='active'),
+	// /me reads these registrations from this same instance and is the MFA
+	// authority. A remote factor snapshot may add verified descriptions, but
+	// cannot contradict local enrollment or the two account pages would
+	// assert opposite MFA states.
+	var mfaEnabled *bool
+	if s.MeEvidence.MFAInstanceID != "" && s.MeEvidence.PasskeyRPID != "" {
+		var localTOTP bool
+		var localPasskeys int
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_mfa_totp WHERE instance_id=$1 AND user_id=$2 AND state='active'),
  (SELECT count(*) FROM v3_passkey_credentials WHERE instance_id=$1 AND rp_id=$3 AND user_id=$2 AND revoked_at IS NULL)`,
-		request.InstanceID, request.UserID, s.MeEvidence.PasskeyRPID).Scan(&localTOTP, &localPasskeys); err != nil {
-		return profileView{}, err
-	}
-	factorTOTP, factorPasskeys := 0, 0
-	for _, factor := range answer.Factors {
-		switch factor.Kind {
-		case "totp":
-			factorTOTP++
-		case "passkey":
-			factorPasskeys++
+			s.MeEvidence.MFAInstanceID, request.UserID, s.MeEvidence.PasskeyRPID).Scan(&localTOTP, &localPasskeys); err != nil {
+			return profileView{}, err
+		}
+		enabled := localTOTP || localPasskeys > 0
+		mfaEnabled = &enabled
+		if answer != nil {
+			factorTOTP, factorPasskeys := 0, 0
+			for _, factor := range answer.Factors {
+				switch factor.Kind {
+				case "totp":
+					factorTOTP++
+				case "passkey":
+					factorPasskeys++
+				}
+			}
+			if (localTOTP && factorTOTP != 1) || (!localTOTP && factorTOTP != 0) || factorPasskeys != localPasskeys {
+				answer, reason = nil, "unavailable"
+			}
 		}
 	}
-	if (localTOTP && factorTOTP != 1) || (!localTOTP && factorTOTP != 0) || factorPasskeys != localPasskeys {
-		return profileView{}, errIdentityUnavailable
-	}
-	v, err := profileViewFromRows(ctx, r, tx, request, account, sessions, answer)
+	v, err := profileViewFromRows(ctx, r, tx, request, account, sessions, answer, reason, mfaEnabled)
 	if err != nil {
 		return profileView{}, err
 	}
 	if input != nil {
+		// Read-only fields, including unknown ones, must equal the current
+		// view; the echoed unavailable map itself is ignored.
 		if !validEditableProfile(*input) || input.Department != v.Department ||
 			!equalContacts(input.Contacts, v.Contacts) || !reflect.DeepEqual(input.Security, v.Security) {
 			return profileView{}, errInvalid
@@ -384,40 +415,48 @@ func (s *Service) profileTransaction(ctx context.Context, r *http.Request, reque
 	if !time.Now().Before(currentExpires) {
 		return profileView{}, errMeUnauthorized
 	}
-	if !validProfileEvidence(request, answer, time.Now()) {
-		return profileView{}, errIdentityUnavailable
-	}
 	if err := tx.Commit(ctx); err != nil {
 		return profileView{}, err
+	}
+	// Evidence that expired while the transaction ran is not returned.
+	if answer != nil && !validProfileEvidence(request, *answer, time.Now()) {
+		v.withoutEvidence(r, account, sessions, request.CurrentSessionID, "stale")
 	}
 	return v, nil
 }
 
-func profileViewFromRows(ctx context.Context, r *http.Request, tx pgx.Tx, request ProfileEvidenceRequest, a profileAccount, sessions []profileSessionRow, answer ProfileEvidenceSnapshot) (profileView, error) {
+// withoutEvidence replaces every evidence-derived field with its unknown
+// form: stored contacts without verification, no IdP-linked contact, no
+// organization rule or factor list, and sessions without a device.
+func (v *profileView) withoutEvidence(r *http.Request, a profileAccount, sessions []profileSessionRow, currentID, reason string) {
+	v.Contacts = make([]profileContact, 0, 2)
+	for _, contact := range profileContacts(a) {
+		label := localize(r, "邮箱", "Email")
+		if contact.Kind == "phone" {
+			label = localize(r, "手机号", "Phone")
+		}
+		v.Contacts = append(v.Contacts, profileContact{Kind: contact.Kind, Label: label, Value: contact.Value})
+	}
+	v.Security.OrgRule, v.Security.Factors = nil, nil
+	v.Security.Sessions = make([]profileSession, 0, len(sessions))
+	for _, row := range sessions {
+		v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: row.ID,
+			Sub:     localize(r, "到期时间 ", "Expires ") + row.ExpiresAt.UTC().Format(time.RFC3339),
+			Current: row.ID == currentID})
+	}
+	if len(v.Contacts) > 0 {
+		v.Unavailable["contacts[].verified"] = reason
+	}
+	v.Unavailable["contacts.feishu"] = reason
+	v.Unavailable["security.org_rule"] = reason
+	v.Unavailable["security.factors"] = reason
+	v.Unavailable["security.sessions[].device"] = reason
+}
+
+func profileViewFromRows(ctx context.Context, r *http.Request, tx pgx.Tx, request ProfileEvidenceRequest, a profileAccount, sessions []profileSessionRow, answer *ProfileEvidenceSnapshot, reason string, mfaEnabled *bool) (profileView, error) {
 	v := profileView{Name: a.Name, DisplayName: a.DisplayName, Department: a.Department, Title: a.Title,
-		Timezone: a.Timezone, Contacts: make([]profileContact, 0, len(answer.Contacts)),
-		Notifications: []profileNotification{}}
-	for _, expected := range request.Contacts {
-		for _, actual := range answer.Contacts {
-			if expected.Kind == actual.Kind && expected.Value == actual.Value {
-				label := localize(r, "邮箱", "Email")
-				if expected.Kind == "phone" {
-					label = localize(r, "手机号", "Phone")
-				}
-				verified := actual.Verified
-				v.Contacts = append(v.Contacts, profileContact{Kind: actual.Kind, Label: label, Value: actual.Value,
-					Verified: &verified, Note: actual.Note})
-				break
-			}
-		}
-	}
-	for _, actual := range answer.Contacts {
-		if actual.Kind == "feishu" {
-			verified := actual.Verified
-			v.Contacts = append(v.Contacts, profileContact{Kind: "feishu", Label: localize(r, "飞书", "Feishu"),
-				Value: actual.Value, Verified: &verified, Note: actual.Note})
-		}
-	}
+		Timezone: a.Timezone, Contacts: []profileContact{}, Notifications: []profileNotification{},
+		Unavailable: map[string]string{}}
 	var raw []byte
 	err := tx.QueryRow(ctx, `SELECT profile_notifications FROM v3_user_settings WHERE user_id=$1`, request.UserID).Scan(&raw)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -439,15 +478,46 @@ func profileViewFromRows(ctx context.Context, r *http.Request, tx pgx.Tx, reques
 	if changed != nil {
 		v.Security.PasswordChanged = changed.UTC().Format(time.RFC3339)
 	}
-	mfa := answer.MFAEnabled
-	v.Security.MFAEnabled = &mfa
-	v.Security.OrgRule = answer.OrgRule
+	v.Security.MFAEnabled = mfaEnabled
+	if mfaEnabled == nil {
+		v.Unavailable["security.mfa_enabled"] = "not_configured"
+	}
+	v.Security.Tokens = localize(r, "个人令牌尚未接入", "Personal tokens are not configured")
+	if answer == nil {
+		v.withoutEvidence(r, a, sessions, request.CurrentSessionID, reason)
+		if !validEditableProfile(v) {
+			return profileView{}, errIdentityUnavailable
+		}
+		return v, nil
+	}
+	for _, expected := range request.Contacts {
+		for _, actual := range answer.Contacts {
+			if expected.Kind == actual.Kind && expected.Value == actual.Value {
+				label := localize(r, "邮箱", "Email")
+				if expected.Kind == "phone" {
+					label = localize(r, "手机号", "Phone")
+				}
+				verified := actual.Verified
+				v.Contacts = append(v.Contacts, profileContact{Kind: actual.Kind, Label: label, Value: actual.Value,
+					Verified: &verified, Note: actual.Note})
+				break
+			}
+		}
+	}
+	for _, actual := range answer.Contacts {
+		if actual.Kind == "feishu" {
+			verified := actual.Verified
+			v.Contacts = append(v.Contacts, profileContact{Kind: "feishu", Label: localize(r, "飞书", "Feishu"),
+				Value: actual.Value, Verified: &verified, Note: actual.Note})
+		}
+	}
+	orgRule := answer.OrgRule
+	v.Security.OrgRule = &orgRule
 	v.Security.Factors = make([]profileFactor, 0, len(answer.Factors))
 	for _, factor := range answer.Factors {
 		v.Security.Factors = append(v.Security.Factors, profileFactor{Kind: factor.Kind, Name: factor.Name, Sub: factor.Sub})
 	}
 	v.Security.Sessions = make([]profileSession, 0, len(sessions))
-	v.Security.Tokens = localize(r, "个人令牌尚未接入", "Personal tokens are not configured")
 	for _, row := range sessions {
 		for _, evidence := range answer.Sessions {
 			if row.ID == evidence.ID {
@@ -460,7 +530,8 @@ func profileViewFromRows(ctx context.Context, r *http.Request, tx pgx.Tx, reques
 				case "passkey":
 					method = localize(r, "通行密钥登录", "Passkey login")
 				}
-				v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: row.ID, Device: evidence.Device,
+				device := evidence.Device
+				v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: row.ID, Device: &device,
 					Sub:     method + localize(r, " · 到期时间 ", " · Expires ") + row.ExpiresAt.UTC().Format(time.RFC3339),
 					Current: row.ID == request.CurrentSessionID})
 				break
@@ -488,15 +559,25 @@ func decodeProfile(w http.ResponseWriter, r *http.Request) (profileView, bool) {
 		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_body", "Expected one complete profile object")
 		return profileView{}, false
 	}
-	fields, err := requiredWorkspaceFields(raw, []string{"name", "display_name", "department", "title", "timezone", "contacts", "notifications", "security"})
+	// The body is the full view from GET. Unknown fields stay null and must
+	// still match; the echoed unavailable map is optional and ignored.
+	fields, ok := profileObject(raw, []string{"name", "display_name", "department", "title", "timezone", "contacts", "notifications", "security"},
+		nil, []string{"unavailable"})
 	var securityFields map[string]json.RawMessage
-	if err == nil {
-		securityFields, err = requiredWorkspaceFields(fields["security"], []string{"password_changed", "mfa_enabled", "org_rule", "factors", "sessions", "tokens"})
+	if ok {
+		securityFields, ok = profileObject(fields["security"], []string{"password_changed", "mfa_enabled", "org_rule", "factors", "sessions", "tokens"},
+			[]string{"mfa_enabled", "org_rule", "factors"}, nil)
 	}
-	if err != nil || !profileArrayFieldsPresent(fields["contacts"], "kind", "label", "value", "verified") ||
+	if ok {
+		if unavailable, present := fields["unavailable"]; present {
+			var reasons map[string]string
+			ok = json.Unmarshal(unavailable, &reasons) == nil && reasons != nil && len(reasons) <= 32
+		}
+	}
+	if !ok || !profileItems(fields["contacts"], []string{"kind", "label", "value", "verified"}, []string{"verified"}) ||
 		!profileArrayFieldsPresent(fields["notifications"], "event", "label", "channels") ||
-		!profileArrayFieldsPresent(securityFields["factors"], "kind", "name", "sub") ||
-		!profileArrayFieldsPresent(securityFields["sessions"], "id", "device", "sub") ||
+		!(isJSONNull(securityFields["factors"]) || profileArrayFieldsPresent(securityFields["factors"], "kind", "name", "sub")) ||
+		!profileItems(securityFields["sessions"], []string{"id", "device", "sub"}, []string{"device"}) ||
 		!profileNotificationChannelsPresent(fields["notifications"]) {
 		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_body", "Missing, duplicate, or invalid profile field")
 		return profileView{}, false
@@ -504,12 +585,66 @@ func decodeProfile(w http.ResponseWriter, r *http.Request) (profileView, bool) {
 	var v profileView
 	strict := json.NewDecoder(bytes.NewReader(raw))
 	strict.DisallowUnknownFields()
-	if err := strict.Decode(&v); err != nil || v.Security.MFAEnabled == nil || v.Contacts == nil ||
-		v.Security.Factors == nil || v.Security.Sessions == nil || v.Notifications == nil || !validEditableProfile(v) {
+	if err := strict.Decode(&v); err != nil || v.Contacts == nil ||
+		v.Security.Sessions == nil || v.Notifications == nil || !validEditableProfile(v) {
 		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_body", "Invalid profile value")
 		return profileView{}, false
 	}
 	return v, true
+}
+
+func isJSONNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
+// profileObject requires every listed key, admits only the optional extras,
+// and allows null only for the nullable keys.
+func profileObject(raw []byte, required, nullable, optional []string) (map[string]json.RawMessage, bool) {
+	var fields map[string]json.RawMessage
+	if len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '{' || json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return nil, false
+	}
+	allowed := map[string]bool{}
+	for _, name := range optional {
+		allowed[name] = true
+	}
+	for _, name := range required {
+		allowed[name] = true
+		if _, present := fields[name]; !present {
+			return nil, false
+		}
+	}
+	nulls := map[string]bool{}
+	for _, name := range nullable {
+		nulls[name] = true
+	}
+	for name, value := range fields {
+		if !allowed[name] || isJSONNull(value) && !nulls[name] {
+			return nil, false
+		}
+	}
+	return fields, true
+}
+
+// profileItems is profileArrayFieldsPresent for arrays whose listed nullable
+// keys must be present but may hold an explicit null.
+func profileItems(raw json.RawMessage, required, nullable []string) bool {
+	var items []json.RawMessage
+	if len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '[' || json.Unmarshal(raw, &items) != nil || items == nil {
+		return false
+	}
+	for _, item := range items {
+		fields, ok := profileObject(item, required, nullable, []string{"note", "current"})
+		if !ok {
+			return false
+		}
+		for _, name := range []string{"note", "current"} {
+			if value, present := fields[name]; present && isJSONNull(value) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func profileNotificationChannelsPresent(raw json.RawMessage) bool {

@@ -297,9 +297,9 @@ func (s *Service) investigationWritebackPreview(w http.ResponseWriter, r *http.R
 			err = errors.New("revision limit exceeded")
 			break
 		}
-		label := "Persisted context revision"
+		label := writebackText(r, "已保存的上下文修订", "Persisted context revision")
 		if kind != nil && *kind != "" {
-			label = "Persisted " + *kind + " context revision"
+			label = writebackText(r, "已保存的 "+*kind+" 上下文修订", "Persisted "+*kind+" context revision")
 		}
 		timeline = append(timeline, map[string]any{"v": canvasVersion(revision), "text": label,
 			"meta": at.UTC().Format(time.RFC3339), "isNew": false})
@@ -326,8 +326,11 @@ func (s *Service) investigationWritebackPreview(w http.ResponseWriter, r *http.R
 			"next_version": canvasVersion(destination.revision + 1), "hops": hops},
 		"source_revision": source.revision, "target_revision": destination.revision, "target": destination.id,
 		"conclusions": candidates, "timeline": timeline,
-		"checks": []map[string]string{{"tone": "warn", "text": "Review selected source text and evidence manually; semantic conflicts are not checked."},
-			{"tone": "ok", "text": "A successful writeback appends a target context revision and leaves the source unchanged."}},
+		"checks": []map[string]string{
+			{"tone": "warn", "text": writebackText(r, "请人工核对所选来源文字和证据；系统不检查语义冲突。",
+				"Review selected source text and evidence manually; semantic conflicts are not checked.")},
+			{"tone": "ok", "text": writebackText(r, "回写成功会为目标追加一个上下文修订，来源节点保持不变。",
+				"A successful writeback appends a target context revision and leaves the source unchanged.")}},
 		"budget": map[string]any{"before": nil, "after": nil, "limit": nil},
 	})
 }
@@ -636,4 +639,13 @@ func equalWritebackIDs(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// writebackText picks the preview copy for the request language (PA-62);
+// Chinese unless the request asks for English, as elsewhere in V3.
+func writebackText(r *http.Request, zh, en string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Accept-Language"))), "en") {
+		return en
+	}
+	return zh
 }

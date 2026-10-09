@@ -8,7 +8,7 @@ import { DataTable, Kpi, KpiRow } from "../../ui/data";
 import { useI18n } from "../../i18n";
 import { PageHead } from "../conversation/ConversationsPage";
 import "./observe.css";
-import { LoadError } from "../../ui/unknown";
+import { LoadError, PartialBanner, UnknownValue } from "../../ui/unknown";
 import { ChipSelect } from "../../ui/demo";
 
 /** Header + tab strip shared by the service detail views. */
@@ -75,6 +75,9 @@ export default function ServicesPage() {
   const { data: watched } = useGet<{ items: WatchedService[] }>("/me/watched-services");
   const [sort, setSort] = useState("status");
   const RANK: Record<string, number> = { danger: 0, warn: 1, ok: 2 };
+  const rank = (status: string | null) => (status ? RANK[status] : 3);
+  const unknownFields = [...new Set((data?.items ?? []).flatMap((s) => Object.keys(s.unknown ?? {})))];
+  const FIELD: Record<string, string> = { tier: tx("等级", "tier"), team: tx("团队", "team"), oncall: tx("值班", "on-call"), status: tx("状态", "status"), slo: "SLO", alerts: tx("告警", "alerts"), release: tx("最近发布", "last release") };
   return (
     <Page
       flush
@@ -132,13 +135,15 @@ export default function ServicesPage() {
                 ]}
               />
             </Row>
+            {unknownFields.length > 0 && <PartialBanner fields={unknownFields.map((f) => FIELD[f] ?? f)} />}
             <Card style={{ overflow: "hidden" }}>
               <DataTable
                 rows={data?.items
                   .filter((s) => tab === "all" || (tab === "mine" ? s.oncall === me?.name || s.team === me?.team : watched?.items.some((w) => w.id === s.id)))
                   .slice()
                   .sort((a, b) =>
-                    sort === "budget" ? a.slo.budget_left - b.slo.budget_left : sort === "alerts" ? b.alerts - a.alerts : sort === "name" ? a.name.localeCompare(b.name) : RANK[a.status] - RANK[b.status],
+                    // Unknown values sort last.
+                    sort === "budget" ? (a.slo.budget_left ?? 101) - (b.slo.budget_left ?? 101) : sort === "alerts" ? (b.alerts ?? -1) - (a.alerts ?? -1) : sort === "name" ? a.name.localeCompare(b.name) : rank(a.status) - rank(b.status),
                   )}
                 loading={isLoading}
                 rowKey={(s) => s.id}
@@ -146,13 +151,13 @@ export default function ServicesPage() {
                 rowHeight={52}
                 columns={[
                   { key: "n", header: tx("服务", "Service"), width: "19%", render: (s) => <Row gap={10}><Tile icon="box" size={26} /><Col gap={0} style={{ minWidth: 0 }}><span className="ellipsis" style={{ fontWeight: 600 }}>{s.name}</span><Muted size={11.5}>{s.desc}</Muted></Col></Row> },
-                  { key: "t", header: tx("等级", "Tier"), render: (s) => <Tier tier={s.tier} /> },
-                  { key: "team", header: tx("团队", "Team"), render: (s) => <Muted>{s.team}</Muted> },
-                  { key: "o", header: tx("值班", "On call"), render: (s) => <Row gap={6}><Avatar name={s.oncall} size={20} /><Muted>{s.oncall}</Muted></Row> },
-                  { key: "st", header: tx("状态", "Status"), sort: (a, b) => "dwo".indexOf(a.status[0]) - "dwo".indexOf(b.status[0]), render: (s) => <State tone={s.status} pulse={s.status === "danger"}>{s.status === "danger" ? tx("异常", "Degraded") : s.status === "warn" ? tx("有告警", "Alerting") : tx("正常", "Healthy")}</State> },
-                  { key: "slo", header: tx("SLO / 错误预算", "SLO / budget"), sort: (a, b) => a.slo.budget_left - b.slo.budget_left, render: (s) => <Col gap={3}><Row gap={4}><Num>{s.slo.target}</Num><Muted size={11.5}>· {tx("剩余", "left")} {s.slo.budget_left}%</Muted></Row><Bar pct={s.slo.budget_left} tone={s.slo.budget_left < 50 ? "warn" : "ok"} width={110} height={5} /></Col> },
-                  { key: "r", header: tx("最近发布", "Last release"), render: (s) => <Row gap={6}><Brand name={s.release.brand} size={18} /><Col gap={0}><Mono color="var(--text)" size={11.5}>{s.release.version}</Mono><Muted size={11}>{s.release.when}</Muted></Col></Row> },
-                  { key: "a", header: tx("告警", "Alerts"), sort: (a, b) => a.alerts - b.alerts, render: (s) => <Num color={s.alerts ? "var(--danger)" : "var(--muted)"}>{s.alerts}</Num> },
+                  { key: "t", header: tx("等级", "Tier"), render: (s) => (s.tier ? <Tier tier={s.tier} /> : <UnknownValue reason={s.unknown?.tier} to="/services/new" />) },
+                  { key: "team", header: tx("团队", "Team"), render: (s) => (s.team ? <Muted>{s.team}</Muted> : <UnknownValue reason={s.unknown?.team} />) },
+                  { key: "o", header: tx("值班", "On call"), render: (s) => (s.oncall ? <Row gap={6}><Avatar name={s.oncall} size={20} /><Muted>{s.oncall}</Muted></Row> : <UnknownValue reason={s.unknown?.oncall} />) },
+                  { key: "st", header: tx("状态", "Status"), sort: (a, b) => rank(a.status) - rank(b.status), render: (s) => (s.status ? <State tone={s.status} pulse={s.status === "danger"}>{s.status === "danger" ? tx("异常", "Degraded") : s.status === "warn" ? tx("有告警", "Alerting") : tx("正常", "Healthy")}</State> : <UnknownValue reason={s.unknown?.status} source="Prometheus" />) },
+                  { key: "slo", header: tx("SLO / 错误预算", "SLO / budget"), sort: (a, b) => (a.slo.budget_left ?? 101) - (b.slo.budget_left ?? 101), render: (s) => (s.slo.target !== null && s.slo.budget_left !== null ? <Col gap={3}><Row gap={4}><Num>{s.slo.target}</Num><Muted size={11.5}>· {tx("剩余", "left")} {s.slo.budget_left}%</Muted></Row><Bar pct={s.slo.budget_left} tone={s.slo.budget_left < 50 ? "warn" : "ok"} width={110} height={5} /></Col> : <UnknownValue reason={s.unknown?.slo} source="Prometheus" />) },
+                  { key: "r", header: tx("最近发布", "Last release"), render: (s) => (s.release ? <Row gap={6}><Brand name={s.release.brand} size={18} /><Col gap={0}><Mono color="var(--text)" size={11.5}>{s.release.version}</Mono><Muted size={11}>{s.release.when}</Muted></Col></Row> : <UnknownValue reason={s.unknown?.release} />) },
+                  { key: "a", header: tx("告警", "Alerts"), sort: (a, b) => (a.alerts ?? -1) - (b.alerts ?? -1), render: (s) => (s.alerts === null ? <UnknownValue reason={s.unknown?.alerts} source={tx("告警来源", "alert source")} /> : <Num color={s.alerts ? "var(--danger)" : "var(--muted)"}>{s.alerts}</Num>) },
                   { key: "c", header: tx("已接入", "Connected"), render: (s) => <Row gap={3}>{s.connectors.map((b) => <Brand key={b} name={b} size={20} />)}</Row> },
                 ]}
               />

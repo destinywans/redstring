@@ -137,7 +137,7 @@ function SettingsSidebar() {
       </Link>
       {SETTINGS_GROUPS.map((g) => (
         <div key={g.id} className="nav-list">
-          <h2 className="nav-head">{g.id === "workspace" && me.data ? `${tl(g.label)} · ${me.data.team}` : tl(g.label)}</h2>
+          <h2 className="nav-head">{g.id === "workspace" && me.data?.team ? `${tl(g.label)} · ${me.data.team}` : tl(g.label)}</h2>
           {g.items.map((it) => {
             const active = pathname === it.to || pathname.startsWith(it.to + "/");
             return (
@@ -184,7 +184,7 @@ function AccountCard({ me }: { me?: Me }) {
           <span className="v3-col grow" style={{ gap: 0, lineHeight: 1.3, textAlign: "left" }}>
             <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{me?.name ?? "…"}</span>
             <span className="muted ellipsis" style={{ fontSize: "var(--fs-sub)" }}>
-              {me ? `${me.title} · ${me.team}` : ""}
+              {me ? [me.title, me.team].filter(Boolean).join(" · ") : ""}
             </span>
           </span>
           {me?.oncall?.active && (

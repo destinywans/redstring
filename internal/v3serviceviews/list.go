@@ -2,18 +2,20 @@ package v3serviceviews
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/wans/aiops-canvas/internal/httpapi"
 )
 
 type catalog struct {
-	KPIs   []KPI     `json:"kpis"`
-	Items  []summary `json:"items"`
-	Facets []facet   `json:"facets"`
+	KPIs   []KPI      `json:"kpis"`
+	Items  []listItem `json:"items"`
+	Facets []facet    `json:"facets"`
 }
 
 func nowOf(s *Service) time.Time {
@@ -42,14 +44,14 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := nowOf(s)
-	items := make([]summary, 0, len(rows))
+	items := make([]listItem, 0, len(rows))
 	for _, row := range rows {
-		item, e := s.project(ctx, scope, user, row, now)
+		item, e := s.projectPartial(ctx, scope, user, row, now)
 		if e != nil {
 			writeReadError(w, e)
 			return
 		}
-		if f.status == "" || item.Status == f.status {
+		if f.status == "" || (item.Status != nil && *item.Status == f.status) {
 			items = append(items, item)
 		}
 	}
@@ -57,20 +59,17 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		writeReadError(w, ctx.Err())
 		return
 	}
-	if err = s.finalCheck(ctx, r, rows, false, false); err != nil {
+	if err = s.finalCheckPartial(ctx, r, items); err != nil {
 		writeReadError(w, err)
 		return
 	}
-	byID := make(map[string]serviceRow, len(rows))
-	for _, row := range rows {
-		byID[encodeID(row.AppID, row.Env)] = row
-	}
-	for _, item := range items {
-		seal, e := s.sourceSeal(ctx, byID[item.ID])
-		if e != nil || seal != item.seal {
-			writeReadError(w, errIncomplete)
-			return
+	// Unknown values sort after known ones.
+	rank := map[string]int{"danger": 0, "warn": 1, "ok": 2}
+	statusRank := func(v *string) int {
+		if v == nil {
+			return 3
 		}
+		return rank[*v]
 	}
 	sort.SliceStable(items, func(i, j int) bool {
 		a, b := items[i], items[j]
@@ -78,49 +77,99 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		case "name":
 			return a.Name < b.Name
 		case "budget":
-			return a.SLO.BudgetLeft < b.SLO.BudgetLeft
+			if a.SLO.BudgetLeft == nil || b.SLO.BudgetLeft == nil {
+				return a.SLO.BudgetLeft != nil && b.SLO.BudgetLeft == nil
+			}
+			return *a.SLO.BudgetLeft < *b.SLO.BudgetLeft
 		case "alerts":
-			return a.Alerts > b.Alerts
+			if a.Alerts == nil || b.Alerts == nil {
+				return a.Alerts != nil && b.Alerts == nil
+			}
+			return *a.Alerts > *b.Alerts
 		case "status":
-			rank := map[string]int{"danger": 0, "warn": 1, "ok": 2}
-			return rank[a.Status] < rank[b.Status]
+			return statusRank(a.Status) < statusRank(b.Status)
 		}
 		return false
 	})
 	w.Header().Set("Cache-Control", "no-store")
-	httpapi.WriteJSON(w, 200, buildCatalog(items, f, now))
+	httpapi.WriteJSON(w, 200, buildCatalog(items, f, now, englishRequest(r)))
 }
 
-func buildCatalog(items []summary, f filters, now time.Time) catalog {
+func englishRequest(r *http.Request) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Accept-Language"))), "en")
+}
+
+// buildCatalog counts only known values; a KPI whose input is unknown for some
+// services says how many, so an unknown is never read as zero.
+func buildCatalog(items []listItem, f filters, now time.Time, en bool) catalog {
+	pick := func(zh, enText string) string {
+		if en {
+			return enText
+		}
+		return zh
+	}
 	out := catalog{Items: items, KPIs: []KPI{}, Facets: []facet{}}
 	degraded, alerting, lowBudget, weekly := 0, 0, 0, 0
+	unknownStatus, unknownAlerts, unknownBudget, unknownRelease := 0, 0, 0, 0
 	counts := map[string]map[string]int{"team": {}, "tier": {}, "status": {}, "env": {}}
 	for _, item := range items {
-		if item.Status == "danger" {
-			degraded++
+		if item.Status == nil {
+			unknownStatus++
+		} else {
+			if *item.Status == "danger" {
+				degraded++
+			}
+			counts["status"][*item.Status]++
 		}
-		if item.Alerts > 0 {
+		if item.Alerts == nil {
+			unknownAlerts++
+		} else if *item.Alerts > 0 {
 			alerting++
 		}
-		if item.SLO.BudgetLeft < 50 {
+		if item.SLO.BudgetLeft == nil {
+			unknownBudget++
+		} else if *item.SLO.BudgetLeft < 50 {
 			lowBudget++
 		}
-		if !item.Release.At.IsZero() && !item.Release.At.Before(now.Add(-7*24*time.Hour)) {
+		if item.Release == nil {
+			unknownRelease++
+		} else if !item.Release.At.Before(now.Add(-7 * 24 * time.Hour)) {
 			weekly++
 		}
-		counts["team"][item.Team]++
-		counts["tier"][item.Tier]++
-		counts["status"][item.Status]++
+		if item.Team != nil {
+			counts["team"][*item.Team]++
+		}
+		if item.Tier != nil {
+			counts["tier"][*item.Tier]++
+		}
 		counts["env"][item.Env]++
 	}
-	out.KPIs = []KPI{
-		{ID: "n", Label: "Services", Value: strconv.Itoa(len(items)), Series: []float64{}},
-		{ID: "bad", Label: "Degraded", Value: strconv.Itoa(degraded), Tone: "danger", Series: []float64{}},
-		{ID: "warn", Label: "Alerting", Value: strconv.Itoa(alerting), Tone: "warn", Series: []float64{}},
-		{ID: "budget", Label: "Budget < 50%", Value: strconv.Itoa(lowBudget), Tone: "warn", Series: []float64{}},
-		{ID: "rel", Label: "Releases this week", Value: strconv.Itoa(weekly), Series: []float64{}},
+	unknownSub := func(n int) string {
+		if n == 0 {
+			return ""
+		}
+		return fmt.Sprintf(pick("%d 个未知", "%d unknown"), n)
 	}
-	for _, spec := range []struct{ key, title, selected string }{{"team", "Team", f.team}, {"tier", "Tier", f.tier}, {"status", "Status", f.status}, {"env", "Environment", ""}} {
+	// When no service has the input, the count itself is unknown rather than zero.
+	value := func(known, unknown int) string {
+		if len(items) > 0 && unknown == len(items) {
+			return "—"
+		}
+		return strconv.Itoa(known)
+	}
+	out.KPIs = []KPI{
+		{ID: "n", Label: pick("服务", "Services"), Value: strconv.Itoa(len(items)), Series: []float64{}},
+		{ID: "bad", Label: pick("异常", "Degraded"), Value: value(degraded, unknownStatus), Sub: unknownSub(unknownStatus), Tone: "danger", Series: []float64{}},
+		{ID: "warn", Label: pick("有告警", "Alerting"), Value: value(alerting, unknownAlerts), Sub: unknownSub(unknownAlerts), Tone: "warn", Series: []float64{}},
+		{ID: "budget", Label: pick("错误预算 < 50%", "Budget < 50%"), Value: value(lowBudget, unknownBudget), Sub: unknownSub(unknownBudget), Tone: "warn", Series: []float64{}},
+		{ID: "rel", Label: pick("本周发布", "Releases this week"), Value: value(weekly, unknownRelease), Sub: unknownSub(unknownRelease), Series: []float64{}},
+	}
+	for i := range out.KPIs {
+		if out.KPIs[i].Value == "—" {
+			out.KPIs[i].Tone = "" // an unknown count carries no severity colour
+		}
+	}
+	for _, spec := range []struct{ key, title, selected string }{{"team", pick("团队", "Team"), f.team}, {"tier", pick("等级", "Tier"), f.tier}, {"status", pick("状态", "Status"), f.status}, {"env", pick("环境", "Environment"), ""}} {
 		group := facet{Key: spec.key, Title: spec.title, Items: []facetItem{}}
 		labels := make([]string, 0, len(counts[spec.key]))
 		for label := range counts[spec.key] {

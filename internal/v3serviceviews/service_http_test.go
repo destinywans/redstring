@@ -256,7 +256,8 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(list.Items) != 2 || list.KPIs[0].Value != "2" || list.KPIs[1].Value != "1" || list.KPIs[2].Value != "1" ||
-		len(list.Facets) != 4 || list.Items[0].Release.Version == "" || list.Items[0].Connectors[0] != "prometheus" {
+		len(list.Facets) != 4 || list.Items[0].Release == nil || list.Items[0].Release.Version == "" || list.Items[0].Connectors[0] != "prometheus" ||
+		len(list.Items[0].Unknown) != 0 {
 		t.Fatalf("incorrect source projection: %+v", list)
 	}
 	if w = get("/services?tab=watched&sort=name"); w.Code != 200 || !strings.Contains(w.Body.String(), `"items":[]`) {
@@ -304,28 +305,40 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	if err = json.Unmarshal(w.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Items) != 2 || list.Items[0].Alerts != 1 || list.Items[1].Alerts != 0 || list.Items[1].Status != "ok" || list.KPIs[1].Value != "1" {
+	if len(list.Items) != 2 || list.Items[0].Alerts == nil || *list.Items[0].Alerts != 1 || list.Items[1].Alerts == nil || *list.Items[1].Alerts != 0 ||
+		list.Items[1].Status == nil || *list.Items[1].Status != "ok" || list.KPIs[1].Value != "1" {
 		t.Fatalf("unbound alert source changed count or status: %+v", list)
 	}
-	svc.MetricReader = &tokenRevokingReader{completeReader: reader, tokenPath: tokenPath}
-	if w = get("/services"); w.Code != 503 {
-		t.Fatalf("source revoked after metric read exposed catalog: status=%d body=%s", w.Code, w.Body.String())
+	// PA-05: missing or withdrawn alert coverage no longer hides the catalog; the
+	// count becomes unknown and is never shown as zero.
+	alertsUnknown := func(w *httptest.ResponseRecorder, reason string) {
+		t.Helper()
+		var got catalog
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &got) != nil || len(got.Items) != 2 {
+			t.Fatalf("catalog with unknown alerts: status=%d body=%s", w.Code, w.Body.String())
+		}
+		for _, item := range got.Items {
+			if item.Alerts != nil || item.Unknown["alerts"] != reason || item.Status == nil {
+				t.Fatalf("alerts must be unknown (%s) while health stays measured: %+v", reason, item)
+			}
+		}
+		if got.KPIs[2].Value != "—" || got.KPIs[2].Sub == "" {
+			t.Fatalf("alerting KPI must flag unknown services: %+v", got.KPIs[2])
+		}
 	}
+	svc.MetricReader = &tokenRevokingReader{completeReader: reader, tokenPath: tokenPath}
+	alertsUnknown(get("/services"), "not_configured")
 	if err := os.WriteFile(tokenPath, []byte("fixture-alertmanager-token-at-least-24"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	svc.MetricReader = reader
 	svc.AlertCovered = nil
-	if w = get("/services"); w.Code != 503 {
-		t.Fatalf("missing coverage binding exposed catalog: status=%d body=%s", w.Code, w.Body.String())
-	}
+	alertsUnknown(get("/services"), "not_configured")
 	svc.AlertCovered = covered
 	if err := os.Remove(tokenPath); err != nil {
 		t.Fatal(err)
 	}
-	if w = get("/services"); w.Code != 503 {
-		t.Fatalf("withdrawn alert source exposed catalog: status=%d body=%s", w.Code, w.Body.String())
-	}
+	alertsUnknown(get("/services"), "not_configured")
 	if w = get("/services/" + encodeID("checkout-app", "test")); w.Code != 503 {
 		t.Fatalf("withdrawn alert source exposed detail: status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -377,8 +390,13 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	if _, err = st.DB.Exec(t.Context(), `DELETE FROM deployment_events WHERE execution_id='exec-checkout'`); err != nil {
 		t.Fatal(err)
 	}
-	if w = get("/services"); w.Code != 503 || !strings.Contains(w.Body.String(), "service_view_incomplete") {
-		t.Fatalf("missing release was hidden: status=%d body=%s", w.Code, w.Body.String())
+	if w = get("/services"); w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &list) != nil {
+		t.Fatalf("missing release hid the catalog: status=%d body=%s", w.Code, w.Body.String())
+	}
+	for _, item := range list.Items {
+		if item.Name == "Checkout" && (item.Release != nil || item.Unknown["release"] != "not_generated") {
+			t.Fatalf("missing release must be unknown, not invented: %+v", item)
+		}
 	}
 }
 
@@ -639,8 +657,9 @@ func TestServiceViewsEventGrantAndOwnershipRecheck(t *testing.T) {
 		api.ServeHTTP(w, r)
 		return w
 	}
-	if w := get(); w.Code != 503 || len(reader.calls) != 0 || strings.Contains(w.Body.String(), "alert-checkout") {
-		t.Fatalf("events-only data leaked: status=%d body=%s reads=%d", w.Code, w.Body.String(), len(reader.calls))
+	// Without events.view the service is still listed, alerts are unknown and no event data leaks.
+	if w := get(); w.Code != 200 || strings.Contains(w.Body.String(), "alert-checkout") || !strings.Contains(w.Body.String(), `"alerts":"no_authorized_target"`) {
+		t.Fatalf("events-only data leaked or catalog hidden: status=%d body=%s", w.Code, w.Body.String())
 	}
 	if _, err = st.DB.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
  VALUES('service-team-reader','events','view','team','ops')`); err != nil {
@@ -668,7 +687,10 @@ func TestServiceViewsEventGrantAndOwnershipRecheck(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mutating := &sourceMutationReader{completeReader: completeReader{now: now}, db: st.DB, query: tc.mutate}
 			svc.MetricReader = mutating
-			if w := get(); w.Code != 503 || !mutating.changed || mutating.err != nil {
+			// A source that changes during the read is discarded: health becomes unknown, not stale.
+			// (A firing critical alert still marks the service danger: that is alert evidence, not metrics.)
+			if w := get(); w.Code != 200 || !mutating.changed || mutating.err != nil || !strings.Contains(w.Body.String(), `"slo":{"target":null,"budget_left":null}`) ||
+				!strings.Contains(w.Body.String(), `"slo":"unavailable"`) || !strings.Contains(w.Body.String(), `"connectors":[]`) {
 				t.Fatalf("metric source changed during read: status=%d body=%s changeErr=%v", w.Code, w.Body.String(), mutating.err)
 			}
 			if _, err := st.DB.Exec(ctx, tc.restore); err != nil {

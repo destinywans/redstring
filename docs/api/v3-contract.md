@@ -226,7 +226,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/services` | `q`, `tier`, `team`, `status` | `ServiceCatalog`；仅完整来源、当前有权服务，缺项返回 503 | implemented |
+| GET | `/services` | `q`, `tier`, `team`, `status` | `ServiceCatalog`；列出当前有权查看的全部登记服务，没有当前证据的字段为 `null`，`unknown` 按字段给原因（未配置、未接入、无权查看来源、尚未产生、暂时不可用）；指标数只计已知值并注明未知个数（2026-10-09 PA-05，详情页仍要求完整证据） | implemented |
 | GET | `/services/{id}` | | `ServiceDetail`；按持久服务身份汇集指标、告警、发布、依赖与当前调查 | implemented |
 | GET | `/services/{id}/resilience` | | `Resilience`；仅在固定 HTTPS 五类完整来源配置且证据有效时返回 200，否则 503 | implemented |
 | POST | `/services/{id}/resilience/proposals` | `{ kind, params: { investigation_id, reason, desired } }` | 201 `{ proposal_id }`；仅保存人工审阅提案，不创建可执行动作或合并请求 | implemented |

@@ -50272,9 +50272,9 @@
     },
     "/services": {
       "get": {
-        "summary": "Read complete source-backed authorized service catalog",
+        "summary": "Read the authorized service catalog with per-field unknowns",
         "operationId": "get_services",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Uses registered application/environment/team identity, reviewed Prometheus dashboard evidence, covered operational alerts, verified successful deployments and explicit connector targets. Status is derived from measured SLO burn and current critical alerts, not Kubernetes readiness. All required evidence must be present and current or the full request returns 503 service_view_incomplete. More than 50 authorized rows returns 422 result_limit; no partial counts or synthetic healthy state.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Lists every registered application/environment the caller may view (services.view). Health and SLO come only from a live read of the one reviewed Prometheus target (needs connectors.view); alert counts only from the reviewed covering source (needs events.view); release only from verified successful deployments. Any value without that evidence is null and unknown[field] names why (not_configured, not_connected, no_authorized_target, not_generated, unavailable); a source that changes during the read is discarded as unavailable. Status is measured SLO burn raised by firing alerts, or danger from a covered firing critical alert alone; never Kubernetes readiness. KPIs count known values and their sub says how many are unknown. Grants, persisted rows and every source actually read are rechecked before reply (403/503 on change). More than 50 authorized rows returns 422 result_limit.",
         "responses": {
           "200": {
             "description": "Success",
@@ -81896,35 +81896,55 @@
             "type": "string"
           },
           "team": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "oncall": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "tier": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "enum": [
               "T0",
               "T1",
-              "T2"
+              "T2",
+              null
             ]
           },
           "status": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "enum": [
               "ok",
               "warn",
-              "danger"
+              "danger",
+              null
             ]
           },
           "slo": {
             "type": "object",
             "properties": {
               "target": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "budget_left": {
-                "type": "number",
+                "type": [
+                  "number",
+                  "null"
+                ],
                 "minimum": 0,
                 "maximum": 100
               }
@@ -81936,33 +81956,67 @@
             ]
           },
           "release": {
-            "type": "object",
-            "properties": {
-              "brand": {
-                "type": "string"
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "brand": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "when": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "brand",
+                  "version",
+                  "when"
+                ]
               },
-              "version": {
-                "type": "string"
-              },
-              "when": {
-                "type": "string"
+              {
+                "type": "null"
               }
-            },
-            "additionalProperties": false,
-            "required": [
-              "brand",
-              "version",
-              "when"
             ]
           },
           "alerts": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "minimum": 0
           },
           "connectors": {
             "type": "array",
             "items": {
               "type": "string"
+            }
+          },
+          "unknown": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "not_configured",
+                "not_connected",
+                "no_authorized_target",
+                "not_generated",
+                "unavailable"
+              ]
+            },
+            "propertyNames": {
+              "enum": [
+                "tier",
+                "team",
+                "oncall",
+                "status",
+                "slo",
+                "alerts",
+                "release"
+              ]
             }
           }
         },
@@ -81978,7 +82032,8 @@
           "slo",
           "release",
           "alerts",
-          "connectors"
+          "connectors",
+          "unknown"
         ]
       },
       "V3ServiceFacet": {

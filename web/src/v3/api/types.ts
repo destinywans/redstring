@@ -405,18 +405,20 @@ export type RetrievalHit = { brand?: string; title: string; snippet: string; key
 
 /* ---------------- resources & observability ---------------- */
 export type Health = "ok" | "warn" | "danger";
+/** Catalog row: values without current evidence are null and `unknown[field]` says why (PA-05). */
 export type ServiceSummary = {
   id: string;
   name: string;
   desc: string;
-  tier: Tier;
-  team: string;
-  oncall: string;
-  status: Health;
-  slo: { target: string; budget_left: number };
-  release: { brand: string; version: string; when: string };
-  alerts: number;
+  tier: Tier | null;
+  team: string | null;
+  oncall: string | null;
+  status: Health | null;
+  slo: { target: string | null; budget_left: number | null };
+  release: { brand: string; version: string; when: string } | null;
+  alerts: number | null;
   connectors: string[];
+  unknown?: Partial<Record<"tier" | "team" | "oncall" | "status" | "slo" | "alerts" | "release", string>>;
 };
 export type ServiceCatalog = { kpis: Kpi[]; items: ServiceSummary[]; facets: { key: string; title: string; items: { label: string; count: number; on: boolean }[] }[] };
 export type ServiceDetail = {

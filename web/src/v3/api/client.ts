@@ -58,9 +58,18 @@ export const newIdempotencyKey = () =>
 export async function api<T>(
   method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
-  opts: { query?: Query; body?: unknown; idempotencyKey?: string } = {},
+  opts: { query?: Query; body?: unknown; idempotencyKey?: string; headers?: Record<string, string> } = {},
 ): Promise<T> {
-  if (API_MODE === "mock") return handleMock<T>(method, path, opts.query ?? {}, opts.body);
+  return (await apiWithMeta<T>(method, path, opts)).data;
+}
+
+/** Like `api`, but also returns the response ETag for reads whose writes need `If-Match` (null in mock mode or when absent). */
+export async function apiWithMeta<T>(
+  method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
+  path: string,
+  opts: { query?: Query; body?: unknown; idempotencyKey?: string; headers?: Record<string, string> } = {},
+): Promise<{ data: T; etag: string | null }> {
+  if (API_MODE === "mock") return { data: await handleMock<T>(method, path, opts.query ?? {}, opts.body), etag: null };
   const res = await fetch(`/api/v1${path}${qs(opts.query)}`, {
     method,
     credentials: "same-origin",
@@ -70,6 +79,7 @@ export async function api<T>(
       ...(currentEnv() ? { "X-AIOps-Environment": currentEnv() } : {}),
       ...(opts.body !== undefined ? { "Content-Type": "application/json" } : {}),
       ...(method !== "GET" ? { "Idempotency-Key": opts.idempotencyKey ?? newIdempotencyKey() } : {}),
+      ...opts.headers,
     },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
@@ -78,8 +88,9 @@ export async function api<T>(
     const body = await res.json().catch(() => null);
     throw new ApiError(res.status, body?.error?.code ?? "request_failed", body?.error?.message ?? `HTTP ${res.status}`);
   }
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  const etag = res.headers.get("ETag");
+  if (res.status === 204) return { data: undefined as T, etag };
+  return { data: (await res.json()) as T, etag };
 }
 
 /** Typed GET bound to the current locale, so switching language refetches server-localised text. */
@@ -97,6 +108,20 @@ export function useGet<T>(path: string | null, query?: Query, options?: Partial<
     // a different path or query is a different resource and must not show the old one.
     placeholderData: (prev, prevQuery) =>
       prevQuery && prevQuery.queryKey[0] === path && JSON.stringify(prevQuery.queryKey[1]) === JSON.stringify(query ?? {}) ? prev : undefined,
+    staleTime: 30_000,
+    ...options,
+    enabled: path !== null && ready && (options?.enabled ?? true),
+  });
+}
+
+/** `useGet` for resources saved with `If-Match`: returns `{ data, etag }` so the page can send the revision back. */
+export function useGetWithEtag<T>(path: string | null, options?: Partial<UseQueryOptions<{ data: T; etag: string | null }>>) {
+  const locale = usePreferences((s) => s.locale);
+  const env = useEnv((s) => s.env);
+  const ready = useEnv((s) => s.instance !== null) || API_MODE === "mock";
+  return useQuery<{ data: T; etag: string | null }>({
+    queryKey: [path, { etag: true }, locale, env],
+    queryFn: () => apiWithMeta<T>("GET", path!),
     staleTime: 30_000,
     ...options,
     enabled: path !== null && ready && (options?.enabled ?? true),

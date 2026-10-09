@@ -707,27 +707,30 @@ export type GuardrailsView = {
 
 /* ---------------- settings ---------------- */
 export type NotifyChannel = "feishu" | "email" | "sms" | "phone";
+/**
+ * GET /me/profile (V3ProfileView). Identity-evidence fields are null without a trusted identity source;
+ * `unavailable` names them (e.g. `contacts[].verified`, `contacts.feishu`, `security.factors`, `security.sessions[].device`).
+ * PUT sends the GET body back; only name, display_name, title, timezone and notifications may change.
+ */
 export type ProfileView = {
   name: string;
   display_name: string;
   department: string;
   title: string;
   timezone: string;
-  /** verified is null when no identity source can confirm it. */
   contacts: { kind: "email" | "phone" | "feishu"; label: string; value: string; verified: boolean | null; note?: string }[];
   notifications: { event: string; label: string; channels: Record<NotifyChannel, boolean> }[];
   security: {
     password_changed: string;
-    mfa_enabled: boolean;
+    mfa_enabled: boolean | null;
     org_rule: string | null;
-    factors: { kind: "passkey" | "totp" | "recovery"; name: string; sub: string }[];
+    factors: { kind: "passkey" | "totp" | "recovery"; name: string; sub: string }[] | null;
     sessions: { id: string; device: string | null; sub: string; current?: boolean }[];
     tokens: string;
   };
-  /** True without an identity source; unavailable_fields names what stays unknown. */
-  partial?: boolean;
-  unavailable_fields?: string[];
+  unavailable: Unavailable;
 };
+export type NotificationSettings = { quiet: { enabled: boolean; from: string; to: string }; digest: "off" | "daily" | "weekly"; subscriptions: { id: string; label: string; sub: string; on: boolean }[] };
 export type OrgNode = { id: string; name: string; count: number; depth: number; kind: "org" | "team" | "group" };
 export type Member = {
   id: string;
@@ -762,7 +765,12 @@ export type SecurityView = {
   vault: { name: string; sub: string; connected: boolean };
   token_ttl: string;
   password_policy: string;
+  /** `{}` on a proven view; PUT may echo it only when empty. */
+  unavailable?: Unavailable;
 };
+/** GET /security without a configured authority: every field null (not_configured) and no ETag, so it can't be saved. */
+export type SecurityUnknownView = { [K in Exclude<keyof SecurityView, "unavailable">]: null } & { unavailable: Unavailable };
+export type SecurityRead = SecurityView | SecurityUnknownView;
 export type AuditEntry = { id: string; time: string; actor: { kind: "user" | "agent" | "system"; name: string }; action: string; target: string; result: "ok" | "blocked" | "failed"; source: string };
 export type AuditView = {
   items: AuditEntry[];

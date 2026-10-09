@@ -8,8 +8,16 @@ S['V3ResourceTopologyPartial'] = obj({
     'edges':arr(obj({'id':string(),'from':string(),'to':string(),'kind':string(),
         'provenance':string(),'environment_ids':arr(string())},
         ['id','from','to','kind','provenance','environment_ids'])),
-    'unavailable_fields':arr(string())},
-    ['complete_v3_dto','source','nodes','edges','unavailable_fields'])
+    'unavailable_fields':arr(string()),
+    'collection':arr(obj({'environment_id':string(),'source_kind':string(enum=['kubernetes','docker','lima']),
+        'state':string(enum=['fresh','partial','stale','never']),
+        'sources':integer(minimum=1),'fresh_sources':integer(minimum=0),
+        'last_success_at':{'type':['string','null'],'format':'date-time'},
+        'oldest_success_at':{'type':['string','null'],'format':'date-time'},
+        'stale_after_seconds':integer(minimum=1)},
+        ['environment_id','source_kind','state','sources','fresh_sources','last_success_at','oldest_success_at','stale_after_seconds'])) | {
+        'description':'Inventory collectors per environment and kind, without source names (PA-61). Resources of a collector whose last success is older than stale_after_seconds are left out, so an empty graph with stale or never is not an empty cluster. Listed only where the caller holds a resources view grant.'}},
+    ['complete_v3_dto','source','nodes','edges','unavailable_fields','collection'])
 S['V3TopologyGroup'] = obj({**fieldnames('id label zone'),
     **{k:integer() for k in ('x','y','w','h')}},
     ['id','label','zone','x','y','w','h'])

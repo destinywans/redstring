@@ -135,11 +135,30 @@ func TestTopologyHTTPExcludesMissingAndDoesNotBorrowLinkedResourceTeam(t *testin
 	if len(result.Nodes) != 3 || result.Nodes[0].ID != "linked" || result.Nodes[1].ID != "manual" || result.Nodes[2].ID != "unlinked" {
 		t.Fatalf("fresh collector and manual CMDB were not distinguished: %+v", result)
 	}
+	if len(result.Collection) != 1 || result.Collection[0].State != "fresh" || result.Collection[0].SourceKind != "kubernetes" ||
+		result.Collection[0].EnvironmentID != "dev" || result.Collection[0].LastSuccessAt == nil {
+		t.Fatalf("fresh collection status: %+v", result.Collection)
+	}
 	if _, err := db.Exec(ctx, `UPDATE cmdb_sync_sources SET last_success_at=now()-interval '1 day' WHERE id='source'`); err != nil {
 		t.Fatal(err)
 	}
 	result = request(adminToken)
 	if len(result.Nodes) != 1 || result.Nodes[0].ID != "manual" {
 		t.Fatalf("stale source still presented as current topology: %+v", result)
+	}
+	// PA-61: the empty or reduced graph says why. The team-scoped reader also
+	// learns that the collector is stale, without its name.
+	for _, who := range []string{adminToken, token} {
+		result = request(who)
+		if len(result.Collection) != 1 || result.Collection[0].State != "stale" || result.Collection[0].FreshSources != 0 ||
+			result.Collection[0].Sources != 1 || result.Collection[0].StaleAfterSeconds != 300 {
+			t.Fatalf("stale collection status: %+v", result.Collection)
+		}
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM rbac_user_roles WHERE role_id='resource-team-reader'`); err != nil {
+		t.Fatal(err)
+	}
+	if result = request(token); len(result.Nodes) != 0 || len(result.Collection) != 0 {
+		t.Fatalf("collector state shown without a resources grant: %+v", result)
 	}
 }

@@ -70608,6 +70608,72 @@
             "items": {
               "type": "string"
             }
+          },
+          "collection": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "environment_id": {
+                  "type": "string"
+                },
+                "source_kind": {
+                  "type": "string",
+                  "enum": [
+                    "kubernetes",
+                    "docker",
+                    "lima"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "fresh",
+                    "partial",
+                    "stale",
+                    "never"
+                  ]
+                },
+                "sources": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "fresh_sources": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "last_success_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "oldest_success_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "stale_after_seconds": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "environment_id",
+                "source_kind",
+                "state",
+                "sources",
+                "fresh_sources",
+                "last_success_at",
+                "oldest_success_at",
+                "stale_after_seconds"
+              ]
+            },
+            "description": "Inventory collectors per environment and kind, without source names (PA-61). Resources of a collector whose last success is older than stale_after_seconds are left out, so an empty graph with stale or never is not an empty cluster. Listed only where the caller holds a resources view grant."
           }
         },
         "additionalProperties": false,
@@ -70616,7 +70682,8 @@
           "source",
           "nodes",
           "edges",
-          "unavailable_fields"
+          "unavailable_fields",
+          "collection"
         ]
       },
       "V3TopologyGroup": {

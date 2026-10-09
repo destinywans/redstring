@@ -210,7 +210,7 @@ export default function AlertsPage() {
                           headBg
                           columns={[
                             { key: "id", header: tx("实例", "Instance"), width: "32%", render: (r) => <span className="mono" style={{ fontSize: "var(--fs-sub)" }}>{r.id}</span> },
-                            { key: "v", header: tx("当前值", "Value"), render: (r) => <b className="tnum" style={{ color: r.state === "firing" ? "var(--danger)" : "var(--warn)", fontWeight: 500 }}>{r.value}</b> },
+                            { key: "v", header: tx("当前值", "Value"), render: (r) => (r.value === null ? <UnknownValue reason="unavailable" source={tx("指标来源", "metrics source")} /> : <b className="tnum" style={{ color: r.state === "firing" ? "var(--danger)" : "var(--warn)", fontWeight: 500 }}>{r.value}</b>) },
                             {
                               key: "s",
                               header: tx("状态", "State"),
@@ -223,12 +223,14 @@ export default function AlertsPage() {
                                       <Muted size={11}>{r.pending.text}</Muted>
                                     </Row>
                                   </Col>
+                                ) : r.state === "pending" ? (
+                                  <State tone="warn">{tx("待定", "Pending")}</State>
                                 ) : (
                                   <State tone="danger">{tx("触发中", "Firing")}</State>
                                 ),
                             },
                             { key: "d", header: tx("持续", "Duration"), render: (r) => <Muted>{r.duration}</Muted> },
-                            { key: "t", header: tx("近 30 分钟", "Last 30 min"), render: (r) => <Sparkline values={r.series} width={90} height={20} color={r.state === "firing" ? "var(--danger)" : "var(--warn)"} /> },
+                            { key: "t", header: tx("近 30 分钟", "Last 30 min"), render: (r) => (r.series?.length ? <Sparkline values={r.series} width={90} height={20} color={r.state === "firing" ? "var(--danger)" : "var(--warn)"} /> : <UnknownValue reason="unavailable" source={tx("指标来源", "metrics source")} />) },
                           ]}
                         />
                       </div>

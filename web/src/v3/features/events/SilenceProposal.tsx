@@ -9,6 +9,7 @@ import { ChipSelect } from "../../ui/demo";
 import { Unavailable } from "../../ui/unknown";
 import { useI18n } from "../../i18n";
 import { serviceApplicationId } from "../../api/ids";
+import "./events.css";
 
 
 /**
@@ -52,14 +53,25 @@ export function InvestigationPicker({ value, onChange, items }: { value: string;
         </Btn>
       </Col>
     );
+  // Long investigation titles are ellipsized so the chip stays inside the drawer; the full text is in the tooltip.
   return (
-    <ChipSelect
-      label=""
-      showLabel={false}
-      value={value || undefined}
-      onChange={(v) => onChange(v as string)}
-      options={items.map((i) => ({ value: i.id, label: `${i.id} · ${i.title ?? ""}`, hint: i.appKey ?? undefined }))}
-    />
+    <div className="inv-picker">
+      <ChipSelect
+        label=""
+        showLabel={false}
+        value={value || undefined}
+        onChange={(v) => onChange(v as string)}
+        options={items.map((i) => ({
+          value: i.id,
+          label: (
+            <span className="inv-label" title={`${i.id} · ${i.title ?? ""}`}>
+              {i.id} · {i.title ?? ""}
+            </span>
+          ),
+          hint: i.appKey ?? undefined,
+        }))}
+      />
+    </div>
   );
 }
 

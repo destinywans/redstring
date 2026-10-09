@@ -502,3 +502,29 @@
   box-shadow: inset 0 0 0 2px var(--accent);
   transition: box-shadow 0.3s;
 }
+/* Investigation picker in drawers/dialogs: keep the chip inside its container and ellipsize long titles. */
+.inv-picker {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+}
+.inv-picker .demo-chip {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+}
+.inv-picker .v3-chip {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.inv-picker .inv-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.demo-menu .inv-label {
+  max-width: 340px;
+}

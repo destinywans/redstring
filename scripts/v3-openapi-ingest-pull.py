@@ -44,6 +44,17 @@ S['V3PullTestResult'] = obj({
     'captured_at':string(format='date-time')},
     ['ok','rows','dropped','captured_at'])
 
+# PA-20 (2026-10-09): list of the server-configured Pull sources.
+S['V3PullListItem'] = obj({
+    **fieldnames('id name application_id environment_id connector_id query_id href'),
+    'connector_name':{'type':['string','null']},
+    'state':string(enum=['ready','source_unavailable'])},
+    ['id','name','application_id','environment_id','connector_id','connector_name','query_id','state','href'])
+v3_route('get','/ingest/pull','List registered metric Pull sources',
+    response=obj({'items':v3_nullable(arr(ref('V3PullListItem'))),'empty_reason':v3_empty_reason(),
+        'unavailable':ref('V3Unavailable')},['items','empty_reason','unavailable']),
+    role='viewer with connectors.view and services.view',
+    desc='Lists the sources of the private server Pull configuration in the selected environments (all is allowed for this read) that GET /ingest/pull/{id} would open: services.view on the application or owner team and environment connectors.view, checked with the Cookie session in one transaction. No PromQL, endpoint, credential reference or upstream call. state is ready when the bound enabled connector with query_metrics and the exact metric_resource target can serve a preview, otherwise source_unavailable (connector_name null). Without any configured source items is null with unavailable=not_configured; configured but none visible gives an empty list with empty_reason=no_authorized_target.')
 v3_route('get','/ingest/pull/{id}',
     'Read one authorized registered metric Pull and a live bounded preview',
     response=ref('V3PullDraft'), role='viewer with connectors.view and services.view',

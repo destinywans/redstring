@@ -489,6 +489,8 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | POST | `/api-tokens/{id}/rotate` | | `{ id, secret_shown_once, old_expires_at }`；旧令牌最迟 24 小时后失效（不延长原有效期） | Webhook 与 API › 轮换 | v1.1·已实现 |
 | POST | `/webhooks` | `{ name, type: change\|alert\|incident, verify: hmac\|token }` | `503 webhook_registration_unavailable；可信入口/密钥来源待接入` | Webhook 与 API › 新建 Webhook | v1.1·待实现 |
 | POST | `/agent-tools` | `{ name, kind: read\|write, connector_id }`；写工具只能生成提案 | `{ id }`；登记后不授予任何 Agent | 工具与权限 › 登记工具 | v1.1·已实现 |
+| GET | `/evals` | `agent_id?`, `page`, `page_size`（默认 50，最多 100） | `{ items: [{ id, title, agent_id, agent_name, application_id, environment_id, baseline_version, candidate_version, status, execution_status, created_at, finished_at, href }], total, page, page_size, empty_reason, unavailable }`；只列详情页能打开的实验（同一来源审计与应用/团队授权），新到旧；超过 1000 条返回 413，按 `agent_id` 过滤 | 评测 › 实验列表（PA-20） | v1.1·已实现 |
+| GET | `/ingest/pull` | | `{ items: [{ id, name, application_id, environment_id, connector_id, connector_name, query_id, state: ready\|source_unavailable, href }], empty_reason, unavailable }`；来自服务端私有拉取配置，不含表达式、端点和凭据；未配置时 `items: null`（`not_configured`） | 通用接入 › 拉取来源列表（PA-20） | v1.1·已实现 |
 | GET | `/eval-datasets` | `agent_id?` | `{ items: [{ id, name, source, count }] }` | 评测 › 数据集 | v1.1·已实现 |
 | POST | `/eval-datasets` | `{ name, source: incidents\|runs\|manual }` | `{ id }` | 评测 › 新建数据集 | v1.1·已实现 |
 | POST | `/eval-datasets/{id}/items` | `{ run_id }` | `{ count }` | 运行详情 › 加入数据集 | v1.1·已实现 |

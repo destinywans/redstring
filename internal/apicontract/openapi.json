@@ -30922,6 +30922,140 @@
         ]
       }
     },
+    "/ingest/pull": {
+      "get": {
+        "summary": "List registered metric Pull sources",
+        "operationId": "get_ingest_pull",
+        "description": "Minimum role: viewer with connectors.view and services.view. V3 instance and environment scope apply. Lists the sources of the private server Pull configuration in the selected environments (all is allowed for this read) that GET /ingest/pull/{id} would open: services.view on the application or owner team and environment connectors.view, checked with the Cookie session in one transaction. No PromQL, endpoint, credential reference or upstream call. state is ready when the bound enabled connector with query_metrics and the exact metric_resource target can serve a preview, otherwise source_unavailable (connector_name null). Without any configured source items is null with unavailable=not_configured; configured but none visible gives an empty list with empty_reason=no_authorized_target.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/V3PullListItem"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "empty_reason": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no_authorized_target"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unavailable": {
+                      "$ref": "#/components/schemas/V3Unavailable"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "empty_reason",
+                    "unavailable"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "ingest"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/ingest/pull/{id}": {
       "get": {
         "summary": "Read one authorized registered metric Pull and a live bounded preview",
@@ -46447,6 +46581,173 @@
           }
         },
         "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "get": {
+        "summary": "List saved evaluation experiments",
+        "operationId": "get_evals",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Newest first. Lists exactly the experiments GET /evals/{id} would open: the Agent is in the selected environments and an active application scope, the immutable creation audit matches that environment, and agents.view holds on the application or its owner team, rechecked per row in one locked transaction together with the Cookie session. Metadata only; metrics, cases and outputs stay on the detail and execution routes. total counts the visible set. More than 1000 matching experiments returns 413 eval_list_too_large (filter by agent_id). When nothing is listed and no Agent is visible to the caller, empty_reason is no_authorized_target.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3EvalListItem"
+                      }
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "page": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "page_size": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "empty_reason": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no_authorized_target"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unavailable": {
+                      "$ref": "#/components/schemas/V3Unavailable"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "total",
+                    "page",
+                    "page_size",
+                    "empty_reason",
+                    "unavailable"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "evals"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
           {
             "name": "X-AIOps-Environment",
             "in": "header",
@@ -71380,6 +71681,57 @@
           "captured_at"
         ]
       },
+      "V3PullListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "connector_id": {
+            "type": "string"
+          },
+          "query_id": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          },
+          "connector_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "source_unavailable"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "application_id",
+          "environment_id",
+          "connector_id",
+          "connector_name",
+          "query_id",
+          "state",
+          "href"
+        ]
+      },
       "V3PushEventType": {
         "type": "object",
         "properties": {
@@ -81068,6 +81420,81 @@
           "finished_at",
           "missing",
           "partial"
+        ]
+      },
+      "V3EvalListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "agent_name": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "baseline_version": {
+            "type": "string"
+          },
+          "candidate_version": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "passed",
+              "failed",
+              "invalid"
+            ]
+          },
+          "execution_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "agent_id",
+          "agent_name",
+          "application_id",
+          "environment_id",
+          "baseline_version",
+          "candidate_version",
+          "status",
+          "execution_status",
+          "created_at",
+          "finished_at",
+          "href"
         ]
       },
       "V3AgentConfiguredVersion": {

@@ -1,10 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { NavLink, useLocation, useSearchParams } from "react-router-dom";
+import { NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, useGet, useSend, api } from "../../api/client";
-import { PageUnavailable } from "../../ui/unknown";
-import type { ContractKind, PullDraft, PushView } from "../../api/types";
-import { Badge, Brand, Btn, Chip, Code, Col, Icon, KV, LabelChip, Mono, Muted, Num, Panel, Row, Segmented, Skeleton, Spacer, State, Stepper, Strong, TextLink, Tile, cx, type IconName, type Tone } from "../../ui/core";
+import { LoadError, PageUnavailable } from "../../ui/unknown";
+import { DataTable } from "../../ui/data";
+import type { ContractKind, PullDraft, PullList, PushView } from "../../api/types";
+import { Badge, Brand, Btn, Card, Chip, Code, Col, Icon, KV, LabelChip, Mono, Muted, Num, Panel, Row, Segmented, Skeleton, Spacer, State, Stepper, Strong, TextLink, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
@@ -26,7 +27,7 @@ export default function IngestPage() {
   return (
     <Page
       flush
-      crumbs={[tx("集成中心", "Integrations"), tx("通用接入", "Generic ingest"), mode === "pull" ? tx("新建 Pull 接入", "New pull source") : mode === "push" ? tx("事件接入", "Event push") : tx("配套栈", "Starter stack")]}
+      crumbs={[tx("集成中心", "Integrations"), tx("通用接入", "Generic ingest"), mode === "pull" ? (pullId ? tx("新建 Pull 接入", "New pull source") : tx("拉取来源", "Pull sources")) : mode === "push" ? tx("事件接入", "Event push") : tx("配套栈", "Starter stack")]}
       actions={
         mode === "pull" ? (
           API_MODE === "mock" ? (
@@ -108,14 +109,45 @@ function Pull({ id }: { id: string | null }) {
   const [accepted, setAccepted] = useState(false);
   const [step, setStep] = useState<number | null>(null);
   const [testing, setTesting] = useState(false);
-  if (!id)
+  // Without ?source= the page lists the registered Pull sources (GET /ingest/pull, PA-20).
+  const list = useGet<PullList>(!id && API_MODE !== "mock" ? "/ingest/pull" : null);
+  const nav = useNavigate();
+  if (!id) {
+    const l = list.data;
+    if (list.error && !l) return <LoadError error={list.error} source={tx("拉取来源配置", "Pull source configuration")} />;
+    if (!l)
+      return (
+        <div className="v3-content">
+          <Skeleton h={200} />
+        </div>
+      );
+    if (!l.items || !l.items.length)
+      return (
+        <PageUnavailable
+          icon="download"
+          configure={false}
+          title={!l.items ? tx("还没有配置拉取来源", "No pull sources configured") : l.empty_reason ? tx("没有你能查看的拉取来源", "No pull sources you can view") : tx("还没有拉取来源", "No pull sources yet")}
+          desc={!l.items ? tx("拉取来源由运维在服务端配置中登记；登记后会出现在这里，可以查看请求模板、字段映射并测试。", "Pull sources are registered in server configuration; once registered they appear here to review and test.") : l.empty_reason ? tx("当前环境里的拉取来源都不在你有权查看的应用里。", "None of the pull sources in this environment belong to an application you can view.") : tx("服务端配置里还没有登记拉取来源。", "No pull source is registered in server configuration yet.")}
+        />
+      );
     return (
-      <PageUnavailable
-        icon="download"
-        title={tx("还没有打开的拉取来源", "No pull source open")}
-        desc={tx("拉取来源由运维在服务端配置中登记；登记后在这里查看请求模板、字段映射并测试。来源列表还在开发中。", "Pull sources are registered in server configuration; once registered, review the request, field mapping and test here. The source list is still in development.")}
-      />
+      <div className="v3-content" style={{ padding: "14px 24px" }}>
+        <Card style={{ overflow: "hidden" }}>
+          <DataTable
+            rows={l.items}
+            rowKey={(x) => x.id}
+            onRowClick={(x) => nav(`/integrations/ingest?source=${encodeURIComponent(x.id)}`)}
+            columns={[
+              { key: "n", header: tx("拉取来源", "Pull source"), width: "34%", render: (x) => <span style={{ fontWeight: 500 }}>{x.name}</span> },
+              { key: "c", header: tx("连接器", "Connector"), render: (x) => <Muted>{x.connector_name ?? x.connector_id}</Muted> },
+              { key: "q", header: tx("查询", "Query"), render: (x) => <Mono size={12}>{x.query_id}</Mono> },
+              { key: "s", header: tx("状态", "Status"), render: (x) => (x.state === "ready" ? <Badge tone="ok">{tx("可用", "Ready")}</Badge> : <Badge tone="warn">{tx("来源不可用", "Source unavailable")}</Badge>) },
+            ]}
+          />
+        </Card>
+      </div>
     );
+  }
   if (!d)
     return (
       <div className="v3-content">

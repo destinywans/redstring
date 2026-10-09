@@ -624,6 +624,9 @@ export type PullDraft = {
   fields: { field: string; required: boolean; source: string; transform?: string; color: string; state: "ok" | "warn" | "none" }[];
   preview: { rows: { service: string; name: string; time: string; value: string; labels: Record<string, string>; bad?: boolean }[]; series: number[]; checks: TagChip[] };
 };
+/** GET /ingest/pull (PA-20): items null without a Pull configuration (not_configured). */
+export type PullListItem = { id: string; name: string; application_id: string; environment_id: string; connector_id: string; connector_name: string | null; query_id: string; state: "ready" | "source_unavailable"; href: string };
+export type PullList = { items: PullListItem[] | null; empty_reason: EmptyReason; unavailable: Unavailable };
 export type PushEventType = { id: string; icon: string; name: string; schema: string; today: string; rejected: string; tone: Tone };
 export type PushView = {
   types: PushEventType[];
@@ -712,6 +715,9 @@ export type EvalExperiment = {
   datasets: { name: string; count: number; desc: string; tone: Tone }[];
   evaluators: { name: string; kind: string }[];
 };
+/** GET /evals (PA-20): persisted experiments; execution_status / finished_at are null until a run is recorded. */
+export type EvalListItem = { id: string; title: string; agent_id: string; agent_name: string; application_id: string; environment_id: string; baseline_version: string; candidate_version: string; status: "pending" | "running" | "passed" | "failed" | "invalid"; execution_status: string | null; created_at: string; finished_at: string | null; href: string };
+export type EvalList = { items: EvalListItem[]; total: number; page: number; page_size: number; empty_reason: EmptyReason; unavailable: Unavailable };
 export type EvalCase = {
   id: string;
   title: string;

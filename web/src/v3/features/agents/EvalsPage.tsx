@@ -3,7 +3,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, useGet, useSend } from "../../api/client";
 import { PageUnavailable } from "../../ui/unknown";
-import type { EvalExperiment } from "../../api/types";
+import type { EvalExperiment, EvalList } from "../../api/types";
+import { DataTable } from "../../ui/data";
 import { Badge, Brand, Btn, Card, Col, Icon, Legend, Mono, Muted, Num, Panel, Row, Section, Skeleton, Spacer, Tabs, TextLink, Tile, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Radar } from "../../charts";
@@ -15,8 +16,10 @@ export default function EvalsPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  // There is no experiment list yet (PA-20): real mode opens one experiment by ?id=.
+  // Real mode lists persisted experiments (GET /evals, PA-20) and opens one by ?id=.
   const expId = API_MODE === "mock" ? "exp-v12-v13" : params.get("id");
+  const [page, setPage] = useState(1);
+  const list = useGet<EvalList>(API_MODE !== "mock" && !expId ? "/evals" : null, { page, page_size: 50 });
   const { data: e } = useGet<EvalExperiment>(expId ? `/evals/${expId}` : null);
   // Hooks stay above the early return below: opening a new experiment must not change the hook order.
   const [tab, setTab] = useState("exp");
@@ -42,24 +45,57 @@ export default function EvalsPage() {
     toast(r.execution_available ? tx("实验已保存，待运行", "Experiment saved, ready to run") : tx("实验已保存；运行器未接入，暂不能执行", "Experiment saved; the runner is not connected, so it can't run yet"));
     setParams({ id: r.id });
   };
-  if (API_MODE !== "mock" && !expId)
+  const EVAL_STATUS = { pending: ["neutral", tx("待运行", "Pending")], running: ["accent", tx("运行中", "Running")], passed: ["ok", tx("通过", "Passed")], failed: ["danger", tx("未通过", "Failed")], invalid: ["warn", tx("无效", "Invalid")] } as const;
+  if (API_MODE !== "mock" && !expId) {
+    const l = list.data;
     return (
-      <Page crumbs={[tx("Agent 运行台", "Agent console"), tx("评测", "Evaluations")]} actions={<Btn kind="primary" icon="play" onClick={() => void newExperiment()}>{tx("新建实验", "New experiment")}</Btn>}>
-        <PageUnavailable
-          icon="activity"
-          configure={false}
-          title={tx("还没有打开的评测实验", "No experiment open")}
-          desc={tx("评测对比同一 Agent 的两个版本。新建实验后会在这里打开；实验列表还在开发中。", "An evaluation compares two versions of one agent. A new experiment opens here; the experiment list is still in development.")}
-        />
+      <Page crumbs={[tx("Agent 运行台", "Agent console"), tx("评测", "Evaluations")]} error={!l ? list.error : undefined} errorSource={tx("评测记录", "evaluation records")} actions={<Btn kind="primary" icon="play" onClick={() => void newExperiment()}>{tx("新建实验", "New experiment")}</Btn>}>
+        {l && !l.items.length ? (
+          <PageUnavailable
+            icon="activity"
+            configure={false}
+            title={l.empty_reason ? tx("没有你能查看的评测实验", "No experiments you can view") : tx("还没有评测实验", "No experiments yet")}
+            desc={l.empty_reason ? tx("当前环境里的实验都不在你有权查看的应用里。", "None of the experiments in this environment belong to an application you can view.") : tx("评测对比同一 Agent 的两个版本。新建实验后会出现在这里。", "An evaluation compares two versions of one agent. New experiments appear here.")}
+          />
+        ) : (
+          <div className="v3-content">
+            <Card style={{ overflow: "hidden" }}>
+              <DataTable
+                rows={l?.items}
+                loading={!l}
+                rowKey={(x) => x.id}
+                onRowClick={(x) => setParams({ id: x.id })}
+                columns={[
+                  { key: "t", header: tx("实验", "Experiment"), width: "32%", render: (x) => <Col gap={0} style={{ minWidth: 0 }}><span className="ellipsis" style={{ fontWeight: 500 }}>{x.title}</span><Muted size={11.5}>{x.agent_name}</Muted></Col> },
+                  { key: "v", header: tx("基线 → 候选", "Baseline → candidate"), render: (x) => <Mono size={12}>{x.baseline_version} → {x.candidate_version}</Mono> },
+                  { key: "s", header: tx("状态", "Status"), render: (x) => <Badge tone={EVAL_STATUS[x.status][0]}>{EVAL_STATUS[x.status][1]}</Badge> },
+                  { key: "c", header: tx("创建", "Created"), render: (x) => <Muted>{new Date(x.created_at).toLocaleString()}</Muted> },
+                  { key: "f", header: tx("完成", "Finished"), render: (x) => <Muted>{x.finished_at ? new Date(x.finished_at).toLocaleString() : "—"}</Muted> },
+                ]}
+              />
+            </Card>
+            {l && l.total > l.page * l.page_size && (
+              <Row gap={8}>
+                <Spacer />
+                <Muted size={11.5}>{tx("共 {n} 个", "{n} total", { n: l.total })}</Muted>
+                <Btn h={26} disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>{tx("上一页", "Previous")}</Btn>
+                <Btn h={26} onClick={() => setPage((p) => p + 1)}>{tx("下一页", "Next")}</Btn>
+              </Row>
+            )}
+          </div>
+        )}
       </Page>
     );
+  }
   const Res = ({ ok }: { ok: boolean }) => <Icon name={ok ? "check" : "x"} size={14} color={ok ? "var(--ok)" : "var(--danger)"} />;
   return (
-    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("评测", "Evaluations")]} actions={
+    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), API_MODE === "mock" ? tx("评测", "Evaluations") : { label: tx("评测", "Evaluations"), to: "/agents/evals" }, ...(API_MODE === "mock" || !e ? [] : [e.title])]} actions={
         <Btn
           kind="primary"
           icon="play"
           onClick={async () => {
+            // Real experiments are created with the agent/version form above; the dataset picker below is sample-only.
+            if (API_MODE !== "mock") return void newExperiment();
             const v = await openForm({
               title: tx("新建评测实验", "New experiment"),
               fields: [
@@ -80,10 +116,10 @@ export default function EvalsPage() {
         value={tab}
         onChange={setTab}
         options={[
-          { value: "exp", label: tx("实验", "Experiments"), count: 12 },
-          { value: "data", label: tx("数据集", "Datasets"), count: 5 },
-          { value: "eval", label: tx("评测器", "Evaluators"), count: 8 },
-          { value: "label", label: tx("人工标注", "Human review"), count: 3 },
+          { value: "exp", label: tx("实验", "Experiments"), count: API_MODE === "mock" ? 12 : undefined },
+          { value: "data", label: tx("数据集", "Datasets"), count: API_MODE === "mock" ? 5 : undefined },
+          { value: "eval", label: tx("评测器", "Evaluators"), count: API_MODE === "mock" ? 8 : undefined },
+          { value: "label", label: tx("人工标注", "Human review"), count: API_MODE === "mock" ? 3 : undefined },
         ]}
       />
       <div className="v3-split">

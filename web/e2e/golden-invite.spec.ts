@@ -68,8 +68,35 @@ test("invited member joins through /invite and signs in", async ({ browser }) =>
   await page.locator("input[type=password]").fill(password);
   await page.getByRole("button", { name: "登录" }).click();
   await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 20_000 });
-  await m.quiet(2000, 15_000);
+  // A new member has no environment yet: the shell is replaced by the "no access" page.
+  await expect(page.getByText("你还没有任何环境的访问权限")).toBeVisible({ timeout: 15_000 });
   await page.screenshot({ path: resolve(LOCAL, "e2e/golden/invite-first-login.png"), fullPage: true });
+
+  // The admin grants the operator role (environment-wide view) through the real access API.
+  const admin2 = await browser.newContext({ storageState: statePath("prod", "admin") });
+  const ap = await admin2.newPage();
+  await ap.goto(origin + "/healthz");
+  const grant = await ap.evaluate(async (email) => {
+    const h = { "Content-Type": "application/json", "X-AIOps-Environment": "prod" };
+    const members = await (await fetch(`/api/v1/members?q=${encodeURIComponent(email)}`, { headers: h })).json();
+    const id = members.items.find((x: { email: string }) => x.email === email)?.id;
+    const access = await (await fetch(`/api/v1/members/${id}/access`, { headers: h })).json();
+    const role = await fetch("/api/v1/roles/operator", { headers: h });
+    const revisions: Record<string, string> = {};
+    for (const r of access.roles) if (r.origin !== "legacy") revisions[r.id] = String(r.matrix_revision);
+    revisions.operator = role.headers.get("X-Role-Matrix-Revision") ?? "";
+    const put = await fetch(`/api/v1/members/${id}/access`, { method: "PUT", headers: { ...h, "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify({ expected_revision: access.revision, role_ids: Object.keys(revisions).sort(), role_revisions: revisions, enabled: true }) });
+    return put.status;
+  }, invitee);
+  expect(grant).toBe(200);
+  await admin2.close();
+
+  await page.getByRole("button", { name: "重新检查" }).click();
+  await expect(page.getByText("你还没有任何环境的访问权限")).toBeHidden({ timeout: 20_000 });
+  await m.quiet(2000, 15_000);
+  await page.screenshot({ path: resolve(LOCAL, "e2e/golden/invite-after-grant.png"), fullPage: true });
   writeFileSync(resolve(LOCAL, "e2e/golden/invite-first-login.json"), JSON.stringify({ invitee, api: m.api, pageErrors: m.pageErrors }, null, 2));
+  expect(m.pageErrors).toEqual([]);
   await context.close();
 });

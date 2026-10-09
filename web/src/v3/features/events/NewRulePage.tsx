@@ -297,7 +297,7 @@ export default function NewRulePage() {
               </Panel>
             )}
             {preview?.similar && (
-              <Callout tone="warn" icon="alert" action={<Btn h={26} onClick={() => toast(tx("已打开合并：新阈值将替换原规则，保留历史", "Merging: the new threshold replaces the old rule; history is kept"))}>{tx("合并到该规则", "Merge into it")}</Btn>}>
+              <Callout tone="warn" icon="alert" action={API_MODE === "mock" ? <Btn h={26} onClick={() => toast(tx("已打开合并：新阈值将替换原规则，保留历史", "Merging: the new threshold replaces the old rule; history is kept"))}>{tx("合并到该规则", "Merge into it")}</Btn> : undefined}>
                 {tx("已有相似规则「{n}」（已启用）。同时启用会重复告警，建议合并。", "A similar rule “{n}” is enabled. Enabling both duplicates alerts — consider merging.", { n: preview.similar.name })}
               </Callout>
             )}
@@ -314,7 +314,7 @@ export default function NewRulePage() {
           <Textarea rows={14} className="v3-textarea mono" value={yaml} onChange={(e) => setYaml(e.target.value)} spellCheck={false} />
           {tab === "import" && (
             <Row gap={8}>
-              <Btn icon="download" onClick={() => toast(tx("已从 Prometheus · 生产 拉取 42 条规则", "Pulled 42 rules from Prometheus · prod"))}>{tx("从 Prometheus 拉取", "Pull from Prometheus")}</Btn>
+              {API_MODE === "mock" && <Btn icon="download" onClick={() => toast(tx("已从 Prometheus · 生产 拉取 42 条规则", "Pulled 42 rules from Prometheus · prod"))}>{tx("从 Prometheus 拉取", "Pull from Prometheus")}</Btn>}
               <Spacer />
               <Btn kind="primary" icon="upload" onClick={async () => setImported((await api<{ items: Imported[] }>("POST", "/alert-rules/import", { body: { yaml } })).items)}>{tx("解析", "Parse")}</Btn>
             </Row>

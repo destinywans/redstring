@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as RPE } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { API_MODE, api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
+import { currentEnv } from "../../app/environment";
 
 /** Sample-only references (chat C-320, run_7f3a, report EXE-51, sample evidence sources) never show in real mode. */
 const demo = API_MODE === "mock";
@@ -694,8 +695,18 @@ export default function CanvasPage() {
       context: { version: "—", tokens: 300, messages: 0, excludes: [] },
       versions: [],
     };
-    setNodes((ns) => [...ns, node]);
-    toast(tx("已成为「{p}」的证据节点", "Added as evidence of “{p}”", { p: parent.title }), { undo: () => setNodes((ns) => ns.filter((n) => n.id !== node.id)) });
+    if (demo) {
+      setNodes((ns) => [...ns, node]);
+      return toast(tx("已成为「{p}」的证据节点", "Added as evidence of “{p}”", { p: parent.title }), { undo: () => setNodes((ns) => ns.filter((n) => n.id !== node.id)) });
+    }
+    // Real evidence is pinned on the server (immutable, human-pinned); the node appears once it is stored.
+    api("POST", `/investigations/${id}/evidence`, { body: { branch_id: parent.id, environment_id: currentEnv(), kind: item.kind, title: item.title, source: item.source, content: JSON.stringify(item.body) } }).then(
+      () => {
+        setNodes((ns) => [...ns, node]);
+        toast(tx("已成为「{p}」的证据节点", "Added as evidence of “{p}”", { p: parent.title }));
+      },
+      (e) => toast(e instanceof ApiError ? e.message : tx("没能加入证据，请稍后重试", "Couldn't add the evidence; try again later"), { tone: "danger" }),
+    );
   };
 
   const setWriteback = (v: string | null) => {
@@ -926,7 +937,7 @@ export default function CanvasPage() {
         onDone={(v) => {
           setWriteback(null);
           setNodes((ns) => ns.map((n) => (n.id === "root" ? { ...n, subtitle: tx("主线 · 上下文 {v}", "Main line · context {v}", { v }) } : n)));
-          toast(tx("已生成主线 {v}，可在“版本”中查看或撤销", "Main line {v} created — view or revert under Versions", { v }), { undo: () => toast(tx("已撤销回写", "Writeback reverted")) });
+          toast(tx("已生成主线 {v}，可在“版本”中查看或撤销", "Main line {v} created — view or revert under Versions", { v }), demo ? { undo: () => toast(tx("已撤销回写", "Writeback reverted")) } : {});
         }}
       />
     </Page>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, useGet } from "../../api/client";
 import type { Kpi as KpiT, RunbookSuggestion, RunbookSummary } from "../../api/types";
 import { Avatar, Badge, Bar, Btn, Card, Chip, Col, Icon, Mono, Muted, Num, Pills, Row, SearchBox, State, Strong, Tile, type IconName, type Tone } from "../../ui/core";
 import { DataTable, Kpi, KpiRow } from "../../ui/data";
@@ -107,7 +107,7 @@ export default function RunbooksPage() {
                 </p>
                 <Row gap={6}>
                   {s.actions.map((a) => (
-                    <Btn key={a.label} kind={a.kind} h={26} to={a.href} onClick={a.href ? undefined : () => { if (a.kind === "ghost") setDismissed((d) => new Set(d).add(s.id)); else toast(a.label); }}>
+                    <Btn key={a.label} kind={a.kind} h={26} to={a.href} onClick={a.href ? undefined : () => { if (a.kind === "ghost") setDismissed((d) => new Set(d).add(s.id)); else if (API_MODE === "mock") toast(a.label); }}>
                       {a.label}
                     </Btn>
                   ))}

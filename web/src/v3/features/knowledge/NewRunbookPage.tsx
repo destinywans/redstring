@@ -184,7 +184,7 @@ export default function NewRunbookPage() {
                     </li>
                   ))}
                   <li className="rb-add">
-                    <button type="button" className="f-add" onClick={() => toast(tx("已添加一步", "Step added"))}><Icon name="plus" size={12} />{tx("添加步骤", "Add step")}</button>
+                    {API_MODE === "mock" && <button type="button" className="f-add" onClick={() => toast(tx("已添加一步", "Step added"))}><Icon name="plus" size={12} />{tx("添加步骤", "Add step")}</button>}
                     <Muted size={11.5}>{tx("写操作步骤会自动标记为「需要审批」，由执行器执行", "Write steps are always marked “needs approval” and run by the executor")}</Muted>
                   </li>
                 </ol>

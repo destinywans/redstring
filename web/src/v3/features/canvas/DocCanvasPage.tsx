@@ -461,9 +461,12 @@ export default function DocCanvasPage() {
             <IconBtn icon="fit" label={tx("适应画布", "Fit")} size={26} onClick={fit} />
           </div>
           <div className="cv-toolbar" role="toolbar" aria-label={tx("画布工具", "Canvas tools")} onPointerDown={(e) => e.stopPropagation()}>
-            <Btn kind="ghost" icon="fork" onClick={() => toast(tx("已从「{p}」派生新分支，继承其上下文", "Forked a branch from “{p}” with its context", { p: selected?.title ?? "" }))}>
-              {tx("派生", "Fork")}
-            </Btn>
+            {/* Forking a doc-canvas branch has no endpoint yet; sample data only. */}
+            {API_MODE === "mock" && (
+              <Btn kind="ghost" icon="fork" onClick={() => toast(tx("已从「{p}」派生新分支，继承其上下文", "Forked a branch from “{p}” with its context", { p: selected?.title ?? "" }))}>
+                {tx("派生", "Fork")}
+              </Btn>
+            )}
             <Btn kind="ghost" icon="merge" onClick={() => toast(tx("请选择两个同级分支进行合并", "Select two sibling branches to merge"))}>
               {tx("合并", "Merge")}
             </Btn>

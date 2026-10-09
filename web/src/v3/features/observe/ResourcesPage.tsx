@@ -124,7 +124,7 @@ function visibleRows(tree: Topology["tree"], toggled: Set<number>) {
 
 export default function ResourcesPage() {
   const { tx } = useI18n();
-  const { data: rawTopology } = useGet<RawTopology>("/topology");
+  const { data: rawTopology, refetch: topoRefetch } = useGet<RawTopology>("/topology");
   const kindLabel = (k?: string) =>
     ({ cluster: tx("集群", "Cluster"), node: tx("节点", "Node"), namespace: tx("命名空间", "Namespace"), network: tx("服务网络", "Service"), deployment: tx("工作负载", "Workload") })[k ?? ""] ?? (k || tx("资源", "Resource"));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -261,8 +261,8 @@ export default function ResourcesPage() {
       crumbs={[tx("资源与观测", "Resources"), tx("资源与拓扑", "Topology")]}
       actions={
         <>
-          <ChipSelect icon="clock" label="" showLabel={false} defaultValue="1431" options={[{ value: "1431", label: tx("快照 14:31 · 最新", "Snapshot 14:31 · latest") }, { value: "1400", label: tx("快照 14:00 · 发布前", "Snapshot 14:00 · before release") }, { value: "y", label: tx("快照 昨天 14:30", "Snapshot yesterday 14:30") }]} />
-          <Btn icon="rotate" onClick={() => toast(tx("已刷新拓扑快照", "Topology snapshot refreshed"))}>
+          {API_MODE === "mock" && <ChipSelect icon="clock" label="" showLabel={false} defaultValue="1431" options={[{ value: "1431", label: tx("快照 14:31 · 最新", "Snapshot 14:31 · latest") }, { value: "1400", label: tx("快照 14:00 · 发布前", "Snapshot 14:00 · before release") }, { value: "y", label: tx("快照 昨天 14:30", "Snapshot yesterday 14:30") }]} />}
+          <Btn icon="rotate" onClick={() => (API_MODE === "mock" ? toast(tx("已刷新拓扑快照", "Topology snapshot refreshed")) : void topoRefetch())}>
             {tx("刷新快照", "Refresh")}
           </Btn>
         </>

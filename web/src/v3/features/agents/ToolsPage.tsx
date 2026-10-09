@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, useGet } from "../../api/client";
 import type { AgentLevel, ToolRow, ToolsView } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, Mono, Muted, Num, Pills, Row, SearchBox, Section, Strong, Tile, cx } from "../../ui/core";
 import { DataTable } from "../../ui/data";
@@ -115,6 +115,8 @@ export default function ToolsPage() {
                     aria-checked={level === l.code}
                     className={cx(level === l.code && "on")}
                     onClick={() => {
+                      // Levels are set per agent (PUT /agents/{id}/level on the agent page); this overview doesn't save one.
+                      if (API_MODE !== "mock") return toast(tx("自治级别在各 Agent 的详情页里修改", "Set autonomy levels on each agent's page"));
                       const prev = level;
                       setLevel(l.code);
                       toast(tx("调查助手自治级别改为 {l}（生产仍受环境上限约束）", "Investigator set to {l} (prod still capped by env limits)", { l: l.code }), { undo: () => setLevel(prev) });

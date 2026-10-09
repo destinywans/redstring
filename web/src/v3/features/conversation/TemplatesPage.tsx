@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
+import { API_MODE, api, useGet } from "../../api/client";
 import type { CanvasSummary, InvestigationTemplate } from "../../api/types";
 import { Badge, Brand, Btn, Check, IconBtn, Input, Col, Icon, LabelChip, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, Strong, Tile, cx } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
@@ -139,9 +139,11 @@ export default function TemplatesPage() {
                 >
                   {tx("编辑", "Edit")}
                 </Btn>
-                <Btn kind="ghost" onClick={() => toast(tx("已复制为团队模板", "Duplicated as a team template"))}>
-                  {tx("复制", "Duplicate")}
-                </Btn>
+                {API_MODE === "mock" && (
+                  <Btn kind="ghost" onClick={() => toast(tx("已复制为团队模板", "Duplicated as a team template"))}>
+                    {tx("复制", "Duplicate")}
+                  </Btn>
+                )}
               </Row>
             </Col>
           </aside>

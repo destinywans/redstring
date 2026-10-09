@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, useGet } from "../../api/client";
 import type { ModelAdminView } from "../../api/types";
 import { Badge, Brand, Btn, Card, CardHead, Col, Dot, Icon, KV, Mono, Muted, Row, Skeleton, Spacer, Strong, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -90,7 +90,7 @@ export default function ModelsPage() {
           </Card>
           {m && (
             <Card style={{ width: 360, flex: "none" }} className="anim-fade" key={m.id}>
-              <CardHead title={<Row gap={8}><Brand name={m.brand} size={22} />{m.name}</Row>} right={<Btn h={24} kind="ghost" icon="play" onClick={() => toast(tx("连通性检查通过：工具调用、流式、看图", "Checks passed: tools, streaming, vision"))}>{tx("检查", "Check")}</Btn>} />
+              <CardHead title={<Row gap={8}><Brand name={m.brand} size={22} />{m.name}</Row>} right={API_MODE === "mock" && <Btn h={24} kind="ghost" icon="play" onClick={() => toast(tx("连通性检查通过：工具调用、流式、看图", "Checks passed: tools, streaming, vision"))}>{tx("检查", "Check")}</Btn>} />
               <Col gap={12} style={{ padding: "12px 16px 16px" }}>
                 <Col gap={6}>
                   <Muted size={11.5}>{tx("接口与回退", "API and fallback")}</Muted>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { API_MODE, useGet, useSend } from "../../api/client";
 import type { Member, MembersView, OrgNode, Role } from "../../api/types";
 import { AiAvatar, Avatar, Badge, Brand, Btn, Card, Chip, Col, Field, Icon, Input, Mono, Muted, Pills, Row, SearchBox, Section, Spacer, State, cx } from "../../ui/core";
 import { DataTable } from "../../ui/data";
@@ -139,9 +139,12 @@ export default function MembersPage() {
                 >
                   {tx("分配角色", "Assign role")}
                 </Btn>
-                <Btn h={26} kind="danger" onClick={() => { const n = checked.size; setChecked(new Set()); toast(tx("已停用 {n} 名成员", "Disabled {n} members", { n }), { undo: () => undefined }); }}>
-                  {tx("停用", "Disable")}
-                </Btn>
+                {/* There is no disable endpoint for members yet; sample data only. */}
+                {API_MODE === "mock" && (
+                  <Btn h={26} kind="danger" onClick={() => { const n = checked.size; setChecked(new Set()); toast(tx("已停用 {n} 名成员", "Disabled {n} members", { n }), { undo: () => undefined }); }}>
+                    {tx("停用", "Disable")}
+                  </Btn>
+                )}
               </div>
             )}
             <Card style={{ overflow: "hidden" }}>

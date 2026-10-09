@@ -30,6 +30,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "connectors" {
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		code := runConnectorsCommand(ctx, os.Args[2:], os.Stdout, os.Stderr)
+		cancel()
+		os.Exit(code)
+	}
 	if e := run(); e != nil {
 		slog.Error("service stopped", "error", e)
 		os.Exit(1)

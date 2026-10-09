@@ -1,0 +1,182 @@
+package v3telemetry
+
+import (
+	"errors"
+	"reflect"
+	"sort"
+
+	"github.com/wans/aiops-canvas/internal/connectors"
+)
+
+// Legacy is one file-configured source: a persisted binding resolved through
+// AIOPS_TELEMETRY_CONFIG, as the current readers use it.
+type Legacy struct {
+	Provider   string
+	Resource   string
+	Endpoint   string
+	AuthMethod string
+	TenantID   string
+	CustomCA   bool
+	Scope      connectors.ApplicationTelemetry
+	Queries    map[string]string
+}
+
+// LegacySource resolves a binding through the file registration. ok is false
+// when the legacy reader itself could not serve it (provider endpoint or
+// resource scope missing).
+func LegacySource(cfg connectors.TelemetryConfig, provider, resource string) (Legacy, bool) {
+	a, registered := cfg.Applications[resource]
+	endpoint, known := endpointOf(cfg, provider)
+	if !registered || !known || endpoint.URL == "" {
+		return Legacy{}, false
+	}
+	switch provider {
+	case "prometheus":
+		registered = len(a.PrometheusQueries) > 0
+	case "loki":
+		registered = len(a.LokiLabels) > 0
+	case "elasticsearch":
+		registered = a.ElasticsearchIndex != "" && len(a.ElasticsearchFilters) > 0
+	case "tempo":
+		registered = a.TempoService != "" && len(a.TempoAttributes) > 0
+	}
+	if !registered {
+		return Legacy{}, false
+	}
+	legacy := Legacy{Provider: provider, Resource: resource, Endpoint: canonicalEndpoint(endpoint.URL),
+		AuthMethod: "none", TenantID: endpoint.TenantID, CustomCA: endpoint.CAFile != "",
+		Scope: ProviderScope(provider, a)}
+	if endpoint.BearerTokenFile != "" {
+		legacy.AuthMethod = "bearer"
+	} else if endpoint.Username != "" || endpoint.PasswordFile != "" {
+		legacy.AuthMethod = "basic"
+	}
+	if provider == "prometheus" {
+		legacy.Queries = make(map[string]string, len(a.PrometheusQueries))
+		for id, expression := range a.PrometheusQueries {
+			legacy.Queries[id] = expression
+		}
+	}
+	return legacy, true
+}
+
+func endpointOf(cfg connectors.TelemetryConfig, provider string) (connectors.TelemetryEndpoint, bool) {
+	switch provider {
+	case "prometheus":
+		return cfg.Prometheus, true
+	case "loki":
+		return cfg.Loki, true
+	case "elasticsearch":
+		return cfg.Elasticsearch, true
+	case "tempo":
+		return cfg.Tempo, true
+	}
+	return connectors.TelemetryEndpoint{}, false
+}
+
+// Comparison states. Only IDs and these codes are ever reported; endpoints,
+// selectors and expressions stay in the process.
+const (
+	StateMatch              = "match"
+	StateMatchNotReady      = "match_not_ready"
+	StateDiffers            = "differs"
+	StateMissing            = "missing"
+	StateAmbiguous          = "ambiguous"
+	StateLegacyUnregistered = "legacy_unregistered"
+	StateUnavailable        = "unavailable"
+)
+
+// Result is one comparison of a legacy binding with the registry.
+type Result struct {
+	State   string   `json:"state"`
+	Reasons []string `json:"reasons,omitempty"`
+}
+
+// Compare reports whether the registry would read the same source as the
+// file configuration. Reasons name the differing fields (or query IDs), or
+// for match_not_ready why the registered source is not readable yet.
+func Compare(legacy Legacy, legacyOK bool, unified Source, err error) Result {
+	switch {
+	case !legacyOK:
+		return Result{State: StateLegacyUnregistered}
+	case errors.Is(err, ErrNotConfigured):
+		return Result{State: StateMissing}
+	case errors.Is(err, ErrAmbiguous):
+		return Result{State: StateAmbiguous}
+	case err != nil:
+		return Result{State: StateUnavailable}
+	}
+	var reasons []string
+	differ := func(name string, equal bool) {
+		if !equal {
+			reasons = append(reasons, name)
+		}
+	}
+	differ("provider", legacy.Provider == unified.Provider)
+	differ("endpoint", legacy.Endpoint == canonicalEndpoint(unified.Endpoint))
+	differ("auth_method", legacy.AuthMethod == unified.AuthMethod)
+	differ("tenant_id", legacy.TenantID == unified.TenantID)
+	differ("custom_ca", !legacy.CustomCA)
+	notReady := make([]string, 0, len(unified.NotReady))
+	scopeMissing := false
+	for _, reason := range unified.NotReady {
+		if reason == "scope_missing" {
+			scopeMissing = true
+		} else {
+			notReady = append(notReady, reason)
+		}
+	}
+	if legacy.Provider == unified.Provider {
+		if legacy.Provider == "prometheus" {
+			ids := make([]string, 0, len(legacy.Queries))
+			for id := range legacy.Queries {
+				ids = append(ids, id)
+			}
+			sort.Strings(ids)
+			for _, id := range ids {
+				expression, ok := unified.Queries[id]
+				if !ok {
+					reasons = append(reasons, "query_missing:"+id)
+				} else if expression != legacy.Queries[id] {
+					reasons = append(reasons, "query_changed:"+id)
+				}
+			}
+		} else if scopeMissing {
+			reasons = append(reasons, "scope_missing")
+		} else {
+			reasons = append(reasons, scopeDifferences(legacy.Provider, legacy.Scope, unified.Scope)...)
+		}
+	}
+	if len(reasons) > 0 {
+		return Result{State: StateDiffers, Reasons: reasons}
+	}
+	if len(notReady) > 0 {
+		return Result{State: StateMatchNotReady, Reasons: notReady}
+	}
+	return Result{State: StateMatch}
+}
+
+func scopeDifferences(provider string, legacy, unified connectors.ApplicationTelemetry) []string {
+	l, u := normalize(ProviderScope(provider, legacy)), normalize(ProviderScope(provider, unified))
+	var out []string
+	for _, field := range []struct {
+		name  string
+		equal bool
+	}{
+		{"loki_labels", reflect.DeepEqual(l.LokiLabels, u.LokiLabels)},
+		{"loki_pattern_field", l.LokiPatternField == u.LokiPatternField},
+		{"loki_complete_lookback_seconds", l.LokiCompleteLookbackSeconds == u.LokiCompleteLookbackSeconds},
+		{"elasticsearch_index", l.ElasticsearchIndex == u.ElasticsearchIndex},
+		{"elasticsearch_pattern_field", l.ElasticsearchPatternField == u.ElasticsearchPatternField},
+		{"elasticsearch_filters", reflect.DeepEqual(l.ElasticsearchFilters, u.ElasticsearchFilters)},
+		{"elasticsearch_prefixes", reflect.DeepEqual(l.ElasticsearchPrefixes, u.ElasticsearchPrefixes)},
+		{"tempo_service", l.TempoService == u.TempoService},
+		{"tempo_attributes", reflect.DeepEqual(l.TempoAttributes, u.TempoAttributes)},
+		{"tempo_safe_operations", reflect.DeepEqual(l.TempoSafeOperations, u.TempoSafeOperations)},
+	} {
+		if !field.equal {
+			out = append(out, "scope."+field.name)
+		}
+	}
+	return out
+}

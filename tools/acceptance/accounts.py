@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from api import LOCAL, call  # noqa: E402
 
-ACCOUNTS = {'operator': 'operator', 'approver1': 'change-approver', 'approver2': 'change-approver'}
+ACCOUNTS = {'operator': 'operator', 'approver1': 'change-approver', 'approver2': 'change-approver', 'viewer': 'viewer'}
 
 
 def domain(instance):
@@ -81,7 +81,9 @@ def main():
             raise SystemExit(f'access {name}: {status} {access}')
         # Legacy-origin assignments (the invitation's viewer) are not part of the V3-managed set.
         current = {r['id']: str(r['matrix_revision']) for r in access['roles'] if r.get('origin') != 'legacy'}
-        if role not in current:
+        legacy = {r['id'] for r in access['roles'] if r.get('origin') == 'legacy'}
+        # The invitation already grants viewer (legacy origin); a direct viewer on top is rejected (422).
+        if role not in current and role not in legacy:
             headers = {}
             status, target = call(instance, 'GET', f'/roles/{role}', headers_out=headers)
             if status != 200 or not headers.get('X-Role-Matrix-Revision'):

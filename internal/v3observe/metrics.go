@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
@@ -39,13 +40,15 @@ var dashboardPanels = map[string]bool{
 	"latency_heat": true, "endpoint_p99_ms": true, "instance_wait_p95_ms": true,
 }
 
+// Marker fields are null when the platform recorded no such event in the
+// window; unavailable then says "not_generated" rather than inventing a bin.
 type dashboardWindow struct {
 	Labels        []string `json:"labels"`
 	Ticks         []string `json:"ticks"`
-	ReleaseAt     int      `json:"release_at"`
-	RollbackAt    int      `json:"rollback_at"`
-	Incident      [2]int   `json:"incident"`
-	IncidentLabel string   `json:"incident_label"`
+	ReleaseAt     *int     `json:"release_at"`
+	RollbackAt    *int     `json:"rollback_at"`
+	Incident      *[2]int  `json:"incident"`
+	IncidentLabel *string  `json:"incident_label"`
 }
 
 type dashboardKPI struct {
@@ -77,34 +80,44 @@ type dashboardInstance struct {
 	Tone   string    `json:"tone,omitempty"`
 }
 
-type metricsDashboard struct {
-	Window   dashboardWindow `json:"window"`
-	KPIs     []dashboardKPI  `json:"kpis"`
-	Requests struct {
-		OK     []float64 `json:"ok"`
-		Client []float64 `json:"client"`
-		Server []float64 `json:"server"`
-	} `json:"requests"`
-	SLO struct {
-		Remaining    float64         `json:"remaining"`
-		Availability string          `json:"availability"`
-		Delta        string          `json:"delta"`
-		Burn         []dashboardBurn `json:"burn"`
-		Note         string          `json:"note"`
-	} `json:"slo"`
-	Latency struct {
-		P50     []float64   `json:"p50"`
-		P95     []float64   `json:"p95"`
-		P99     []float64   `json:"p99"`
-		Heat    [][]float64 `json:"heat"`
-		Buckets []string    `json:"buckets"`
-	} `json:"latency"`
-	Endpoints []dashboardRank     `json:"endpoints"`
-	Instances []dashboardInstance `json:"instances"`
+type dashboardRequests struct {
+	OK     []float64 `json:"ok"`
+	Client []float64 `json:"client"`
+	Server []float64 `json:"server"`
 }
 
+type dashboardSLO struct {
+	Remaining    float64         `json:"remaining"`
+	Availability string          `json:"availability"`
+	Delta        string          `json:"delta"`
+	Burn         []dashboardBurn `json:"burn"`
+	Note         string          `json:"note"`
+}
+
+type dashboardLatency struct {
+	P50     []float64   `json:"p50"`
+	P95     []float64   `json:"p95"`
+	P99     []float64   `json:"p99"`
+	Heat    [][]float64 `json:"heat"`
+	Buckets []string    `json:"buckets"`
+}
+
+// metricsDashboard is MetricsDashboard with explicit unknowns: a null block
+// has its reason in Unavailable and is never replaced by zeros.
+type metricsDashboard struct {
+	Window      dashboardWindow     `json:"window"`
+	KPIs        []dashboardKPI      `json:"kpis"`
+	Requests    *dashboardRequests  `json:"requests"`
+	SLO         *dashboardSLO       `json:"slo"`
+	Latency     *dashboardLatency   `json:"latency"`
+	Endpoints   []dashboardRank     `json:"endpoints"`
+	Instances   []dashboardInstance `json:"instances"`
+	Unavailable map[string]string   `json:"unavailable"`
+}
+
+// A nil marker means the platform has no record of that event in the window.
 type dashboardMarkers struct {
-	release, rollback, incidentStart, incidentEnd time.Time
+	release, rollback, incidentStart, incidentEnd *time.Time
 }
 
 func dashboardRequest(r *http.Request) (string, bool, bool) {
@@ -139,17 +152,26 @@ func dashboardIndex(t, start time.Time) int {
 
 // These are independent persisted events. The latest rollback is not asserted
 // to reverse the latest release; the dashboard must not tell that causal story.
-// Missing tables or events fail closed because the frozen DTO cannot represent
-// an absent marker without inventing a position.
+// An event absent from the window is a nil marker; a failed read is an error.
 func (s *Service) loadDashboardMarkers(ctx context.Context, app, env string, window connectors.TimeWindow) (dashboardMarkers, error) {
 	var m dashboardMarkers
+	optional := func(err error, at time.Time, target **time.Time) error {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err == nil {
+			*target = &at
+		}
+		return err
+	}
+	var release, rollback, start time.Time
 	err := s.Store.DB.QueryRow(ctx, `SELECT de.created_at FROM deployment_events de
  JOIN deployment_executions x ON x.id=de.execution_id
  JOIN deployment_plans p ON p.id=x.plan_id
  WHERE p.application_id=$1 AND p.environment_id=(SELECT id FROM application_environments WHERE application_id=$1 AND key=$2 AND NOT archived)
  AND de.type='succeeded' AND x.status='succeeded' AND de.created_at BETWEEN $3 AND $4
- ORDER BY de.created_at DESC LIMIT 1`, app, env, window.Start, window.End).Scan(&m.release)
-	if err != nil {
+ ORDER BY de.created_at DESC LIMIT 1`, app, env, window.Start, window.End).Scan(&release)
+	if err = optional(err, release, &m.release); err != nil {
 		return m, err
 	}
 	err = s.Store.DB.QueryRow(ctx, `SELECT event.created_at FROM events event
@@ -160,8 +182,8 @@ func (s *Service) loadDashboardMarkers(ctx context.Context, app, env string, win
  AND COALESCE(p.proposal->>'target_template_digest','')<>''
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id
 	WHERE i.application_id=$1 AND e.key=$2 AND NOT e.archived AND event.type='execution.succeeded'
-	AND event.created_at BETWEEN $3 AND $4 ORDER BY event.created_at DESC LIMIT 1`, app, env, window.Start, window.End).Scan(&m.rollback)
-	if err != nil {
+	AND event.created_at BETWEEN $3 AND $4 ORDER BY event.created_at DESC LIMIT 1`, app, env, window.Start, window.End).Scan(&rollback)
+	if err = optional(err, rollback, &m.rollback); err != nil {
 		return m, err
 	}
 	var end *time.Time
@@ -169,17 +191,18 @@ func (s *Service) loadDashboardMarkers(ctx context.Context, app, env string, win
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND e.key=$2 AND NOT e.archived
  WHERE i.application_id=$1 AND NOT i.suspected
 	AND i.starts_at < $4 AND (i.ends_at IS NULL OR i.ends_at > $3)
-	ORDER BY i.starts_at DESC LIMIT 1`, app, env, window.Start, window.End).Scan(&m.incidentStart, &end)
-	if err != nil {
+	ORDER BY i.starts_at DESC LIMIT 1`, app, env, window.Start, window.End).Scan(&start, &end)
+	if err = optional(err, start, &m.incidentStart); err != nil || m.incidentStart == nil {
 		return m, err
 	}
-	m.incidentEnd = window.End
+	incidentEnd := window.End
 	if end != nil {
-		m.incidentEnd = *end
+		incidentEnd = *end
 	}
-	if m.incidentEnd.Before(m.incidentStart) {
+	if incidentEnd.Before(start) {
 		return m, errors.New("invalid incident interval")
 	}
+	m.incidentEnd = &incidentEnd
 	return m, nil
 }
 
@@ -296,103 +319,111 @@ func dashboardBurnValue(window string, v float64) dashboardBurn {
 	return dashboardBurn{Window: window, Value: fmt.Sprintf("%.2f×", v), Tone: dashboardTone(v), Pct: pct}
 }
 
-func buildDashboard(result v3integrations.PrometheusMetricEvidence, window connectors.TimeWindow, marker dashboardMarkers, sloTarget float64) (metricsDashboard, bool) {
-	var out metricsDashboard
-	plain, grouped, ok := dashboardSeries(result, window)
-	if !ok || sloTarget <= 0 || sloTarget >= 100 {
-		return out, false
-	}
+// newDashboard lays out the window and the persisted markers. Metric blocks
+// stay null until applyMetrics proves them.
+func newDashboard(window connectors.TimeWindow, marker dashboardMarkers) metricsDashboard {
+	out := metricsDashboard{Unavailable: map[string]string{}}
 	out.Window.Labels = make([]string, dashboardPoints)
 	visibleStart := window.Start.Add(dashboardStep * time.Second)
-	if marker.release.Before(window.Start) || marker.rollback.Before(window.Start) ||
-		marker.release.After(window.End) || marker.rollback.After(window.End) {
-		return out, false
-	}
 	for i := range out.Window.Labels {
 		out.Window.Labels[i] = visibleStart.Add(time.Duration(i*dashboardStep) * time.Second).UTC().Format("15:04")
 	}
 	out.Window.Ticks = []string{out.Window.Labels[0], out.Window.Labels[9], out.Window.Labels[18], out.Window.Labels[27], out.Window.Labels[35]}
-	out.Window.ReleaseAt = dashboardIndex(marker.release, visibleStart)
-	out.Window.RollbackAt = dashboardIndex(marker.rollback, visibleStart)
-	out.Window.Incident = [2]int{dashboardIndex(marker.incidentStart, visibleStart), dashboardIndex(marker.incidentEnd, visibleStart)}
-	out.Window.IncidentLabel = fmt.Sprintf("Incident · %s–%s UTC", marker.incidentStart.UTC().Format("15:04"), marker.incidentEnd.UTC().Format("15:04"))
-	if out.Window.Incident[1] <= out.Window.Incident[0] {
-		// A shorter-than-one-bin incident is displayed at the nearest visible
-		// bin; the label retains the real start/end times.
-		if out.Window.Incident[0] == dashboardPoints-1 {
-			out.Window.Incident[0]--
-		} else {
-			out.Window.Incident[1]++
-		}
+	inWindow := func(at *time.Time) bool { return at != nil && !at.Before(window.Start) && !at.After(window.End) }
+	if inWindow(marker.release) {
+		index := dashboardIndex(*marker.release, visibleStart)
+		out.Window.ReleaseAt = &index
+	} else {
+		out.Unavailable["window.release_at"] = "not_generated"
 	}
-	out.Requests.OK, out.Requests.Client, out.Requests.Server = plain["requests_2xx"], plain["requests_4xx"], plain["requests_5xx"]
-	out.Latency.P50, out.Latency.P95, out.Latency.P99 = plain["latency_p50_ms"], plain["latency_p95_ms"], plain["latency_p99_ms"]
-	out.Latency.Buckets = append([]string(nil), dashboardHeatBuckets...)
-	out.Latency.Heat = make([][]float64, 0, len(dashboardHeatBuckets))
+	if inWindow(marker.rollback) {
+		index := dashboardIndex(*marker.rollback, visibleStart)
+		out.Window.RollbackAt = &index
+	} else {
+		out.Unavailable["window.rollback_at"] = "not_generated"
+	}
+	if marker.incidentStart != nil && marker.incidentEnd != nil {
+		incident := [2]int{dashboardIndex(*marker.incidentStart, visibleStart), dashboardIndex(*marker.incidentEnd, visibleStart)}
+		if incident[1] <= incident[0] {
+			// A shorter-than-one-bin incident is displayed at the nearest visible
+			// bin; the label retains the real start/end times.
+			if incident[0] == dashboardPoints-1 {
+				incident[0]--
+			} else {
+				incident[1]++
+			}
+		}
+		label := fmt.Sprintf("Incident · %s–%s UTC", marker.incidentStart.UTC().Format("15:04"), marker.incidentEnd.UTC().Format("15:04"))
+		out.Window.Incident, out.Window.IncidentLabel = &incident, &label
+	} else {
+		out.Unavailable["window.incident"], out.Unavailable["window.incident_label"] = "not_generated", "not_generated"
+	}
+	out.metricsUnavailable("unavailable")
+	return out
+}
+
+func (out *metricsDashboard) metricsUnavailable(reason string) {
+	out.KPIs, out.Requests, out.Latency, out.Endpoints, out.Instances, out.SLO = nil, nil, nil, nil, nil, nil
+	for _, field := range []string{"kpis", "requests", "latency", "endpoints", "instances", "slo"} {
+		out.Unavailable[field] = reason
+	}
+}
+
+// applyMetrics fills the metric blocks from one reviewed result. Any panel
+// that contradicts the others leaves every metric block unknown. The SLO block
+// additionally needs a valid target and coherent budget and burn panels.
+func (out *metricsDashboard) applyMetrics(result v3integrations.PrometheusMetricEvidence, window connectors.TimeWindow, sloTarget *float64) bool {
+	plain, grouped, ok := dashboardSeries(result, window)
+	if !ok {
+		return false
+	}
+	requests := &dashboardRequests{OK: plain["requests_2xx"], Client: plain["requests_4xx"], Server: plain["requests_5xx"]}
+	latency := &dashboardLatency{P50: plain["latency_p50_ms"], P95: plain["latency_p95_ms"], P99: plain["latency_p99_ms"],
+		Buckets: append([]string(nil), dashboardHeatBuckets...), Heat: make([][]float64, 0, len(dashboardHeatBuckets))}
 	for _, bucket := range dashboardHeatBuckets {
-		out.Latency.Heat = append(out.Latency.Heat, grouped["latency_heat"][bucket])
+		latency.Heat = append(latency.Heat, grouped["latency_heat"][bucket])
 	}
 	rate, errorsPct := make([]float64, dashboardPoints), make([]float64, dashboardPoints)
 	for i := range rate {
-		if out.Latency.P50[i] > out.Latency.P95[i] || out.Latency.P95[i] > out.Latency.P99[i] {
-			return metricsDashboard{}, false
+		if latency.P50[i] > latency.P95[i] || latency.P95[i] > latency.P99[i] {
+			return false
 		}
 		if plain["requests_other"][i] != 0 {
-			return metricsDashboard{}, false
+			return false
 		}
-		rate[i] = out.Requests.OK[i] + out.Requests.Client[i] + out.Requests.Server[i]
+		rate[i] = requests.OK[i] + requests.Client[i] + requests.Server[i]
 		if math.IsNaN(rate[i]) || math.IsInf(rate[i], 0) {
-			return metricsDashboard{}, false
+			return false
 		}
 		if math.Abs(rate[i]-plain["requests_total"][i]) > 0.001 {
-			return metricsDashboard{}, false
+			return false
 		}
 		if rate[i] <= 0 {
-			return metricsDashboard{}, false
+			return false
 		}
-		errorsPct[i] = out.Requests.Server[i] * 100 / rate[i]
+		errorsPct[i] = requests.Server[i] * 100 / rate[i]
 		if math.IsNaN(errorsPct[i]) || math.IsInf(errorsPct[i], 0) {
-			return metricsDashboard{}, false
+			return false
 		}
+	}
+	var totalRequests, serverErrors float64
+	for i := range rate {
+		totalRequests += rate[i]
+		serverErrors += requests.Server[i]
+	}
+	if totalRequests <= 0 || math.IsNaN(totalRequests) || math.IsInf(totalRequests, 0) || math.IsNaN(serverErrors) || math.IsInf(serverErrors, 0) {
+		return false
 	}
 	last := dashboardPoints - 1
 	out.KPIs = []dashboardKPI{
 		{ID: "rps", Label: "Requests", Value: fmt.Sprintf("%.2f", rate[last]), Unit: "/s", Sub: "Observed request rate", Series: rate},
 		{ID: "err", Label: "5xx ratio", Value: fmt.Sprintf("%.2f", errorsPct[last]), Unit: "%", Sub: "Observed server errors", Series: errorsPct},
-		{ID: "p99", Label: "P99 latency", Value: fmt.Sprintf("%.1f", out.Latency.P99[last]), Unit: "ms", Sub: "Observed latency", Series: out.Latency.P99},
+		{ID: "p99", Label: "P99 latency", Value: fmt.Sprintf("%.1f", latency.P99[last]), Unit: "ms", Sub: "Observed latency", Series: latency.P99},
 		{ID: "wait", Label: "Connection wait P95", Value: fmt.Sprintf("%.1f", plain["connection_wait_p95_ms"][last]), Unit: "ms", Sub: "Observed wait", Series: plain["connection_wait_p95_ms"]},
 		{ID: "cpu", Label: "CPU saturation", Value: fmt.Sprintf("%.1f", plain["cpu_saturation_pct"][last]), Unit: "%", Sub: "Observed saturation", Series: plain["cpu_saturation_pct"]},
 	}
-	availability := plain["slo_month_availability_pct"][last]
-	// The catalog's monthly availability and budget panels must represent the
-	// same request-based SLO. Refuse contradictory evidence instead of showing
-	// unrelated percentages as one coherent budget.
-	remaining := math.Max(0, math.Min(100, (availability-sloTarget)/(100-sloTarget)*100))
-	if math.Abs(remaining-plain["slo_budget_remaining_pct"][last]) > 0.1 {
-		return metricsDashboard{}, false
-	}
-	// Request-rate bins cover the same hour as the displayed 1 h burn. Its
-	// reviewed PromQL must use the same 5xx-based availability definition.
-	var totalRequests, serverErrors float64
-	for i := range rate {
-		totalRequests += rate[i]
-		serverErrors += out.Requests.Server[i]
-	}
-	if totalRequests <= 0 || math.IsNaN(totalRequests) || math.IsInf(totalRequests, 0) || math.IsNaN(serverErrors) || math.IsInf(serverErrors, 0) {
-		return metricsDashboard{}, false
-	}
-	derivedBurn := serverErrors / totalRequests / (1 - sloTarget/100)
-	if math.IsNaN(derivedBurn) || math.IsInf(derivedBurn, 0) {
-		return metricsDashboard{}, false
-	}
-	if math.Abs(derivedBurn-plain["slo_burn_1h"][last]) > math.Max(0.05, derivedBurn*0.05) {
-		return metricsDashboard{}, false
-	}
-	out.SLO.Remaining = remaining
-	out.SLO.Availability = fmt.Sprintf("%.3f%%", availability)
-	out.SLO.Delta = fmt.Sprintf("%+.3f%%", availability-sloTarget)
-	out.SLO.Burn = []dashboardBurn{dashboardBurnValue("1 h", plain["slo_burn_1h"][last]), dashboardBurnValue("6 h", plain["slo_burn_6h"][last]), dashboardBurnValue("3 d", plain["slo_burn_3d"][last])}
-	out.SLO.Note = "Observed error budget burn rates"
+	out.Requests, out.Latency = requests, latency
+	out.Endpoints, out.Instances = []dashboardRank{}, []dashboardInstance{}
 	for label, values := range grouped["endpoint_p99_ms"] {
 		out.Endpoints = append(out.Endpoints, dashboardRank{Label: label, Value: values[last]})
 	}
@@ -406,7 +437,37 @@ func buildDashboard(result v3integrations.PrometheusMetricEvidence, window conne
 		out.Instances = append(out.Instances, dashboardInstance{Label: label, Values: values})
 	}
 	sort.Slice(out.Instances, func(i, j int) bool { return out.Instances[i].Label < out.Instances[j].Label })
-	return out, true
+	for _, field := range []string{"kpis", "requests", "latency", "endpoints", "instances"} {
+		delete(out.Unavailable, field)
+	}
+	out.SLO, out.Unavailable["slo"] = nil, "not_configured"
+	if sloTarget == nil || *sloTarget <= 0 || *sloTarget >= 100 {
+		return true
+	}
+	target := *sloTarget
+	out.Unavailable["slo"] = "unavailable"
+	availability := plain["slo_month_availability_pct"][last]
+	// The catalog's monthly availability and budget panels must represent the
+	// same request-based SLO. Refuse contradictory evidence instead of showing
+	// unrelated percentages as one coherent budget.
+	remaining := math.Max(0, math.Min(100, (availability-target)/(100-target)*100))
+	if math.Abs(remaining-plain["slo_budget_remaining_pct"][last]) > 0.1 {
+		return true
+	}
+	// Request-rate bins cover the same hour as the displayed 1 h burn. Its
+	// reviewed PromQL must use the same 5xx-based availability definition.
+	derivedBurn := serverErrors / totalRequests / (1 - target/100)
+	if math.IsNaN(derivedBurn) || math.IsInf(derivedBurn, 0) {
+		return true
+	}
+	if math.Abs(derivedBurn-plain["slo_burn_1h"][last]) > math.Max(0.05, derivedBurn*0.05) {
+		return true
+	}
+	out.SLO = &dashboardSLO{Remaining: remaining, Availability: fmt.Sprintf("%.3f%%", availability),
+		Delta: fmt.Sprintf("%+.3f%%", availability-target), Note: "Observed error budget burn rates",
+		Burn: []dashboardBurn{dashboardBurnValue("1 h", plain["slo_burn_1h"][last]), dashboardBurnValue("6 h", plain["slo_burn_6h"][last]), dashboardBurnValue("3 d", plain["slo_burn_3d"][last])}}
+	delete(out.Unavailable, "slo")
+	return true
 }
 
 // currentDashboardSource is a final fail-closed check after both the provider
@@ -459,31 +520,56 @@ func (s *Service) dashboardSource(ctx context.Context, app, env string) (dashboa
 	return seal, ""
 }
 
-func (s *Service) currentDashboardSource(ctx context.Context, r *http.Request, service string, result v3integrations.PrometheusMetricEvidence, before dashboardSourceSeal, target float64) bool {
-	current, state := s.dashboardSource(ctx, result.ApplicationID, result.EnvironmentID)
-	if state != "" || !reflect.DeepEqual(current, before) || current.binding != result.BindingID || current.connector != result.ConnectorID || current.resource != result.ResourceID {
+func (s *Service) currentDashboardSource(ctx context.Context, r *http.Request, service, app, env string, result *v3integrations.PrometheusMetricEvidence, before dashboardSourceSeal, beforeState string, target *float64) bool {
+	current, state := dashboardSourceSeal{}, "not_configured"
+	if s.MetricReader != nil {
+		current, state = s.dashboardSource(ctx, app, env)
+	}
+	if state != beforeState || !reflect.DeepEqual(current, before) {
+		return false
+	}
+	if result != nil && (state != "" || current.binding != result.BindingID || current.connector != result.ConnectorID || current.resource != result.ResourceID) {
 		return false
 	}
 	var currentService string
-	if s.Store.DB.QueryRow(ctx, `SELECT id FROM applications WHERE id=$1 AND (id=$2 OR key=$2) AND NOT archived`, result.ApplicationID, service).Scan(&currentService) != nil {
+	if s.Store.DB.QueryRow(ctx, `SELECT id FROM applications WHERE id=$1 AND (id=$2 OR key=$2) AND NOT archived`, app, service).Scan(&currentService) != nil {
 		return false
 	}
-	var currentTarget float64
-	if s.Store.DB.QueryRow(ctx, `SELECT slo_target_percent FROM v3_service_environment_profiles WHERE application_id=$1 AND environment_id=$2`, result.ApplicationID, result.EnvironmentID).Scan(&currentTarget) != nil || currentTarget != target {
+	currentTarget, err := s.dashboardSLOTarget(ctx, app, env)
+	if err != nil || (currentTarget == nil) != (target == nil) || currentTarget != nil && *currentTarget != *target {
+		return false
+	}
+	team := current.team
+	if team == "" && s.Store.DB.QueryRow(ctx, `SELECT COALESCE(owner_team_id,'') FROM applications WHERE id=$1 AND NOT archived`, app).Scan(&team) != nil {
 		return false
 	}
 	user := httpapi.CurrentUser(r)
-	serviceGrant := s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "services", Action: "view", EnvironmentID: result.EnvironmentID, ApplicationID: result.ApplicationID})
-	if errors.Is(serviceGrant, store.ErrForbidden) && current.team != "" {
-		serviceGrant = s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "services", Action: "view", EnvironmentID: result.EnvironmentID, TeamID: current.team})
+	serviceGrant := s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "services", Action: "view", EnvironmentID: env, ApplicationID: app})
+	if errors.Is(serviceGrant, store.ErrForbidden) && team != "" {
+		serviceGrant = s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "services", Action: "view", EnvironmentID: env, TeamID: team})
 	}
 	if serviceGrant != nil {
 		return false
 	}
 	// The reader requires an environment/global connector grant, regardless
 	// of any narrower application or team connector grant.
-	connectorGrant := s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "connectors", Action: "view", EnvironmentID: result.EnvironmentID})
-	return connectorGrant == nil && s.dashboardEventGrant(ctx, r, result)
+	connectorGrant := s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "connectors", Action: "view", EnvironmentID: env})
+	return connectorGrant == nil && s.dashboardEventGrant(ctx, r, v3integrations.PrometheusMetricEvidence{ApplicationID: app, EnvironmentID: env})
+}
+
+// dashboardSLOTarget is nil when no usable target is configured. Only a failed
+// read is an error; 0 and 100 cannot define an error budget.
+func (s *Service) dashboardSLOTarget(ctx context.Context, app, env string) (*float64, error) {
+	var target float64
+	err := s.Store.DB.QueryRow(ctx, `SELECT slo_target_percent FROM v3_service_environment_profiles
+ WHERE application_id=$1 AND environment_id=$2`, app, env).Scan(&target)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && (target <= 0 || target >= 100) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &target, nil
 }
 
 func (s *Service) dashboardEventGrant(ctx context.Context, r *http.Request, result v3integrations.PrometheusMetricEvidence) bool {
@@ -571,10 +657,6 @@ func (s *Service) metricDashboard(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_environment", "Choose one environment")
 		return
 	}
-	if s.MetricReader == nil {
-		httpapi.Error(w, 503, "not_configured", "Registered Prometheus metric reads are not configured")
-		return
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
 	app, granted := s.dashboardPreGrantForService(ctx, r, service, environments[0])
@@ -582,17 +664,19 @@ func (s *Service) metricDashboard(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 403, "forbidden", "Incident timeline is outside your authorized scope")
 		return
 	}
-	before, sourceState := s.dashboardSource(ctx, app, environments[0])
-	if sourceState != "" {
-		if sourceState == "ambiguous_binding" {
-			httpapi.Error(w, 409, "ambiguous_binding", "Select one Prometheus binding for this service and environment")
-			return
-		}
-		if sourceState == "metric_scope_unavailable" {
-			httpapi.Error(w, 503, "metric_scope_unavailable", "Metric source lookup failed")
-			return
-		}
-		httpapi.Error(w, 503, "not_configured", "No registered Prometheus source is available")
+	// No registered Prometheus source is a deployment state, not a failed
+	// read: the metric blocks are null with not_configured and the persisted
+	// markers are still shown.
+	before, sourceState := dashboardSourceSeal{}, "not_configured"
+	if s.MetricReader != nil {
+		before, sourceState = s.dashboardSource(ctx, app, environments[0])
+	}
+	switch sourceState {
+	case "ambiguous_binding":
+		httpapi.Error(w, 409, "ambiguous_binding", "Select one Prometheus binding for this service and environment")
+		return
+	case "metric_scope_unavailable":
+		httpapi.Error(w, 503, "metric_scope_unavailable", "Metric source lookup failed")
 		return
 	}
 	end := time.Now().UTC().Truncate(time.Duration(dashboardStep) * time.Second)
@@ -614,35 +698,42 @@ func (s *Service) metricDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	window := connectors.TimeWindow{Start: end.Add(time.Hour * -1), End: end, StepSeconds: dashboardStep}
-	result, err := s.MetricReader.QueryService(ctx, scope, httpapi.CurrentUser(r), service, environments[0], "dashboard", window)
-	if err != nil {
-		metricSamplesReadError(w, err)
-		return
+	var result *v3integrations.PrometheusMetricEvidence
+	metricReason := "not_configured"
+	if sourceState == "" {
+		evidence, err := s.MetricReader.QueryService(ctx, scope, httpapi.CurrentUser(r), service, environments[0], "dashboard", window)
+		var readErr *v3integrations.PrometheusReadError
+		switch {
+		case err == nil:
+			if evidence.EnvironmentID != environments[0] || evidence.QueryID != "dashboard" || evidence.ApplicationID != app {
+				httpapi.Error(w, 503, "metric_result_incomplete", "Dashboard source provenance is incomplete")
+				return
+			}
+			result, metricReason = &evidence, "unavailable"
+		case errors.As(err, &readErr) && readErr.Code == "query_unregistered":
+			// The source exists but no reviewed dashboard query is registered.
+		default:
+			metricSamplesReadError(w, err)
+			return
+		}
 	}
-	if result.EnvironmentID != environments[0] || result.QueryID != "dashboard" {
-		httpapi.Error(w, 503, "metric_result_incomplete", "Dashboard source provenance is incomplete")
-		return
-	}
-	if !s.dashboardEventGrant(ctx, r, result) {
+	if !s.dashboardEventGrant(ctx, r, v3integrations.PrometheusMetricEvidence{ApplicationID: app, EnvironmentID: environments[0]}) {
 		httpapi.Error(w, 403, "forbidden", "Incident timeline is outside your authorized scope")
 		return
 	}
-	var target float64
-	err = s.Store.DB.QueryRow(ctx, `SELECT slo_target_percent FROM v3_service_environment_profiles
- WHERE application_id=$1 AND environment_id=$2`, result.ApplicationID, result.EnvironmentID).Scan(&target)
-	if err != nil || target <= 0 || target >= 100 {
-		httpapi.Error(w, 503, "slo_unavailable", "Service SLO target is not configured")
-		return
-	}
-	markers, err := s.loadDashboardMarkers(ctx, result.ApplicationID, result.EnvironmentID, window)
+	target, err := s.dashboardSLOTarget(ctx, app, environments[0])
 	if err != nil {
-		httpapi.Error(w, 503, "dashboard_markers_unavailable", "Release, rollback or incident marker is unavailable")
+		httpapi.Error(w, 503, "slo_unavailable", "Service SLO target could not be read")
 		return
 	}
-	dashboard, complete := buildDashboard(result, window, markers, target)
-	if !complete {
-		httpapi.Error(w, 503, "metric_result_incomplete", "Dashboard metric panels are incomplete")
+	markers, err := s.loadDashboardMarkers(ctx, app, environments[0], window)
+	if err != nil {
+		httpapi.Error(w, 503, "dashboard_markers_unavailable", "Release, rollback or incident markers could not be read")
 		return
+	}
+	dashboard := newDashboard(window, markers)
+	if result == nil || !dashboard.applyMetrics(*result, window, target) {
+		dashboard.metricsUnavailable(metricReason)
 	}
 	// The upstream read may outlive the authenticated session. Recheck the
 	// exact cookie before returning any dashboard data.
@@ -664,7 +755,7 @@ func (s *Service) metricDashboard(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 401, "unauthorized", "Session is no longer active")
 		return
 	}
-	if ctx.Err() != nil || !s.currentDashboardSource(ctx, r, service, result, before, target) {
+	if ctx.Err() != nil || !s.currentDashboardSource(ctx, r, service, app, environments[0], result, before, sourceState, target) {
 		httpapi.Error(w, 409, "metric_source_changed", "Dashboard source or authorization changed")
 		return
 	}

@@ -10,6 +10,17 @@ import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import { useCreateParam } from "../../ui/forms";
 import { NewInhibitDrawer } from "./CreateDrawers";
+import { ExpireSilenceDialog, SilenceProposalDrawer, type SubmittedSilence } from "./SilenceProposal";
+import { Link } from "react-router-dom";
+
+const SUBMITTED_KEY = "aiops-v3-silence-proposals";
+const readSubmitted = (): SubmittedSilence[] => {
+  try {
+    return JSON.parse(sessionStorage.getItem(SUBMITTED_KEY) ?? "[]") as SubmittedSilence[];
+  } catch {
+    return [];
+  }
+};
 import "./events.css";
 import { SampleOnly } from "../../ui/demo";
 
@@ -45,9 +56,26 @@ export default function SilencesPage() {
     form.current?.classList.add("flash");
     setTimeout(() => form.current?.classList.remove("flash"), 900);
   };
+  // Real silences are proposals (approved design): a drawer with an investigation picker replaces the sample side form.
+  const real = API_MODE !== "mock";
+  const [proposing, setProposing] = useState(false);
+  const [expiring, setExpiring] = useState<string | null>(null);
+  // There is no proposal list endpoint, so "pending review" rows are the ones submitted from this tab.
+  const [submitted, setSubmitted] = useState<SubmittedSilence[]>(() => (API_MODE === "mock" ? [] : readSubmitted()));
+  const remember = (s: SubmittedSilence) =>
+    setSubmitted((xs) => {
+      const next = [s, ...xs].slice(0, 20);
+      try {
+        sessionStorage.setItem(SUBMITTED_KEY, JSON.stringify(next));
+      } catch {
+        /* convenience only */
+      }
+      return next;
+    });
   useEffect(() => {
     if (silenceParam) {
-      focusForm();
+      if (real) setProposing(true);
+      else focusForm();
       setSilenceParam(false);
     }
   }, [silenceParam]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -94,7 +122,9 @@ export default function SilencesPage() {
     .filter((s) => !q || s.matchers.some((m) => `${m.k}=${m.v}`.includes(q)))
     .map((s) => (ended.has(s.id) ? { ...s, state: "expired" as const } : s));
   return (
-    <Page flush crumbs={[tx("事件与告警", "Events"), tx("静默与抑制", "Silences")]} actions={<><Btn icon="plus" onClick={() => setInhibitOpen(true)}>{tx("新建抑制规则", "New inhibition")}</Btn><Btn kind="primary" icon="plus" onClick={focusForm}>{tx("新建静默", "New silence")}</Btn></>}>
+    <Page flush crumbs={[tx("事件与告警", "Events"), tx("静默与抑制", "Silences")]} actions={<><Btn icon="plus" onClick={() => setInhibitOpen(true)}>{tx("新建抑制规则", "New inhibition")}</Btn><Btn kind="primary" icon="plus" onClick={real ? () => setProposing(true) : focusForm}>{real ? tx("提议静默", "Propose silence") : tx("新建静默", "New silence")}</Btn></>}>
+      {real && <SilenceProposalDrawer open={proposing} onClose={() => setProposing(false)} onSubmitted={remember} />}
+      {real && <ExpireSilenceDialog silenceId={expiring} onClose={() => setExpiring(null)} onSubmitted={() => qc.invalidateQueries({ predicate: (x) => x.queryKey[0] === "/silences" })} />}
       <NewInhibitDrawer open={inhibitOpen} onClose={() => setInhibitOpen(false)} />
       <Tabs value={tab} onChange={setTab} options={[{ value: "silences", label: tx("静默", "Silences"), count: list.data?.counts.active }, { value: "inhibit", label: tx("抑制规则", "Inhibition"), count: inhib.data?.items.length }, { value: "windows", label: tx("维护窗口", "Maintenance"), count: API_MODE === "mock" ? 2 : undefined }]} />
       <div className="v3-split">
@@ -107,6 +137,33 @@ export default function SilencesPage() {
               <Pills value={state} onChange={setState} options={[{ value: "active", label: tx("生效中", "Active"), count: list.data?.counts.active }, { value: "planned", label: tx("计划中", "Planned"), count: list.data?.counts.planned }, { value: "expired", label: tx("已过期", "Expired"), count: list.data?.counts.expired }]} />
               <SearchBox placeholder={tx("按标签搜索静默", "Search by label")} value={q} onChange={setQ} />
             </Row>
+            {real && state === "active" && submitted.length > 0 && (
+              <Card style={{ overflow: "hidden" }}>
+                <table className="v3-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: "40%" }}>{tx("你在本页提交的提案", "Proposals you submitted here")}</th>
+                      <th>{tx("状态", "State")}</th>
+                      <th>{tx("时长", "Duration")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {submitted.map((p) => (
+                      <tr key={p.proposal_id}>
+                        <td><Row gap={4} wrap>{p.matchers.map((m) => <LabelChip key={m.k + m.v} k={m.k} v={m.v} />)}</Row></td>
+                        <td>
+                          <Link to={`/review/${p.proposal_id}`} style={{ textDecoration: "none" }}>
+                            <State tone="warn">{tx("待审批 · {p}", "Pending review · {p}", { p: p.proposal_id })}</State>
+                          </Link>
+                        </td>
+                        <td><Muted>{p.duration < 3600 ? tx("{n} 分钟", "{n} min", { n: p.duration / 60 }) : tx("{n} 小时", "{n} h", { n: p.duration / 3600 })}</Muted></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <Muted size={11.5} style={{ display: "block", padding: "8px 12px" }}>{tx("批准并执行后会出现在下面的“生效中”。提案的最新状态以提案页为准。", "Once approved and executed they appear under Active below. The proposal page has the current state.")}</Muted>
+              </Card>
+            )}
             <Card style={{ overflow: "hidden" }}>
               <DataTable
                 rows={rows}
@@ -130,7 +187,8 @@ export default function SilencesPage() {
                   { key: "a", header: tx("影响", "Affects"), render: (s) => (s.affects ? <Num>{tx("{n} 条", "{n}", { n: s.affects })}</Num> : <Muted>—</Muted>) },
                   { key: "c", header: tx("创建人", "Creator"), render: (s) => <Row gap={6}><Avatar name={s.creator} size={20} /><Muted>{s.creator}</Muted></Row> },
                   { key: "why", header: tx("原因", "Reason"), render: (s) => <Muted>{s.reason}</Muted> },
-                  { key: "x", header: "", width: 40, render: (s) => s.state !== "expired" && <span className="hact"><IconBtn icon="x" label={tx("提前结束", "Expire now")} size={24} onClick={async () => {
+                  { key: "x", header: "", width: 40, render: (s) => s.state !== "expired" && <span className="hact"><IconBtn icon="x" label={real ? tx("提议提前结束", "Propose ending early") : tx("提前结束", "Expire now")} size={24} onClick={async () => {
+                    if (real) return setExpiring(s.id);
                     try {
                       await api("DELETE", `/silences/${s.id}`);
                       if (API_MODE !== "mock") return toast(tx("已提交提前结束提案，等待审批", "Expire proposal submitted for approval"));
@@ -174,7 +232,7 @@ export default function SilencesPage() {
             )}
           </div>
         </div>
-        <aside ref={form} className="aside silence-form" style={{ width: 380 }}>
+        {!real && <aside ref={form} className="aside silence-form" style={{ width: 380 }}>
           <Row gap={10} style={{ padding: "14px 16px", borderBottom: "1px solid var(--border)" }}>
             <Tile icon="clock" tone="accent" />
             <Col gap={0}>
@@ -232,7 +290,7 @@ export default function SilencesPage() {
               </Btn>
             </Row>
           </Col>
-        </aside>
+        </aside>}
       </div>
     </Page>
   );

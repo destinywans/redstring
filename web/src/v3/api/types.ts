@@ -212,6 +212,9 @@ export type WritebackPreview = {
   budget: { before: number; after: number; limit: number };
 };
 
+/** GET /investigations item (persisted investigation); open means status is not "closed". */
+export type InvestigationRecord = { id: string; application_id?: string; environment_id?: string; title?: string; status?: string; created_at?: string; updated_at?: string };
+
 /* ---------------- investigation templates ---------------- */
 export type InvestigationTemplate = {
   id: string;

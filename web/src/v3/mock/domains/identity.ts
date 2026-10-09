@@ -88,3 +88,10 @@ mock("DELETE", "/silences/:id", ({ params }) => {
   if (i >= 0) silences.splice(i, 1);
   return undefined;
 });
+
+/* Public invitation acceptance (sample: any code of 20+ characters works). */
+mock("POST", "/auth/invitations/accept", ({ body }) => {
+  const b = (body ?? {}) as { code?: string; name?: string; password?: string };
+  if (!b.code || b.code.length < 20) throw new MockError(409, "invitation_invalid", "Invitation code is invalid or expired");
+  return { created: true };
+});

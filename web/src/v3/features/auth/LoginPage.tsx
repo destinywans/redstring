@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Btn, Field, Input } from "../../ui/core";
 import { BrandMark } from "../../ui/BrandMark";
 import { useI18n } from "../../i18n";
@@ -115,6 +115,9 @@ export default function LoginPage() {
         <Btn kind="primary" type="submit" h={34} loading={busy} disabled={locked || !email.trim() || !password} className="v3-login-submit">
           {locked ? tx("请稍后再试", "Try again shortly") : tx("登录", "Sign in")}
         </Btn>
+        <p className="v3-login-alt">
+          {tx("收到邀请？", "Got an invitation?")} <Link to="/invite">{tx("用邀请码加入", "Join with your code")}</Link>
+        </p>
         {instance && (
           <div className="v3-login-instance">
             <span className={prod ? "tag prod" : "tag"}>● {prod ? tx("生产", "Production") : tx("非生产", "Non-production")}</span>

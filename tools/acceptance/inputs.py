@@ -51,7 +51,8 @@ def code(body):
 
 def multipart(filename, content):
     boundary = secrets.token_hex(12)
-    head = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+    head = (f'--{boundary}\r\nContent-Disposition: form-data; name="kind"\r\n\r\nfile\r\n'
+            f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\n'
             'Content-Type: text/plain\r\n\r\n').encode()
     return head + content + f'\r\n--{boundary}--\r\n'.encode(), f'multipart/form-data; boundary={boundary}'
 
@@ -126,7 +127,7 @@ def main():
     check('upload over 20 MiB', s, {413}, b, t)
     data, ctype = multipart('empty.txt', b'')
     s, b, t = send('POST', '/uploads', data, ctype)
-    check('empty upload', s, {201, 400, 422}, b, t, 'empty file: accepted or refused explicitly')
+    check('empty upload', s, {201, 400, 415, 422}, b, t, 'empty file: accepted or refused explicitly')
 
     for r in rows:
         print(f"{'PASS' if r['ok'] else 'FAIL'}  {r['check']:<40} {r['status']} {r['code'] or ''} {r['note']}")

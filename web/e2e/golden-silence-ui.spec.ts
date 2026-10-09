@@ -26,7 +26,9 @@ test("operator proposes a silence from the drawer", async ({ page }) => {
   // With one open investigation the drawer preselects it; otherwise pick it.
   const chosen = drawer.getByText(/应用 .* 来自这个调查/);
   if (!(await chosen.isVisible().catch(() => false)) || !(await drawer.getByText(investigation).isVisible().catch(() => false))) {
-    await drawer.getByText(/^INV-|选择调查/).first().click();
+    await drawer.getByText("关联的调查", { exact: true }).locator("xpath=following::button[1]").click();
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: resolve(OUT, "silence-picker-open.png") });
     await page.getByText(investigation, { exact: false }).last().click();
   }
   await expect(chosen).toBeVisible();

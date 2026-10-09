@@ -55,6 +55,13 @@
 | PA-40 | P2 | AI 日志工具按设计只给时间和级别、不给日志正文，根因分析能力受限；放开正文需决定是否把日志内容发给云端模型 | 用户决定允许发送脱敏后的日志正文，默认开启（2026-10-09）。后端已实现：新增 `internal/logredact`，`read_service_logs`（普通对话与调查 Canvas 共用）和旧 `query_logs` 在离开进程前把令牌、密钥键值、私钥、URL 凭据、Cookie、云访问密钥、邮箱、手机号、身份证、银行卡和内网 IP 替换为 `[REDACTED:类型]`，证据只存脱敏文本并带 `redactions` 计数；日志工具支持 Loki 与 Elasticsearch 绑定，仍为 15 分钟 10 条、每行 480 字、总计 8 KiB，并标注为不可信数据。见 `docs/api/v3-investigation-evidence-tools.md` |
 | PA-41 | P2 | 服务健康/SLO 只认一条覆盖约 15 个面板（含连接等待、CPU 饱和、多窗口燃烧率）的审查查询，缺任一面板即“未知”；实验应用没有连接等待指标，所以健康一直未知 | 用户决定允许部分面板（2026-10-09）。后端已实现：服务目录、详情和指标看板共用 `internal/v3metricpanels` 解析，审查查询可只返回部分面板；状态和 SLO 余量只需 `slo_burn_1h`、`slo_month_availability_pct`，燃烧窗口和各信号只列已有的，缺失项为 `null` 或省略并注明 `not_configured`；已有面板之间矛盾仍整体不可用 |
 | PA-42 | P1 | 生产实例 `GET /audit` 整页 503：静默执行器写入的生命周期行结果为 `pending`，审计接口没有映射，一行无法归类就让整个日志不可用 | 后端已修复：`pending` 映射为新结果值 `pending`（`?result=pending` 可过滤），`no_change` 归为 ok；其他无法归类的结果只让该行 `result` 为 `null` 并注明原因，不再整页失败 |
+| PA-43 | P3 | 审查查询目录单条表达式上限 2048 字符，一条覆盖 15 个面板的看板查询放不下，只能删面板或改用录制规则 | 已转 PA-19 统一目录一并考虑；验收环境保留 9 个面板 |
+| PA-44 | P2 | 最近 1 小时内只要有一个 100 秒分桶没有流量（或延迟缺点），服务健康和 SLO 就整体“暂时不可用”；服务真正中断时恰好看不到状态 | 待修复：零流量分桶应如实计为 0 请求，延迟缺点按缺失处理，不让整块失效 |
+| PA-45 | P1 | AI 对话取证 12 次后，证据（含脱敏日志正文）超过模型输入预算，整轮回答失败（`model input budget exhausted`），前面的取证白做 | 待修复：超预算时裁剪或摘要较旧证据后照常作答；验收环境已按 DeepSeek 实际能力设 `OPENAI_CONTEXT_WINDOW=65536` |
+| PA-46 | P2 | 模型输出达到上限（产品限定最多 4096 tokens）时整轮标为失败，已生成的大段结论也被当成失败 | 待修复：保留已生成内容并标注“被截断”，提供“继续” |
+| PA-47 | P1 | 告警被静默后，Alertmanager 不再发送它的恢复通知，产品里的事件一直停在“触发中”（演练中 checkout-api 恢复后 8 分钟以上仍是触发） | 待修复：用已接入的 Alertmanager 接口对账告警实际状态，或至少标明“已静默，状态未知” |
+| PA-48 | P3 | 从告警组“调查”生成的调查编号没有 `INV-` 前缀，和画布新建的调查不一致 | 待修复 |
+| PA-49 | P3 | 有多个开放调查时，静默抽屉的调查选择器只是一个没有文字、也没有无障碍名称的下拉按钮 | 已转前端 |
 
 ### PA-05/PA-16 五个读接口
 
@@ -74,6 +81,7 @@
 
 ### 进展
 
+- **故障演练闭环（坏发布导致 5xx，prod）**：开启演练后约 1 分钟 `LabHigh5xxRate` 触发，经 Alertmanager webhook 进入产品，order-api 因调用 checkout-api 同时告警。AI（DeepSeek）调用 12 次只读工具，判定根因是 checkout-api 的注入型 500、order-api 为下游传导（两边错误日志 trace_id 逐条对应、错误率逐点相同）。从告警组发起调查，在静默抽屉提议静默，两人用通行密钥批准，执行器写入后 Alertmanager 中该告警变为已抑制；关闭演练（相当于回滚）后告警恢复，再经提案结束静默。服务目录显示两服务“降级”、错误预算 0。暴露 PA-44～49。
 - **PA-05 服务目录与详情（后端）**：`GET /services`、`GET /services/{id}` 缺证据时不再整体 503（原 `service_view_incomplete` 已删除），改为 200 部分结果：缺的字段为 `null`，原因写进逐项 `unavailable`（`not_connected` / `not_configured` / `no_authorized_target` / `not_generated` / `unavailable` / `stale`），不把未知写成 0、ok、空列表或“未值班”。KPI 和 facet 只统计已知值，KPI 带被排除的 `unknown` 数，全部未知时为 `null` + `reason`；`status` 筛选只匹配已知状态，排序把未知放最后。读取期间来源封印或告警覆盖变化改报 `503 service_source_changed`，数据库/策略不可用仍为 `503 service_view_unavailable`，403/404/422 不变。`GET /services/{id}/slo` 首次保存前返回 200（target/window 为 `null`，revision 0），不再 `503 slo_not_configured`。契约顺带放开 `tier` 到 T0–T3、详情 `env` 为任意环境键。OpenAPI 与[服务目录与详情](../api/v3-service-views.md)已更新；v3serviceviews 数据库测试（含新登记服务无证据 → 200 + 原因、KPI 忽略未知）通过。前端类型和页面另行适配。
 - **第二轮对拍（修复 PA-01～07、10、17、22、24 后）**：两个实例 × 中英文 × 深浅色共 216 次页面加载，干净 110 次（上一轮 0）。剩下的主要是数据来源未配置导致的 503，以及静默、新建规则页的自动预览异常。
 - **第三轮对拍（PA-10/11/15/26～31 后）**：216 次加载干净 140 次，未捕获异常 0、白屏 0。剩下 8 组接口失败全是后端来源或“部分数据”问题。

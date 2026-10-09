@@ -59,7 +59,7 @@ class ProtocolTests(unittest.TestCase):
 
     def test_parse_code_and_expiry_from_native_mail(self):
         code = base64.urlsafe_b64encode(b'x' * 32).decode().rstrip('=')
-        message = ('From: ' + inv.FROM + '\r\nTo: ' + self.email + '\r\nSubject: AIOps Canvas invitation\r\n'
+        message = ('From: ' + inv.FROM + '\r\nTo: ' + self.email + '\r\nSubject: =?utf-8?q?Redstring_=E9=82=80=E8=AF=B7_/_Redstring_invitation?=\r\n'
             'Content-Type: text/plain; charset=utf-8\r\n\r\nTrusted product entry: ' + inv.ORIGIN + '/accept-invitation\r\n'
             'One-time invitation code: ' + code + '\r\nCode expires at: 2026-10-02T00:00:00Z\r\n').encode()
         value = inv.mail_evidence(dict(recipient=self.email, message=message.decode(), outcome='accepted'))

@@ -47,6 +47,9 @@ for (const instance of Object.keys(INSTANCES) as InstanceName[]) {
           await m.quiet();
           expect.soft(mounted, "app mounted within 20s").toBe(true);
           await m.settle();
+          // Render errors caught by PageBoundary leave no pageerror; read the fallback marker instead.
+          const caught = await page.locator("[data-page-error]").first().getAttribute("data-page-error", { timeout: 500 }).catch(() => null);
+          if (caught) m.pageErrors.push(`PageBoundary: ${caught}`);
           const blank = await page.evaluate(() => (document.getElementById("root")?.innerText ?? "").trim().length < 20);
           const key = `${instance}-${combo.locale}-${combo.theme}-${route.replace(/[/?=]+/g, "_") || "home"}`;
           const shot = resolve(OUT, `${key}.png`);

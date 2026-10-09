@@ -29,7 +29,7 @@ export class PageBoundary extends Component<Props, State> {
 function PageFailed({ error, retry }: { error: Error; retry: () => void }) {
   const { tx } = useI18n();
   return (
-    <main className="v3-page">
+    <main className="v3-page" data-page-error={error.message}>
       <div className="v3-content" role="alert">
         <Empty
           icon="alert"

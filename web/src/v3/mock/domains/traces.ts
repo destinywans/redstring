@@ -1,5 +1,8 @@
 /** Traces v2: application traces (Tempo/Jaeger style) and agent traces (Langfuse/Phoenix style). */
 import { mock } from "../router";
+
+/** The sample spans are written in seconds; the contract reports milliseconds. */
+const traceInMs = <T extends { total: number; spans: { start: number; dur: number }[] }>(t: T): T => ({ ...t, total: t.total * 1000, spans: t.spans.map((x) => ({ ...x, start: Math.round(x.start * 1000), dur: Math.round(x.dur * 1000) })) });
 import { l } from "../../i18n";
 
 const P = l;
@@ -112,7 +115,7 @@ mock("GET", "/traces/:id", ({ params }) => ({
   },
 }));
 
-mock("GET", "/agent-runs/:id/trace", ({ params }) => ({
+mock("GET", "/agent-runs/:id/trace", ({ params }) => traceInMs({
   id: params.id,
   agent: P("调查助手 v13", "Investigator v13"),
   status: "success",

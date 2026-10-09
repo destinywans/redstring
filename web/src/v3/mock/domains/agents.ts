@@ -1,4 +1,7 @@
 import { mock, MockError } from "../router";
+
+/** The sample timeline is written in seconds; the contract reports milliseconds. */
+const runInMs = <T extends { total: number; steps: { start: number; dur: number }[] }>(r: T): T => ({ ...r, total: r.total * 1000, steps: r.steps.map((x) => ({ ...x, start: Math.round(x.start * 1000), dur: Math.round(x.dur * 1000) })) });
 import { l } from "../../i18n";
 
 const P = (zh: string, en: string) => l(zh, en);
@@ -256,7 +259,7 @@ mock("GET", "/agent-runs", ({ query }) => {
     counts: { all: 312, failed: 9, blocked: 3, negative: 4 },
   };
 });
-mock("GET", "/agent-runs/:id", ({ params }) => ({
+mock("GET", "/agent-runs/:id", ({ params }) => runInMs({
   id: params.id,
   chain: [
     { label: P("对话", "Conversation"), value: "INV-231", icon: "message", to: "/canvas/INV-231" },

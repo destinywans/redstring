@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, useGet } from "../../api/client";
 import type { RunRow, RunsView } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, Legend, Mono, Muted, Num, Pills, Row, SearchBox, Skeleton, Spacer, State, Strong, TextLink, type IconName } from "../../ui/core";
 import { DataTable, Kpi, KpiRow } from "../../ui/data";
@@ -76,7 +76,7 @@ export default function RunsPage() {
           <ChipSelect label={tx("版本", "Version")} {...fVer.props} />
           <ChipSelect label={tx("触发方式", "Trigger")} {...fTrig.props} />
           <Spacer />
-          <TextLink to="/agents/runs/run_7f3a">{tx("打开运行详情 run_7f3a", "Open run run_7f3a")}</TextLink>
+          {API_MODE === "mock" && <TextLink to="/agents/runs/run_7f3a">{tx("打开运行详情 run_7f3a", "Open run run_7f3a")}</TextLink>}
         </Row>
         <Card style={{ overflow: "hidden" }}>
           <DataTable<RunRow>

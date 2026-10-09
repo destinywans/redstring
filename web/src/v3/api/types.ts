@@ -720,16 +720,23 @@ export type EvalCase = {
 export type RunRow = { id: string; agent: string; version: string; trigger: string; scope: string; status: "success" | "failed" | "blocked"; steps: string | null; tokens: string | null; duration: string | null; feedback?: { icon: string; tone: Tone; text: string } };
 /** trend/durations/counts are null until a live run producer exists (see `missing`). */
 export type RunsView = { kpis: Kpi[]; trend: { ok: number[]; failed: number[]; blocked: number[] } | null; durations: number[] | null; items: RunRow[]; counts: Record<"all" | "failed" | "blocked" | "negative", number> | null; missing?: string[] };
+/**
+ * GET /agent-runs/{id}. `start`, `dur` and `total` are milliseconds. Steps are null without recorded spans, `total`
+ * only exists for finished runs, and context / budget / isolated / memory have no producer yet (null, see `missing`).
+ */
 export type RunDetail = {
   id: string;
   chain: { label: string; value: string; icon: string; to?: string }[];
   stats: { k: string; v: string }[];
-  steps: { id: string; icon: string; name: string; start: number; dur: number; meta: string; kind: "model" | "tool"; call?: string; result?: string[]; connector?: string }[];
-  total: number;
-  context: { name: string; tokens: string; pct: number; color: string }[];
-  budget: string;
-  isolated: string[];
-  memory: { icon: string; name: string; desc: string; hits: { text: string; score?: string }[] }[];
+  steps: { id: string; icon: string; name: string; start: number; dur: number | null; meta: string; kind: "model" | "tool" | string; call?: string; result?: string[]; connector?: string }[] | null;
+  total: number | null;
+  context: { name: string; tokens: string; pct: number; color: string }[] | null;
+  budget: string | null;
+  isolated: string[] | null;
+  memory: { icon: string; name: string; desc: string; hits: { text: string; score?: string }[] }[] | null;
+  status?: "running" | "success" | "failed" | "blocked";
+  partial?: boolean;
+  missing?: string[];
 };
 export type GuardPolicy = { id: string; icon: string; name: string; desc: string; stat: string; enabled: boolean; forced?: boolean };
 export type GuardEvent = { id: string; time: string; agent: string; run: string; rule: string; action: "blocked" | "masked"; detail: string };
@@ -968,8 +975,9 @@ export type AgentSpan = {
   kind: AgentSpanKind;
   name: string;
   meta: string;
+  /** Milliseconds from the run start; dur is null when the span recorded none. */
   start: number;
-  dur: number;
+  dur: number | null;
   llm?: {
     model: string;
     effort: string;
@@ -987,16 +995,19 @@ export type AgentSpan = {
   tool?: { brand: string; connector: string; budget: string; args: unknown; result: unknown; evidence: string };
   guard?: { target: string; rule: string; result: string };
 };
+/** GET /agent-runs/{id}/trace. Times are milliseconds; scores, session and turns have no producer yet and spans are null without records. */
 export type AgentTrace = {
   id: string;
   agent: string;
-  status: "success" | "failed" | "blocked";
+  status: "running" | "success" | "failed" | "blocked";
   stats: { k: string; v: string }[];
-  scores: { label: string; tone: Tone; icon?: string }[];
-  session: string;
-  turns: { n: number; brand: string; model: string; meta: string; current?: boolean; switched?: boolean; run_id?: string }[];
-  total: number;
-  spans: AgentSpan[];
+  scores: { label: string; tone: Tone; icon?: string }[] | null;
+  session: string | null;
+  turns: { n: number; brand: string; model: string; meta: string; current?: boolean; switched?: boolean; run_id?: string }[] | null;
+  total: number | null;
+  spans: AgentSpan[] | null;
+  partial?: boolean;
+  missing?: string[];
 };
 
 /* ---------------- v4: instance & environments ---------------- */

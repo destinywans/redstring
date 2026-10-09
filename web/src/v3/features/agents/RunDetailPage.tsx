@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet, useSend, API_MODE } from "../../api/client";
+import { useGet, useSend, API_MODE, ApiError, api } from "../../api/client";
 import type { RunDetail } from "../../api/types";
 import { Badge, Btn, Card, CardHead, Col, Icon, IconBtn, Mono, Muted, Row, Skeleton, Spacer, Tabs, Tile, cx, type IconName } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -10,21 +10,32 @@ import { useI18n } from "../../i18n";
 import { AgentTrace } from "./AgentTrace";
 import "./agents.css";
 import { openForm, openExternal, downloadFile } from "../../ui/demo";
+import { Unavailable } from "../../ui/unknown";
 
 export default function RunDetailPage() {
   const { tx } = useI18n();
-  const { id = "run_7f3a" } = useParams();
-  const { data: r } = useGet<RunDetail>(`/agent-runs/${id}`);
+  const { id = API_MODE === "mock" ? "run_7f3a" : "" } = useParams();
+  const demo = API_MODE === "mock";
+  const { data: r } = useGet<RunDetail>(id ? `/agent-runs/${id}` : null);
   const [tab, setTab] = useState("trace");
-  const [stepId, setStepId] = useState("s2");
+  const [stepId, setStepId] = useState(demo ? "s2" : "");
   const [vote, setVote] = useState<"up" | "down" | null>(null);
   const feedback = useSend<{ vote: "up" | "down" }>("POST", `/agent-runs/${id}/feedback`);
-  const step = r?.steps.find((s) => s.id === stepId);
-  const rate = (v: "up" | "down") => {
-    setVote(v);
-    feedback.mutate({ vote: v });
-    toast(v === "up" ? tx("已标记为有用", "Marked helpful") : tx("已标记为无用，会进入改进队列", "Marked not helpful — added to the improvement queue"));
-  };
+  const step = r?.steps?.find((s) => s.id === stepId);
+  // Steps are milliseconds from the run start; an unfinished run has no total, so scale to the last step.
+  const total = r ? r.total ?? Math.max(1, ...(r.steps ?? []).map((s) => s.start + (s.dur ?? 0))) : 1;
+  const axis = [0, 0.25, 0.5, 0.75, 1].map((f) => `${Math.round((f * total) / 1000)} s`);
+  const rate = (v: "up" | "down") =>
+    feedback.mutate(
+      { vote: v },
+      {
+        onSuccess: () => {
+          setVote(v);
+          toast(v === "up" ? tx("已标记为有用", "Marked helpful") : tx("已标记为无用，会进入改进队列", "Marked not helpful — added to the improvement queue"));
+        },
+        onError: (e) => toast(e.message, { tone: "danger" }),
+      },
+    );
   return (
     <Page
       flush
@@ -33,7 +44,8 @@ export default function RunDetailPage() {
         <>
           <IconBtn icon="check" label={tx("有用", "Helpful")} active={vote === "up"} onClick={() => rate("up")} />
           <IconBtn icon="x" label={tx("无用", "Not helpful")} active={vote === "down"} onClick={() => rate("down")} />
-          <Btn icon="plus" onClick={() => toast(tx("已加入数据集「根因分析 · 回归」", "Added to dataset “Root cause · regression”"))}>{tx("加入数据集", "Add to dataset")}</Btn>
+          {/* Adding a run to an eval dataset needs a dataset picker (POST /eval-datasets/{id}/items); sample data only for now. */}
+          {demo && <Btn icon="plus" onClick={() => toast(tx("已加入数据集「根因分析 · 回归」", "Added to dataset “Root cause · regression”"))}>{tx("加入数据集", "Add to dataset")}</Btn>}
           <Btn
             icon="edit"
             onClick={async () => {
@@ -45,12 +57,19 @@ export default function RunDetailPage() {
                 ],
                 submit: tx("保存标注", "Save annotation"),
               });
-              if (v) toast(tx("标注已保存：{s} 分", "Annotation saved: {s}/5", { s: v.score }));
+              if (!v) return;
+              if (demo) return toast(tx("标注已保存：{s} 分", "Annotation saved: {s}/5", { s: v.score }));
+              try {
+                await api("POST", `/agent-runs/${id}/annotations`, { body: { score: Number(v.score), ...(v.note?.trim() ? { note: v.note.trim() } : {}) } });
+                toast(tx("标注已保存：{s} 分", "Annotation saved: {s}/5", { s: v.score }));
+              } catch (e) {
+                toast(e instanceof ApiError ? e.message : tx("保存失败，请稍后重试", "Couldn't save; try again later"), { tone: "danger" });
+              }
             }}
           >
             {tx("标注", "Annotate")}
           </Btn>
-          <Btn kind="ghost" icon="external" onClick={() => openExternal("Phoenix", `https://phoenix.example.internal/projects/aiops/traces/${id}`)}>{tx("在 Phoenix 中打开", "Open in Phoenix")}</Btn>
+          {demo && <Btn kind="ghost" icon="external" onClick={() => openExternal("Phoenix", `https://phoenix.example.internal/projects/aiops/traces/${id}`)}>{tx("在 Phoenix 中打开", "Open in Phoenix")}</Btn>}
           <Btn
             kind="ghost"
             icon="download"
@@ -139,17 +158,18 @@ export default function RunDetailPage() {
                 <div className="gantt">
                   <div className="g-row axis">
                     <span />
-                    <Axis labels={["0 s", "40 s", "80 s", "120 s", "160 s"]} style={{ marginTop: 0 }} />
+                    <Axis labels={axis} style={{ marginTop: 0 }} />
                     <span />
                   </div>
-                  {r.steps.map((s, i) => (
+                  {!r.steps && <Muted size={11.5}>{tx("这次运行没有留下步骤记录", "This run recorded no steps")}</Muted>}
+                  {r.steps?.map((s, i) => (
                     <button key={s.id} type="button" className={cx("g-row", stepId === s.id && "on", s.kind === "model" && "model")} onClick={() => s.kind === "tool" && setStepId(s.id)} disabled={s.kind === "model"} style={{ animationDelay: `${i * 50}ms` }}>
                       <span className="name">
                         <Icon name={s.icon as IconName} size={14} />
                         {s.name}
                       </span>
                       <span className="track">
-                        <i style={{ left: `${(100 * s.start) / r.total}%`, width: `max(4px, ${(100 * s.dur) / r.total}%)`, background: s.kind === "model" ? "var(--c1)" : "var(--c2)" }} />
+                        <i style={{ left: `${(100 * s.start) / total}%`, width: `max(4px, ${(100 * (s.dur ?? 0)) / total}%)`, background: s.kind === "model" ? "var(--c1)" : "var(--c2)" }} />
                       </span>
                       <span className="meta tnum">{s.meta}</span>
                     </button>
@@ -157,7 +177,12 @@ export default function RunDetailPage() {
                 </div>
               </Card>
               <Card>
-                <CardHead title={tx("上下文组成", "Context composition")} right={<Mono>{r.budget}</Mono>} />
+                <CardHead title={tx("上下文组成", "Context composition")} right={r.budget && <Mono>{r.budget}</Mono>} />
+                {!r.context ? (
+                  <div style={{ padding: 16 }}>
+                    <Unavailable reason="not_generated" title={tx("上下文组成", "Context composition")} desc={tx("还没有记录每次运行的上下文组成。", "Per-run context composition isn't recorded yet.")} icon="layers" />
+                  </div>
+                ) : (
                 <Col gap={12} style={{ padding: "14px 16px" }}>
                   <div className="ctx-stack">
                     {r.context.map((c) => (
@@ -176,12 +201,13 @@ export default function RunDetailPage() {
                   <div className="isolated">
                     <Muted size={11.5} style={{ fontWeight: 500 }}>{tx("未进入本次上下文（分支隔离）", "Not in this context (branch isolation)")}</Muted>
                     <Row gap={6} wrap>
-                      {r.isolated.map((x) => (
+                      {r.isolated?.map((x) => (
                         <Badge key={x}>{x}</Badge>
                       ))}
                     </Row>
                   </div>
                 </Col>
+                )}
               </Card>
               {step && (
                 <Card className="anim-fade" key={step.id}>
@@ -208,12 +234,16 @@ export default function RunDetailPage() {
                       </Muted>
                     </Row>
                     <Row gap={8}>
-                      <Btn h={26} icon="file" to="/canvas/INV-231">
-                        {tx("查看证据", "View evidence")}
-                      </Btn>
-                      <Btn h={26} kind="ghost" icon="external" onClick={() => openExternal("Grafana", "https://grafana.example.internal/d/checkout-api")}>
-                        {tx("在 Grafana 中打开", "Open in Grafana")}
-                      </Btn>
+                      {demo && (
+                        <>
+                          <Btn h={26} icon="file" to="/canvas/INV-231">
+                            {tx("查看证据", "View evidence")}
+                          </Btn>
+                          <Btn h={26} kind="ghost" icon="external" onClick={() => openExternal("Grafana", "https://grafana.example.internal/d/checkout-api")}>
+                            {tx("在 Grafana 中打开", "Open in Grafana")}
+                          </Btn>
+                        </>
+                      )}
                       <Spacer />
                       <Mono color="var(--muted)" size={11.5}>span · execute_tool</Mono>
                     </Row>
@@ -239,9 +269,14 @@ function MemoryCard({ r }: { r: RunDetail }) {
   const { tx } = useI18n();
   return (
     <Card>
-      <CardHead title={tx("记忆", "Memory")} right={<Badge>{tx("读取 3 · 写入 1", "3 read · 1 written")}</Badge>} />
+      <CardHead title={tx("记忆", "Memory")} right={API_MODE === "mock" && <Badge>{tx("读取 3 · 写入 1", "3 read · 1 written")}</Badge>} />
+      {!r.memory && (
+        <div style={{ padding: 16 }}>
+          <Unavailable reason="not_generated" title={tx("记忆读写", "Memory reads and writes")} desc={tx("还没有记录运行中的记忆读写。", "Memory reads and writes during runs aren't recorded yet.")} icon="memory" />
+        </div>
+      )}
       <ul className="mem-layers">
-        {r.memory.map((m) => (
+        {r.memory?.map((m) => (
           <li key={m.name}>
             <Tile icon={m.icon as IconName} size={26} />
             <Col gap={3} grow style={{ minWidth: 0 }}>

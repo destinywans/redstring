@@ -108,7 +108,7 @@ function PersonCard({ name }: { name: string }) {
                   label: tx("事项", "Item"),
                   type: "select",
                   options: [
-                    { value: "ALR-7729", label: "ALR-7729", hint: tx("P2 · payment-gateway P99", "P2 · payment-gateway P99") },
+                    { value: "ALR-7729", label: "ALR-7729", hint: tx("P2 · inventory-03 磁盘 IO", "P2 · inventory-03 disk IO") },
                     { value: "INC-1042", label: "INC-1042", hint: tx("checkout-api 5xx", "checkout-api 5xx") },
                     { value: "PRP-88", label: "PRP-88", hint: tx("回滚提案复核", "Rollback proposal review") },
                   ],

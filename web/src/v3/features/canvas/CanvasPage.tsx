@@ -4,6 +4,7 @@ import { Page } from "../../app/Shell";
 import { api, useGet } from "../../api/client";
 import type { CanvasGraph, CanvasNode, EvidenceTrayItem } from "../../api/types";
 import { AvatarGroup, Badge, Btn, Col, Dot, Env, Icon, IconBtn, Muted, Row, Section, Segmented, Skeleton, Spacer, Strong, Tabs, Tile, KV, Mono, cx, type IconName } from "../../ui/core";
+import { BrandMark } from "../../ui/BrandMark";
 import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { Donut, Lines, Sparkline } from "../../charts";
@@ -148,7 +149,7 @@ function NodeCard({
             {tx("已排除", "Ruled out")}
           </Badge>
         )}
-        {n.status === "running" && <span className="v3-spinner spin" style={{ color: "var(--accent)" }} />}
+        {n.status === "running" && <BrandMark size={16} state="thinking" label={tx("AI 正在分析", "AI is working")} />}
       </div>
       {!collapsed && n.kind !== "evidence" && (
         <div className="cv-body">
@@ -326,7 +327,7 @@ function Inspector({ n, nodes, onClose, onWriteback, pinned, onPin }: { n: Canva
                 <div className="cv-writeback">
                   <Row gap={6}>
                     <Icon name="check" size={13} color="var(--ok)" />
-                    <span style={{ color: "var(--accent-text)" }}>{tx("「连接池参数对比」的 2 条结论已回写到主线 v7", "2 conclusions from “Pool comparison” were written back to main v7")}</span>
+                    <span style={{ color: "var(--accent-text)" }}>{tx("「调用量为什么翻三倍」的 2 条结论已回写到主线 v7", "2 conclusions from “Why did calls triple?” were written back to main v7")}</span>
                   </Row>
                   <Btn h={24} onClick={onWriteback}>
                     {tx("查看回写记录", "View writeback")}
@@ -671,7 +672,7 @@ export default function CanvasPage() {
   };
   const addEvidence = (item: EvidenceTrayItem, clientX: number, clientY: number) => {
     const p = toCanvas(clientX, clientY);
-    const parent = selected && selected.kind !== "evidence" ? selected : byId["b-pool"] ?? byId.root;
+    const parent = selected && selected.kind !== "evidence" ? selected : byId["b-inv"] ?? byId.root;
     const colors = { chart: "var(--c1)", table: "var(--c2)", log: "var(--c4)", diff: "var(--c6)" };
     const node: CanvasNode = {
       id: `e-${Date.now()}`,
@@ -698,7 +699,7 @@ export default function CanvasPage() {
     setParams(next, { replace: true });
   };
 
-  const inspector = selected ? <Inspector n={selected} nodes={nodes} onClose={() => setSel(null)} onWriteback={() => setWriteback("b-cmp")} pinned={pinned} onPin={setPinned} /> : null;
+  const inspector = selected ? <Inspector n={selected} nodes={nodes} onClose={() => setSel(null)} onWriteback={() => setWriteback("b-amp")} pinned={pinned} onPin={setPinned} /> : null;
   // Keep the selected node clear of the floating card by panning the canvas.
   useEffect(() => {
     if (!selected || pinned || !area.current) return;
@@ -865,7 +866,7 @@ export default function CanvasPage() {
             <Btn kind="ghost" icon="merge" onClick={() => toast(tx("请选择两个同级分支进行合并", "Select two sibling branches to merge"))}>
               {tx("合并", "Merge")}
             </Btn>
-            <Btn kind="ghost" icon="writeback" onClick={() => setWriteback(sel ?? "b-cmp")}>
+            <Btn kind="ghost" icon="writeback" onClick={() => setWriteback(sel ?? "b-amp")}>
               {tx("回写", "Write back")}
             </Btn>
             <Btn kind={compare ? "soft" : "ghost"} icon="layers" onClick={() => setCompare((c) => !c)}>
@@ -897,7 +898,7 @@ export default function CanvasPage() {
             </Btn>
           </div>
           {selected && !pinned && inspector}
-          {compare && <CompareDialog a={byId["b-pool"]} b={byId["b-cmp"]} onClose={() => setCompare(false)} onMerge={() => { setCompare(false); setWriteback("b-cmp"); }} />}
+          {compare && <CompareDialog a={byId["b-inv"]} b={byId["b-amp"]} onClose={() => setCompare(false)} onMerge={() => { setCompare(false); setWriteback("b-amp"); }} />}
         </div>
         {selected && pinned && inspector}
       </div>

@@ -28,10 +28,48 @@
           : "#f7f8fa";
       })();
     </script>
-    <title>AIOps Canvas</title>
+    <title>Redstring</title>
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <style>
+      /* Boot placeholder: shown only if the app takes over 300 ms to start; React replaces it on mount. */
+      #boot { position: fixed; inset: 0; display: grid; place-items: center; background: #fff; animation: boot-in 0.2s 0.3s both; }
+      #boot .t { stroke: #e5484d; fill: #e5484d; opacity: 0.3; }
+      #boot .g { stroke: #e5484d; stroke-dasharray: 9 118; animation: boot-run 1s linear infinite; }
+      #boot .i { fill: #111113; }
+      #boot .r { fill: #e5484d; }
+      :root[data-v3-theme="dark"] #boot { background: #0a0a0b; }
+      :root[data-v3-theme="dark"] #boot .t { stroke: #f2555a; fill: #f2555a; }
+      :root[data-v3-theme="dark"] #boot .g { stroke: #f2555a; }
+      :root[data-v3-theme="dark"] #boot .i { fill: #f2f2f3; }
+      :root[data-v3-theme="dark"] #boot .r { fill: #f2555a; }
+      @keyframes boot-in { from { opacity: 0; } }
+      @keyframes boot-run { from { stroke-dashoffset: 127; } to { stroke-dashoffset: 0; } }
+      @media (prefers-reduced-motion: reduce) { #boot .g { display: none; } #boot .t { opacity: 1; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot" aria-hidden="true">
+        <svg width="40" height="40" viewBox="0 0 64 64">
+          <defs>
+            <mask id="boot-thread" maskUnits="userSpaceOnUse" x="-8" y="-8" width="80" height="80">
+              <path d="M46 5L34.68 16.32M27.32 23.68L16 35L48 27L36.68 38.32M29.32 45.68L22.1 52.9" fill="none" stroke="#fff" stroke-width="4.2" stroke-miterlimit="12" />
+              <circle cx="46" cy="5" r="2.1" fill="#fff" />
+            </mask>
+          </defs>
+          <g class="t">
+            <path d="M46 5L34.68 16.32M27.32 23.68L16 35L48 27L36.68 38.32M29.32 45.68L22.1 52.9" fill="none" stroke-width="4.2" stroke-miterlimit="12" />
+            <circle cx="46" cy="5" r="2.1" stroke="none" />
+          </g>
+          <path class="g" d="M46 5L16 35L48 27L18 57" fill="none" stroke-width="4.2" stroke-miterlimit="12" mask="url(#boot-thread)" />
+          <circle class="i" cx="31" cy="20" r="3.8" />
+          <circle class="i" cx="33" cy="42" r="3.8" />
+          <circle class="r" cx="18" cy="57" r="4.4" />
+        </svg>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

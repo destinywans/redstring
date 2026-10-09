@@ -7,6 +7,7 @@ import { applyEvent, newConversationUrl, sendAndStream, takeAttachments } from "
 import { formatSize } from "../../api/upload";
 import type { Artifact, Conversation, Message, ModelChoice, Part, StreamEvent, Upload } from "../../api/types";
 import { AiAvatar, Avatar, Badge, Brand, Btn, Col, Divider, Dot, Env, Icon, Muted, Row, Segmented, Skeleton, Spacer, Strong, Tile, TextLink, Mono, cx } from "../../ui/core";
+import { BrandMark } from "../../ui/BrandMark";
 import { toast } from "../../ui/overlays";
 import { Composer } from "../../ui/Composer";
 import { useModelCatalog, describeChoice } from "../../ui/ModelPicker";
@@ -37,10 +38,10 @@ function MessageView({ m, conv, actions, onOpenArtifact }: { m: Message; conv: C
             </span>
           )}
           {m.streaming && (
-            <Badge tone="accent">
-              <span className="v3-spinner spin" />
+            <span className="rs-working">
+              <BrandMark size={16} state="thinking" />
               {tx("生成中", "Generating")}
-            </Badge>
+            </span>
           )}
         </Row>
         {m.attachments && m.attachments.length > 0 && <UploadChips files={m.attachments} />}

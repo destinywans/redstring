@@ -50,12 +50,12 @@ mock("GET", "/integrations/lower-sources", () => {
 
 /* Config promotion through Git: non-production exports, production reviews and imports. */
 const imports = [
-  { id: "cs-412", kind: "runbook", kind_label: "Runbook", title: P("数据库连接池耗尽 v5", "DB pool exhaustion v5"), mr: "!412", author: "李明", meta: P("预发验证 3 次通过", "passed 3 staging runs"), status: "pending" },
+  { id: "cs-412", kind: "runbook", kind_label: "Runbook", title: P("下游超时与重试风暴 v5", "Downstream timeouts and retry storms v5"), mr: "!412", author: "李明", meta: P("预发验证 3 次通过", "passed 3 staging runs"), status: "pending" },
   { id: "cs-409", kind: "alert_rule", kind_label: P("告警规则", "Alert rule"), title: "checkout-api 5xx > 1%", mr: "!409", author: "王晨", meta: P("预发回测 7 天触发 3 次", "3 fires in a 7-day staging backtest"), status: "pending" },
   { id: "cs-415", kind: "agent_version", kind_label: P("Agent 版本", "Agent version"), title: P("调查助手 v13", "Investigator v13"), mr: "!415", author: "周航", meta: P("评测通过率 94% · 导入后先灰度", "94% eval pass · canary after import"), status: "pending" },
 ];
 const exportsList = [
-  { id: "ex-412", kind: "runbook", kind_label: "Runbook", title: P("数据库连接池耗尽 v5", "DB pool exhaustion v5"), mr: "!412", author: "李明", meta: P("等待生产负责人审核", "awaiting production review"), status: "exported" },
+  { id: "ex-412", kind: "runbook", kind_label: "Runbook", title: P("下游超时与重试风暴 v5", "Downstream timeouts and retry storms v5"), mr: "!412", author: "李明", meta: P("等待生产负责人审核", "awaiting production review"), status: "exported" },
   { id: "ex-398", kind: "template", kind_label: P("画布模板", "Canvas template"), title: P("压测计划", "Load-test plan"), mr: "!398", author: "王晨", meta: P("已合并 · 生产已导入", "merged · imported in production"), status: "merged" },
 ];
 mock("GET", "/config-sync", () => (tier() === "production" ? { direction: "import", items: imports } : { direction: "export", items: exportsList }));

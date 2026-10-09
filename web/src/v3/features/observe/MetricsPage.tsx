@@ -39,7 +39,7 @@ export default function MetricsPage() {
   const w = d.window;
   const markers = [
     { at: w.release_at, label: tx("v2.8.1 发布", "v2.8.1 release"), tone: "warn" },
-    { at: w.rollback_at, label: tx("回滚", "Rollback"), tone: "ok" },
+    { at: w.rollback_at, label: tx("限制重试", "Retries limited"), tone: "ok" },
   ];
   const bands = align ? [{ from: w.incident[0], to: w.incident[1], color: "var(--accent-soft)" }] : [];
   const stats = Array.from({ length: 12 }, (_, k) => {
@@ -210,7 +210,7 @@ export default function MetricsPage() {
               </Col>
             </Panel>
           </div>
-          <Panel title={tx("按实例 · 连接等待 P95（ms）", "By instance · connection wait P95 (ms)")} right={<Row gap={6}><Muted size={11.5}>{tx("6 个实例中 4 个异常；7f9c-6 为回滚后新建", "4 of 6 instances degraded; 7f9c-6 was created after the rollback")}</Muted><IconBtn icon="pin" label={tx("钉到调查", "Pin")} size={24} onClick={() => toast(tx("已钉到 INV-231，作为证据节点", "Pinned to INV-231 as an evidence node"))} /></Row>}>
+          <Panel title={tx("按实例 · 等待库存 P95（ms）", "By instance · waiting on inventory P95 (ms)")} right={<Row gap={6}><Muted size={11.5}>{tx("6 个实例中 4 个严重、1 个轻微；7f9c-6 未受影响", "4 of 6 instances severe, 1 mild; 7f9c-6 unaffected")}</Muted><IconBtn icon="pin" label={tx("钉到调查", "Pin")} size={24} onClick={() => toast(tx("已钉到 INV-231，作为证据节点", "Pinned to INV-231 as an evidence node"))} /></Row>}>
             <SmallMultiples items={d.instances.map((i) => ({ label: i.label, values: i.values, tone: i.tone }))} cols={6} height={42} />
           </Panel>
         </div>
@@ -231,18 +231,18 @@ export default function MetricsPage() {
                 <Strong size={12}>AI</Strong>
                 <Muted size={11.5}>{tx("读取 4 个指标 · 1 条变更", "4 metrics · 1 change read")}</Muted>
               </Row>
-              <Markdown text={tx("所有面板都在 14:03 发布 v2.8.1 之后变化。**连接等待 P95 从 12 ms 升到 420 ms**[1]，随后 5xx 升到 8.4%，P99 升到 1.6 s；CPU 只上升 26%，不是主因。", "Every panel changed after v2.8.1 at 14:03. **Connection wait P95 went from 12 ms to 420 ms**[1], then 5xx rose to 8.4% and P99 to 1.6 s; CPU only rose 26%, so it isn't the cause.")} />
+              <Markdown text={tx("各面板在 14:03 发布 v2.8.1 前后同时变化，但请求量持平。**库存调用量从 1.2k/s 升到 3.9k/s**[1]，随后 5xx 升到 8.4%，P99 升到 1.6 s；CPU 只上升 26%，不是主因。", "Every panel moved around v2.8.1 at 14:03, yet requests stayed flat. **Inventory calls went from 1.2k/s to 3.9k/s**[1], then 5xx rose to 8.4% and P99 to 1.6 s; CPU only rose 26%, so it isn't the cause.")} />
               <Card style={{ padding: "10px 12px" }}>
                 <Row gap={6}>
-                  <Muted size={11.5}>{tx("连接等待 P95 与 5xx 比例", "Conn wait P95 vs 5xx")}</Muted>
+                  <Muted size={11.5}>{tx("库存调用量与 5xx 比例", "Inventory calls vs 5xx")}</Muted>
                   <Spacer />
-                  <Legend items={[[tx("等待", "wait"), "var(--c3)"], ["5xx", "var(--c7)"]]} />
+                  <Legend items={[[tx("调用", "calls"), "var(--c3)"], ["5xx", "var(--c7)"]]} />
                 </Row>
-                <Lines series={[{ name: tx("等待 ×", "wait"), values: d.kpis[3].series.map((v) => (v / 420) * 10), color: "var(--c3)" }, { name: "5xx %", values: d.kpis[1].series, color: "var(--c7)" }]} height={64} max={11} markers={[{ at: w.release_at, label: tx("发布", "release"), tone: "warn" }]} grid={2} />
+                <Lines series={[{ name: tx("调用 ×", "calls"), values: d.kpis[3].series.map((v) => (v / 3.9) * 10), color: "var(--c3)" }, { name: "5xx %", values: d.kpis[1].series, color: "var(--c7)" }]} height={64} max={11} markers={[{ at: w.release_at, label: tx("发布", "release"), tone: "warn" }]} grid={2} />
               </Card>
-              <Markdown text={tx("发布内容包含 `connection_pool.max 200 → 50`[2]，最可能的原因是连接池被打满。", "The release includes `connection_pool.max 200 → 50`[2] — most likely the pool is saturated.")} />
+              <Markdown text={tx("发布内容没有改动库存调用[2]；调用量上涨更像重试放大，需要看谁先变慢。", "The release does not touch inventory calls[2]; the rise in calls looks like retry amplification — check who slowed first.")} />
               <Row gap={6} wrap>
-                <Cite n={1}>{tx("连接等待 P95", "Conn wait P95")}</Cite>
+                <Cite n={1}>{tx("库存调用量", "Inventory calls")}</Cite>
                 <Cite n={2}>GitLab #8812</Cite>
               </Row>
               <NextSteps items={[{ icon: "branch", label: tx("带入调查 INV-231", "Add to INV-231"), onClick: () => nav("/canvas/INV-231") }, { icon: "bell", label: tx("生成告警规则", "Create alert rule"), onClick: () => nav("/alert-rules") }]} />

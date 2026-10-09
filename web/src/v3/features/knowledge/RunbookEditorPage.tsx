@@ -13,7 +13,7 @@ import "./knowledge.css";
 import { confirmAction } from "../../ui/demo";
 
 export default function RunbookEditorPage() {
-  const { id = "rb-db-pool" } = useParams();
+  const { id = "rb-retry-storm" } = useParams();
   const { tx } = useI18n();
   const { data: rb } = useGet<Runbook>(`/runbooks/${id}`);
   const [accepted, setAccepted] = useState<"pending" | "yes" | "no">("pending");

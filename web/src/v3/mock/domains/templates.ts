@@ -12,7 +12,7 @@ const T = (id: string, name: [string, string], owner: string, desc: [string, str
   version: "v4",
   maintainer: l("交易平台", "Trading platform"),
   triggers: { manual: true, auto_triage: owner === "official", matchers: [{ name: "alertname", value: "~ .*ErrorRate" }, { name: "env", value: "prod" }] },
-  runbooks: [l("发布回滚规范 v5", "Release rollback v5"), l("连接池容量调整 v3", "Pool capacity tuning v3")],
+  runbooks: [l("发布回滚规范 v5", "Release rollback v5"), l("下游超时与重试风暴 v3", "Downstream timeouts and retry storms v3")],
   budget: { turns: 4, tools: 8, minutes: 2 },
   ...extra,
 });

@@ -33,7 +33,7 @@
 
 - [全站38张设计图与离线图库](design/platform-2026-09-21/README.md)：WAN-100，全部子菜单、工作台、交付暂停入口与审计；待用户设计评审，非已实现能力。
 
-需求、取舍和任务状态以 [Linear 项目](https://linear.app/wansss/project/aiops-canvas-3c9fce50a53b) 为主。这里维护随代码版本变化的契约与运行说明。
+需求、取舍和任务状态以 [Linear 项目](https://linear.app/wansss/project/redstring-3c9fce50a53b) 为主。这里维护随代码版本变化的契约与运行说明。
 
 - [全站搜索与排版规范](design/search-filters.md)、[本轮 UI 反馈交付](releases/2026-09-20-platform-ui-feedback.md)。
 - [通用 Skills / Prompt 范围与权限](ai-extension-scopes.md)。

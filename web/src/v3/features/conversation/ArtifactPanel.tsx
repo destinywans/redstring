@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Artifact } from "../../api/types";
 import { Avatar, Badge, Btn, Card, Chip, Icon, IconBtn, Muted, Row, SearchBox, Spacer, Strong, Textarea, cx, type IconName } from "../../ui/core";
+import { BrandMark } from "../../ui/BrandMark";
 import { DataTable } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
@@ -33,15 +34,15 @@ function ReportView({ a }: { a: Extract<Artifact["content"], { kind: "report" }>
         <div className="art-compare anim-rise">
           <Muted size={11.5}>{tx("v2 → v3 的改动", "Changes from v2 to v3")}</Muted>
           <div className="cv-diff mono">
-            <div className="del">{tx("- 根因：数据库性能下降", "- Root cause: database slowdown")}</div>
-            <div className="add">{tx("+ 根因：14:03 发布把连接池上限从 200 改为 50（证据 [2][3]）", "+ Root cause: the 14:03 release cut the pool max from 200 to 50 (evidence [2][3])")}</div>
-            <div className="add">{tx("+ 影响：约 38% 下单请求返回 5xx，持续 21 分钟", "+ Impact: ~38% of checkout requests returned 5xx for 21 minutes")}</div>
+            <div className="del">{tx("- 根因：库存服务容量不足", "- Root cause: inventory service capacity")}</div>
+            <div className="add">{tx("+ 根因：inventory-03 先变慢，超时后立即重试 3 次，把库存调用放大到 3.2 倍（证据 [1][2][3]）", "+ Root cause: inventory-03 slowed first; timeouts retried 3 times at once amplified inventory calls 3.2× (evidence [1][2][3])")}</div>
+            <div className="add">{tx("+ 影响：下单 5xx 峰值 8.4%，持续 18 分钟", "+ Impact: checkout 5xx peaked at 8.4% for 18 minutes")}</div>
           </div>
         </div>
       )}
       {a.editing_note && (
         <div className="art-editing">
-          <span className="v3-spinner spin" />
+          <BrandMark size={16} state="thinking" />
           {a.editing_note}
         </div>
       )}

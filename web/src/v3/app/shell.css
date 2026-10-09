@@ -23,17 +23,14 @@
   padding: 0 6px;
   flex: none;
 }
-.v3-sidebar .logo {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  background: var(--accent);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--fs-sub);
+/* the 20px mark sits on the same centre line as the 16px nav icons below */
+.v3-sidebar .brand-row .rs-mark {
+  margin-inline: 2px -2px;
+}
+.v3-sidebar .brand-name {
   font-weight: 600;
+  font-size: var(--fs-md);
+  letter-spacing: -0.01em;
 }
 .v3-sidebar .search-btn {
   flex-grow: 1;

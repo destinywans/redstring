@@ -1,13 +1,42 @@
-**最新后端：[CP-319](#cp-319-current)，2026-10-07 (+08)。V3 v1.1 32 个新增端点和查询参数已接线；27 个持久化/真实读取、5 个缺可信来源明确 503。定向隔离 PG/race、正式启动组装六子例与460操作契约检查通过，未部署或升级整体验收。**
+**最新后端：[CP-321](#cp-321-current)，2026-10-07 (+08)。V3 v1.1 32 个新增端点和查询参数已接线；27 个持久化/真实读取、5 个缺可信来源明确 503。定向隔离 PG/race、正式启动组装六子例与460操作契约检查通过，未部署或升级整体验收。**
 
-<a id="cp-319-current"></a>
-## CP-319 · V3 v1.1 后端页面交互对齐
+<a id="cp-321-current"></a>
+## CP-321 · V3 v1.1 后端页面交互对齐
 
 - 用户授权对齐最新契约；WAN-245～248，branch `codex/wan-245-v3-page-interactions`，依赖契约基线 `97cfb3887d50acd63a03c2813d71f3d413ce04bf`。本记录随最后分项交付提交；精确 commit、远端推送回读和 In Review 状态见对应 Linear 记录。
 - 连接器/MCP 生命周期和令牌轮换、Agent/记忆九入口、SLO/团队视图、参与人/模板/维护计划/指派通知/头像及实际服务端筛选已实现。用户确认缺可信来源的五接口明确503，维护计划不自动执行静默、指派只生成站内通知。
 - 成功审计同业务事务；已认证真人新写的环境/模块/Origin 拒绝走净化失败审计，只由服务端验证范围 witness 回填环境。正式组装 PG/race 六子例、并发改派/满额去重/旧告警别名三回归、受影响模块与460操作/冻结契约/readiness检查通过；独立源码复查无确认开放 P0/P1/P2。首失败及最终证据分列于[交付记录](docs/releases/2026-10-07-v3-page-interactions.md)。
 - 新迁移158～161仅在专用临时PG执行；现有业务库/主服务/testlab均未改写。原未提交PLAN/CHECKPOINT历史、接口计划、验收登记及候选工具保留，不混入本批提交。
 - 下一步审阅分支、配置真实来源并另行授权现有库迁移/部署及前端HTTP验收。原166、全接口OPEN、完整链、性能24h及原暂停域保持；不以本地协议stub代替外部证据。
+- 2026-10-09 用户要求把 main（Redstring 更名与标志、INV-231 重试风暴演示数据）合并进本分支，不把本分支合入 main；合并时本条由 CP-319 改号为 CP-321，避免与 main 上的品牌记录重号。新迁移 158～161 仍未在现有库执行。
+
+**最新演示：[CP-320](#cp-320-current)，2026-10-09 (+08)。INV-231 示例数据改成与博客首页一致的重试风暴；前端示例数据模式可构建为静态演示，部署到 redstring.wans.run（WAN-293）。GitHub 仓库与 Linear 项目已改名为 redstring / Redstring。**
+
+<a id="cp-320-current"></a>
+## CP-320 · INV-231 示例数据换成重试风暴，准备在线演示
+
+- 用户决定（WAN-292/293）：博客产品页 wans.run/redstring/ 链接在线演示 `redstring.wans.run`，演示只用前端示例数据，不连后端、不调模型；INV-231 的故事与博客首页一致。分支 `codex/wan-293-redstring-demo` 基于 main `5bf4ac6`，在独立 worktree 中修改，没有动与后端会话共用的检出。
+- 故事：14:02 inventory-03 磁盘变慢，P99 80 → 350 ms；checkout-api 对库存调用超时 300 ms 后立即重试 3 次、无退避（v2.6 起的配置），一个下单请求调 4 次库存，调用 1.2k → 3.9k/s（3.2 倍），下单量持平，5xx 0.2% → 8.4%。14:03 的 v2.8.1 发布只是时间巧合。四个只读工具取证：Prometheus（谁先变慢）、Tempo（trace 4f2a9c，库存 ×4）、Elasticsearch（重试日志 2,416 条）、GitLab（重试配置历史）。PRP-88 改为“重试降为 1 次并打开熔断”，配置热更新，180 秒验证 5xx 0.21%、库存调用 1.2k/s。
+- 改动范围是示例数据与少量写死的界面文案：画布节点（`b-inv`、`b-amp`、`e-trace`、`e-cfg` 取代原 `b-pool`、`b-cmp`、`b-up`、`e-diff`）、回写预览、对话 C-320 与产物、提案/执行/报告、告警与收件箱、服务与拓扑（新增 inventory-service，orders-db、payment-gateway 恢复正常）、指标、日志、链路与 Agent 轨迹、Runbook `rb-retry-storm`（原 `rb-db-pool`）、记忆、首页简报。其它调查（INV-229 等）和通用模板保持原样。
+- 资源详情面板的两个仪表和连接等待改为按数据计算，不再写死 100% 和 420 ms；指标页的对照图改为库存调用量与 5xx。接口类型与契约未改。
+- 验证：`tsc -b` 与 `vite build` 通过；本机 vite preview 打开 12 个主要页面（中英），无控制台错误，页面文字不再出现连接池故事。
+- 2026-10-09 用户确认：GitHub 仓库 `destinywans/aiops-canvas` 改名为 [`destinywans/redstring`](https://github.com/destinywans/redstring)（私有，旧地址由 GitHub 跳转，本地 origin 已改），Linear 项目改名为 Redstring；本分支合并到 main 并推送；演示上线（部署文件与记录在博客仓库 `deploy/aliyun/` 与 `docs/releases/`）。Go 模块路径、`AIOPS_*` 环境变量、数据库名仍不改。
+
+**最新品牌：[CP-319](#cp-319-current)，2026-10-09 (+08)。产品更名为 Redstring 并换上闪电标志：侧栏、标签页标题、浏览器图标、启动占位、AI 生成中动效和 README 已替换；代码层的名称不变。**
+
+<a id="cp-319-current"></a>
+## CP-319 · 产品更名 Redstring 与新标志
+
+- 用户确认：产品名只用英文 Redstring，不设中文名；标志选「闪电 · 经典」；界面主色保持靛蓝，品牌红只用于标志；只改显示层。分支 `codex/brand-redstring` 基于 main `97cfb38`，在独立 worktree 中修改，没有动与后端会话共用的检出。
+- 新增 `web/src/v3/ui/BrandMark.tsx`，有静态、入场、加载、思考四种状态，按显示尺寸切换三档线宽，通过 `--brand-red` / `--brand-ink` 取色，系统开启“减少动态效果”时只显示静态标志。
+  - 侧栏品牌行换成标志和 Redstring，应用启动时播放一次入场动效；页面标题后缀改为 Redstring。
+  - 对话和 Ask AI 的“生成中”、画布节点运行中、文档画布回复中、产物修改中，改用思考动效；按钮、搜索框等通用加载圈不变。
+- `web/index.html` 改了标题和图标：SVG favicon 随深浅色切换，另有 32 px PNG 和 iOS 触摸图标。新增启动占位，加载超过 0.3 秒才显示。
+- 工作区设置的「品牌」区显示新标志，说明暂不支持按工作区自定义；Mock 品牌名改为 Redstring，不再标“待定”。
+- `scripts/brand-assets.py` 生成 `web/public` 图标和 `docs/brand` 母版（PNG 依赖 macOS Swift）；规范见 `docs/brand/README.md`。README 换了标题和标志，并注明原名。
+- 未改：Go 模块、`cmd/aiops`、接口路径、`X-AIOps-Environment` 请求头、`aiops-*` 存储键、旧前端 `/legacy`。契约检查仍为 165/165。
+- 验证：tsc、构建通过。浏览器中实际查看了深浅色、中英文下的侧栏、标签页标题、图标链接、启动占位、对话与 Ask AI 的生成中动效、工作区品牌区；`/legacy` 仍可打开。画布节点“运行中”在 Mock 中无法触发，只经过类型检查。
+- 用户确认后，`b9879cc` 已快进合并到 main 并推送到 origin。仓库是否改名由用户决定。
 
 **最新契约：[CP-318](#cp-318-current)，2026-10-07 (+08)。v3 契约修订为 v1.1：前端演示新增的交互全部有了接口定义，其中 19 个后端已实现、32 个待实现；原 166 项不变。**
 

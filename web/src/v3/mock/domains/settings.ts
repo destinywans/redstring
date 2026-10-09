@@ -129,8 +129,8 @@ mock("GET", "/security", () => ({
 mock("PUT", "/security", ({ body }) => ({ ok: true, ...(body as object) }));
 
 const AUDIT = [
-  { id: "a1", time: "14:19:02", actor: { kind: "user", name: "王晨" }, action: P("批准写操作提案", "Approved write proposal"), target: P("回滚 checkout-api 连接池配置", "Roll back checkout-api pool config"), result: "ok", source: P("通行密钥 · 10.2.3.41", "Passkey · 10.2.3.41") },
-  { id: "a2", time: "14:18:40", actor: { kind: "agent", name: P("调查助手 v12", "Investigator v12") }, action: P("生成写操作提案", "Drafted write proposal"), target: P("checkout-api · 回滚", "checkout-api · rollback"), result: "ok", source: "run_7f3a" },
+  { id: "a1", time: "14:19:02", actor: { kind: "user", name: "王晨" }, action: P("批准写操作提案", "Approved write proposal"), target: P("库存调用重试降为 1 次（PRP-88）", "Retry inventory calls once (PRP-88)"), result: "ok", source: P("通行密钥 · 10.2.3.41", "Passkey · 10.2.3.41") },
+  { id: "a2", time: "14:18:40", actor: { kind: "agent", name: P("调查助手 v12", "Investigator v12") }, action: P("生成写操作提案", "Drafted write proposal"), target: P("checkout-api · 限制重试", "checkout-api · limit retries"), result: "ok", source: "run_7f3a" },
   { id: "a3", time: "14:12:31", actor: { kind: "agent", name: P("调查助手 v12", "Investigator v12") }, action: P("护栏拦截", "Guardrail block"), target: P("工具输出中的指令注入", "Instruction injection in tool output"), result: "blocked", source: "run_7f3a" },
   { id: "a4", time: "14:12:05", actor: { kind: "agent", name: P("调查助手 v12", "Investigator v12") }, action: P("调用 query_metrics", "Called query_metrics"), target: P("Prometheus · 生产", "Prometheus · prod"), result: "ok", source: "run_7f3a" },
   { id: "a5", time: "14:10:11", actor: { kind: "user", name: "王晨" }, action: P("创建静默", "Created silence"), target: "inventory-worker / KafkaConsumerLag", result: "ok", source: "Web" },
@@ -199,7 +199,7 @@ const workspace = {
   week_start: "monday",
   retention_days: 180,
   data_region: P("本地部署 · 数据不出内网", "Self-hosted · data stays on-prem"),
-  brand: { name: "AIOps Canvas", logo: null as string | null, pending: true },
+  brand: { name: "Redstring", logo: null as string | null, pending: false },
 };
 mock("GET", "/workspace", () => workspace);
 mock("PUT", "/workspace", ({ body }) => Object.assign(workspace, body));

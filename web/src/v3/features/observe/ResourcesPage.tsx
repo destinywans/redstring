@@ -120,10 +120,10 @@ export default function ResourcesPage() {
             <Col gap={16} style={{ padding: 16 }} className="anim-fade" key={sel}>
               <Row gap={12}>
                 <Gauge pct={t.detail.conns.used / t.detail.conns.max} size={138} tone="ok" label={`${Math.round((100 * t.detail.conns.used) / t.detail.conns.max)}%`} sub={tx("连接 {a} / {b}", "conns {a} / {b}", { a: t.detail.conns.used, b: t.detail.conns.max })} />
-                <Gauge pct={1} size={138} tone="danger" label="100%" sub={`${t.detail.from_service.service} ${t.detail.from_service.used} / ${t.detail.from_service.max}`} />
+                <Gauge pct={t.detail.from_service.used / t.detail.from_service.max} size={138} tone={t.detail.from_service.used >= t.detail.from_service.max * 0.9 ? "danger" : "ok"} label={`${Math.round((100 * t.detail.from_service.used) / t.detail.from_service.max)}%`} sub={`${t.detail.from_service.service} ${t.detail.from_service.used} / ${t.detail.from_service.max}`} />
               </Row>
-              <Section title={tx("连接等待 P95", "Connection wait P95")} right={<span className="mono" style={{ color: "var(--danger)", fontSize: "var(--fs-sub)" }}>420 ms</span>}>
-                <Lines series={[{ name: "P95", values: t.detail.wait, color: "var(--c3)", fill: "var(--c3s)" }]} height={52} max={520} grid={2} markers={[{ at: 16, label: tx("发布", "release"), tone: "warn" }]} format={(v) => `${Math.round(v)} ms`} />
+              <Section title={tx("连接等待 P95", "Connection wait P95")} right={<span className="mono" style={{ fontSize: "var(--fs-sub)" }}>{Math.round(t.detail.wait[t.detail.wait.length - 1])} ms</span>}>
+                <Lines series={[{ name: "P95", values: t.detail.wait, color: "var(--c3)", fill: "var(--c3s)" }]} height={52} max={Math.max(...t.detail.wait) * 1.25} grid={2} markers={[{ at: 16, label: tx("发布", "release"), tone: "warn" }]} format={(v) => `${Math.round(v)} ms`} />
               </Section>
               <Section title={tx("健康", "Health")}>
                 {t.detail.health.map((h) => (
@@ -297,7 +297,7 @@ export default function ResourcesPage() {
             {t && view_ === "sankey" && (
               <div className="anim-fade" style={{ padding: "24px 48px", display: "flex", flexDirection: "column", gap: 14, background: "var(--panel)", height: "100%" }}>
                 <Sankey cols={t.sankey.cols} links={t.sankey.links} height={520} />
-                <Muted size={11.5}>{tx("线宽 = 请求量；红色为异常流量。checkout-api 流向 orders-db 的 500 qps 中 8.4% 以超时结束。", "Width = volume; red is unhealthy. 8.4% of the 500 qps from checkout-api to orders-db end in timeouts.")}</Muted>
+                <Muted size={11.5}>{tx("线宽 = 请求量；红色为异常流量。checkout-api 流向 inventory-service 的调用中 68% 是重试，31% 以超时结束。", "Width = volume; red is unhealthy. Of checkout-api's calls to inventory-service, 68% are retries and 31% end in timeouts.")}</Muted>
               </div>
             )}
           </div>

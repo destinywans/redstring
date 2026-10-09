@@ -81,9 +81,51 @@ func TestInvitationDeliveryAuditCommitsOncePostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var grants int
-	if err = s.Store.DB.QueryRow(t.Context(), `SELECT count(*) FROM v3_effective_role_grants WHERE user_id=$1 AND module='environment'`, user.ID).Scan(&grants); err != nil || grants != 0 {
-		t.Fatalf("new account environment grants=%d err=%v", grants, err)
+	// PA-55/D6: the new account reads every environment through the viewer's
+	// one global environment grant, and holds no other environment grant.
+	var grants, global int
+	if err = s.Store.DB.QueryRow(t.Context(), `SELECT count(*),count(*) FILTER (WHERE action='view' AND scope_kind='global')
+ FROM v3_effective_role_grants WHERE user_id=$1 AND module='environment'`, user.ID).Scan(&grants, &global); err != nil || grants != 1 || global != 1 {
+		t.Fatalf("new account environment grants=%d global=%d err=%v", grants, global, err)
+	}
+}
+
+// PA-55: the viewer's global environment view keeps invitations safe; an
+// environment-scoped environment grant on the viewer does not, because an
+// invitation would then hand out access to one chosen environment.
+func TestInvitationViewerSafetyAllowsOnlyGlobalEnvironmentViewPostgres(t *testing.T) {
+	s, actor, token := invitationAuditFixture(t)
+	ctx := t.Context()
+	safe := func() bool {
+		t.Helper()
+		tx, err := s.Store.DB.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		ok, err := safeInvitationViewer(ctx, tx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ok
+	}
+	var global bool
+	if err := s.Store.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_role_grants WHERE role_id='viewer'
+ AND module='environment' AND action='view' AND scope_kind='global' AND scope_id='*')`).Scan(&global); err != nil || !global || !safe() {
+		t.Fatalf("migrated viewer: global=%t safe=%t err=%v", global, safe(), err)
+	}
+	if detail, _, err := s.getRole(ctx, "viewer", actor, token, []string{"dev"}, false); err != nil ||
+		len(detail.EnvironmentAccess) != 1 || detail.EnvironmentAccess[0] != "global" || len(detail.Matrix) != len(matrixCatalog) {
+		t.Fatalf("migrated viewer detail: access=%v err=%v", detail.EnvironmentAccess, err)
+	}
+	if _, err := s.Store.DB.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('viewer','environment','view','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	if safe() {
+		t.Fatal("viewer with an environment-scoped environment grant is still safe to invite")
+	}
+	if _, _, _, err := s.prepareInvitation(ctx, actor, token, "dev", invitationInput{Email: "invite-unsafe@testlab.invalid", Role: "viewer"}); err == nil {
+		t.Fatal("invitation accepted while the viewer is unsafe")
 	}
 }
 

@@ -7,8 +7,11 @@ S['V3RoleDetail'] = obj({**S['V3Role']['properties'],**fieldnames('desc notes'),
     'matrix':{'type':'array','minItems':13,'maxItems':13,
         'items':obj({'resource':string(),
             'grants':{'type':'array','minItems':5,'maxItems':5,
-                'items':integer(enum=[0,1,2])}},['resource','grants'])}},
-    ['id','name','members','kind','desc','member_names','scope','actions','matrix','notes'])
+                'items':integer(enum=[0,1,2])}},['resource','grants'])},
+    # PA-55: environment.view is not a matrix row; members of a role without
+    # it see no environment. "global" or the visible environment IDs.
+    'environment_access':arr(string())},
+    ['id','name','members','kind','desc','member_names','scope','actions','matrix','environment_access','notes'])
 S['V3Member'] = obj({**fieldnames('id name email department phone'),
     'last_login':{'type':['string','null'],'description':'Null: no verified successful-login timestamp source is connected.'},
     'roles':arr(string()),'mfa':string(enum=['passkey','totp','none','na']),

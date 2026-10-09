@@ -152,9 +152,23 @@ func TestRoleCreationMemberAccessHTTPPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	policy := &rbac.V3Policy{Store: s.Store}
+	// PA-55/D6: an invited viewer reads every environment and writes nothing.
+	for _, env := range []string{"dev", "test"} {
+		if err = policy.Authorize(ctx, user, rbac.V3Decision{Module: "conversation", Action: "view", EnvironmentID: env}); err != nil {
+			t.Fatalf("invited viewer cannot read %s: %v", env, err)
+		}
+	}
+	if err = policy.Authorize(ctx, user, rbac.V3Decision{Module: "conversation", Action: "change", EnvironmentID: "dev"}); !errors.Is(err, store.ErrForbidden) {
+		t.Fatalf("invited viewer can write: %v", err)
+	}
+	// Without the viewer's environment grant, access below comes only from the
+	// environment-scoped custom role.
+	if _, err = s.Store.DB.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='environment'`); err != nil {
+		t.Fatal(err)
+	}
 	decision := rbac.V3Decision{Module: "conversation", Action: "view", EnvironmentID: "dev"}
 	if err = policy.Authorize(ctx, user, decision); !errors.Is(err, store.ErrForbidden) {
-		t.Fatalf("invitation unexpectedly authorized: %v", err)
+		t.Fatalf("viewer without environment grant unexpectedly authorized: %v", err)
 	}
 	before := accessSnapshotHTTP(t, h, user.ID, token)
 	enabled := true

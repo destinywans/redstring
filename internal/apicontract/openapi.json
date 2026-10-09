@@ -36007,7 +36007,7 @@
       "get": {
         "summary": "Read the scoped active Alertmanager route tree",
         "operationId": "get_notification_routes",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires exactly one selected environment and environment-wide alert_rules.view plus alert_rules.manage. Reads configured Alertmanager status and exposes only a subtree proven to be selected by one exact environment matcher. When the configuration has no exact branch for the environment at all, root and config_revision are null with root_unavailable=not_configured and no ETag (PA-09). Ambiguous shared routing, a failed or missing source, malformed or over-limit configuration fail closed. Matcher values and receiver names are redacted to opaque per-revision receiver refs; receiver definitions, channel targets, credentials and raw YAML are excluded. The quoted config_revision is also returned as the ETag for a conditional draft request. Hit counts, on-call, escalation and current interval activity remain unavailable. Current session and grants are rechecked after the provider read. The frozen frontend expects channel targets and numeric hits and is not accepted.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires exactly one selected environment and environment-wide alert_rules.view; reading the redacted tree does not need alert_rules.manage (PA-56), which route tests and drafts still require. Reads configured Alertmanager status and exposes only a subtree proven to be selected by one exact environment matcher. When the configuration has no exact branch for the environment at all, root and config_revision are null with root_unavailable=not_configured and no ETag (PA-09). Ambiguous shared routing, a failed or missing source, malformed or over-limit configuration fail closed. Matcher values and receiver names are redacted to opaque per-revision receiver refs; receiver definitions, channel targets, credentials and raw YAML are excluded. The quoted config_revision is also returned as the ETag for a conditional draft request. Hit counts, on-call, escalation and current interval activity remain unavailable. Current session and grants are rechecked after the provider read. The frozen frontend expects channel targets and numeric hits and is not accepted.",
         "responses": {
           "200": {
             "description": "Success",
@@ -38419,7 +38419,7 @@
       "post": {
         "summary": "Reject a pending proposal without executing it",
         "operationId": "post_proposals_id_reject",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Serializes state changes, audits rejection, and returns the persisted review record.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a human reviewer with proposals.manage for the proposal, or the passkey proposals.approve grant that covers its environment, application or owner team (PA-57). Serializes state changes, audits rejection, and returns the persisted review record.",
         "responses": {
           "200": {
             "description": "Success",
@@ -87026,6 +87026,12 @@
                 "grants"
               ]
             }
+          },
+          "environment_access": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false,
@@ -87039,6 +87045,7 @@
           "scope",
           "actions",
           "matrix",
+          "environment_access",
           "notes"
         ]
       },

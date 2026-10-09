@@ -166,7 +166,7 @@
 | GET | `/alert-rules/{id}` | | 当前受权 Prometheus 规则详情；编辑、通知和 AI 字段未知时可空 | implemented |
 | POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | implemented |
 | PUT | `/alert-rules/{id}` | 单环境、`Idempotency-Key`、`{ expected_version, observed_rule?, rule: { application_id, environment_id, group, name, expr, for, labels, annotations, mode: draft } }` | 当前受权且来源未漂移时导出新版本的不可部署 JSON 草稿，返回 `pending_review` 与经核对的 GitLab MR；不启用规则 | implemented |
-| GET | `/notification-routes` | 单一所选环境；需环境级 `alert_rules.view/manage` | 当前生效 Alertmanager 环境子树、`config_revision`/ETag、匿名接收方引用；频道目标、命中数及值班未知；配置里没有该环境的精确分支时 `root`、`config_revision` 为 `null`，`root_unavailable: "not_configured"`，不再 503（PA-09） | implemented |
+| GET | `/notification-routes` | 单一所选环境；需环境级 `alert_rules.view`（读取已脱敏的树不需要 `manage`，PA-56） | 当前生效 Alertmanager 环境子树、`config_revision`/ETag、匿名接收方引用；频道目标、命中数及值班未知；配置里没有该环境的精确分支时 `root`、`config_revision` 为 `null`，`root_unavailable: "not_configured"`，不再 503（PA-09） | implemented |
 | GET | `/silences` | `state: active\|planned\|expired\|all` | 静默列表及当前可见记录计数；应用标签需在服务端显式绑定到当前环境的有效应用 ID，再按应用/团队授权判断；环境明确但应用范围较宽的静默仅环境级静默管理员可见；无精确环境或匹配器歧义的静默不展示，宽范围只报告覆盖标志。读取前没有可读环境时返回空列表和 `empty_reason: "no_authorized_target"`，未配置 Alertmanager 时 `items`/`counts` 为 `null`（`not_configured`）；`creator` 为平台用户显示名，另给 RFC 3339 的 `starts_at`/`ends_at`，`remaining.pct` 改为剩余比例（PA-09、PA-37） | implemented |
 | GET | `/inhibitions` | 当前所选环境与应用/团队可见范围 | 当前 Alertmanager 抑制配置的受权子集；匹配值脱敏，`active`/`hits_7d` 未知，返回 `206 partial`；读取前没有可读范围时返回 200 空列表和 `empty_reason`（PA-09） | implemented |
 | POST | `/silences/preview` | `{ matchers: [{ k, op, v }] }`；单一环境 | `{ affects, sample }` | implemented |
@@ -174,7 +174,7 @@
 | DELETE | `/silences/{id}` | 已由本系统确认创建的上游 UUID；`Idempotency-Key`、`{ investigation_id, reason }` | 精确归属及上游读回、审批与独立 worker 就绪时 `202 pending_review` 取消提案；默认关闭时 `501 not_connected` | implemented |
 | GET | `/proposals/{id}` | | `Proposal`；另带 `execution`：第二次批准前为 `null`，之后为 `{ execution_id, approved_at, action_kind, status, upstream_id, unavailable }`，`status`/`upstream_id` 取自独立执行器记录，未记录时为 `null`（`not_generated`）（PA-36） | implemented |
 | POST | `/proposals/{id}/approve` | 单环境、当前真人会话；先调用辅助 `POST /proposals/{id}/approve/options` 传 `{ confirm: true }` 获取提案绑定的五分钟挑战，再传 `{ challenge_id, credential, comment? }` | 首位独立批准人 `202 { status: pending_review, received_approvals: 1 }`，不含执行 ID；第二位独立批准人 `200 { status: approved, received_approvals: 2, execution_id, approval_digest }`；`200` 是持久历史决定与交接标识，不证明当前可执行、已领取或已执行 | implemented |
-| POST | `/proposals/{id}/reject` | `{ comment? }`；仅待审提案，由人类身份执行 | 更新后的提案 | implemented |
+| POST | `/proposals/{id}/reject` | `{ comment? }`；仅待审提案，由人类身份执行；需要 `proposals.manage`，或覆盖该提案环境/应用/所属团队的 `proposals.approve`（PA-57） | 更新后的提案 | implemented |
 | POST | `/proposals/{id}/comments` | `{ text }`；可选 `Idempotency-Key` 请求头 | 评论 | implemented |
 | GET | `/executions/{id}` | 当前有权的持久执行 ID | 旧动作执行、审批、事件、可得恢复观察及结案报告的来源投影；V3 提案关联与图表未知 | implemented |
 | POST | `/executions/{id}/report/publish` | 单一环境、当前真人会话，无请求体 | 审批摘要、恢复验证、结案报告均匹配时写本地发布台账与审计；不外发报告或再次执行 | implemented |

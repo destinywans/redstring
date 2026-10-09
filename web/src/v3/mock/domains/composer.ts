@@ -61,7 +61,7 @@ const PREVIEWS: Record<string, unknown> = {
       { label: "P99", value: "1.6 s", tone: "warn", series: series(0.3, 1.6) },
       { label: P("错误预算", "Error budget"), value: "38%", tone: "warn", series: [80, 78, 77, 75, 74, 72, 70, 55, 48, 44, 40, 38] },
     ],
-    change: { brand: "gitlab", text: "#8812 · v2.8.1 · connection_pool.max 200 → 50", meta: P("14:03 · 李明", "14:03 · Li Ming") },
+    change: { brand: "gitlab", text: "#8812 · v2.8.1 · feat: invoice title on checkout", meta: P("14:03 · 李明", "14:03 · Li Ming") },
     related: [{ label: P("2 条告警", "2 alerts"), tone: "danger" }, { label: P("1 个进行中的画布", "1 active canvas"), tone: "accent" }, { label: P("4 篇 Runbook", "4 runbooks"), tone: "t1" }, { label: "SLO 99.9%" }],
     href: "/services/checkout-api",
   },
@@ -89,7 +89,7 @@ const COMMANDS = [
   { id: "summarize", group: "command", name: P("/总结", "/summarize"), desc: P("总结当前对话，生成要点", "Summarize this conversation"), icon: "sparkles" },
   { id: "sk-capacity", group: "skill", name: P("大促容量评估", "Peak capacity review"), desc: P("Skill v3 · 按历史峰值推算副本与连接数", "Skill v3 · replicas and pools from past peaks"), icon: "book" },
   { id: "sk-rollback", group: "skill", name: P("发布回滚规范", "Release rollback guide"), desc: P("Skill v5 · 回滚前检查与步骤", "Skill v5 · checks and steps before rollback"), icon: "book" },
-  { id: "rb-db-pool", group: "runbook", name: P("数据库连接池耗尽", "DB pool exhaustion"), desc: P("适用 checkout-api 等 4 个服务", "Applies to checkout-api and 3 more"), icon: "book" },
+  { id: "rb-retry-storm", group: "runbook", name: P("下游超时与重试风暴", "Downstream timeouts and retry storms"), desc: P("适用 checkout-api 等 4 个服务", "Applies to checkout-api and 3 more"), icon: "book" },
   { id: "tpl-inv", group: "template", name: P("故障调查", "Incident investigation"), desc: P("画布模板 · 主线 + 3 个分支", "Canvas template · main + 3 branches"), icon: "grid", creates: "canvas" },
   { id: "tpl-plan", group: "template", name: P("压测计划", "Load-test plan"), desc: P("画布模板 · 6 个节点，执行需审批", "Canvas template · 6 nodes, execution needs approval"), icon: "grid", creates: "canvas" },
 ];

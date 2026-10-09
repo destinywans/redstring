@@ -113,7 +113,7 @@ export default function RulesPage() {
                   <Step n={1} title={tx("查询", "Query")}>
                     <Row gap={8} wrap>
                       <ChipSelect label="" showLabel={false} icon="database" defaultValue={r.datasource} options={[r.datasource, "VictoriaMetrics · prod", "Prometheus · staging"]} />
-                      <ChipSelect label={tx("已登记查询", "Registered query")} defaultValue={r.query_ref} options={[r.query_ref, "http_5xx_ratio", "http_p99_latency", "db_pool_wait_p95"].filter((v, i, a) => a.indexOf(v) === i)} />
+                      <ChipSelect label={tx("已登记查询", "Registered query")} defaultValue={r.query_ref} options={[r.query_ref, "http_5xx_ratio", "http_p99_latency", "rpc_client_retry_ratio"].filter((v, i, a) => a.indexOf(v) === i)} />
                       <Muted size={11.5}>{tx("或编写 PromQL（需要规则编辑权限）", "or write PromQL (requires rule editor)")}</Muted>
                     </Row>
                     <Code>{r.expr}</Code>
@@ -211,7 +211,7 @@ export default function RulesPage() {
                     <div className="head">{tx("[P1 触发] checkout-api 5xx 比例 8.4%", "[P1 firing] checkout-api 5xx ratio 8.4%")}</div>
                     <div className="body">
                       <span>{tx("生产 · 交易平台 · 5 条告警合并", "prod · trading · 5 alerts merged")}</span>
-                      <Muted>{tx("AI 初查：与 14:03 发布的连接池配置变更有关", "AI triage: linked to the 14:03 pool config change")}</Muted>
+                      <Muted>{tx("AI 初查：inventory-03 先变慢，库存调用量随后上涨", "AI triage: inventory-03 slowed first, then inventory calls rose")}</Muted>
                       <Row gap={6}>
                         <Badge>{tx("认领", "Claim")}</Badge>
                         <Badge>{tx("打开调查", "Open investigation")}</Badge>

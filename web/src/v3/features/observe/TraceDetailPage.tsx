@@ -17,7 +17,7 @@ type View = "wf" | "flame" | "graph";
 export default function TraceDetailPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
-  const { id = "4bf92f35" } = useParams();
+  const { id = "4f2a9c17" } = useParams();
   const { data: t } = useGet<TraceView>(`/traces/${id}`);
   const [view, setView] = useState<View>("wf");
   const [sel, setSel] = useState<string | null>(null);
@@ -111,7 +111,7 @@ export default function TraceDetailPage() {
       actions={
         <>
           <ScopeSwitch scope="app" onChange={(s) => s === "agent" && nav("/traces?scope=agent")} />
-          <Btn icon="layers" onClick={() => toast(tx("已与同接口 v2.8.0 基线链路对比：db.pool.acquire +2.97 s", "Compared with the v2.8.0 baseline: db.pool.acquire +2.97 s"))}>{tx("与基线对比", "Compare with baseline")}</Btn>
+          <Btn icon="layers" onClick={() => toast(tx("已与同接口 v2.8.0 基线链路对比：inventory.reserve 调用 1 → 4 次，+0.9 s", "Compared with the v2.8.0 baseline: inventory.reserve 1 → 4 calls, +0.9 s"))}>{tx("与基线对比", "Compare with baseline")}</Btn>
           <Btn kind="ghost" icon="file" to="/logs">{tx("相关日志", "Related logs")}</Btn>
           <Btn kind="ghost" icon="pin" onClick={() => toast(tx("已钉到画布 INV-231", "Pinned to canvas INV-231"))}>{tx("钉到画布", "Pin to canvas")}</Btn>
           <Btn kind="ghost" icon="external" onClick={() => openExternal("Jaeger", `https://jaeger.example.internal/trace/${id}`)}>{tx("在 Jaeger 中打开", "Open in Jaeger")}</Btn>

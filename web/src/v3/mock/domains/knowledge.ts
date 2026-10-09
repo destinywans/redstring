@@ -4,7 +4,7 @@ import { l } from "../../i18n";
 const P = (zh: string, en: string) => l(zh, en);
 
 const RUNBOOKS = [
-  { id: "rb-db-pool", title: P("连接池容量调整", "Connection pool capacity tuning"), tags: [P("数据库", "Database"), P("容量", "Capacity")], scope: P("checkout-api 等 2 个", "checkout-api +1"), owner: "周航", version: "v3", status: "review", refs_30d: 12, resolve_rate: 83, last_verified: P("12 天前", "12 days ago"), stale: false },
+  { id: "rb-retry-storm", title: P("下游超时与重试风暴", "Downstream timeouts and retry storms"), tags: [P("依赖", "Dependencies"), P("重试", "Retries")], scope: P("checkout-api 等 2 个", "checkout-api +1"), owner: "周航", version: "v3", status: "review", refs_30d: 12, resolve_rate: 83, last_verified: P("12 天前", "12 days ago"), stale: false },
   { id: "rb-rollback", title: P("发布回滚规范", "Release rollback procedure"), tags: [P("发布", "Release")], scope: P("全部服务", "All services"), owner: "张磊", version: "v5", status: "published", refs_30d: 31, resolve_rate: 91, last_verified: P("5 天前", "5 days ago"), stale: false },
   { id: "rb-capacity", title: P("大促容量评估", "Sale capacity assessment"), tags: [P("容量", "Capacity")], scope: P("交易平台", "Trading"), owner: "王晨", version: "v3", status: "published", refs_30d: 8, last_verified: P("20 天前", "20 days ago"), stale: false },
   { id: "rb-kafka", title: P("Kafka 消费积压处理", "Kafka consumer lag"), tags: [P("消息队列", "Messaging")], scope: "inventory-worker", owner: "周航", version: "v2", status: "published", refs_30d: 6, resolve_rate: 67, last_verified: P("41 天前", "41 days ago"), stale: false },
@@ -31,7 +31,7 @@ mock("GET", "/runbooks", ({ query }) => {
       { id: "refs", label: P("近 30 天被引用", "Cited in 30 days"), value: "186", sub: P("Agent 调查中召回并引用", "Recalled by agents during investigations"), series: [8, 12, 9, 14, 11, 16, 15] },
     ],
     suggestions: [
-      { id: "s1", icon: "edit", tone: "accent", title: P("「连接池容量调整」建议更新下限", "Raise the floor in “Pool capacity tuning”"), body: P("INV-231 中高峰活跃连接达到 142，建议把“上限不低于 100”改为 150。", "INV-231 saw 142 active connections at peak; change “max ≥ 100” to 150."), actions: [{ label: P("查看修改", "View change"), kind: "secondary", href: "/runbooks/rb-db-pool" }, { label: P("忽略", "Dismiss"), kind: "ghost" }] },
+      { id: "s1", icon: "edit", tone: "accent", title: P("「下游超时与重试风暴」建议补上重试预算", "Add a retry budget to “Retry storms”"), body: P("INV-231 中重试占库存调用的 68%，建议把“超时后最多重试 3 次”改为“重试 1 次并打开熔断，长期改为指数退避、重试预算不超过 10%”。", "In INV-231 retries were 68% of inventory calls; change “retry up to 3 times” to “retry once with the circuit breaker on; long term, exponential backoff and a retry budget under 10%”."), actions: [{ label: P("查看修改", "View change"), kind: "secondary", href: "/runbooks/rb-retry-storm" }, { label: P("忽略", "Dismiss"), kind: "ghost" }] },
       { id: "s2", icon: "alert", tone: "warn", title: P("「证书续期」可能已过时", "“Certificate renewal” may be outdated"), body: P("97 天未验证；第 3 步引用的脚本 scripts/renew-cert.sh 已在 GitLab 中删除。", "Not verified for 97 days; step 3's scripts/renew-cert.sh was deleted in GitLab."), actions: [{ label: P("标记需更新", "Flag for update"), kind: "secondary" }, { label: P("通知维护人", "Notify owner"), kind: "ghost" }] },
       { id: "s3", icon: "sparkles", tone: "accent", title: P("「Kafka 消费积压处理」效果下降", "“Kafka consumer lag” is less effective"), body: P("最近 3 次使用中 2 次没有解决问题，常见缺口是分区再平衡。", "2 of the last 3 uses didn't resolve the issue; partition rebalancing is the usual gap."), actions: [{ label: P("生成修订草稿", "Draft a revision"), kind: "secondary" }, { label: P("忽略", "Dismiss"), kind: "ghost" }] },
       { id: "s4", icon: "layers", tone: "neutral", title: P("发现重复内容", "Duplicate content"), body: P("「节点 NotReady 处理」与「节点故障排查」约 70% 重叠。", "“Node NotReady” overlaps ~70% with “Node troubleshooting”."), actions: [{ label: P("合并", "Merge"), kind: "secondary" }, { label: P("忽略", "Dismiss"), kind: "ghost" }] },
@@ -49,18 +49,18 @@ mock("GET", "/runbooks/:id", ({ params }) => {
     owner: base.owner,
     scope: P("适用 checkout-api、order-service", "Applies to checkout-api, order-service"),
     tags: base.tags,
-    when: P("服务错误率上升，同时数据库连接等待升高、活跃连接接近上限。常见于发布改动连接池配置，或流量高峰超过容量。", "Error rate rising together with DB connection wait and active connections near the pool max. Usually caused by a release changing the pool config, or peak traffic above capacity."),
+    when: P("上游错误率上升，对下游的调用量同步上涨，而业务请求量持平。常见于下游某个实例变慢后，上游超时立即重试、没有退避和重试预算，把慢放大成风暴。", "Upstream errors rise while calls to a downstream climb and business traffic stays flat. Usually one downstream instance slows down and the caller retries timeouts at once, with no backoff or retry budget, turning the slowdown into a storm."),
     steps: [
-      { n: 1, kind: "query", title: P("连接等待与活跃连接", "Connection wait and active connections"), connectors: ["prometheus"], code: 'db_connection_wait_p95{service="$service"}\ndb_pool_active / db_pool_max', readonly: true },
-      { n: 2, kind: "check", title: P("连接池是否被打满", "Is the pool saturated?"), body: P("活跃连接 ≥ 上限的 90%，且等待 P95 > 50 ms 持续 5 分钟：判定为连接池不足，继续第 3 步；否则转「慢查询排查」。", "Active ≥ 90% of max and wait P95 > 50 ms for 5 min → pool too small, go to step 3; otherwise switch to “Slow query triage”.") },
-      { n: 3, kind: "query", title: P("最近的配置变更", "Recent config changes"), connectors: ["gitlab", "argo"], body: P("对比最近两次发布中 connection_pool.* 的差异", "Diff connection_pool.* between the last two releases"), readonly: true },
-      { n: 4, kind: "action", title: P("调整连接池上限", "Adjust the pool max"), suggestion: { source: P("AI 建议 · 来自 INV-231 · 14:25", "AI suggestion · from INV-231 · 14:25"), minus: P("新上限不低于 100，并确认数据库最大连接数余量。", "New max at least 100; confirm DB max_connections headroom."), plus: P("新上限不低于 150（INV-231：高峰活跃连接 142），并确认数据库最大连接数余量。", "New max at least 150 (INV-231: 142 active at peak); confirm DB max_connections headroom.") } },
-      { n: 5, kind: "verify", title: P("观测 180 秒", "Watch for 180 s"), body: P("5xx < 0.5% 且连接等待 P95 < 50 ms 持续 180 秒；否则回滚本次调整并升级到数据库值班。", "5xx < 0.5% and wait P95 < 50 ms for 180 s; otherwise roll back and escalate to the DB on-call.") },
+      { n: 1, kind: "query", title: P("谁先变慢", "Who slowed first"), connectors: ["prometheus"], code: 'histogram_quantile(0.99, sum by (instance, le) (rate(rpc_server_duration_seconds_bucket{service="$downstream"}[1m])))\nsum(rate(rpc_client_calls_total{service="$service", target="$downstream"}[1m]))', readonly: true },
+      { n: 2, kind: "check", title: P("是否被重试放大", "Amplified by retries?"), body: P("对下游的调用量 ÷ 业务请求量 > 1.5，且重试日志持续增加 5 分钟：判定为重试放大，继续第 3 步；否则转「下游容量评估」。", "Downstream calls ÷ business requests > 1.5 and retry logs rising for 5 min → amplified by retries, go to step 3; otherwise switch to “Downstream capacity”.") },
+      { n: 3, kind: "query", title: P("一条请求的链路与重试配置", "One request's trace and the retry setting"), connectors: ["tempo", "gitlab"], body: P("抽一条失败请求的链路，数清对下游的调用次数；再查 *.timeout 与 *.retry.* 的配置历史", "Pull one failed request's trace and count its downstream calls; then read the history of *.timeout and *.retry.*"), readonly: true },
+      { n: 4, kind: "action", title: P("限制重试并打开熔断", "Limit retries and open the breaker"), suggestion: { source: P("AI 建议 · 来自 INV-231 · 14:25", "AI suggestion · from INV-231 · 14:25"), minus: P("超时后最多重试 3 次，观察下游是否恢复。", "Retry timeouts up to 3 times and watch the downstream recover."), plus: P("重试降为 1 次并打开熔断（INV-231：重试占调用 68%）；长期改为指数退避，重试预算不超过 10%。", "Retry once and turn the circuit breaker on (INV-231: retries were 68% of calls); long term, exponential backoff with a retry budget under 10%.") } },
+      { n: 5, kind: "verify", title: P("观测 180 秒", "Watch for 180 s"), body: P("5xx < 0.5%，且对下游的调用量回到基线（INV-231：1.3k/s 以下）持续 180 秒；否则回退本次配置并升级到下游服务值班。", "5xx < 0.5% and downstream calls back at baseline (INV-231: under 1.3k/s) for 180 s; otherwise revert the config and escalate to the downstream on-call.") },
     ],
     reviewers: [{ name: "王晨", state: "pending" }, { name: "张磊", state: "optional" }],
     versions: [{ v: "v4", who: P("AI 修订 + 周航", "AI revision + Zhou Hang"), when: P("草稿", "Draft") }, { v: "v3", who: "周航", when: "9/11" }, { v: "v2", who: "周航", when: "7/02" }, { v: "v1", who: "张磊", when: "4/15" }],
     usage: { refs: 12, resolve_rate: 83, weekly: [1, 0, 2, 1, 3, 1, 0, 2, 1, 1, 0, 0], highlight: 4 },
-    incidents: [{ id: "INC-1042", title: P("checkout-api 5xx 上升", "checkout-api 5xx spike") }, { id: "INC-1037", title: P("order-service 慢查询", "order-service slow queries") }],
+    incidents: [{ id: "INC-1042", title: P("checkout-api 5xx 上升", "checkout-api 5xx spike") }, { id: "INC-0987", title: P("库存调用重试放大", "Inventory call retry amplification") }],
   };
 });
 mock("POST", "/runbooks/:id/dry-run", () => ({ steps: 3, ok: true }));
@@ -68,7 +68,7 @@ mock("POST", "/runbooks/:id/submit", () => ({ ok: true }));
 
 mock("GET", "/postmortems", ({ query }) => {
   const all = [
-    { id: "PM-57", title: P("checkout-api 5xx 上升", "checkout-api 5xx spike"), severity: "P1", date: "9/20", duration: P("21 分钟", "21 min"), cause: P("配置变更", "Config change"), actions: "0 / 3", status: "draft" },
+    { id: "PM-57", title: P("checkout-api 5xx 上升", "checkout-api 5xx spike"), severity: "P1", date: "9/20", duration: P("18 分钟", "18 min"), cause: P("依赖", "Dependency"), actions: "0 / 3", status: "draft" },
     { id: "PM-56", title: P("payment-gateway 延迟升高", "payment-gateway latency"), severity: "P2", date: "9/20", duration: P("1 时 12 分", "1 h 12 m"), cause: P("依赖", "Dependency"), actions: "1 / 2", status: "draft" },
     { id: "PM-55", title: P("order-service 慢查询导致超时", "order-service slow-query timeouts"), severity: "P2", date: "9/19", duration: P("48 分钟", "48 min"), cause: P("代码缺陷", "Code defect"), actions: "2 / 2", status: "published" },
     { id: "PM-54", title: P("search-api 发布后可用性下降", "search-api availability after release"), severity: "P1", date: "9/18", duration: P("35 分钟", "35 min"), cause: P("发布", "Release"), actions: "3 / 4", status: "published" },
@@ -96,10 +96,10 @@ mock("GET", "/postmortems", ({ query }) => {
     ],
     impact_by_service: [{ label: "checkout-api", value: 58 }, { label: "payment-gateway", value: 42 }, { label: "search-api", value: 35 }, { label: "order-service", value: 26 }, { label: "user-center", value: 18 }, { label: P("其他", "Other"), value: 12 }],
     followups: [
-      { text: P("发布流水线加入连接等待冒烟检查", "Add a conn-wait smoke check to the pipeline"), owner: "李明", due: P("逾期 2 天", "2 days overdue"), tone: "danger" },
+      { text: P("下游调用统一接入重试预算", "Retry budgets for all downstream calls"), owner: "李明", due: P("逾期 2 天", "2 days overdue"), tone: "danger" },
       { text: P("支付回调重试上限", "Cap payment callback retries"), owner: "赵凯", due: P("逾期 5 天", "5 days overdue"), tone: "danger" },
       { text: P("慢查询告警阈值调整", "Tune the slow-query alert threshold"), owner: "周航", due: P("今天到期", "Due today"), tone: "warn" },
-      { text: P("配置模板增加连接池下限校验", "Pool lower-bound check in config template"), owner: "张磊", due: "9/27", tone: "neutral" },
+      { text: P("配置模板禁止无退避的重试", "Config template rejects retries without backoff"), owner: "张磊", due: "9/27", tone: "neutral" },
     ],
   };
 });
@@ -114,15 +114,15 @@ mock("GET", "/memory", () => ({
   services: [{ id: "checkout-api", count: 14 }, { id: "payment-gateway", count: 11 }, { id: "order-service", count: 9 }, { id: "inventory-worker", count: 7 }, { id: "user-center", count: 6 }],
   service: "checkout-api",
   conflict: {
-    a: { text: P("连接池上限 50 足够日常流量", "A pool max of 50 is enough for daily traffic"), source: P("来源：2026-05 巡检 · 置信度 中 · 未确认", "From: 2026-05 check · medium confidence · unconfirmed") },
-    b: { text: P("高峰活跃连接约 142，上限需 ≥ 150", "About 142 active at peak; max must be ≥ 150"), source: P("来源：INV-231 · 王晨确认 · 证据 2 条", "From: INV-231 · confirmed by Wang Chen · 2 evidence") },
+    a: { text: P("库存调用超时后重试 3 次能提高下单成功率", "Retrying inventory timeouts 3 times raises the order success rate"), source: P("来源：2026-05 巡检 · 置信度 中 · 未确认", "From: 2026-05 check · medium confidence · unconfirmed") },
+    b: { text: P("库存变慢时，无退避重试 3 次会把调用放大到 3 倍以上", "When inventory slows, 3 retries without backoff amplify calls more than 3×"), source: P("来源：INV-231 · 王晨确认 · 证据 3 条", "From: INV-231 · confirmed by Wang Chen · 3 evidence") },
   },
   facts: [
-    { id: "f1", fact: P("高峰期活跃连接约 142，连接池上限需 ≥ 150", "Peak active connections ≈142; pool max must be ≥ 150"), source: "INV-231", confidence: "high", confirmed: P("王晨 · 今天", "Wang Chen · today"), recalls: 3, expires: P("180 天后", "in 180 days") },
-    { id: "f2", fact: P("依赖 orders-db（PostgreSQL 15）与 session-cache（Redis）", "Depends on orders-db (PostgreSQL 15) and session-cache (Redis)"), source: P("服务目录", "Service catalog"), confidence: "high", confirmed: P("自动同步", "Auto-synced"), recalls: 27, expires: P("随同步", "With sync") },
+    { id: "f1", fact: P("库存调用超时 300 ms、重试 3 次且无退避；下游变慢会被放大约 3 倍", "Inventory calls: 300 ms timeout, 3 retries, no backoff; a slowdown is amplified about 3×"), source: "INV-231", confidence: "high", confirmed: P("王晨 · 今天", "Wang Chen · today"), recalls: 3, expires: P("180 天后", "in 180 days") },
+    { id: "f2", fact: P("依赖 inventory-service（4 个实例）、orders-db（PostgreSQL 15）与 session-cache（Redis）", "Depends on inventory-service (4 instances), orders-db (PostgreSQL 15) and session-cache (Redis)"), source: P("服务目录", "Service catalog"), confidence: "high", confirmed: P("自动同步", "Auto-synced"), recalls: 27, expires: P("随同步", "With sync") },
     { id: "f3", fact: P("发布走 GitLab 流水线 + Argo CD，平均 14 分钟", "Releases go through GitLab + Argo CD, ≈14 min"), source: P("变更记录", "Change log"), confidence: "medium", confirmed: P("自动", "Automatic"), recalls: 9, expires: P("90 天后", "in 90 days") },
     { id: "f4", fact: P("每天 20:00–22:00 为流量高峰，约为平时的 2.4 倍", "Daily peak 20:00–22:00 at ≈2.4× normal"), source: P("指标统计", "Metric stats"), confidence: "medium", confirmed: P("自动", "Automatic"), recalls: 12, expires: P("30 天后", "in 30 days") },
-    { id: "f5", fact: P("5xx 告警多由连接池或下游 payment-gateway 引起", "5xx alerts are usually the pool or payment-gateway"), source: P("情景记忆 · 7 次调查", "Episodic · 7 investigations"), confidence: "medium", confirmed: null, recalls: 5, expires: "—" },
+    { id: "f5", fact: P("5xx 告警多由下游 inventory-service 或 payment-gateway 引起", "5xx alerts usually trace to inventory-service or payment-gateway"), source: P("情景记忆 · 7 次调查", "Episodic · 7 investigations"), confidence: "medium", confirmed: null, recalls: 5, expires: "—" },
     { id: "f6", fact: P("负责人：交易平台；值班群 #sre-oncall", "Owner: Trading; on-call channel #sre-oncall"), source: P("服务目录", "Service catalog"), confidence: "high", confirmed: P("自动同步", "Auto-synced"), recalls: 31, expires: P("随同步", "With sync") },
   ],
   policy: P("写入策略：AI 提取的事实需人工确认后才会被召回；不保存密钥与个人信息；默认 180 天过期。", "Write policy: facts extracted by AI are recalled only after a person confirms them; no secrets or personal data; 180-day default expiry."),
@@ -144,10 +144,10 @@ mock("GET", "/knowledge-sources", () => ({
 mock("POST", "/knowledge/search", ({ body }) => {
   const q = String((body as { q: string }).q ?? "");
   const hits = [
-    { title: P("Runbook · 连接池容量调整 v3", "Runbook · Pool capacity tuning v3"), snippet: P("活跃连接 ≥ 上限的 90%，且等待 P95 > 50 ms 持续 5 分钟，判定为连接池不足……", "Active ≥ 90% of max and wait P95 > 50 ms for 5 min means the pool is too small…"), keyword: 0.62, vector: 0.81, score: 0.78 },
-    { title: P("复盘 · order-service 慢查询导致超时", "Postmortem · order-service slow queries"), snippet: P("慢查询占用连接导致连接池耗尽，上游出现大量 5xx……", "Slow queries held connections, exhausting the pool; upstream saw many 5xx…"), keyword: 0.41, vector: 0.77, score: 0.66 },
-    { brand: "confluence", title: P("SRE 手册 · 数据库连接管理", "SRE handbook · DB connections"), snippet: P("每个服务的连接池上限需要结合数据库 max_connections 统一规划……", "Plan each service's pool max against the database max_connections…"), keyword: 0.55, vector: 0.69, score: 0.64 },
-    { brand: "gitlab", title: "platform/runbooks · db-pool.md", snippet: P("修改 connection_pool.max 后需同步更新容量评估表……", "Update the capacity sheet after changing connection_pool.max…"), keyword: 0.49, vector: 0.63, score: 0.58 },
+    { title: P("Runbook · 下游超时与重试风暴 v3", "Runbook · Downstream timeouts and retry storms v3"), snippet: P("对下游的调用量 ÷ 业务请求量 > 1.5，且重试日志持续增加，判定为重试放大……", "Downstream calls ÷ business requests > 1.5 with retry logs rising means retries are amplifying…"), keyword: 0.62, vector: 0.81, score: 0.78 },
+    { title: P("复盘 · INC-0987 库存调用重试放大", "Postmortem · INC-0987 inventory retry amplification"), snippet: P("一台库存实例变慢后，上游超时立即重试，调用量翻倍，整个库存服务被拖慢……", "One inventory instance slowed; the caller retried at once, calls doubled and the whole service slowed down…"), keyword: 0.41, vector: 0.77, score: 0.66 },
+    { brand: "confluence", title: P("SRE 手册 · 重试与退避", "SRE handbook · Retries and backoff"), snippet: P("同步调用的重试必须带指数退避和重试预算，预算建议不超过 10%……", "Retries on synchronous calls need exponential backoff and a retry budget, ideally under 10%…"), keyword: 0.55, vector: 0.69, score: 0.64 },
+    { brand: "gitlab", title: "platform/runbooks · retry-storm.md", snippet: P("调整 *.retry.max_attempts 后，同步检查熔断阈值和超时设置……", "After changing *.retry.max_attempts, re-check the breaker threshold and timeouts…"), keyword: 0.49, vector: 0.63, score: 0.58 },
   ];
   return { query: q, hits: q ? hits : [] };
 });

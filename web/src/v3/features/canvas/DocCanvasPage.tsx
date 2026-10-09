@@ -274,7 +274,7 @@ export default function DocCanvasPage() {
                 <div className="v3-col" style={{ gap: 8, fontSize: "var(--fs-sm)" }}>
                   <Muted size={11.5}>{tx("本节点可见的上下文", "Context visible to this node")}</Muted>
                   <Row gap={6}><Icon name="layers" size={13} />{tx("主线：目标与范围 v4", "Main: Goal & scope v4")}</Row>
-                  <Row gap={6}><Icon name="book" size={13} />{tx("Runbook「连接池容量调整」", "Runbook “Pool sizing”")}</Row>
+                  <Row gap={6}><Icon name="book" size={13} />{tx("Runbook「下游超时与重试风暴」", "Runbook “Retry storms”")}</Row>
                   <Row gap={6}><Icon name="file" size={13} />{tx("INC-1042 复盘", "INC-1042 postmortem")}</Row>
                   <Muted size={11.5}>{tx("兄弟分支的对话不会进入本节点上下文。", "Sibling branches' conversations are not included.")}</Muted>
                 </div>

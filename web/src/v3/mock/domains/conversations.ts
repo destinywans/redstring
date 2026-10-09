@@ -153,8 +153,11 @@ const capacity = {
 };
 
 /* ---------- C-320: incident review with artifacts + full parts catalogue ---------- */
-const wait = series(36, 14, 4, 12, 1, [22, 26]);
-const err = series(36, 0.3, 0.1, 12, 1, [23, 26]);
+// INV-231 (the retry storm on wans.run/redstring), one point every 1.7 min from 13:35: inventory calls
+// (k/s) climb from 14:04 while orders stay flat, and fall back once retries are limited at 14:19.
+const calls = [1.21, 1.18, 1.22, 1.2, 1.19, 1.23, 1.2, 1.21, 1.19, 1.22, 1.2, 1.24, 1.21, 1.2, 1.22, 1.25, 1.24, 1.42, 2.31, 3.12, 3.63, 3.81, 3.9, 3.85, 3.92, 3.88, 3.95, 2.04, 1.26, 1.21, 1.19, 1.22, 1.2, 1.21, 1.18, 1.2];
+const orders = calls.map((_, i) => Math.round((1.2 + (((i * 7) % 5) - 2) * 0.01) * 100) / 100);
+const err = [0.2, 0.3, 0.2, 0.3, 0.2, 0.2, 0.3, 0.2, 0.3, 0.2, 0.3, 0.2, 0.3, 0.2, 0.2, 0.3, 0.2, 0.3, 2.1, 5.6, 7.9, 8.4, 8.1, 8.6, 8.3, 8.4, 8.2, 1.9, 0.6, 0.3, 0.22, 0.21, 0.2, 0.23, 0.21, 0.2];
 const labels36 = Array.from({ length: 36 }, (_, i) => {
   const m = 35 + Math.round(i * 1.7);
   return `${13 + Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
@@ -175,54 +178,56 @@ const review = {
       created_at: at("14:21"),
       run: { id: "run_7f3a", agent: l("调查助手", "Investigator"), version: "v12", model: l("默认模型", "Default model"), tokens: 11200, duration_s: 9.8 },
       parts: [
-        { type: "tool_calls", summary: l("调用 3 个工具", "3 tool calls"), tokens: 11200, duration_s: 9.8, calls: [
-          { id: "a", connector: "prometheus", tool: "query_metrics", args: "db_wait_p95 · 1h", duration_ms: 400, status: "ok" },
-          { id: "b", connector: "elasticsearch", tool: "search_logs", args: '"connection timeout" · 30m', duration_ms: 700, status: "ok" },
-          { id: "c", connector: "gitlab", tool: "get_commit_diff", args: "#8812", duration_ms: 300, status: "ok" },
+        { type: "tool_calls", summary: l("调用 4 个工具", "4 tool calls"), tokens: 11200, duration_s: 9.8, calls: [
+          { id: "a", connector: "prometheus", tool: "query_metrics", args: "p99 by instance · node_disk · 1h", duration_ms: 400, status: "ok" },
+          { id: "b", connector: "tempo", tool: "search_traces", args: "POST /orders · error · 30m", duration_ms: 500, status: "ok" },
+          { id: "c", connector: "elasticsearch", tool: "search_logs", args: '"retry" inventory.reserve · 30m', duration_ms: 700, status: "ok" },
+          { id: "d", connector: "gitlab", tool: "get_file_history", args: "checkout-api.yaml · inventory.retry", duration_ms: 300, status: "ok" },
         ] },
         { type: "tasks", title: l("调查计划", "Investigation plan"), items: [
           { label: l("读取告警上下文", "Read alert context"), state: "done", meta: "0.2 s" },
           { label: l("查询最近 2 小时变更", "Query changes in the last 2 hours"), state: "done", meta: "0.3 s" },
-          { label: l("查询连接池与慢查询指标", "Query pool and slow-query metrics"), state: "done", meta: "0.4 s" },
-          { label: l("对比预发配置", "Compare with staging config"), state: "done", meta: "0.2 s" },
+          { label: l("查询库存服务各实例的指标", "Query metrics for each inventory instance"), state: "done", meta: "0.4 s" },
+          { label: l("抽取一条失败请求的链路", "Pull one failed request's trace"), state: "done", meta: "0.5 s" },
           { label: l("生成结论与提案", "Conclude and propose"), state: "done", meta: "1.1 s" },
         ] },
         { type: "text", markdown: l(
-          "**结论：连接池被打满。** 14:03 发布的 v2.8.1 把 `connection_pool.max` 从 200 改为 50[1]：\n\n- 连接等待 P95 从 12 ms 升到 420 ms[2]\n- 活跃连接 50 / 50，排队超时返回 5xx[3]",
-          "**Conclusion: the connection pool is saturated.** Release v2.8.1 at 14:03 changed `connection_pool.max` from 200 to 50[1]:\n\n- Connection wait P95 rose from 12 ms to 420 ms[2]\n- Active connections at 50 / 50; queued requests time out and return 5xx[3]",
+          "**结论：一台库存实例变慢，被重试放大成风暴。** 14:02 inventory-03 先变慢，P99 从 80 ms 升到 350 ms，磁盘 IO 等待同步上涨[1]：\n\n- 一个下单请求调了 4 次库存：3 次超时、1 次失败[2]\n- 日志里全是超时后立即重试，共 2,416 条[3]\n- 重试配置自 v2.6 没改过：300 ms、3 次、无退避[4]\n\n14:03 的发布没有改动库存调用，时间接近只是巧合。",
+          "**Conclusion: one slow inventory instance, amplified by retries into a storm.** At 14:02 inventory-03 slowed first: P99 went from 80 ms to 350 ms as its disk IO wait rose[1]:\n\n- One order called inventory 4 times: 3 timeouts and 1 failure[2]\n- The logs are all timeouts retried at once — 2,416 of them[3]\n- The retry setting has not changed since v2.6: 300 ms, 3 retries, no backoff[4]\n\nThe 14:03 release does not touch inventory calls; the timing is a coincidence.",
         ) },
-        { type: "chart", title: l("连接等待 P95 · checkout-api", "Connection wait P95 · checkout-api"), unit: "ms", labels: labels36, series: [{ name: "P95", values: wait.map((v) => Math.min(v, 460)) }, { name: "P50", values: wait.map((v) => Math.round(Math.min(v, 460) * 0.35)) }], threshold: 50, markers: [{ at: 22, label: l("v2.8.1 发布", "v2.8.1 release"), tone: "warn" }], source: "Prometheus", deep_link: "https://grafana.example.internal" },
-        { type: "table", title: l("各实例错误率", "Error rate by instance"), filter: l("错误率 > 1%", "Error rate > 1%"), columns: [l("实例", "Instance"), l("错误率", "Error rate"), l("连接", "Connections"), l("排队 P95", "Queue P95")], rows: [
-          ["checkout-api-7f9c-4", "9.2%", "50 / 50", "3.1 s"],
-          ["checkout-api-7f9c-1", "8.9%", "50 / 50", "3.0 s"],
-          ["checkout-api-7f9c-3", "7.6%", "49 / 50", "2.8 s"],
-          ["checkout-api-7f9c-5", "1.4%", "31 / 50", "0.9 s"],
+        { type: "chart", title: l("库存调用量与下单量 · checkout-api", "Inventory calls vs orders · checkout-api"), unit: "k/s", labels: labels36, series: [{ name: l("库存调用", "Inventory calls"), values: calls }, { name: l("下单", "Orders"), values: orders }], markers: [{ at: 17, label: l("v2.8.1 发布", "v2.8.1 release"), tone: "warn" }], source: "Prometheus", deep_link: "https://grafana.example.internal" },
+        { type: "table", title: l("库存各实例", "Inventory instances"), filter: l("超时率 > 1%", "Timeouts > 1%"), columns: [l("实例", "Instance"), l("超时率", "Timeouts"), "P99", l("磁盘 IO 等待", "Disk IO wait")], rows: [
+          ["inventory-03", "46%", "350 ms", "180 ms"],
+          ["inventory-01", "27%", "310 ms", "3 ms"],
+          ["inventory-04", "26%", "305 ms", "2 ms"],
+          ["inventory-02", "25%", "300 ms", "2 ms"],
         ] },
-        { type: "diff", path: "config/checkout-api.yaml", from: "v2.8.0", to: "v2.8.1", left: ["  pool:", "-   max: 200", "    timeout: 30s"], right: ["  pool:", "+   max: 50", "    timeout: 30s"] },
-        { type: "image", title: l("调用关系示意", "Call graph sketch"), caption: l("AI 生成 · 1280 × 360 · 84 KB", "AI generated · 1280 × 360 · 84 KB"), alt: l("gateway 调用 checkout-api，再调用 payment-gateway 与 orders-db", "gateway calls checkout-api, which calls payment-gateway and orders-db"), diagram: "call_graph" },
-        { type: "topology", caption: l("gateway → checkout-api → orders-db · 红色为异常链路 · 连线速度代表流量", "gateway → checkout-api → orders-db · red is unhealthy · dash speed shows traffic"), href: "/resources" },
+        { type: "diff", path: "config/checkout-api.yaml", from: "v2.8.1", to: "PRP-88", left: ["inventory:", "  timeout: 300ms", "  retry:", "-   max_attempts: 3", "    backoff: none", "-  circuit_breaker: off"], right: ["inventory:", "  timeout: 300ms", "  retry:", "+   max_attempts: 1", "    backoff: none", "+  circuit_breaker: on"] },
+        { type: "image", title: l("调用关系示意", "Call graph sketch"), caption: l("AI 生成 · 1280 × 360 · 84 KB", "AI generated · 1280 × 360 · 84 KB"), alt: l("gateway 调用 checkout-api，再调用 payment-gateway 与 inventory-service", "gateway calls checkout-api, which calls payment-gateway and inventory-service"), diagram: "call_graph" },
+        { type: "topology", caption: l("gateway → checkout-api → inventory-service · 红色为异常链路 · 连线速度代表流量", "gateway → checkout-api → inventory-service · red is unhealthy · dash speed shows traffic"), href: "/resources" },
         { type: "files", files: [
-          { id: "f1", name: l("故障报告.md", "incident-report.md"), kind: "md", size: "6 KB · v3", preview: l("# checkout-api 5xx 上升\n## 概要\nv2.8.1 把连接池上限从 200 改为 50…", "# checkout-api 5xx spike\n## Summary\nv2.8.1 lowered the pool max from 200 to 50…") },
-          { id: "f2", name: "pods.csv", kind: "csv", size: l("12 行", "12 rows"), preview: "pod,error_rate,pool\n7f9c-4,9.2%,50/50\n7f9c-1,8.9%,50/50\n7f9c-3,7.6%,49/50" },
-          { id: "f3", name: "deploy.yaml", kind: "yaml", size: "1.2 KB", preview: 'spec:\n  template:\n    env:\n      - name: POOL_MAX\n        value: "50"' },
-          { id: "f4", name: "error.log", kind: "log", size: l("1,284 行", "1,284 lines"), preview: "14:30:58 ERROR acquire connection timeout\n14:30:57 ERROR order create failed\n14:30:57 ERROR acquire connection timeout" },
+          { id: "f1", name: l("故障报告.md", "incident-report.md"), kind: "md", size: "6 KB · v3", preview: l("# checkout-api 5xx 上升\n## 概要\ninventory-03 先变慢，超时后立即重试 3 次，把库存调用放大到 3.2 倍…", "# checkout-api 5xx spike\n## Summary\ninventory-03 slowed first; timeouts retried 3 times at once amplified inventory calls 3.2×…") },
+          { id: "f2", name: "inventory-instances.csv", kind: "csv", size: l("4 行", "4 rows"), preview: "instance,timeouts,p99,disk_io_wait\ninventory-03,46%,350ms,180ms\ninventory-01,27%,310ms,3ms\ninventory-04,26%,305ms,2ms" },
+          { id: "f3", name: "checkout-api.yaml", kind: "yaml", size: "1.2 KB", preview: "inventory:\n  timeout: 300ms\n  retry:\n    max_attempts: 3\n    backoff: none" },
+          { id: "f4", name: "retry.log", kind: "log", size: l("2,416 行", "2,416 lines"), preview: "14:12:58 ERROR inventory.reserve timeout, retrying (1/3)\n14:12:57 ERROR retry 3/3 failed: inventory.reserve\n14:12:57 ERROR inventory.reserve timeout, retrying (2/3)" },
         ] },
-        { type: "proposal", id: "PRP-88", title: l("回滚连接池上限 50 → 200", "Roll back pool max 50 → 200"), risk: "medium", reversible: true, target: "production / checkout-api", detail: l("滚动更新约 3 分钟 · 执行后自动观测 180 秒", "Rolling update ≈3 min · 180 s automatic verification afterwards") },
+        { type: "proposal", id: "PRP-88", title: l("库存调用重试降为 1 次，并打开熔断", "Retry inventory calls once and turn the breaker on"), risk: "medium", reversible: true, target: "production / checkout-api", detail: l("配置热更新约 1 分钟 · 执行后自动观测 180 秒", "Hot config update ≈1 min · 180 s automatic verification afterwards") },
         { type: "form", title: l("继续之前，请确认：", "Before continuing, please confirm:"), fields: [
           { id: "env", label: l("环境", "Environment"), kind: "radio", options: [l("生产", "Production"), l("预发", "Staging")], value: l("生产", "Production") },
           { id: "window", label: l("时间窗口", "Time window"), kind: "select", options: ["14:00 – 14:35", "13:30 – 14:35"], value: "14:00 – 14:35" },
           { id: "downstream", label: l("同时检查下游 payment-gateway", "Also check downstream payment-gateway"), kind: "check", value: true },
         ] },
         { type: "citations", items: [
-          { n: 1, label: l("GitLab #8812 · 配置差异", "GitLab #8812 · config diff"), ref: { kind: "change", id: "8812", label: "#8812" } },
-          { n: 2, label: l("Prometheus · 连接等待", "Prometheus · connection wait") },
-          { n: 3, label: l("Elasticsearch · 超时日志", "Elasticsearch · timeout logs") },
+          { n: 1, label: l("Prometheus · inventory-03 P99 与磁盘", "Prometheus · inventory-03 P99 and disk") },
+          { n: 2, label: l("Tempo · trace 4f2a9c", "Tempo · trace 4f2a9c") },
+          { n: 3, label: l("Elasticsearch · 重试日志", "Elasticsearch · retry logs") },
+          { n: 4, label: l("GitLab · 重试配置历史", "GitLab · retry setting history") },
         ] },
-        { type: "data_gap", text: l("缺少 checkout-api 的链路数据（Tempo 未映射），结论置信度：中", "Missing traces for checkout-api (Tempo not mapped) — confidence: medium"), href: "/integrations/coverage" },
+        { type: "data_gap", text: l("缺少 inventory-03 的磁盘 SMART 数据（主机监控未接入），磁盘为什么变慢的置信度：中", "No SMART data for inventory-03's disk (host monitoring not connected) — confidence in why the disk slowed: medium"), href: "/integrations/coverage" },
         { type: "next_steps", items: [
-          { icon: "shield", label: l("生成回滚提案", "Create rollback proposal"), action: "proposal" },
+          { icon: "shield", label: l("生成变更提案", "Create change proposal"), action: "proposal" },
           { icon: "branch", label: l("派生分支验证", "Fork a branch to verify"), action: "canvas" },
-          { icon: "search", label: l("查看 payment-gateway 的 429", "Check payment-gateway 429s"), action: "ask" },
+          { icon: "search", label: l("查看 inventory-03 的磁盘", "Check inventory-03's disk"), action: "ask" },
           { icon: "file", label: l("加入报告", "Add to report"), action: "report" },
         ] },
       ],
@@ -257,8 +262,8 @@ const review = {
       content: {
         kind: "report",
         markdown: l(
-          "# checkout-api 5xx 上升故障报告\n\n## 概要\nv2.8.1 把连接池上限从 200 改为 50，高峰期连接被占满，请求排队超时返回 5xx[1][2]。回滚后 3 分钟内恢复。\n\n## 影响\n5xx 峰值 8.4%，影响下单接口；受影响订单数以业务侧统计为准。\n\n## 根因\n配置模板缺少连接池下限校验；发布前风险评估给出中风险提示但未阻断。\n\n## 改进项\n- 配置模板增加连接池下限校验（张磊 · 9/27）\n- 发布流水线加入连接等待冒烟检查（李明）",
-          "# checkout-api 5xx spike — incident report\n\n## Summary\nv2.8.1 lowered the pool max from 200 to 50; at peak the pool saturated and queued requests timed out with 5xx[1][2]. Recovered within 3 minutes of the rollback.\n\n## Impact\n5xx peaked at 8.4%, affecting order creation; affected order counts come from the business side.\n\n## Root cause\nThe config template lacked a lower bound for the pool; the pre-release risk check flagged medium risk but did not block.\n\n## Action items\n- Add a pool lower-bound check to the config template (Zhang Lei · 9/27)\n- Add a connection-wait smoke check to the release pipeline (Li Ming)",
+          "# checkout-api 5xx 上升故障报告\n\n## 概要\ninventory-03 磁盘变慢，让一部分库存调用超过 300 ms[1]；checkout-api 超时后立即重试 3 次，一个下单请求调 4 次库存，调用放大到 3.2 倍，整个库存服务被压满，下单返回 5xx[2][3]。重试降为 1 次并打开熔断后 3 分钟内恢复。\n\n## 影响\n5xx 峰值 8.4%，影响下单接口；受影响订单数以业务侧统计为准。\n\n## 根因\n重试配置自 v2.6 起就是超时 300 ms、重试 3 次、无退避[4]，一台实例变慢就会被放大成整个服务的风暴。14:03 的发布与本次故障无关。\n\n## 改进项\n- 库存调用改为指数退避，重试预算不超过 10%（张磊 · 9/27）\n- 库存服务开启离群实例摘除（李明）",
+          "# checkout-api 5xx spike — incident report\n\n## Summary\ninventory-03's disk slowed down and pushed some inventory calls past 300 ms[1]; checkout-api retried each timeout three times at once, so one order made 4 inventory calls, traffic grew 3.2×, the inventory service saturated and checkout returned 5xx[2][3]. Retrying once with the circuit breaker on recovered it within 3 minutes.\n\n## Impact\n5xx peaked at 8.4%, affecting order creation; affected order counts come from the business side.\n\n## Root cause\nSince v2.6 the retry setting has been a 300 ms timeout, 3 retries and no backoff[4], so one slow instance becomes a storm across the service. The 14:03 release was unrelated.\n\n## Action items\n- Exponential backoff on inventory calls, retry budget under 10% (Zhang Lei · 9/27)\n- Outlier ejection for the inventory service (Li Ming)",
         ),
         editing_note: l("AI 正在修改「影响」部分", "AI is revising the Impact section"),
         annotations: [{ author: "王晨", text: l("影响部分不要写具体订单数，等业务确认。", "Don't state order counts in Impact until the business confirms.") }],
@@ -267,16 +272,16 @@ const review = {
     {
       id: "chart",
       kind: "chart",
-      title: l("连接等待与 5xx 对比", "Connection wait vs 5xx"),
+      title: l("库存调用量与 5xx 对比", "Inventory calls vs 5xx"),
       meta: l("图表 · 2 个面板联动", "Chart · 2 linked panels"),
       version: 1,
       updated_at: at("14:25"),
       content: {
         kind: "chart",
         labels: labels36,
-        markers: [{ at: 22, label: l("14:03 发布", "14:03 release"), tone: "warn" }, { at: 29, label: l("14:21 回滚", "14:21 rollback"), tone: "ok" }],
+        markers: [{ at: 17, label: l("14:03 发布", "14:03 release"), tone: "warn" }, { at: 27, label: l("14:19 限制重试", "14:19 retries limited"), tone: "ok" }],
         panels: [
-          { title: l("连接等待 P95（ms）", "Connection wait P95 (ms)"), unit: "ms", peak: "420", series: { name: "P95", values: wait } },
+          { title: l("库存调用量（k/s）", "Inventory calls (k/s)"), unit: "k/s", peak: "3.9", series: { name: l("调用", "Calls"), values: calls } },
           { title: l("5xx 比例（%）", "5xx ratio (%)"), unit: "%", peak: "8.4", series: { name: "5xx", values: err }, threshold: 1 },
         ],
       },
@@ -285,35 +290,35 @@ const review = {
       id: "csv",
       kind: "table",
       title: l("受影响实例.csv", "affected-instances.csv"),
-      meta: l("表格 · 6 行", "Table · 6 rows"),
+      meta: l("表格 · 4 行", "Table · 4 rows"),
       version: 1,
       updated_at: at("14:25"),
-      content: { kind: "table", columns: [l("实例", "Instance"), l("错误率", "Error rate"), l("连接池", "Pool"), l("排队 P95", "Queue P95"), l("开始", "Started")], rows: [
-        ["7f9c-4", "9.2%", "50 / 50", "3.1 s", "14:05"], ["7f9c-1", "8.9%", "50 / 50", "3.0 s", "14:05"], ["7f9c-2", "8.1%", "50 / 50", "2.9 s", "14:06"],
-        ["7f9c-3", "7.6%", "49 / 50", "2.8 s", "14:06"], ["7f9c-5", "1.4%", "31 / 50", "0.9 s", "14:27"], ["7f9c-6", "0.3%", "18 / 50", "0.2 s", "—"],
+      content: { kind: "table", columns: [l("实例", "Instance"), l("超时率", "Timeouts"), "P99", l("磁盘 IO 等待", "Disk IO wait"), l("开始", "Started")], rows: [
+        ["inventory-03", "46%", "350 ms", "180 ms", "14:02"], ["inventory-01", "27%", "310 ms", "3 ms", "14:04"],
+        ["inventory-04", "26%", "305 ms", "2 ms", "14:04"], ["inventory-02", "25%", "300 ms", "2 ms", "14:05"],
       ] },
     },
     {
       id: "diff",
       kind: "diff",
-      title: l("deploy.yaml 差异", "deploy.yaml diff"),
-      meta: l("配置 · v2.8.0 → v2.8.1", "Config · v2.8.0 → v2.8.1"),
+      title: l("checkout-api.yaml 差异", "checkout-api.yaml diff"),
+      meta: l("配置 · 当前 → PRP-88", "Config · current → PRP-88"),
       version: 1,
       updated_at: at("14:25"),
-      content: { kind: "diff", path: "deploy.yaml", from: "v2.8.0", to: "v2.8.1",
-        left: ["spec:", "  template:", "    env:", "      - name: POOL_MAX", '-       value: "200"', "      - name: POOL_TIMEOUT", '        value: "30s"'],
-        right: ["spec:", "  template:", "    env:", "      - name: POOL_MAX", '+       value: "50"', "      - name: POOL_TIMEOUT", '        value: "30s"'] },
+      content: { kind: "diff", path: "config/checkout-api.yaml", from: "v2.8.1", to: "PRP-88",
+        left: ["inventory:", "  timeout: 300ms", "  retry:", "-   max_attempts: 3", "    backoff: none", "-  circuit_breaker: off"],
+        right: ["inventory:", "  timeout: 300ms", "  retry:", "+   max_attempts: 1", "    backoff: none", "+  circuit_breaker: on"] },
     },
   ],
   side: {
-    connectors: [{ name: l("Prometheus · 生产", "Prometheus · prod"), calls: 2 }, { name: "Elasticsearch", calls: 1 }, { name: "GitLab", calls: 1 }],
+    connectors: [{ name: l("Prometheus · 生产", "Prometheus · prod"), calls: 1 }, { name: "Tempo", calls: 1 }, { name: "Elasticsearch", calls: 1 }, { name: "GitLab", calls: 1 }],
     context: { used: 11200, budget: 32000, parts: [
       { label: l("系统", "System"), tokens: 900, color: "var(--faint)" },
       { label: "Skills", tokens: 1400, color: "var(--c4)" },
       { label: l("证据", "Evidence"), tokens: 5200, color: "var(--c1)" },
       { label: l("历史", "History"), tokens: 3700, color: "var(--c2)" },
     ] },
-    recalled: [{ kind: "runbook", title: l("Runbook「数据库连接池耗尽」", "Runbook “DB pool exhaustion”"), score: 0.86 }, { kind: "postmortem", title: l("INC-0987 连接池事故", "INC-0987 pool incident"), score: 0.74 }],
+    recalled: [{ kind: "runbook", title: l("Runbook「下游超时与重试风暴」", "Runbook “Downstream timeouts and retry storms”"), score: 0.86 }, { kind: "postmortem", title: l("INC-0987 重试放大事故", "INC-0987 retry amplification"), score: 0.74 }],
   },
 };
 
@@ -369,12 +374,12 @@ export function cannedReply(text: string) {
       : [{ id: "s1", connector: "prometheus", tool: "query_metrics", args: "p99 · cpu · 1h", duration_ms: 420, status: "ok" }],
     text: incident
       ? l(
-          "5xx 在 14:03 发布 v2.8.1 之后开始上升，同时数据库连接等待 P95 从 12 ms 升到 420 ms[1]。发布内容包含 `connection_pool.max 200 → 50`[2]，最可能的原因是连接池被打满。建议先回滚连接池配置，再观察 180 秒。",
-          "5xx started rising right after v2.8.1 at 14:03, while DB connection wait P95 went from 12 ms to 420 ms[1]. The release includes `connection_pool.max 200 → 50`[2], so the pool is most likely saturated. Roll back the pool config first, then watch for 180 seconds.",
+          "5xx 从 14:05 开始上升，离 14:03 发布 v2.8.1 只有 2 分钟，但发布没有改动库存调用[2]。同一时间库存调用从 1.2k/s 涨到 3.9k/s，而下单量持平[1]，更像是下游变慢后被重试放大。建议派生分支，分别查谁先变慢、一个请求调了几次库存。",
+          "5xx started rising at 14:05, 2 minutes after v2.8.1 shipped, but the release does not touch inventory calls[2]. Meanwhile inventory calls went from 1.2k/s to 3.9k/s while orders stayed flat[1] — it looks like a downstream slowdown amplified by retries. Fork branches to check who slowed first and how many inventory calls one request makes.",
         )
       : l(
-          "我看了最近 1 小时的数据：checkout-api 的 P99 为 1.6 s，高于 SLO 300 ms；CPU 71%，接近 HPA 目标 70%[1]。主要压力来自数据库连接等待，而不是计算资源。需要的话我可以把这个问题转成 Canvas 调查，分支验证连接池和上游依赖。",
-          "Over the last hour checkout-api's P99 is 1.6 s, above its 300 ms SLO, and CPU is 71%, near the 70% HPA target[1]. The pressure comes from DB connection wait rather than compute. I can turn this into a canvas investigation and verify the pool and upstream dependencies in separate branches.",
+          "我看了最近 1 小时的数据：checkout-api 的 P99 为 1.6 s，高于 SLO 300 ms；CPU 71%，接近 HPA 目标 70%[1]。主要时间花在等待下游库存服务，而不是计算资源。需要的话我可以把这个问题转成 Canvas 调查，分支验证库存服务和支付网关。",
+          "Over the last hour checkout-api's P99 is 1.6 s, above its 300 ms SLO, and CPU is 71%, near the 70% HPA target[1]. Most of the time goes to waiting on the inventory service rather than compute. I can turn this into a canvas investigation and verify inventory and payments in separate branches.",
         ),
     citations: [
       { n: 1, label: l("Prometheus · 最近 1 小时", "Prometheus · last hour") },

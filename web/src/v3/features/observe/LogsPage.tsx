@@ -25,7 +25,7 @@ export default function LogsPage() {
     const t = setInterval(() => {
       const now = new Date();
       const ts = `${now.toTimeString().slice(0, 8)}.${String(now.getMilliseconds()).padStart(3, "0")}`;
-      setExtra((x) => [{ time: ts, level: Math.random() > 0.4 ? "ERROR" : "WARN", service: "checkout-api", message: Math.random() > 0.5 ? "acquire connection timeout after 3000ms (pool active=50 max=50)" : "slow request POST /orders 3.1s", trace: "4bf92f35" } as LogLine, ...x].slice(0, 20));
+      setExtra((x) => [{ time: ts, level: Math.random() > 0.4 ? "ERROR" : "WARN", service: "checkout-api", message: Math.random() > 0.5 ? "inventory.reserve timeout after 300ms, retrying (1/3) instance=inventory-03" : "retry 3/3 failed: inventory.reserve · POST /orders 502", trace: "4f2a9c17" } as LogLine, ...x].slice(0, 20));
     }, 1800);
     return () => clearInterval(t);
   }, [live]);

@@ -175,7 +175,7 @@ export default function RoutingPage() {
                   <div className="head">{tx("[P1 触发] checkout-api 5xx 比例 8.4%", "[P1 firing] checkout-api 5xx ratio 8.4%")}</div>
                   <div className="body">
                     <span>{tx("生产 · 交易平台 · 5 条告警合并", "prod · trading · 5 alerts merged")}</span>
-                    <Muted>{tx("AI 初查：与 14:03 发布的连接池配置变更有关", "AI triage: linked to the 14:03 pool config change")}</Muted>
+                    <Muted>{tx("AI 初查：inventory-03 先变慢，库存调用量随后上涨", "AI triage: inventory-03 slowed first, then inventory calls rose")}</Muted>
                     <Row gap={6}>
                       <Badge>{tx("认领", "Claim")}</Badge>
                       <Badge>{tx("打开调查", "Open investigation")}</Badge>

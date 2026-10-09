@@ -37,8 +37,8 @@ export function CompareDialog({ a, b, onClose, onMerge }: { a?: CanvasNode; b?: 
         <IconBtn icon="x" label={tx("关闭对比", "Close")} onClick={onClose} />
       </Row>
       <div className="cmp-grid">
-        {col(a, "database", tx("连接池被打满", "Pool saturated"))}
-        {col(b, "layers", tx("生产 50 / 预发 200", "Prod 50 / staging 200"))}
+        {col(a, "database", tx("inventory-03 先变慢", "inventory-03 slowed first"))}
+        {col(b, "layers", tx("每单调 4 次库存", "4 inventory calls per order"))}
       </div>
       <Row gap={8} style={{ padding: "10px 14px", borderTop: "1px solid var(--border)", background: "var(--sunken)" }}>
         <Icon name="check" size={14} color="var(--ok)" />

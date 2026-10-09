@@ -19,7 +19,7 @@ mock("GET", "/incidents/draft", () => ({
   alerts: [
     { id: "al-1", severity: "P1", text: "5xx > 1% · checkout-api", at: "14:05" },
     { id: "al-2", severity: "P2", text: "P99 > 1 s · checkout-api", at: "14:06" },
-    { id: "al-3", severity: "P3", text: P("连接等待 > 200 ms · orders-db", "Conn wait > 200 ms · orders-db"), at: "14:04" },
+    { id: "al-3", severity: "P3", text: P("库存调用超时 > 5% · inventory-service", "Inventory timeouts > 5% · inventory-service"), at: "14:04" },
   ],
   commander: { name: "王晨", note: P("当前值班", "on call") },
   participants: ["李明", "张磊", "AI"],
@@ -98,43 +98,44 @@ mock("POST", "/runbooks", ({ body }) => {
   return { id: "rb-new", source: b.source ?? "blank", status: "draft" };
 });
 mock("GET", "/runbooks/draft", () => ({
-  title: P("数据库连接池耗尽", "Database connection pool exhaustion"),
-  applies_to: ["checkout-api", "order-service", "payment-gateway"],
-  trigger: P("连接等待 P95 > 200 ms，且 5xx > 1%", "Conn wait P95 > 200 ms and 5xx > 1%"),
+  title: P("下游超时与重试风暴", "Downstream timeouts and retry storms"),
+  applies_to: ["checkout-api", "order-service", "inventory-service"],
+  trigger: P("对下游的调用量 ÷ 业务请求量 > 1.5，且 5xx > 1%", "Downstream calls ÷ business requests > 1.5 and 5xx > 1%"),
   steps: [
-    { kind: "check", title: P("确认连接池是否被打满", "Confirm the pool is saturated"), body: P("查看连接等待 P95 与活跃连接数。", "Check conn wait P95 and active connections."), tool: { brand: "prometheus", text: "db_pool_wait_seconds{quantile=\"0.95\"}" } },
-    { kind: "check", title: P("对比最近配置变更", "Compare recent config changes"), body: P("查看最近 2 小时的发布与配置差异。", "Look at releases and config diffs in the last 2 hours."), tool: { brand: "gitlab", text: "list_changes · 2h" } },
-    { kind: "act", title: P("回滚连接池配置", "Roll back the pool config"), body: P("将 connection_pool.max 恢复到上一版本的值。", "Restore connection_pool.max to the previous value."), approval: true },
-    { kind: "verify", title: P("验证 180 秒", "Verify for 180 s"), body: P("5xx 回落到 0.5% 以下，连接等待 P95 < 50 ms。", "5xx under 0.5%, conn wait P95 < 50 ms.") },
+    { kind: "check", title: P("确认是否被重试放大", "Confirm retries are amplifying"), body: P("对比对下游的调用量与下单量，查看重试日志占比。", "Compare downstream calls with orders and check the share of retry logs."), tool: { brand: "prometheus", text: "sum(rate(rpc_client_calls_total{target=\"inventory-service\"}[1m]))" } },
+    { kind: "check", title: P("找出最先变慢的实例", "Find the instance that slowed first"), body: P("按实例看下游 P99 与磁盘 IO 等待，确认谁最先变慢。", "Check downstream P99 and disk IO wait per instance to see which slowed first."), tool: { brand: "tempo", text: "search_traces · POST /orders · error" } },
+    { kind: "act", title: P("限制重试并打开熔断", "Limit retries and open the breaker"), body: P("把 inventory.retry.max_attempts 降为 1，打开 inventory.circuit_breaker。", "Set inventory.retry.max_attempts to 1 and turn inventory.circuit_breaker on."), approval: true },
+    { kind: "verify", title: P("验证 180 秒", "Verify for 180 s"), body: P("5xx 回落到 0.5% 以下，库存调用量回到 1.3k/s 以下。", "5xx under 0.5%, inventory calls back under 1.3k/s.") },
   ],
   sources: [P("INC-1042 复盘", "INC-1042 postmortem"), P("INC-1031 复盘", "INC-1031 postmortem"), P("对话 C-320", "Chat C-320")],
 }));
 mock("GET", "/postmortems/candidates", () => ({
   items: [
-    { id: "INC-1042", title: P("checkout-api 5xx 升高", "checkout-api 5xx rising"), severity: "P1", resolved: P("今天 14:31", "Today 14:31"), duration: P("26 分钟", "26 min"), evidence: 12 },
+    { id: "INC-1042", title: P("checkout-api 5xx 升高", "checkout-api 5xx rising"), severity: "P1", resolved: P("今天 14:23", "Today 14:23"), duration: P("18 分钟", "18 min"), evidence: 12 },
     { id: "INC-1039", title: P("Redis 内存使用率 90%", "Redis memory at 90%"), severity: "P2", resolved: "9/21", duration: P("1 小时 10 分钟", "1 h 10 min"), evidence: 7 },
     { id: "INC-1031", title: P("数据库主从切换导致超时", "Timeouts after DB failover"), severity: "P1", resolved: "9/19", duration: P("42 分钟", "42 min"), evidence: 15 },
   ],
 }));
 mock("GET", "/postmortems/draft", ({ query }) => ({
-  incident: { id: String(query.incident ?? "INC-1042"), title: P("checkout-api 5xx 升高", "checkout-api 5xx rising"), severity: "P1", window: "14:05 – 14:31", duration: P("26 分钟", "26 min") },
+  incident: { id: String(query.incident ?? "INC-1042"), title: P("checkout-api 5xx 升高", "checkout-api 5xx rising"), severity: "P1", window: "14:05 – 14:23", duration: P("18 分钟", "18 min") },
   sections: [
-    { key: "summary", title: P("概要", "Summary"), text: P("14:03 发布 v2.8.1 将 connection_pool.max 从 200 改为 50，导致高峰期连接池被打满，下单 5xx 升至 8.4%，持续 26 分钟。回滚配置后恢复。", "v2.8.1 at 14:03 changed connection_pool.max from 200 to 50; the pool saturated at peak and checkout 5xx reached 8.4% for 26 minutes. Rolling back the config restored service.") },
+    { key: "summary", title: P("概要", "Summary"), text: P("inventory-03 磁盘变慢，checkout-api 超时后立即重试 3 次，把库存调用放大到 3.2 倍，整个库存服务被压满，下单 5xx 升至 8.4%，持续 18 分钟。重试降为 1 次并打开熔断后恢复。14:03 的发布与此无关。", "inventory-03's disk slowed down; checkout-api retried each timeout 3 times at once, amplifying inventory calls 3.2×, the inventory service saturated and checkout 5xx reached 8.4% for 18 minutes. Retrying once with the breaker on restored service. The 14:03 release was unrelated.") },
     { key: "impact", title: P("影响", "Impact"), text: P("约 1.2 万笔下单失败，其中 83% 用户重试成功；无资金损失，无数据不一致。", "~12k checkouts failed; 83% of users succeeded on retry. No money lost, no data inconsistency.") },
-    { key: "root", title: P("根因", "Root cause"), text: P("配置模板中生产环境的连接池上限被误设为 50；评审只覆盖了代码 diff，未覆盖配置 diff。", "The prod pool max in the config template was set to 50 by mistake; review covered the code diff but not the config diff.") },
+    { key: "root", title: P("根因", "Root cause"), text: P("库存调用的重试配置自 v2.6 起就是超时 300 ms、重试 3 次、无退避，也没有熔断；一台实例变慢就会被放大成整个服务的风暴。", "Since v2.6 inventory calls have used a 300 ms timeout, 3 retries, no backoff and no breaker, so one slow instance becomes a storm across the service.") },
   ],
   timeline: [
-    { at: "14:03", text: P("发布 v2.8.1", "v2.8.1 released"), tone: "info" },
+    { at: "14:02", text: P("inventory-03 磁盘 IO 等待升高", "inventory-03 disk IO wait rises"), tone: "warn" },
+    { at: "14:03", text: P("发布 v2.8.1（无关）", "v2.8.1 released (unrelated)"), tone: "info" },
     { at: "14:05", text: P("告警：5xx > 1%", "Alert: 5xx > 1%"), tone: "danger" },
     { at: "14:09", text: P("AI 初查：派生 3 个分支", "AI triage: forked 3 branches"), tone: "accent" },
-    { at: "14:21", text: P("确认连接池上限被改为 50", "Confirmed pool max changed to 50"), tone: "accent" },
-    { at: "14:24", text: P("批准并执行回滚 PRP-88", "Approved and ran rollback PRP-88"), tone: "warn" },
-    { at: "14:31", text: P("180 秒验证通过，事件解决", "180 s verification passed, resolved"), tone: "ok" },
+    { at: "14:17", text: P("确认：inventory-03 变慢，被重试放大成风暴", "Confirmed: inventory-03 slowed and retries made it a storm"), tone: "accent" },
+    { at: "14:19", text: P("批准并执行 PRP-88：重试降为 1 次并打开熔断", "Approved and ran PRP-88: retry once, breaker on"), tone: "warn" },
+    { at: "14:23", text: P("180 秒验证通过，事件解决", "180 s verification passed, resolved"), tone: "ok" },
   ],
   actions: [
-    { text: P("配置 diff 纳入发布评审", "Include config diffs in release review"), owner: "李明", due: "10/08" },
-    { text: P("连接池上限加入告警规则", "Alert on pool max changes"), owner: "王晨", due: "10/01" },
-    { text: P("更新 Runbook「连接池容量调整」", "Update runbook “Pool sizing”"), owner: "AI", due: P("已起草", "drafted") },
+    { text: P("库存调用改为指数退避，重试预算不超过 10%", "Exponential backoff on inventory calls, retry budget under 10%"), owner: "张磊", due: "9/27" },
+    { text: P("库存服务开启离群实例摘除", "Outlier ejection for the inventory service"), owner: "李明", due: "9/30" },
+    { text: P("更新 Runbook「下游超时与重试风暴」", "Update runbook “Retry storms”"), owner: "AI", due: P("已起草", "drafted") },
   ],
 }));
 mock("POST", "/postmortems", ({ body }) => {

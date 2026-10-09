@@ -178,7 +178,7 @@ export function CommandPalette() {
                 ["bell", tx("2 条触发中的告警", "2 firing alerts")],
                 ["branch", tx("最近变更 GitLab #8812 · v2.8.1", "Recent change GitLab #8812 · v2.8.1")],
                 ["clock", tx("时间窗口 13:58 – 14:30", "Window 13:58 – 14:30")],
-                ["book", tx("Runbook：数据库连接池耗尽", "Runbook: DB pool exhaustion")],
+                ["book", tx("Runbook：下游超时与重试风暴", "Runbook: Retry storms")],
               ].map(([i, t]) => (
                 <div key={t} className="v3-row" style={{ gap: 6, fontSize: "var(--fs-sub)" }}>
                   <Icon name={i as IconName} size={13} color="var(--muted)" />

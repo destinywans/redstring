@@ -244,8 +244,8 @@ export default function NewSourcePage() {
             {step >= 2 && !supported && (
               <Col gap={8}>
                 <Muted size={11.5}>{tx("检索试用", "Try a search")}</Muted>
-                <Input icon="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tx("连接池耗尽怎么处理", "How to handle pool exhaustion")} />
-                {[["0.82", tx("SRE 手册 / 数据库连接池耗尽", "SRE handbook / Pool exhaustion")], ["0.77", tx("交易平台 / checkout-api 容量说明", "Trading / checkout-api capacity")], ["0.61", tx("SRE 手册 / 发布回滚规范", "SRE handbook / Rollback guide")]].map(([s, t]) => (
+                <Input icon="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={tx("重试风暴怎么处理", "How to handle a retry storm")} />
+                {[["0.82", tx("SRE 手册 / 下游超时与重试风暴", "SRE handbook / Retry storms")], ["0.77", tx("交易平台 / checkout-api 容量说明", "Trading / checkout-api capacity")], ["0.61", tx("SRE 手册 / 发布回滚规范", "SRE handbook / Rollback guide")]].map(([s, t]) => (
                   <Row key={t} gap={8} style={{ fontSize: "var(--fs-sub)" }}>
                     <Mono size={11} color="var(--muted)">{s}</Mono>
                     <span className="ellipsis">{t}</span>

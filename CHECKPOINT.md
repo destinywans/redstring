@@ -1,3 +1,14 @@
+**最新演示：[CP-320](#cp-320-current)，2026-10-09 (+08)。INV-231 示例数据改成与博客首页一致的重试风暴；前端示例数据模式可构建为静态演示，准备部署到 redstring.wans.run（WAN-293）。**
+
+<a id="cp-320-current"></a>
+## CP-320 · INV-231 示例数据换成重试风暴，准备在线演示
+
+- 用户决定（WAN-292/293）：博客产品页 wans.run/redstring/ 链接在线演示 `redstring.wans.run`，演示只用前端示例数据，不连后端、不调模型；INV-231 的故事与博客首页一致。分支 `codex/wan-293-redstring-demo` 基于 main `5bf4ac6`，在独立 worktree 中修改，没有动与后端会话共用的检出。
+- 故事：14:02 inventory-03 磁盘变慢，P99 80 → 350 ms；checkout-api 对库存调用超时 300 ms 后立即重试 3 次、无退避（v2.6 起的配置），一个下单请求调 4 次库存，调用 1.2k → 3.9k/s（3.2 倍），下单量持平，5xx 0.2% → 8.4%。14:03 的 v2.8.1 发布只是时间巧合。四个只读工具取证：Prometheus（谁先变慢）、Tempo（trace 4f2a9c，库存 ×4）、Elasticsearch（重试日志 2,416 条）、GitLab（重试配置历史）。PRP-88 改为“重试降为 1 次并打开熔断”，配置热更新，180 秒验证 5xx 0.21%、库存调用 1.2k/s。
+- 改动范围是示例数据与少量写死的界面文案：画布节点（`b-inv`、`b-amp`、`e-trace`、`e-cfg` 取代原 `b-pool`、`b-cmp`、`b-up`、`e-diff`）、回写预览、对话 C-320 与产物、提案/执行/报告、告警与收件箱、服务与拓扑（新增 inventory-service，orders-db、payment-gateway 恢复正常）、指标、日志、链路与 Agent 轨迹、Runbook `rb-retry-storm`（原 `rb-db-pool`）、记忆、首页简报。其它调查（INV-229 等）和通用模板保持原样。
+- 资源详情面板的两个仪表和连接等待改为按数据计算，不再写死 100% 和 420 ms；指标页的对照图改为库存调用量与 5xx。接口类型与契约未改。
+- 验证：`tsc -b` 与 `vite build` 通过；本机 vite preview 打开 12 个主要页面（中英），无控制台错误，页面文字不再出现连接池故事。部署与上线另由用户确认。
+
 **最新品牌：[CP-319](#cp-319-current)，2026-10-09 (+08)。产品更名为 Redstring 并换上闪电标志：侧栏、标签页标题、浏览器图标、启动占位、AI 生成中动效和 README 已替换；代码层的名称不变。**
 
 <a id="cp-319-current"></a>

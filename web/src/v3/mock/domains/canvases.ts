@@ -105,9 +105,9 @@ const PLAN = {
           { dot: "danger", text: P("支付通道限流 500 QPS → 挡板", "Payment rate limit 500 QPS → stub") },
           { dot: "warn", text: P("Kafka 分区 12 → 需扩到 24", "Kafka partitions 12 → need 24") },
           { dot: "ok", text: P("orders-db 连接上限 800 · 余量足够", "orders-db 800 connections · enough headroom") },
-          { dot: "ok", text: P("连接池上限已恢复为 200", "Pool max restored to 200") },
+          { dot: "ok", text: P("库存调用已限为重试 1 次并打开熔断", "Inventory calls now retry once with the breaker on") },
         ] },
-        { type: "text", text: P("引用：INC-1042 复盘、Runbook「连接池容量调整」", "Refs: INC-1042 postmortem, runbook “Pool sizing”") },
+        { type: "text", text: P("引用：INC-1042 复盘、Runbook「下游超时与重试风暴」", "Refs: INC-1042 postmortem, runbook “Retry storms”") },
       ] },
     { id: "exec", x: 548, y: 40, w: 300, icon: "play", tone: "accent", title: P("执行编排", "Rollout"), sub: P("分支 · 写操作需审批", "Branch · writes need approval"),
       blocks: [

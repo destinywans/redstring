@@ -181,9 +181,9 @@ export default function NewRulePage() {
               <ChipSelect
                 label="Runbook"
                 showLabel={false}
-                defaultValue="rb-db-pool"
+                defaultValue="rb-retry-storm"
                 options={[
-                  { value: "rb-db-pool", label: tx("数据库连接池耗尽 · rb-db-pool", "DB pool exhaustion · rb-db-pool") },
+                  { value: "rb-retry-storm", label: tx("下游超时与重试风暴 · rb-retry-storm", "Retry storms · rb-retry-storm") },
                   { value: "rb-rollback", label: tx("发布回滚规范 · rb-rollback", "Release rollback · rb-rollback") },
                   { value: "rb-capacity", label: tx("容量扩容 · rb-capacity", "Capacity scale-out · rb-capacity") },
                   { value: "", label: tx("不关联", "None") },

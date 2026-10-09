@@ -168,7 +168,7 @@ export function CallGraph({ width = 520 }: { width?: number }) {
       <text x="55" y="79" textAnchor="middle">gateway</text>
       <text x="215" y="79" textAnchor="middle">checkout-api</text>
       <text x="405" y="37" textAnchor="middle">payment-gateway</text>
-      <text x="405" y="122" textAnchor="middle">orders-db</text>
+      <text x="405" y="122" textAnchor="middle">inventory-service</text>
     </svg>
   );
 }

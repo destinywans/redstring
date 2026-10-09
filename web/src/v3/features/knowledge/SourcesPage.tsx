@@ -19,7 +19,7 @@ export default function SourcesPage() {
   const lists = usePickLists();
   const [scopeSvc, setScopeSvc] = useState("checkout-api");
   const [topK, setTopK] = useState(4);
-  const [query, setQuery] = useState(tx("连接池 耗尽 导致 5xx", "connection pool exhausted causing 5xx"));
+  const [query, setQuery] = useState(tx("重试 放大 导致 5xx", "retries amplified causing 5xx"));
   const [hits, setHits] = useState<RetrievalHit[] | null>(null);
   const [searching, setSearching] = useState(false);
   const search = async () => {

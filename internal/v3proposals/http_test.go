@@ -225,6 +225,56 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	if err := json.Unmarshal(view.Body.Bytes(), &proposal); err != nil || len(proposal.Discussion) != 1 || proposal.Discussion[0].Text != "Review evidence" {
 		t.Fatalf("comment not persisted in detail: %s (%v)", view.Body.String(), err)
 	}
+	if proposal.Execution != nil || !strings.Contains(view.Body.String(), `"execution":null`) {
+		t.Fatalf("pending proposal reported an execution: %s", view.Body.String())
+	}
+	// PA-36: once approved, the detail shows the decision's execution and the
+	// executor's state. The vote chain is out of scope here, so the two rows
+	// are written directly with foreign-key triggers suspended.
+	t.Run("approved-execution-projection", func(t *testing.T) {
+		executionID, digest := strings.Repeat("e", 32), strings.Repeat("d", 64)
+		fixture, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer fixture.Rollback(ctx)
+		for _, statement := range []string{
+			`SET LOCAL session_replication_role=replica`,
+			`INSERT INTO v3_proposal_approval_decisions(proposal_id,execution_id,action_kind,action_digest,review_content_digest,
+ approval_digest,creator_id,environment_id,application_id,risk,required_count,first_vote_id,second_vote_id,approved_at,expires_at)
+ VALUES($1,$2,'alertmanager.silence.create',$3,$3,$3,$4,'dev','app-1','low',2,'v1','v2',now(),now()+interval '1 hour')`,
+		} {
+			if _, err := fixture.Exec(ctx, statement, map[bool][]any{true: {mainID, executionID, digest, reviewer.ID}, false: nil}[strings.Contains(statement, "$1")]...); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := fixture.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		read := func() *ProposalExecution {
+			t.Helper()
+			w := request(api, "GET", mainID, "", "dev", reviewerToken, "", "")
+			assert(w, 200, "")
+			var got Proposal
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Execution == nil {
+				t.Fatalf("approved detail: %s (%v)", w.Body.String(), err)
+			}
+			return got.Execution
+		}
+		if got := read(); got.ExecutionID != executionID || got.ActionKind != "alertmanager.silence.create" || got.Status != nil ||
+			got.UpstreamID != nil || got.Unavailable["status"] != "not_generated" || got.Unavailable["upstream_id"] != "not_generated" {
+			t.Fatalf("decision without executor record: %+v", got)
+		}
+		upstream := "d262c6a3-5c8c-4560-9026-e31fd977b5a2"
+		if _, err := db.Exec(ctx, `SET session_replication_role=replica; INSERT INTO v3_silence_execution_claims(proposal_id,action_kind,action_digest,
+ review_content_digest,approval_digest,create_operation_id,upstream_id,state,dispatch_started_at)
+ VALUES('`+mainID+`','alertmanager.silence.create','`+digest+`','`+digest+`','`+digest+`','op-1','`+upstream+`','confirmed',now()); SET session_replication_role=origin`); err != nil {
+			t.Fatal(err)
+		}
+		if got := read(); got.Status == nil || *got.Status != "confirmed" || got.UpstreamID == nil || *got.UpstreamID != upstream || len(got.Unavailable) != 0 {
+			t.Fatalf("confirmed execution: %+v", got)
+		}
+	})
 	t.Run("machine-reject-skips-discussion-read", func(t *testing.T) {
 		blocker, err := db.Begin(ctx)
 		if err != nil {

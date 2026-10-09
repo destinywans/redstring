@@ -172,7 +172,7 @@
 | POST | `/silences/preview` | `{ matchers: [{ k, op, v }] }`；单一环境 | `{ affects, sample }` | implemented |
 | POST | `/silences` | 单环境、开放调查、`Idempotency-Key`、`{ investigation_id, matchers: [{ name, op, value }], duration_seconds, comment }` | 严格私有来源、持久审批与独立 worker 就绪时 `202 pending_review` 提案回执、`effect=no_upstream_write`；默认关闭时 `501 not_connected` | implemented |
 | DELETE | `/silences/{id}` | 已由本系统确认创建的上游 UUID；`Idempotency-Key`、`{ investigation_id, reason }` | 精确归属及上游读回、审批与独立 worker 就绪时 `202 pending_review` 取消提案；默认关闭时 `501 not_connected` | implemented |
-| GET | `/proposals/{id}` | | `Proposal` | implemented |
+| GET | `/proposals/{id}` | | `Proposal`；另带 `execution`：第二次批准前为 `null`，之后为 `{ execution_id, approved_at, action_kind, status, upstream_id, unavailable }`，`status`/`upstream_id` 取自独立执行器记录，未记录时为 `null`（`not_generated`）（PA-36） | implemented |
 | POST | `/proposals/{id}/approve` | 单环境、当前真人会话；先调用辅助 `POST /proposals/{id}/approve/options` 传 `{ confirm: true }` 获取提案绑定的五分钟挑战，再传 `{ challenge_id, credential, comment? }` | 首位独立批准人 `202 { status: pending_review, received_approvals: 1 }`，不含执行 ID；第二位独立批准人 `200 { status: approved, received_approvals: 2, execution_id, approval_digest }`；`200` 是持久历史决定与交接标识，不证明当前可执行、已领取或已执行 | implemented |
 | POST | `/proposals/{id}/reject` | `{ comment? }`；仅待审提案，由人类身份执行 | 更新后的提案 | implemented |
 | POST | `/proposals/{id}/comments` | `{ text }`；可选 `Idempotency-Key` 请求头 | 评论 | implemented |

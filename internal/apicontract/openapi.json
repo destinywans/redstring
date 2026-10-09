@@ -38172,7 +38172,7 @@
       "get": {
         "summary": "Read a scoped V3 proposal review record",
         "operationId": "get_proposals_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only records created by a trusted V3 producer can appear; existing rollback action_plans are not relabeled.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only records created by a trusted V3 producer can appear; existing rollback action_plans are not relabeled. execution is null until the second approval; then it carries the decision execution_id and approved_at, and status/upstream_id from the independent executor record (silence: reserved, dispatching, unknown, confirmed, expired, manual_review; alert rule: the enable execution state), null with not_generated until the executor has recorded them (PA-36).",
         "responses": {
           "200": {
             "description": "Success",
@@ -78474,6 +78474,52 @@
             "items": {
               "$ref": "#/components/schemas/V3ProposalComment"
             }
+          },
+          "execution": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "execution_id": {
+                    "type": "string"
+                  },
+                  "approved_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "action_kind": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "upstream_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "unavailable": {
+                    "$ref": "#/components/schemas/V3Unavailable"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "execution_id",
+                  "approved_at",
+                  "action_kind",
+                  "status",
+                  "upstream_id",
+                  "unavailable"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -78495,7 +78541,8 @@
           "verification_note",
           "checklist",
           "requirement",
-          "discussion"
+          "discussion",
+          "execution"
         ]
       },
       "V3ProposalApprovalChallenge": {

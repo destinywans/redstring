@@ -78,7 +78,8 @@ export type HomeSummary = {
   attention: { id: string; severity: Severity; service: string; env: EnvName; symptom: string; meta: string; ai: "done" | "running" | null; owner?: string; href: string }[];
   todos: { id: string; kind: "approval" | "report" | "runbook" | "access"; title: string; meta: string; action: string; href: string }[];
   services: { id: string; name: string; tier: Tier | null; status: "ok" | "warn" | "danger" | null; budget_pct: number | null; p99: string | null; error_rate: string | null; series: number[] | null }[];
-  alert_trend: { labels: string[]; counts: [number, number, number, number][]; summary: string } | null;
+  /** labels are UTC HH:MM (compatibility); bucket i starts at start + i * step_seconds — label it in the viewer's zone (PA-25). */
+  alert_trend: { labels: string[]; start?: string; step_seconds?: number; counts: [number, number, number, number][]; summary: string } | null;
   /** Per-section evidence state from the server, e.g. { alert_trend: "no_authorized_target", oncall: "not_connected" }. */
   availability?: Record<string, string>;
   activity: Activity[];

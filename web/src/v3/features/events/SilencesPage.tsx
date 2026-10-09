@@ -116,8 +116,17 @@ export default function SilencesPage() {
                 columns={[
                   { key: "m", header: tx("匹配条件", "Matchers"), width: "30%", render: (s) => <Row gap={4} wrap>{s.matchers.map((m) => <LabelChip key={m.k} k={m.k} v={m.v} />)}</Row> },
                   { key: "s", header: tx("状态", "State"), render: (s) => <State tone={STATE[s.state][0]}>{STATE[s.state][1]}</State> },
-                  { key: "w", header: tx("时间", "Window"), render: (s) => <Muted>{s.window}</Muted> },
-                  { key: "r", header: tx("剩余", "Remaining"), render: (s) => (s.remaining ? <Row gap={6}><Bar pct={s.remaining.pct} width={70} height={4} /><Muted size={11.5}>{s.remaining.text}</Muted></Row> : <Muted>—</Muted>) },
+                  { key: "w", header: tx("时间", "Window"), render: (s) => <Muted>{localWindow(s.window)?.text ?? s.window}</Muted> },
+                  {
+                    key: "r",
+                    header: tx("剩余", "Remaining"),
+                    render: (s) => {
+                      // The bar follows the window's own timestamps; the server's pct can lag behind them.
+                      const w = localWindow(s.window);
+                      const pct = w && s.state === "active" ? Math.max(0, Math.min(100, (100 * (w.end - Date.now())) / Math.max(1, w.end - w.start))) : s.remaining?.pct;
+                      return s.remaining ? <Row gap={6}><Bar pct={pct ?? 0} width={70} height={4} /><Muted size={11.5}>{s.remaining.text}</Muted></Row> : <Muted>—</Muted>;
+                    },
+                  },
                   { key: "a", header: tx("影响", "Affects"), render: (s) => (s.affects ? <Num>{tx("{n} 条", "{n}", { n: s.affects })}</Num> : <Muted>—</Muted>) },
                   { key: "c", header: tx("创建人", "Creator"), render: (s) => <Row gap={6}><Avatar name={s.creator} size={20} /><Muted>{s.creator}</Muted></Row> },
                   { key: "why", header: tx("原因", "Reason"), render: (s) => <Muted>{s.reason}</Muted> },
@@ -227,6 +236,21 @@ export default function SilencesPage() {
       </div>
     </Page>
   );
+}
+
+/**
+ * The server writes the window as "YYYY-MM-DD HH:MM ±HH:MM – YYYY-MM-DD HH:MM ±HH:MM" (in UTC on the acceptance
+ * instances); show it in the viewer's time zone. Sample windows are free text and are left as they are.
+ */
+function localWindow(value: string) {
+  const parts = value.split(" – ").map((p) => p.trim().match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) ([+-]\d{2}:\d{2})$/));
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  const [a, b] = parts.map((m) => Date.parse(`${m![1]}T${m![2]}:00${m![3]}`));
+  if (Number.isNaN(a) || Number.isNaN(b)) return null;
+  const day = (t: number) => new Date(t).toLocaleDateString([], { month: "2-digit", day: "2-digit" });
+  const time = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const text = day(a) === day(b) ? `${day(a)} ${time(a)} – ${time(b)}` : `${day(a)} ${time(a)} – ${day(b)} ${time(b)}`;
+  return { start: a, end: b, text };
 }
 
 /** Maintenance windows have no endpoint yet: sample data in mock mode, "not connected" otherwise. */

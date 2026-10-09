@@ -144,6 +144,12 @@ export default function HomePage() {
   const ask = (text: string) => nav(`/conversations/new?q=${encodeURIComponent(text)}`);
   const band = useRef<HTMLDivElement>(null);
   const labels = [tx("P1", "P1"), "P2", "P3", "P4"];
+  // Bucket labels in the viewer's time zone from start + i * step (PA-25); the server's labels are UTC.
+  const trend = data?.alert_trend;
+  const trendLabels =
+    trend?.start && trend.step_seconds
+      ? trend.counts.map((_, i) => new Date(Date.parse(trend.start!) + i * trend.step_seconds! * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }))
+      : (trend?.labels ?? []);
   return (
     <Page
       title={
@@ -296,9 +302,9 @@ export default function HomePage() {
             />
             <div style={{ padding: "12px 16px 10px" }} className="v3-col">
               {data && !data.alert_trend && <Unavailable reason={data.availability?.alert_trend === "no_authorized_target" ? "no_authorized_target" : data.availability?.alert_trend === "not_connected" ? "not_connected" : "not_generated"} icon="bell" source={tx("告警来源", "Alert source")} title={data.availability?.alert_trend === "not_connected" ? tx("未接入告警来源", "Alert source not connected") : undefined} desc={data.availability?.alert_trend === "not_connected" ? tx("连接 Alertmanager 后，这里显示最近 24 小时的告警数量和级别分布。", "Connect Alertmanager to see the last 24 hours of alerts by severity.") : undefined} />}
-              {data?.alert_trend && <StackedBars data={data.alert_trend.counts} colors={["var(--danger)", "var(--p2)", "var(--warn)", "var(--p4)"]} height={104} names={labels} labels={data.alert_trend.labels} />}
-              {data?.alert_trend && data.alert_trend.labels.length > 0 && (
-                <Axis labels={[0, 0.25, 0.5, 0.75].map((f) => data.alert_trend!.labels[Math.floor(f * (data.alert_trend!.labels.length - 1))]).concat(tx("现在", "Now"))} />
+              {data?.alert_trend && <StackedBars data={data.alert_trend.counts} colors={["var(--danger)", "var(--p2)", "var(--warn)", "var(--p4)"]} height={104} names={labels} labels={trendLabels} />}
+              {data?.alert_trend && trendLabels.length > 0 && (
+                <Axis labels={[0, 0.25, 0.5, 0.75].map((f) => trendLabels[Math.floor(f * (trendLabels.length - 1))]).concat(tx("现在", "Now"))} />
               )}
               <Row gap={6} style={{ marginTop: 6 }}>
                 <Muted size={11.5}>{data?.alert_trend?.summary}</Muted>

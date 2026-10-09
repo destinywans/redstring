@@ -57,8 +57,13 @@ func TestDashboardSeriesRequiresFullGridAndReviewedLabels(t *testing.T) {
 		t.Fatal("complete fixture rejected")
 	}
 	result.Series[0].Samples = result.Series[0].Samples[1:]
+	if _, _, ok := dashboardSeries(result, window); !ok {
+		t.Fatal("a missing baseline is a gap (PA-44), not a malformed series")
+	}
+	result = testDashboardEvidence(window)
+	result.Series[0].Samples[3].Value = "+Inf"
 	if _, _, ok := dashboardSeries(result, window); ok {
-		t.Fatal("accepted missing baseline")
+		t.Fatal("accepted an infinite value")
 	}
 	result = testDashboardEvidence(window)
 	result.Series[0].Labels["secret"] = "tenant-private"
@@ -622,5 +627,45 @@ func TestDashboardLocalizesLabels(t *testing.T) {
 	}
 	if build("").SLO.Note != zh.SLO.Note {
 		t.Fatal("no Accept-Language must default to Chinese")
+	}
+}
+
+// PA-44: zero traffic and latency gaps in the last bins keep every block;
+// values without a current sample are unknown and series carry null.
+func TestDashboardKeepsBlocksThroughAnOutage(t *testing.T) {
+	end := time.Now().UTC().Truncate(100 * time.Second)
+	window := testDashboardWindow(end)
+	result := testDashboardEvidence(window)
+	for i := range result.Series {
+		line := &result.Series[i]
+		switch line.Labels["panel"] {
+		case "requests_2xx", "requests_4xx", "requests_5xx", "requests_total":
+			for j := dashboardPoints - 4; j <= dashboardPoints; j++ {
+				line.Samples[j].Value = "0"
+			}
+		case "latency_p50_ms", "latency_p95_ms", "latency_p99_ms", "connection_wait_p95_ms", "endpoint_p99_ms", "instance_wait_p95_ms", "latency_heat":
+			line.Samples[dashboardPoints].Value = "NaN"
+		}
+	}
+	target := 99.9
+	out := newDashboard(window, dashboardMarkers{})
+	if !out.applyMetrics(result, window, &target) {
+		t.Fatalf("outage dashboard rejected: %v", out.Unavailable)
+	}
+	kpis := map[string]dashboardKPI{}
+	for _, k := range out.KPIs {
+		kpis[k.ID] = k
+	}
+	if out.Requests == nil || out.Latency == nil || out.SLO == nil || out.Instances == nil || kpis["rps"].Value != "0.00" ||
+		out.Unavailable["kpis.err"] != "not_generated" || out.Unavailable["kpis.p99"] != "not_generated" ||
+		out.Unavailable["endpoints"] != "not_generated" || out.Endpoints != nil {
+		t.Fatalf("outage dashboard: kpis=%v unavailable=%v", kpis, out.Unavailable)
+	}
+	if out.Latency.P99[dashboardPoints-1] != nil || out.Latency.P99[0] == nil || *out.Requests.OK[dashboardPoints-1] != 0 ||
+		out.Instances[0].Values[dashboardPoints-1] != nil || out.Latency.Heat[0][dashboardPoints-1] != nil {
+		t.Fatal("gaps must be null and zero traffic must be 0")
+	}
+	if _, err := json.Marshal(out); err != nil {
+		t.Fatalf("NaN leaked into JSON: %v", err)
 	}
 }

@@ -38,14 +38,16 @@ type dashboardWindow struct {
 	IncidentLabel *string  `json:"incident_label"`
 }
 
+// Series and per-bin arrays hold null for a bin without a value (PA-44): no
+// traffic for the error ratio, a gap in a latency or saturation panel.
 type dashboardKPI struct {
-	ID     string    `json:"id"`
-	Label  string    `json:"label"`
-	Value  string    `json:"value"`
-	Unit   string    `json:"unit,omitempty"`
-	Sub    string    `json:"sub,omitempty"`
-	Tone   string    `json:"tone,omitempty"`
-	Series []float64 `json:"series"`
+	ID     string     `json:"id"`
+	Label  string     `json:"label"`
+	Value  string     `json:"value"`
+	Unit   string     `json:"unit,omitempty"`
+	Sub    string     `json:"sub,omitempty"`
+	Tone   string     `json:"tone,omitempty"`
+	Series []*float64 `json:"series"`
 }
 
 type dashboardBurn struct {
@@ -62,15 +64,15 @@ type dashboardRank struct {
 }
 
 type dashboardInstance struct {
-	Label  string    `json:"label"`
-	Values []float64 `json:"values"`
-	Tone   string    `json:"tone,omitempty"`
+	Label  string     `json:"label"`
+	Values []*float64 `json:"values"`
+	Tone   string     `json:"tone,omitempty"`
 }
 
 type dashboardRequests struct {
-	OK     []float64 `json:"ok"`
-	Client []float64 `json:"client"`
-	Server []float64 `json:"server"`
+	OK     []*float64 `json:"ok"`
+	Client []*float64 `json:"client"`
+	Server []*float64 `json:"server"`
 }
 
 type dashboardSLO struct {
@@ -82,11 +84,11 @@ type dashboardSLO struct {
 }
 
 type dashboardLatency struct {
-	P50     []float64   `json:"p50"`
-	P95     []float64   `json:"p95"`
-	P99     []float64   `json:"p99"`
-	Heat    [][]float64 `json:"heat"`
-	Buckets []string    `json:"buckets"`
+	P50     []*float64   `json:"p50"`
+	P95     []*float64   `json:"p95"`
+	P99     []*float64   `json:"p99"`
+	Heat    [][]*float64 `json:"heat"`
+	Buckets []string     `json:"buckets"`
 }
 
 // metricsDashboard is MetricsDashboard with explicit unknowns: a null block
@@ -287,13 +289,21 @@ func (out *metricsDashboard) applyMetrics(result v3integrations.PrometheusMetric
 		delete(out.Unavailable, field)
 	}
 	missing := func(field string) { out.Unavailable[field] = "not_configured" }
+	nullable := v3metricpanels.Nullable
 	last := dashboardPoints - 1
 	out.KPIs = []dashboardKPI{}
+	// A KPI without a value in the current bin is unknown (not_generated);
+	// its series keeps the other bins.
 	kpi := func(id, label, unit, sub, format string, series []float64) {
-		out.KPIs = append(out.KPIs, dashboardKPI{ID: id, Label: label, Value: fmt.Sprintf(format, series[last]), Unit: unit, Sub: sub, Series: series})
+		if !v3metricpanels.Defined(series[last]) {
+			out.Unavailable["kpis."+id] = v3metricpanels.ReasonNoCurrentData
+			return
+		}
+		out.KPIs = append(out.KPIs, dashboardKPI{ID: id, Label: label, Value: fmt.Sprintf(format, series[last]), Unit: unit, Sub: sub, Series: nullable(series)})
 	}
 	if requests {
-		out.Requests = &dashboardRequests{OK: p.Plain[v3metricpanels.Requests2xx], Client: p.Plain[v3metricpanels.Requests4xx], Server: p.Plain[v3metricpanels.Requests5xx]}
+		out.Requests = &dashboardRequests{OK: nullable(p.Plain[v3metricpanels.Requests2xx]), Client: nullable(p.Plain[v3metricpanels.Requests4xx]),
+			Server: nullable(p.Plain[v3metricpanels.Requests5xx])}
 		kpi("rps", "Requests", "/s", "Observed request rate", "%.2f", rate)
 		kpi("err", "5xx ratio", "%", "Observed server errors", "%.2f", errorsPct)
 	} else {
@@ -315,14 +325,21 @@ func (out *metricsDashboard) applyMetrics(result v3integrations.PrometheusMetric
 	}
 	if len(out.KPIs) == 0 {
 		out.KPIs = nil
-		missing("kpis")
+		// Panels exist but none has a current value: not_generated.
+		out.Unavailable["kpis"] = "not_configured"
+		for field, reason := range out.Unavailable {
+			if strings.HasPrefix(field, "kpis.") && reason == v3metricpanels.ReasonNoCurrentData {
+				out.Unavailable["kpis"] = reason
+			}
+		}
 	}
 	if p.Has(v3metricpanels.LatencyP50, v3metricpanels.LatencyP95, v3metricpanels.LatencyP99) {
-		out.Latency = &dashboardLatency{P50: p.Plain[v3metricpanels.LatencyP50], P95: p.Plain[v3metricpanels.LatencyP95], P99: p.Plain[v3metricpanels.LatencyP99]}
+		out.Latency = &dashboardLatency{P50: nullable(p.Plain[v3metricpanels.LatencyP50]), P95: nullable(p.Plain[v3metricpanels.LatencyP95]),
+			P99: nullable(p.Plain[v3metricpanels.LatencyP99])}
 		if heat := p.Group(v3metricpanels.LatencyHeat); heat != nil {
 			out.Latency.Buckets = append([]string(nil), dashboardHeatBuckets...)
 			for _, bucket := range dashboardHeatBuckets {
-				out.Latency.Heat = append(out.Latency.Heat, heat[bucket])
+				out.Latency.Heat = append(out.Latency.Heat, nullable(heat[bucket]))
 			}
 		} else {
 			missing("latency.heat")
@@ -333,9 +350,13 @@ func (out *metricsDashboard) applyMetrics(result v3integrations.PrometheusMetric
 		missing("latency")
 	}
 	if endpoints := p.Group(v3metricpanels.EndpointP99); endpoints != nil {
+		// The ranking is by the current bin; endpoints without a current
+		// value are left out.
 		out.Endpoints = []dashboardRank{}
 		for label, values := range endpoints {
-			out.Endpoints = append(out.Endpoints, dashboardRank{Label: label, Value: values[last]})
+			if v3metricpanels.Defined(values[last]) {
+				out.Endpoints = append(out.Endpoints, dashboardRank{Label: label, Value: values[last]})
+			}
 		}
 		sort.Slice(out.Endpoints, func(i, j int) bool {
 			if out.Endpoints[i].Value == out.Endpoints[j].Value {
@@ -343,6 +364,10 @@ func (out *metricsDashboard) applyMetrics(result v3integrations.PrometheusMetric
 			}
 			return out.Endpoints[i].Value > out.Endpoints[j].Value
 		})
+		if len(out.Endpoints) == 0 {
+			out.Endpoints = nil
+			out.Unavailable["endpoints"] = v3metricpanels.ReasonNoCurrentData
+		}
 	} else {
 		out.Endpoints = nil
 		missing("endpoints")
@@ -350,7 +375,7 @@ func (out *metricsDashboard) applyMetrics(result v3integrations.PrometheusMetric
 	if instances := p.Group(v3metricpanels.InstanceWaitP95); instances != nil {
 		out.Instances = []dashboardInstance{}
 		for label, values := range instances {
-			out.Instances = append(out.Instances, dashboardInstance{Label: label, Values: values})
+			out.Instances = append(out.Instances, dashboardInstance{Label: label, Values: nullable(values)})
 		}
 		sort.Slice(out.Instances, func(i, j int) bool { return out.Instances[i].Label < out.Instances[j].Label })
 	} else {
@@ -369,17 +394,18 @@ func (out *metricsDashboard) applyMetrics(result v3integrations.PrometheusMetric
 		// Budget or burn panels contradict the request evidence.
 		out.Unavailable["slo"] = "unavailable"
 	case slo.Availability == nil:
-		missing("slo")
+		out.Unavailable["slo"] = slo.Reasons[v3metricpanels.FieldAvailability]
 	default:
 		availability := *slo.Availability
 		out.SLO = &dashboardSLO{Remaining: *slo.BudgetLeft, Availability: fmt.Sprintf("%.3f%%", availability),
 			Delta: fmt.Sprintf("%+.3f%%", availability-target), Note: "Observed error budget burn rates", Burn: []dashboardBurn{}}
 		for _, burn := range []struct {
-			window, key string
-			value       *float64
-		}{{"1 h", "1h", slo.Burn1h}, {"6 h", "6h", slo.Burn6h}, {"3 d", "3d", slo.Burn3d}} {
+			window, key, field string
+			value              *float64
+		}{{"1 h", "1h", v3metricpanels.FieldBurn1h, slo.Burn1h}, {"6 h", "6h", v3metricpanels.FieldBurn6h, slo.Burn6h},
+			{"3 d", "3d", v3metricpanels.FieldBurn3d, slo.Burn3d}} {
 			if burn.value == nil {
-				missing("slo.burn." + burn.key)
+				out.Unavailable["slo.burn."+burn.key] = slo.Reasons[burn.field]
 				continue
 			}
 			out.SLO.Burn = append(out.SLO.Burn, dashboardBurnValue(burn.window, *burn.value))

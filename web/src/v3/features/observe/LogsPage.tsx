@@ -3,20 +3,35 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, useGet } from "../../api/client";
 import { Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
-import type { LogLine, LogSearch } from "../../api/types";
+import type { LogLine, LogSearch, ServiceCatalog } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, Input, Muted, Num, Row, Spacer, Strong, Tile, Toggle, cx } from "../../ui/core";
 import { StackedBars, Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./observe.css";
-import { RangeChip, openExternal, ChipSelect, useRanges } from "../../ui/demo";
+import { RangeChip, openExternal, ChipSelect, useRanges, usePickLists } from "../../ui/demo";
 
 const LV = { ERROR: "danger", WARN: "warn", INFO: "neutral" } as const;
 
 export default function LogsPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const service = params.get("service") ?? undefined;
+  const real = API_MODE !== "mock";
+  // Real toolbar (approved design): only the log sources bound to the chosen service, a service picker and plain keywords.
+  const lists = usePickLists();
+  const { data: catalog } = useGet<ServiceCatalog>(real ? "/services" : null, undefined, { staleTime: 5 * 60_000 });
+  const bound = (catalog?.items.find((s) => s.id === service)?.connectors ?? []).filter((c): c is "loki" | "elasticsearch" => c === "loki" || c === "elasticsearch");
+  const [source, setSource] = useState<string | undefined>(undefined);
+  const activeSource = source && bound.includes(source as "loki") ? source : bound.length === 1 ? bound[0] : undefined;
+  const sourceName = (c: string) => (c === "loki" ? "Loki" : "Elasticsearch");
+  const setService = (v: string) => {
+    const next = new URLSearchParams(params);
+    if (v) next.set("service", v);
+    else next.delete("service");
+    setParams(next, { replace: true });
+    setSource(undefined);
+  };
   const [range, setRange] = useState("30m");
   const rangeLabel = useRanges().find((r) => r.value === range)?.label ?? range;
   const [query, setQuery] = useState(API_MODE === "mock" ? 'service:"checkout-api" and level:(error or warn)' : "");
@@ -24,7 +39,7 @@ export default function LogsPage() {
   const [levels, setLevels] = useState<Set<LogLine["level"]>>(new Set(["ERROR", "WARN", "INFO"]));
   const [live, setLive] = useState(false);
   const [extra, setExtra] = useState<LogLine[]>([]);
-  const { data, error, isFetching } = useGet<LogSearch>("/logs", { q: applied, levels: [...levels].join(","), service, range });
+  const { data, error, isFetching } = useGet<LogSearch>("/logs", { q: applied, levels: [...levels].join(","), service, range, source: real ? activeSource : undefined });
   const u = data?.unavailable ?? {};
   useEffect(() => {
     // The demo fakes a live tail; real mode has no streaming source yet, so nothing is invented.
@@ -52,7 +67,7 @@ export default function LogsPage() {
       crumbs={[tx("资源与观测", "Resources"), tx("日志", "Logs")]}
       actions={
         <>
-          <RangeChip value={range} onChange={setRange} />
+          {!real && <RangeChip value={range} onChange={setRange} />}
           {API_MODE === "mock" && <Btn icon="external" onClick={() => openExternal("Kibana", `https://kibana.example.internal/app/discover#/?_a=(query:(language:kuery,query:'${encodeURIComponent(query)}'))`)}>{tx("在 Kibana 中打开", "Open in Kibana")}</Btn>}
         </>
       }
@@ -63,7 +78,11 @@ export default function LogsPage() {
             <form className="v3-row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); setApplied(API_MODE === "mock" && query.includes("checkout") ? "checkout" : query); }}>
               {API_MODE === "mock" && <ChipSelect icon="database" label="" showLabel={false} defaultValue="es" options={[{ value: "es", label: tx("Elasticsearch · 生产", "Elasticsearch · prod") }, { value: "loki", label: "Loki · prod" }]} />}
               {API_MODE === "mock" && <ChipSelect label="" showLabel={false} defaultValue="kql" options={[{ value: "kql", label: "KQL" }, { value: "lucene", label: "Lucene" }]} />}
-              <Input mono value={query} onChange={(e) => setQuery(e.target.value)} style={{ flexGrow: 1 }} aria-label={tx("日志查询", "Log query")} />
+              {real && bound.length === 1 && <Chip icon="database">{sourceName(bound[0])}</Chip>}
+              {real && bound.length > 1 && <ChipSelect icon="database" label="" showLabel={false} value={activeSource} onChange={(v) => setSource(v as string)} options={bound.map((b) => ({ value: b, label: sourceName(b) }))} />}
+              {real && <ChipSelect icon="box" label="" showLabel={false} value={service ?? "all"} onChange={(v) => setService(v === "all" ? "" : (v as string))} options={[{ value: "all", label: tx("全部服务", "All services") }, ...lists.services]} />}
+              {real && <RangeChip value={range} onChange={setRange} />}
+              <Input mono value={query} onChange={(e) => setQuery(e.target.value)} style={{ flexGrow: 1 }} aria-label={tx("日志查询", "Log query")} placeholder={real ? tx("关键字，例如 timeout（包含匹配）", "Keyword, e.g. timeout (contains)") : undefined} />
               <Btn kind="primary" icon="search" h={32} type="submit">
                 {tx("搜索", "Search")}
               </Btn>

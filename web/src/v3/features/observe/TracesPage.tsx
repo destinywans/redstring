@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { API_MODE, ApiError, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import { PartialBanner, Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
-import type { TraceList } from "../../api/types";
-import { Badge, Brand, Btn, Card, Chip, Dot, Icon, Legend, Muted, Num, Panel, Row, Skeleton, Spacer, cx, type Tone } from "../../ui/core";
+import type { ServiceCatalog, TraceList } from "../../api/types";
+import { Badge, Brand, Btn, Card, Chip, Dot, Icon, IconBtn, Legend, Muted, Num, Panel, Row, Skeleton, Spacer, cx, type Tone } from "../../ui/core";
 import { StackedBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./trace.css";
-import { ChipSelect, RangeChip, openForm } from "../../ui/demo";
+import { ChipSelect, RangeChip, openForm, usePickLists } from "../../ui/demo";
 import { toast } from "../../ui/overlays";
 
 export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`);
@@ -39,7 +39,43 @@ export default function TracesPage() {
   // Real mode sends the submitted query; the demo filters by view only.
   const [applied, setApplied] = useState("");
   const [range, setRange] = useState(scope === "agent" ? "24h" : "1h");
-  const { data, isLoading, error, refetch } = useGet<TraceList>("/traces", { scope, view, service: params.get("service") ?? undefined, q: API_MODE === "mock" ? undefined : applied || undefined, range: API_MODE === "mock" ? undefined : range });
+  const real = API_MODE !== "mock";
+  const service = params.get("service") ?? undefined;
+  // Real toolbar (approved design): trace sources bound to the chosen service, service picker, team views.
+  const lists = usePickLists();
+  const { data: catalog } = useGet<ServiceCatalog>(real && scope === "app" ? "/services" : null, undefined, { staleTime: 5 * 60_000 });
+  const bound: string[] = (catalog?.items.find((x) => x.id === service)?.connectors ?? []).filter((c) => c === "tempo" || c === "jaeger");
+  const [source, setSource] = useState<string | undefined>(undefined);
+  const activeSource = source && bound.includes(source) ? source : bound.length === 1 ? bound[0] : undefined;
+  const teamViews = useGet<{ items: { id: string; name: string; query: string; owner: string }[] }>(real ? "/trace-views" : null, { scope });
+  const setService = (v: string) => {
+    const next = new URLSearchParams(params);
+    if (v) next.set("service", v);
+    else next.delete("service");
+    setParams(next, { replace: true });
+    setSource(undefined);
+  };
+  const saveTeamView = async () => {
+    const v = await openForm({ title: tx("保存为团队视图", "Save as a team view"), desc: tx("保存的只是查询文字，团队成员都能使用；不会改变谁能看到什么。", "Only the query text is saved for your team; it doesn't change who can see what."), fields: [{ key: "name", label: tx("名称", "Name"), required: true }, { key: "query", label: tx("查询", "Query"), initial: q, mono: true }], submit: tx("保存", "Save") });
+    if (!v) return;
+    try {
+      await api("POST", "/trace-views", { body: { scope, name: v.name.trim().slice(0, 160), query: v.query } });
+      void teamViews.refetch();
+      toast(tx("团队视图「{n}」已保存", "Team view “{n}” saved", { n: v.name }));
+    } catch (e) {
+      toast(e instanceof ApiError && e.code === "ambiguous_team" ? tx("你属于多个团队或没有团队，暂时不能保存团队视图。", "You belong to several teams or none, so a team view can't be saved.") : e instanceof ApiError ? e.message : tx("保存失败，请稍后重试", "Couldn't save; try again later"), { tone: "danger" });
+    }
+  };
+  const deleteTeamView = async (id: string, name: string) => {
+    try {
+      await api("DELETE", `/trace-views/${id}`);
+      void teamViews.refetch();
+      toast(tx("已删除团队视图「{n}」", "Team view “{n}” deleted", { n: name }));
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : tx("删除失败，请稍后重试", "Couldn't delete; try again later"), { tone: "danger" });
+    }
+  };
+  const { data, isLoading, error, refetch } = useGet<TraceList>("/traces", { scope, view, service, q: API_MODE === "mock" ? undefined : applied || undefined, range: API_MODE === "mock" ? undefined : range, source: real && scope === "app" ? activeSource : undefined });
   const u = data?.unavailable ?? {};
   // items is null only when no trace source is bound at all.
   const noSource = !!data && data.items === null;
@@ -65,9 +101,9 @@ export default function TracesPage() {
           {scope === "agent" ? (
             <Badge>{tx("Agent 运行记录", "Agent runs")}</Badge>
           ) : (
-            API_MODE === "mock" && <ChipSelect icon="database" label="" showLabel={false} defaultValue="tempo" options={[{ value: "tempo", label: tx("Tempo · 生产", "Tempo · prod") }, { value: "jaeger", label: "Jaeger · prod" }]} />
+            !real && <ChipSelect icon="database" label="" showLabel={false} defaultValue="tempo" options={[{ value: "tempo", label: tx("Tempo · 生产", "Tempo · prod") }, { value: "jaeger", label: "Jaeger · prod" }]} />
           )}
-          <RangeChip key={scope} value={range} onChange={setRange} />
+          {!real && <RangeChip key={scope} value={range} onChange={setRange} />}
         </>
       }
     >
@@ -124,13 +160,23 @@ export default function TracesPage() {
               else void refetch();
             }}
           >
+            {real && scope === "app" && bound.length === 1 && <Chip icon="database">{bound[0] === "tempo" ? "Tempo" : "Jaeger"}</Chip>}
+            {real && scope === "app" && bound.length > 1 && <ChipSelect icon="database" label="" showLabel={false} value={activeSource} onChange={(v) => setSource(v as string)} options={bound.map((b) => ({ value: b, label: b === "tempo" ? "Tempo" : "Jaeger" }))} />}
+            {real && scope === "app" && <ChipSelect icon="box" label="" showLabel={false} value={service ?? "all"} onChange={(v) => setService(v === "all" ? "" : (v as string))} options={[{ value: "all", label: tx("全部服务", "All services") }, ...lists.services]} />}
+            {real && <RangeChip key={scope} value={range} onChange={setRange} />}
             <label className="grow">
               <Badge tone="info" mono>{scope === "agent" ? tx("筛选", "Filter") : "TraceQL"}</Badge>
               <input value={q} onChange={(e) => setQ(e.target.value)} aria-label={tx("链路查询", "Trace query")} spellCheck={false} placeholder={scope === "agent" ? 'agent = "investigator" && model = "claude-opus-5-5"' : "{ status = error }"} />
             </label>
             <Btn kind="primary" icon="search" h={34} type="submit">{tx("搜索", "Search")}</Btn>
           </form>
-          {error && !data && (
+          {/* An invalid TraceQL condition is explained right under the box (422), not as a missing source. */}
+          {real && scope === "app" && error instanceof ApiError && error.status === 422 && (
+            <Muted size={11.5} style={{ color: "var(--danger)", marginTop: -6 }}>
+              {tx("只支持简单比较，可用 && 和 ||；不支持管道（|）、正则和嵌套选择器。", "Only simple comparisons joined by && and || are supported; no pipes (|), regexes or nested selectors.")} {error.message}
+            </Muted>
+          )}
+          {error && !data && !(real && error instanceof ApiError && error.status === 422) && (
             <Card>
               <Unavailable reason={errorReason(error)} source="Tempo" desc={error instanceof ApiError && error.status === 422 ? error.message : undefined} />
             </Card>
@@ -149,6 +195,20 @@ export default function TracesPage() {
                 {typeof v.count === "number" && ` ${v.count}`}
               </Chip>
             ))}
+            {teamViews.data?.items.map((v) => (
+              <span key={v.id} className="tr-team-view">
+                <Chip active={applied === v.query} onClick={() => { setQ(v.query); setApplied(v.query); }}>
+                  {v.name}
+                  <Muted size={11}>· {v.owner}</Muted>
+                </Chip>
+                <IconBtn icon="x" label={tx("删除团队视图 {n}", "Delete team view {n}", { n: v.name })} size={20} onClick={() => void deleteTeamView(v.id, v.name)} />
+              </span>
+            ))}
+            {real && (
+              <Chip icon="plus" onClick={() => void saveTeamView()}>
+                {tx("保存为团队视图", "Save as team view")}
+              </Chip>
+            )}
             {saved.map((v) => (
               <Chip key={v.name} active={q === v.query} onClick={() => setQ(v.query)}>
                 {v.name}

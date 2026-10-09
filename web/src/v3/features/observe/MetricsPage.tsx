@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
@@ -26,6 +26,13 @@ export default function MetricsPage() {
   const env = useEnv((s) => s.env);
   const [align, setAlign] = useState(false);
   const { data: d, error } = useGet<MetricsDashboard>(service ? "/metrics/dashboard" : null, { service, range: demo ? undefined : "1h", align: demo ? undefined : align ? "true" : undefined });
+  // Aligning needs events.view; a 403 for the aligned read drops back to the plain window instead of blanking the page.
+  useEffect(() => {
+    if (align && error instanceof ApiError && error.status === 403) {
+      setAlign(false);
+      toast(tx("没有查看事件的权限，不能按事件时间对齐", "You can't view incidents here, so the chart can't align to one"), { tone: "danger" });
+    }
+  }, [align, error]); // eslint-disable-line react-hooks/exhaustive-deps
   const { data: sloCfg, refetch: refetchSlo } = useGet<ServiceSloSettings>(!demo && service ? `/services/${encodeURIComponent(service)}/slo` : null);
   const [ai, setAi] = useState(false);
   const [lat, setLat] = useState<"heat" | "pct" | "box">("heat");

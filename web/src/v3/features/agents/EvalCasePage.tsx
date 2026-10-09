@@ -1,27 +1,53 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { API_MODE, useGet, useSend } from "../../api/client";
+import { API_MODE, ApiError, useGet, useSend } from "../../api/client";
 import type { EvalCase, Severity } from "../../api/types";
 import { Badge, Brand, Btn, Card, Check, Col, Divider, Field, Icon, LabelChip, Muted, Num, Pills, Row, Section, Sev, Skeleton, Spacer, Strong, Textarea } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { useI18n } from "../../i18n";
 import "./agents.css";
+import { Unavailable } from "../../ui/unknown";
 
 export default function EvalCasePage() {
   const { tx } = useI18n();
   const nav = useNavigate();
-  const { id = "INV-187" } = useParams();
-  const { data: c } = useGet<EvalCase>(`/eval-cases/${id}`);
+  const demo = API_MODE === "mock";
+  const { id = demo ? "INV-187" : "" } = useParams();
+  const { data: c, error, refetch } = useGet<EvalCase>(id ? `/eval-cases/${id}` : null);
+  // A case without a trusted snapshot can still show the input it was registered with.
+  const alert = c?.alert ?? c?.human_input?.alert ?? null;
+  const evidence = c?.evidence ?? c?.human_input?.evidence ?? null;
+  const expected = c?.expected ?? c?.human_input?.expected ?? null;
   const [cause, setCause] = useState("right");
-  const [evidence, setEvidence] = useState("4");
+  const [evidenceScore, setEvidence] = useState("4");
   const [safe, setSafe] = useState("safe");
   const [clarity, setClarity] = useState("5");
   const [note, setNote] = useState("");
   const [regress, setRegress] = useState(true);
   const [tools, setTools] = useState(false);
-  const submit = useSend<object, { next: string }>("POST", `/eval-cases/${id}/labels`);
+  const submit = useSend<object, { next: string; revision?: number }>("POST", `/eval-cases/${id}/labels`);
+  // Real labels store one verdict and a note against the revision that was read; the other scores are sample-only.
+  const send = () => {
+    if (demo)
+      return submit.mutate({ cause, evidence: evidenceScore, safe, clarity, note, regress }, { onSuccess: (r) => { toast(tx("标注已提交", "Review submitted")); nav(`/agents/evals/${r.next}`); } });
+    const next = ({ right: "correct", partial: "partial", wrong: "incorrect" } as Record<string, string>)[cause] ?? "unsure";
+    submit.mutate(
+      { next, note, expected_revision: c?.revision ?? 0 },
+      {
+        onSuccess: () => {
+          setNote("");
+          void refetch();
+          toast(tx("标注已提交", "Review submitted"));
+        },
+        onError: (e) => {
+          if (e instanceof ApiError && e.status === 409) void refetch();
+          toast(e instanceof ApiError && e.status === 409 ? tx("别人刚标注过这个用例，已重新读取，请复核后再提交", "Someone just labelled this case; reloaded — review and submit again") : e.message, { tone: "danger" });
+        },
+      },
+    );
+  };
   const scale = ["1", "2", "3", "4", "5"].map((v) => ({ value: v, label: v }));
   return (
     <Page
@@ -38,40 +64,44 @@ export default function EvalCasePage() {
             kind="primary"
             icon="check"
             loading={submit.isPending}
-            onClick={() =>
-              submit.mutate({ cause, evidence, safe, clarity, note, regress }, { onSuccess: (r) => { toast(tx("标注已提交", "Review submitted")); nav(`/agents/evals/${r.next}`); } })
-            }
+            disabled={!c}
+            onClick={send}
           >
-            {tx("提交并下一条", "Submit & next")}
+            {demo ? tx("提交并下一条", "Submit & next") : tx("提交标注", "Submit review")}
           </Btn>
         </>
       }
     >
       {!c ? (
         <div className="v3-content">
-          <Skeleton h={400} />
+          {error || !id ? <Unavailable reason="unavailable" icon="file" title={tx("没有读到这个评测用例", "Couldn't read this eval case")} desc={error instanceof Error ? error.message : undefined} /> : <Skeleton h={400} />}
         </div>
       ) : (
         <div className="v3-split anim-fade" key={c.id}>
           <div className="side" style={{ width: 340, padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
             <Section title={tx("输入 · 告警", "Input · alert")}>
+              {!alert ? (
+                c.human_input?.input ? <Muted>{c.human_input.input}</Muted> : <Unavailable reason="not_generated" icon="bell" title={tx("没有保存输入", "No input stored")} />
+              ) : (
               <Card style={{ padding: "10px 12px" }}>
                 <Col gap={6}>
                   <Row gap={8}>
-                    <Sev p={c.alert.sev as Severity} />
-                    <Strong>{c.alert.title}</Strong>
+                    <Sev p={alert.sev as Severity} />
+                    <Strong>{alert.title}</Strong>
                   </Row>
                   <Row gap={5} wrap>
-                    {c.alert.labels.map((l) => (
+                    {(alert.labels ?? []).map((l) => (
                       <LabelChip key={l.k} k={l.k} v={l.v} />
                     ))}
                   </Row>
                 </Col>
               </Card>
+              )}
             </Section>
             <Section title={tx("冻结的证据快照", "Frozen evidence")}>
               <Col gap={10}>
-                {c.evidence.map((e, i) => (
+                {!evidence && <Unavailable reason="not_generated" icon="file" title={tx("没有冻结的证据快照", "No frozen evidence snapshot")} />}
+                {evidence?.map((e, i) => (
                   <Row key={e.title} gap={10}>
                     <Brand name={e.brand} size={22} />
                     <Col gap={0} style={{ minWidth: 0 }}>
@@ -85,30 +115,42 @@ export default function EvalCasePage() {
               </Col>
             </Section>
             <Section title={tx("期望答案", "Expected answer")}>
-              <div className="expected">
-                <b>{tx("根因：", "Cause: ")}</b>
-                {c.expected.cause}
-                <br />
-                <b>{tx("建议：", "Advice: ")}</b>
-                {c.expected.advice}
-              </div>
+              {!expected ? (
+                <Unavailable reason="not_generated" icon="check" title={tx("没有登记期望答案", "No expected answer registered")} />
+              ) : (
+                <div className="expected">
+                  <b>{tx("根因：", "Cause: ")}</b>
+                  {expected.cause}
+                  <br />
+                  <b>{tx("建议：", "Advice: ")}</b>
+                  {expected.advice}
+                </div>
+              )}
             </Section>
           </div>
           <div className="main">
             <div className="v3-content" style={{ padding: "16px 20px" }}>
+              {!c.output ? (
+                <Card>
+                  <Unavailable reason="not_generated" icon="sparkles" title={tx("还没有可评的输出", "No output to review yet")} desc={tx("实验运行并保存两个版本的输出后，这里显示待评的回答和基线对比。", "Once the experiment has run and saved both outputs, the answer and its baseline show here.")} />
+                </Card>
+              ) : (
+              <>
               <Row gap={8}>
                 <Badge tone="accent" mono>
                   {tx("{v} 输出", "{v} output", { v: c.output.version })}
                 </Badge>
                 <Muted size={11.5}>{c.output.meta}</Muted>
                 <Spacer />
-                <Btn kind="ghost" icon="external" h={26} to="/agents/runs/run_7f1e">
-                  {tx("查看 Trace", "View trace")}
-                </Btn>
+                {demo && (
+                  <Btn kind="ghost" icon="external" h={26} to="/agents/runs/run_7f1e">
+                    {tx("查看 Trace", "View trace")}
+                  </Btn>
+                )}
               </Row>
               <button type="button" className="tool-sum" aria-expanded={tools} onClick={() => setTools((t) => !t)}>
                 <Icon name={tools ? "down" : "right"} size={12} />
-                <span style={{ color: "var(--text)", fontWeight: 500 }}>{tx("调用 {n} 个工具", "Called {n} tools", { n: 4 })}</span>
+                <span style={{ color: "var(--text)", fontWeight: 500 }}>{tx("调用 {n} 个工具", "Called {n} tools", { n: demo ? 4 : c.output.tools.length })}</span>
                 {c.output.tools.map((t) => (
                   <Badge key={t} tone="accent">
                     {t}
@@ -126,11 +168,17 @@ export default function EvalCasePage() {
               <div style={{ fontSize: "var(--fs-body)", lineHeight: 1.65 }}>
                 <Markdown text={c.output.markdown} />
               </div>
-              <Divider />
-              <details className="baseline">
-                <summary>{tx("{v} 输出（评分 {s}）", "{v} output (score {s})", { v: c.baseline.version, s: c.baseline.score })}</summary>
-                <p>{c.baseline.text}</p>
-              </details>
+              {c.baseline && (
+                <>
+                  <Divider />
+                  <details className="baseline">
+                    <summary>{tx("{v} 输出（评分 {s}）", "{v} output (score {s})", { v: c.baseline.version, s: c.baseline.score })}</summary>
+                    <p>{c.baseline.text}</p>
+                  </details>
+                </>
+              )}
+              </>
+              )}
             </div>
           </div>
           <aside className="aside" style={{ width: 330, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -139,21 +187,43 @@ export default function EvalCasePage() {
                 <Field label={tx("根因是否正确", "Root cause correct?")}>
                   <Pills value={cause} onChange={setCause} options={[{ value: "right", label: tx("正确", "Yes") }, { value: "partial", label: tx("部分正确", "Partly") }, { value: "wrong", label: tx("错误", "No") }]} />
                 </Field>
-                <Field label={tx("证据是否充分", "Evidence sufficient?")}>
-                  <Pills value={evidence} onChange={setEvidence} options={scale} />
-                </Field>
-                <Field label={tx("建议是否安全", "Advice safe?")}>
-                  <Pills value={safe} onChange={setSafe} options={[{ value: "safe", label: tx("安全", "Safe") }, { value: "risky", label: tx("有风险", "Risky") }]} />
-                </Field>
-                <Field label={tx("表达是否清晰", "Clear?")}>
-                  <Pills value={clarity} onChange={setClarity} options={scale} />
-                </Field>
+                {demo && (
+                  <>
+                    <Field label={tx("证据是否充分", "Evidence sufficient?")}>
+                      <Pills value={evidenceScore} onChange={setEvidence} options={scale} />
+                    </Field>
+                    <Field label={tx("建议是否安全", "Advice safe?")}>
+                      <Pills value={safe} onChange={setSafe} options={[{ value: "safe", label: tx("安全", "Safe") }, { value: "risky", label: tx("有风险", "Risky") }]} />
+                    </Field>
+                    <Field label={tx("表达是否清晰", "Clear?")}>
+                      <Pills value={clarity} onChange={setClarity} options={scale} />
+                    </Field>
+                  </>
+                )}
                 <Field label={tx("备注", "Notes")}>
                   <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tx("建议里可以补充限流配额的具体数值来源。", "e.g. cite where the quota number comes from.")} />
                 </Field>
-                <Check checked={regress} onChange={setRegress} label={tx("加入回归集（v14 起必须通过）", "Add to regression set (required from v14)")} />
+                {demo && <Check checked={regress} onChange={setRegress} label={tx("加入回归集（v14 起必须通过）", "Add to regression set (required from v14)")} />}
               </Col>
             </Section>
+            {!demo && !!c.labels?.length && (
+              <Section title={tx("已有标注", "Existing reviews")}>
+                <Col gap={6}>
+                  {c.labels.map((l, i) => (
+                    <Row key={i} gap={6} align="flex-start">
+                      <Badge>{l.label}</Badge>
+                      <Col gap={0} style={{ minWidth: 0 }}>
+                        <Muted size={11.5}>
+                          {l.actor} · {/^\d{4}-\d{2}-\d{2}T/.test(l.time) ? new Date(l.time).toLocaleString() : l.time}
+                        </Muted>
+                        {l.note && <span style={{ fontSize: "var(--fs-sub)" }}>{l.note}</span>}
+                      </Col>
+                    </Row>
+                  ))}
+                </Col>
+              </Section>
+            )}
+            {c.auto && (
             <Section title={tx("自动评测", "Automatic checks")}>
               <Col gap={7}>
                 <Row gap={6}>
@@ -169,6 +239,7 @@ export default function EvalCasePage() {
                 ))}
               </Col>
             </Section>
+            )}
           </aside>
         </div>
       )}

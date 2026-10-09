@@ -9,17 +9,63 @@ import { StackedBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./agents.css";
 import { ChipSelect, useFacet, downloadFile, openForm } from "../../ui/demo";
+import { Unavailable } from "../../ui/unknown";
+
+const localTime = (t: string) => (/^\d{4}-\d{2}-\d{2}T/.test(t) ? new Date(t).toLocaleString() : t);
 
 export default function GuardrailsPage() {
   const { tx } = useI18n();
   const [filter, setFilter] = useState<"all" | "blocked" | "masked">("all");
   const [q, setQ] = useState("");
-  const { data } = useGet<GuardrailsView>("/guardrails", { filter });
+  const { data, refetch } = useGet<GuardrailsView>("/guardrails", { filter });
   const [off, setOff] = useState<Set<string>>(new Set());
-  const [sel, setSel] = useState("g1");
+  // Real switches show the requested state while the PATCH is in flight, then the server's.
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+  const demo = API_MODE === "mock";
+  const [selPick, setSel] = useState(demo ? "g1" : "");
   const patch = useSend<{ id: string; enabled: boolean }>("PATCH", (b) => `/guardrails/${b.id}`);
-  const act = (a: GuardEvent["action"]) => (a === "blocked" ? ([tx("已拦截", "Blocked"), "danger"] as const) : ([tx("已脱敏", "Masked"), "warn"] as const));
-  const d = data?.detail;
+  const act = (a: GuardEvent["action"]) => (a === "blocked" ? ([tx("已拦截", "Blocked"), "danger"] as const) : a === "masked" ? ([tx("已脱敏", "Masked"), "warn"] as const) : ([a, "neutral"] as const));
+  // Real detail only describes the newest event; any selected event shows what its row recorded.
+  const sel = selPick || (demo ? "" : data?.events[0]?.id ?? "");
+  const selEvent = data?.events.find((e) => e.id === sel);
+  const d = demo ? data?.detail : selEvent && { id: selEvent.id, title: `${act(selEvent.action)[0]} · ${selEvent.target_kind ?? selEvent.rule}`, meta: `${selEvent.agent} · ${localTime(selEvent.time)}`, source: null, snippet: null, masked: null, verdict: null, run: selEvent.run };
+  const trendLabels = !demo && data?.trend_days?.length ? data.trend_days.map((x) => `${Number(x.slice(5, 7))}/${Number(x.slice(8, 10))}`) : ["9/17", "9/18", "9/19", "9/20", "9/21", "9/22", tx("今天", "Today")];
+  const toggle = (id: string, name: string, v: boolean) => {
+    const done = v ? tx("已开启「{p}」", "“{p}” enabled", { p: name }) : tx("已关闭「{p}」，此操作已写入审计", "“{p}” disabled — recorded in the audit log", { p: name });
+    if (demo) {
+      const flip = (enabled: boolean) =>
+        setOff((s) => {
+          const n = new Set(s);
+          if (enabled) n.delete(id);
+          else n.add(id);
+          return n;
+        });
+      flip(v);
+      patch.mutate({ id, enabled: v });
+      return toast(done, { undo: () => flip(!v) });
+    }
+    // Real toggles report the server's answer; a refusal (forced policy, permission) puts the switch back.
+    const clear = () =>
+      setPending((m) => {
+        const n = { ...m };
+        delete n[id];
+        return n;
+      });
+    setPending((m) => ({ ...m, [id]: v }));
+    patch.mutate(
+      { id, enabled: v },
+      {
+        onSuccess: () => {
+          void refetch().finally(clear);
+          toast(done);
+        },
+        onError: (e) => {
+          clear();
+          toast(e.message, { tone: "danger" });
+        },
+      },
+    );
+  };
   const fAgent = useFacet(data?.events, (e) => e.agent);
   const fRule = useFacet(data?.events, (e) => e.rule);
   const rows = data?.events.filter((e) => (!q || e.detail.includes(q) || e.run.includes(q)) && fAgent.test(e) && fRule.test(e));
@@ -38,7 +84,8 @@ export default function GuardrailsPage() {
       <div className="v3-split">
         <div className="side" style={{ width: 360, padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
           <Section title={tx("护栏策略", "Guardrail policies")} right={
-            <TextLink
+            // Real registration only accepts the built-in rule names (POST /guardrails); the sample form takes free text.
+            demo && <TextLink
               icon="plus"
               onClick={async () => {
                 const v = await openForm({
@@ -59,7 +106,7 @@ export default function GuardrailsPage() {
           }>
             <ul className="pol-list stagger">
               {data?.policies.map((p) => {
-                const on = !off.has(p.id);
+                const on = demo ? !off.has(p.id) : pending[p.id] ?? p.enabled;
                 return (
                   <li key={p.id} className={cx(p.id === "injection" && "on", !on && "off")}>
                     <Tile icon={p.icon as IconName} size={28} />
@@ -77,16 +124,7 @@ export default function GuardrailsPage() {
                       <Toggle
                         on={on}
                         label={p.name}
-                        onChange={(v) => {
-                          setOff((s) => {
-                            const n = new Set(s);
-                            if (v) n.delete(p.id);
-                            else n.add(p.id);
-                            return n;
-                          });
-                          patch.mutate({ id: p.id, enabled: v });
-                          toast(v ? tx("已开启「{p}」", "“{p}” enabled", { p: p.name }) : tx("已关闭「{p}」，此操作已写入审计", "“{p}” disabled — recorded in the audit log", { p: p.name }), { undo: () => setOff((s) => { const n = new Set(s); if (v) n.add(p.id); else n.delete(p.id); return n; }) });
-                        }}
+                        onChange={(v) => toggle(p.id, p.name, v)}
                       />
                     )}
                   </li>
@@ -101,13 +139,13 @@ export default function GuardrailsPage() {
                 <Spacer />
                 <Legend items={[[tx("拦截", "Blocked"), "var(--c3)"], [tx("脱敏", "Masked"), "var(--c4)"]]} />
               </Row>
-              {data ? <StackedBars data={data.trend} colors={["var(--c3)", "var(--c4)"]} height={46} gap={6} names={[tx("拦截", "Blocked"), tx("脱敏", "Masked")]} labels={["9/17", "9/18", "9/19", "9/20", "9/21", "9/22", tx("今天", "Today")]} /> : <Skeleton h={46} />}
+              {data ? <StackedBars data={data.trend} colors={["var(--c3)", "var(--c4)"]} height={46} gap={6} names={[tx("拦截", "Blocked"), tx("脱敏", "Masked")]} labels={trendLabels} /> : <Skeleton h={46} />}
               <Row gap={0}>
-                <Muted size={10.5}>9/17</Muted>
+                <Muted size={10.5}>{trendLabels[0]}</Muted>
                 <Spacer />
-                <Muted size={10.5}>9/20</Muted>
+                <Muted size={10.5}>{trendLabels[Math.floor(trendLabels.length / 2)]}</Muted>
                 <Spacer />
-                <Muted size={10.5}>{tx("今天", "Today")}</Muted>
+                <Muted size={10.5}>{demo ? tx("今天", "Today") : trendLabels[trendLabels.length - 1]}</Muted>
               </Row>
             </Col>
           </Card>
@@ -139,7 +177,7 @@ export default function GuardrailsPage() {
                 selected={sel}
                 onRowClick={(e) => setSel(e.id)}
                 columns={[
-                  { key: "time", header: tx("时间", "Time"), render: (e) => <Muted>{e.time}</Muted> },
+                  { key: "time", header: tx("时间", "Time"), render: (e) => <Muted>{localTime(e.time)}</Muted> },
                   {
                     key: "agent",
                     header: tx("Agent · 运行", "Agent · run"),
@@ -163,23 +201,37 @@ export default function GuardrailsPage() {
                   <Row gap={8}>
                     <Icon name="shield" size={16} color="var(--danger)" />
                     <b style={{ fontSize: "var(--fs-md)" }}>{d.title}</b>
-                    <State tone="danger">{tx("已拦截", "Blocked")}</State>
+                    {demo ? <State tone="danger">{tx("已拦截", "Blocked")}</State> : selEvent && <State tone={act(selEvent.action)[1]}>{act(selEvent.action)[0]}</State>}
                     <Spacer />
                     <Muted size={11.5}>{d.meta}</Muted>
                   </Row>
-                  <Muted>{d.source}</Muted>
-                  <Code>
-                    {d.snippet}
-                    <span className="masked">{d.masked}</span>
-                  </Code>
-                  <Row gap={8} align="flex-start">
-                    <Icon name="check" size={14} color="var(--ok)" style={{ marginTop: 2 }} />
-                    <span style={{ fontSize: "var(--fs-sm)" }}>{d.verdict}</span>
-                  </Row>
+                  {!demo && selEvent && (
+                    <Row gap={6}>
+                      <Muted>{tx("规则", "Rule")}</Muted>
+                      <Mono size={11.5}>{selEvent.rule}</Mono>
+                      <Muted>· {tx("原因", "Reason")}</Muted>
+                      <Mono size={11.5}>{selEvent.detail}</Mono>
+                    </Row>
+                  )}
+                  {d.source === null && d.snippet === null && d.verdict === null ? (
+                    <Unavailable reason="not_generated" icon="file" title={tx("没有保存原文和判定", "Source text and verdict aren't stored")} desc={tx("护栏只记录命中的规则和原因，不保存被拦截的原文、脱敏后的内容和判定说明。", "Guardrails record the rule and reason only — not the blocked text, the masked content or a verdict.")} />
+                  ) : (
+                    <>
+                      <Muted>{d.source}</Muted>
+                      <Code>
+                        {d.snippet}
+                        <span className="masked">{d.masked}</span>
+                      </Code>
+                      <Row gap={8} align="flex-start">
+                        <Icon name="check" size={14} color="var(--ok)" style={{ marginTop: 2 }} />
+                        <span style={{ fontSize: "var(--fs-sm)" }}>{d.verdict}</span>
+                      </Row>
+                    </>
+                  )}
                   <Row gap={6}>
                     {(() => {
                       // The run of the selected event; the sample data points at its sample run.
-                      const run = API_MODE === "mock" ? "run_7f3a" : data?.events.find((e) => e.id === d.id)?.run;
+                      const run = demo ? "run_7f3a" : selEvent?.run;
                       return (
                         run && (
                           <Btn h={26} icon="play" to={`/agents/runs/${run}`}>
@@ -189,7 +241,7 @@ export default function GuardrailsPage() {
                       );
                     })()}
                     <Btn h={26} icon="plus" to="/agents/evals">
-                      {tx("加入评测用例（越权与注入）", "Add as eval case (injection)")}
+                      {demo ? tx("加入评测用例（越权与注入）", "Add as eval case (injection)") : tx("去评测实验", "Go to evals")}
                     </Btn>
                     {API_MODE === "mock" && (
                       <Btn h={26} kind="ghost" onClick={() => toast(tx("已标记为误报，规则会复核", "Marked as false positive for rule review"))}>

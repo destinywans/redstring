@@ -722,7 +722,8 @@ export type WebhookView = {
 
 /* ---------------- agent console ---------------- */
 export type AgentLevel = "L0" | "L1" | "L2" | "L3";
-export type AgentSummary = { id: string; icon: string; name: string; desc: string; version: string; level: AgentLevel; score: number; runs_7d: string; success: string; avg_tokens: string; status: "stable" | "canary" | "paused" };
+/** score / runs_7d / success / avg_tokens are null until evaluation and usage producers exist (unknown, not zero). */
+export type AgentSummary = { id: string; icon: string; name: string; desc: string; version: string; level: AgentLevel; score: number | null; runs_7d: string | null; success: string | null; avg_tokens: string | null; status: "stable" | "canary" | "paused" | (string & {}) };
 export type Lifecycle = {
   /** null when no stage aggregate or to-do producer exists yet (see `missing`). */
   stages: { id: string; name: string; value: string; sub: string; tone: Tone }[] | null;
@@ -730,15 +731,17 @@ export type Lifecycle = {
   todos: { icon: string; tone: Tone; title: string; body: string; action: string; href: string }[] | null;
   missing?: string[];
 };
-export type AgentVersion = { version: string; status: "canary" | "stable" | "retired"; traffic: string; score: string; success: string; tokens: string; delta?: string; created: string };
+/** Real versions carry configured_traffic; observed traffic, score, success and tokens are null until measured. */
+export type AgentVersion = { version: string; status: "canary" | "stable" | "retired" | "draft"; traffic: string | null; configured_traffic?: string; score: string | null; success: string | null; tokens: string | null; delta?: string; created: string };
 export type AgentDetail = AgentSummary & {
   owner: string;
-  account: string;
+  account: string | null;
   summary: string;
   versions: AgentVersion[];
-  release: { from: string; to: string; current: number; target: number; gates: { label: string; value: string; pass: boolean }[]; tokens: { base: number[]; canary: number[] } };
-  diff: { key: string; before?: string; after: string; added?: boolean }[];
-  config: { icon: string; key: string; value: string }[];
+  /** current / gates / tokens are null until a routing and evaluation producer exists. */
+  release: { from: string; to: string; current: number | null; target: number; configured_canary_percent?: number; gates: { label: string; value: string; pass: boolean }[] | null; tokens: { base: number[]; canary: number[] } | null; missing?: string[] };
+  diff: { key: string; before?: string; after: string; added?: boolean }[] | null;
+  config: { icon: string; key: string; value: string }[] | null;
 };
 export type PromptItem = { id: string; kind: "prompt" | "skill"; name: string; version: string; status?: string };
 export type PromptDetail = {
@@ -759,35 +762,77 @@ export type ToolsView = {
   env_limits: { env: string; max: AgentLevel; note: string }[];
   rules: string[];
 };
+/** Before a run has results, dataset/metrics/radar/cases/datasets/evaluators are null (see missing). */
 export type EvalExperiment = {
   id: string;
   title: string;
-  dataset: string;
+  dataset: string | null;
   meta: string;
+  status?: string;
+  baseline_version?: string;
+  candidate_version?: string;
   gate_failed?: string;
-  metrics: { name: string; a: string; b: string; delta: string; gate: string; pass: boolean | null }[];
-  radar: { axes: string[]; a: number[]; b: number[] };
-  cases: { id: string; title: string; expected: string; a: boolean; b: boolean; score: string; duration: string }[];
-  datasets: { name: string; count: number; desc: string; tone: Tone }[];
-  evaluators: { name: string; kind: string }[];
+  metrics: { name: string; a: string; b: string; delta: string; gate: string; pass: boolean | null }[] | null;
+  radar: { axes: string[]; a: number[]; b: number[] } | null;
+  cases: { id: string; title: string; expected: string; a: boolean; b: boolean; score: string; duration: string }[] | null;
+  datasets: { name: string; count: number; desc: string; tone: Tone }[] | null;
+  evaluators: { name: string; kind: string }[] | null;
+  missing?: string[];
 };
 /** GET /evals (PA-20): persisted experiments; execution_status / finished_at are null until a run is recorded. */
 export type EvalListItem = { id: string; title: string; agent_id: string; agent_name: string; application_id: string; environment_id: string; baseline_version: string; candidate_version: string; status: "pending" | "running" | "passed" | "failed" | "invalid"; execution_status: string | null; created_at: string; finished_at: string | null; href: string };
 export type EvalList = { items: EvalListItem[]; total: number; page: number; page_size: number; empty_reason: EmptyReason; unavailable: Unavailable };
+type EvalCaseAlert = { sev: string; title: string; labels: { k: string; v: string }[] };
+type EvalCaseEvidence = { brand: string; title: string; sub: string }[];
+type EvalCaseExpected = { cause: string; advice: string };
+/**
+ * GET /eval-cases/{id}. Without a trusted snapshot the alert / evidence / expected / output / baseline / auto blocks are
+ * null (see `missing`); `human_input` may still carry the registered input. Labels post `next` + `expected_revision`.
+ */
 export type EvalCase = {
   id: string;
   title: string;
   queue: string;
-  alert: { sev: string; title: string; labels: { k: string; v: string }[] };
-  evidence: { brand: string; title: string; sub: string }[];
-  expected: { cause: string; advice: string };
-  output: { version: string; meta: string; tools: string[]; markdown: string };
-  baseline: { version: string; score: string; text: string };
-  auto: { score: string; note: string; rules: string[] };
+  alert: EvalCaseAlert | null;
+  evidence: EvalCaseEvidence | null;
+  expected: EvalCaseExpected | null;
+  output: { version: string; meta: string; tools: string[]; markdown: string } | null;
+  baseline: { version: string; score: string; text: string } | null;
+  auto: { score: string; note: string; rules: string[] } | null;
+  revision?: number;
+  labels?: { label: string; note: string; actor: string; time: string }[];
+  human_input?: { title: string; input: string; alert: EvalCaseAlert; evidence: EvalCaseEvidence; expected: EvalCaseExpected; checks: string[] } | null;
+  missing?: string[];
 };
-export type RunRow = { id: string; agent: string; version: string; trigger: string; scope: string; status: "success" | "failed" | "blocked"; steps: string | null; tokens: string | null; duration: string | null; feedback?: { icon: string; tone: Tone; text: string } };
-/** trend/durations/counts are null until a live run producer exists (see `missing`). */
-export type RunsView = { kpis: Kpi[]; trend: { ok: number[]; failed: number[]; blocked: number[] } | null; durations: number[] | null; items: RunRow[]; counts: Record<"all" | "failed" | "blocked" | "negative", number> | null; missing?: string[] };
+/** Sample rows carry display strings; real rows carry counts, `duration_ms`, `started_at` and vote totals (null when unreported). */
+export type RunFeedback = { icon: string; tone: Tone; text: string } | { up: number; down: number; my_vote: string | null };
+export type RunRow = {
+  id: string;
+  agent: string;
+  version: string;
+  trigger: string;
+  scope: string;
+  status: "success" | "failed" | "blocked" | "running" | (string & {});
+  steps: string | number | null;
+  tokens: string | number | null;
+  duration?: string | null;
+  duration_ms?: number | null;
+  started_at?: string;
+  feedback?: RunFeedback | null;
+};
+/**
+ * trend/durations/counts are null until runs are recorded (see `missing`). Sample `durations` are histogram buckets;
+ * real ones are the sorted durations in ms, and real trends name their window start and bucket size.
+ */
+export type RunsView = {
+  kpis: Kpi[];
+  trend: { ok: number[]; failed: number[]; blocked: number[]; window_start_at?: string; interval_minutes?: number } | null;
+  durations: number[] | null;
+  items: RunRow[];
+  counts: Record<"all" | "failed" | "blocked" | "negative", number> | null;
+  truncated?: boolean;
+  missing?: string[];
+};
 /**
  * GET /agent-runs/{id}. `start`, `dur` and `total` are milliseconds. Steps are null without recorded spans, `total`
  * only exists for finished runs, and context / budget / isolated / memory have no producer yet (null, see `missing`).
@@ -807,13 +852,17 @@ export type RunDetail = {
   missing?: string[];
 };
 export type GuardPolicy = { id: string; icon: string; name: string; desc: string; stat: string; enabled: boolean; forced?: boolean };
-export type GuardEvent = { id: string; time: string; agent: string; run: string; rule: string; action: "blocked" | "masked"; detail: string };
+/** Real event times are RFC3339; `detail` is the reason code there. */
+export type GuardEvent = { id: string; time: string; agent: string; run: string; rule: string; action: "blocked" | "masked" | (string & {}); detail: string; target_kind?: string };
 export type GuardrailsView = {
   policies: GuardPolicy[];
   trend: number[][];
+  /** UTC days (YYYY-MM-DD) for the real trend columns. */
+  trend_days?: string[];
   events: GuardEvent[];
   counts: Record<"all" | "blocked" | "masked", number>;
-  detail: { id: string; title: string; meta: string; source: string; snippet: string; masked: string; verdict: string };
+  /** Real events don't keep the source text, snippet, masked text or verdict (null); detail is null with no events. */
+  detail: { id: string; title: string; meta: string; source: string | null; snippet: string | null; masked: string | null; verdict: string | null; run?: string } | null;
 };
 
 /* ---------------- settings ---------------- */

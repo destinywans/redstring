@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
+import { API_MODE, api, useGet } from "../../api/client";
 import { AiAvatar, Badge, Btn, Col, Field, Icon, LabelChip, Mono, Muted, Row, Skeleton, Spacer, Strong, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
@@ -26,8 +26,12 @@ export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { op
   const { tx } = useI18n();
   const nav = useNavigate();
   const [src, setSrc] = useState<Source>(initial);
-  const [pm, setPm] = useState("INC-1042");
+  // The sample preselects its sample postmortem; real mode preselects the first real candidate.
+  const [pm, setPm] = useState(API_MODE === "mock" ? "INC-1042" : "");
   const { data } = useGet<{ items: Candidate[] }>(open ? "/postmortems/candidates" : null);
+  useEffect(() => {
+    if (!pm && data?.items[0]) setPm(data.items[0].id);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
   const opts: { key: Source; icon: IconName; title: string; sub: string; wide?: boolean }[] = [
     { key: "blank", icon: "file", title: tx("空白", "Blank"), sub: tx("从触发条件和第一步开始写", "Start from the trigger and the first step") },
     { key: "template", icon: "grid", title: tx("从模板", "From template"), sub: tx("服务不可用、容量不足、依赖超时等 8 个模板", "8 templates: outage, capacity, dependency timeouts…") },
@@ -180,7 +184,7 @@ export default function NewRunbookPage() {
                     </li>
                   ))}
                   <li className="rb-add">
-                    <button type="button" className="f-add" onClick={() => toast(tx("已添加一步", "Step added"))}><Icon name="plus" size={12} />{tx("添加步骤", "Add step")}</button>
+                    {API_MODE === "mock" && <button type="button" className="f-add" onClick={() => toast(tx("已添加一步", "Step added"))}><Icon name="plus" size={12} />{tx("添加步骤", "Add step")}</button>}
                     <Muted size={11.5}>{tx("写操作步骤会自动标记为「需要审批」，由执行器执行", "Write steps are always marked “needs approval” and run by the executor")}</Muted>
                   </li>
                 </ol>

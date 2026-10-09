@@ -1,4 +1,6 @@
-import { API_MODE, api } from "./client";
+import { API_MODE, ApiError, api, newIdempotencyKey } from "./client";
+import { currentLocale } from "../app/preferences";
+import { currentEnv } from "../app/environment";
 import type { Upload, UploadKind } from "./types";
 
 export const MAX_UPLOAD = 20 * 1024 * 1024;
@@ -57,4 +59,26 @@ export function formatSize(n: number) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** PUT /me/avatar (multipart `file`, PNG/JPEG ≤ 2 MB, ≥ 256 × 256) → `{ url }` of the private avatar content. */
+export async function uploadAvatar(file: File): Promise<{ url: string }> {
+  if (API_MODE === "mock") return { url: URL.createObjectURL(file) };
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/v1/me/avatar", {
+    method: "PUT",
+    credentials: "same-origin",
+    headers: {
+      "Accept-Language": currentLocale(),
+      ...(currentEnv() ? { "X-AIOps-Environment": currentEnv() } : {}),
+      "Idempotency-Key": newIdempotencyKey(),
+    },
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new ApiError(res.status, body?.error?.code ?? "request_failed", body?.error?.message ?? `HTTP ${res.status}`);
+  }
+  return res.json();
 }

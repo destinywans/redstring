@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
-import type { SecurityView } from "../../api/types";
+import { API_MODE, ApiError, api, useGetWithEtag } from "../../api/client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { SecurityRead, SecurityView } from "../../api/types";
+import { PageUnavailable } from "../../ui/unknown";
 import { Badge, Brand, Btn, Check, Chip, Col, Divider, Field, Icon, IconBtn, Input, Muted, Panel, Radio, Row, Skeleton, State, Strong, Toggle } from "../../ui/core";
 import { toast, MenuButton } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
@@ -10,27 +12,54 @@ import { ChipSelect, openExternal } from "../../ui/demo";
 
 export default function SecurityPage() {
   const { tx } = useI18n();
-  const { data, error } = useGet<SecurityView>("/security");
+  const { data: read, error } = useGetWithEtag<SecurityRead>("/security");
+  // Without an authority the server returns every field null and no ETag: nothing is proven, so nothing can be saved.
+  const data = read && read.data.sso !== null ? (read.data as SecurityView) : null;
+  const unknown = !!read && read.data.sso === null;
+  const etag = read?.etag ?? null;
+  const canSave = !!data && (API_MODE === "mock" || !!etag);
   const [s, setS] = useState<SecurityView | null>(null);
-  const save = useSend<SecurityView>("PUT", "/security", ["/security"]);
+  const client = useQueryClient();
+  const save = useMutation<SecurityView, ApiError, SecurityView>({
+    mutationFn: (body) => api<SecurityView>("PUT", "/security", { body, headers: etag ? { "If-Match": etag } : undefined }),
+    onSuccess: () => client.invalidateQueries({ predicate: (q) => q.queryKey[0] === "/security" }),
+  });
   useEffect(() => {
     if (data) setS(structuredClone(data));
-  }, [data]);
+  }, [read]); // eslint-disable-line react-hooks/exhaustive-deps
   const dirty = !!data && !!s && JSON.stringify(data) !== JSON.stringify(s);
   const up = (patch: Partial<SecurityView>) => setS((x) => (x ? { ...x, ...patch } : x));
+  const onSave = () =>
+    s &&
+    save.mutate(s, {
+      onSuccess: () => toast(tx("安全策略已保存并写入审计", "Security policy saved and audited")),
+      onError: (e) =>
+        toast(e.status === 412 || e.status === 409 ? tx("策略已被其他人修改，已重新读取，请核对后再保存", "Someone else changed the policy; it was reloaded — check and save again") : e.message, { tone: "danger" }),
+    });
   return (
     <Page
       ai={false}
-      error={!data ? error : undefined}
+      error={!read ? error : undefined}
       errorSource={tx("安全策略来源", "security policy source")}
       crumbs={[tx("设置", "Settings"), tx("安全策略", "Security policy")]}
       actions={
-        <Btn kind="primary" icon="check" disabled={!dirty} loading={save.isPending} onClick={() => s && save.mutate(s, { onSuccess: () => toast(tx("安全策略已保存并写入审计", "Security policy saved and audited")) })}>
-          {tx("保存", "Save")}
-        </Btn>
+        canSave && (
+          <Btn kind="primary" icon="check" disabled={!dirty} loading={save.isPending} onClick={onSave}>
+            {tx("保存", "Save")}
+          </Btn>
+        )
       }
     >
-      {!s ? (
+      {unknown ? (
+        <div className="v3-content">
+          <PageUnavailable
+            icon="shield"
+            configure={false}
+            title={tx("还没有接入安全策略权威来源", "No security policy authority is connected")}
+            desc={tx("工作区实际生效的单点登录、两步验证、会话和凭据策略要由受审的权威控制器提供。接入前这里显示为未知，也不能保存。", "The sign-on, two-factor, session and credential rules actually in force come from an audited authority. Until one is connected they show as unknown and can't be saved.")}
+          />
+        </div>
+      ) : !s ? (
         <div className="v3-content">
           <Skeleton h={400} />
         </div>
@@ -118,7 +147,7 @@ export default function SecurityPage() {
                     <Strong>{s.vault.name}</Strong>
                     <Muted size={11.5}>{s.vault.sub}</Muted>
                   </Col>
-                  <State tone="ok">{tx("已连接", "Connected")}</State>
+                  {s.vault.connected ? <State tone="ok">{tx("已连接", "Connected")}</State> : <State tone="warn">{tx("未连接", "Not connected")}</State>}
                 </Row>
                 <Row gap={8}>
                   <Icon name="shield" size={14} color="var(--ok)" />

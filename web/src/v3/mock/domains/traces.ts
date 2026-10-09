@@ -1,5 +1,8 @@
 /** Traces v2: application traces (Tempo/Jaeger style) and agent traces (Langfuse/Phoenix style). */
 import { mock } from "../router";
+
+/** The sample spans are written in seconds; the contract reports milliseconds. */
+const traceInMs = <T extends { total: number; spans: { start: number; dur: number }[] }>(t: T): T => ({ ...t, total: t.total * 1000, spans: t.spans.map((x) => ({ ...x, start: Math.round(x.start * 1000), dur: Math.round(x.dur * 1000) })) });
 import { l } from "../../i18n";
 
 const P = l;
@@ -31,7 +34,7 @@ mock("GET", "/traces", ({ query }) => {
   const scope = query.scope === "agent" ? "agent" : "app";
   if (scope === "agent") {
     return {
-      scope, total: 312, took: "0.18 s", colors: { query_metrics: "var(--dev)", search_logs: "var(--dev)", search_runbooks: "var(--info)", list_changes: "var(--dev)", search_traces: "var(--dev)", get_file_history: "var(--dev)", get_incident: "var(--dev)" },
+      scope, total: 312, took: "0.18 s", unavailable: {}, colors: { query_metrics: "var(--dev)", search_logs: "var(--dev)", search_runbooks: "var(--info)", list_changes: "var(--dev)", search_traces: "var(--dev)", get_file_history: "var(--dev)", get_incident: "var(--dev)" },
       facets: [
         { key: "agent", label: P("Agent", "Agent"), items: [{ value: P("调查助手", "Investigator"), count: 188 }, { value: P("告警初查", "Triage"), count: 96 }, { value: P("巡检", "Patrol"), count: 18 }, { value: P("报告撰写", "Reporter"), count: 10 }] },
         { key: "model", label: P("模型", "Model"), items: [{ value: "Claude Opus 5.5", count: 176 }, { value: "Claude Sonnet 5", count: 84 }, { value: "GPT-5", count: 34 }, { value: "Qwen3 32B", count: 18 }] },
@@ -53,7 +56,7 @@ mock("GET", "/traces", ({ query }) => {
   });
   const errorsOnly = query.view !== "all";
   return {
-    scope, total: errorsOnly ? 214 : 4813, took: "0.42 s", colors: COLORS,
+    scope, total: errorsOnly ? 214 : 4813, took: "0.42 s", colors: COLORS, unavailable: {},
     facets: [
       { key: "service", label: P("服务", "Service"), items: Object.keys(COLORS).map((s, i) => ({ value: s, count: [4102, 4813, 4630, 3920, 1830, 2210, 960][i], color: COLORS[s as keyof typeof COLORS] })) },
       { key: "status", label: P("状态", "Status"), items: [{ value: P("错误", "Error"), count: 214, tone: "danger" }, { value: P("正常", "OK"), count: 4599, tone: "ok" }] },
@@ -112,7 +115,7 @@ mock("GET", "/traces/:id", ({ params }) => ({
   },
 }));
 
-mock("GET", "/agent-runs/:id/trace", ({ params }) => ({
+mock("GET", "/agent-runs/:id/trace", ({ params }) => traceInMs({
   id: params.id,
   agent: P("调查助手 v13", "Investigator v13"),
   status: "success",

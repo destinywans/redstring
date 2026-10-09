@@ -4,6 +4,7 @@ import { useGet } from "../../api/client";
 import type { AgentSpan, AgentSpanKind, AgentTrace as AgentTraceT } from "../../api/types";
 import { Badge, Brand, Btn, Icon, KV, LabelChip, Legend, Muted, Row, SearchBox, Segmented, Skeleton, Spacer, Strong, Tabs, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
+import { LoadError, Unavailable } from "../../ui/unknown";
 import { useI18n } from "../../i18n";
 import "../observe/trace.css";
 
@@ -22,7 +23,8 @@ const MSG_TONE: Record<string, [string, string]> = {
   info: ["var(--info-soft)", "var(--info)"],
   t0: ["var(--t0-soft)", "var(--t0)"],
 };
-const dur = (s: number) => (s >= 1 ? `${s.toFixed(1)} s` : `${Math.round(s * 1000)} ms`);
+/** Span times are milliseconds; a span without a recorded duration shows "—". */
+const dur = (ms: number | null) => (ms === null ? "—" : ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`);
 const json = (v: unknown) => JSON.stringify(v, null, 2);
 
 function Msg({ m }: { m: NonNullable<AgentSpan["llm"]>["messages"][number] }) {
@@ -196,18 +198,19 @@ function GuardDetail({ s }: { s: AgentSpan }) {
 export function AgentTrace({ runId }: { runId: string }) {
   const { tx } = useI18n();
   const nav = useNavigate();
-  const { data: t } = useGet<AgentTraceT>(`/agent-runs/${runId}/trace`);
+  const { data: t, error } = useGet<AgentTraceT>(`/agent-runs/${runId}/trace`);
   const [sel, setSel] = useState("llm1");
   const [mode, setMode] = useState<"tree" | "timeline">("tree");
   const [q, setQ] = useState("");
   if (!t)
     return (
       <div style={{ padding: 20 }}>
-        <Skeleton h={48} />
-        <Skeleton h={360} style={{ marginTop: 12 }} />
+        {error ? <LoadError error={error} source={tx("运行记录", "run records")} /> : <><Skeleton h={48} /><Skeleton h={360} style={{ marginTop: 12 }} /></>}
       </div>
     );
-  const span = t.spans.find((s) => s.id === sel) ?? t.spans[0];
+  const spans = t.spans ?? [];
+  const span = spans.find((s) => s.id === sel) ?? spans[0];
+  const total = t.total ?? Math.max(1, ...spans.map((s) => s.start + (s.dur ?? 0)));
   return (
     <div className="v3-col" style={{ gap: 0, flexGrow: 1, minHeight: 0 }}>
       <div className="at-summary">
@@ -219,7 +222,7 @@ export function AgentTrace({ runId }: { runId: string }) {
         ))}
         <Spacer />
         <Row gap={6} wrap>
-          {t.scores.map((s) => (
+          {t.scores?.map((s) => (
             <Badge key={s.label} tone={s.tone}>
               {s.icon && <Icon name={s.icon as IconName} size={11} />}
               {s.label}
@@ -228,8 +231,8 @@ export function AgentTrace({ runId }: { runId: string }) {
         </Row>
       </div>
       <div className="at-turns" aria-label={tx("会话中的轮次", "Turns in this session")}>
-        <Muted size={11.5}>{tx("会话 {s}", "Session {s}", { s: t.session })}</Muted>
-        {t.turns.map((u) => (
+        {t.session && <Muted size={11.5}>{tx("会话 {s}", "Session {s}", { s: t.session })}</Muted>}
+        {t.turns?.map((u) => (
           <button key={u.n} type="button" className={cx("at-turn", u.current && "on")} disabled={!u.run_id || u.current} onClick={() => u.run_id && nav(`/agents/runs/${u.run_id}`)}>
             <Muted size={11}>{tx("第 {n} 轮", "Turn {n}", { n: u.n })}</Muted>
             <Brand name={u.brand} size={18} />
@@ -247,11 +250,16 @@ export function AgentTrace({ runId }: { runId: string }) {
             <Spacer />
             <Legend items={[["LLM", "var(--t0)"], [tx("工具", "Tool"), "var(--dev)"], [tx("检索", "Retrieval"), "var(--info)"]]} />
           </div>
+          {!t.spans && (
+            <div style={{ padding: 16 }}>
+              <Unavailable reason="not_generated" title={tx("还没有 Span 记录", "No spans recorded")} desc={tx("这次运行没有留下可展示的 Span 元数据。", "This run left no span metadata to show.")} icon="layers" />
+            </div>
+          )}
           <ul>
-            {t.spans
+            {spans
               .filter((s) => !q || s.name.toLowerCase().includes(q.toLowerCase()))
               .map((s) => {
-                const k = KIND[s.kind];
+                const k = KIND[s.kind] ?? KIND.chain;
                 const clickable = !!(s.llm || s.tool || s.guard);
                 return (
                   <li key={s.id}>
@@ -264,7 +272,7 @@ export function AgentTrace({ runId }: { runId: string }) {
                       </span>
                       <span className="tnum muted" style={{ fontSize: "var(--fs-sub)", width: 48, textAlign: "right" }}>{dur(s.dur)}</span>
                       <span className="tl" style={{ width: mode === "timeline" ? 180 : 110 }}>
-                        <span style={{ left: `${(100 * s.start) / t.total}%`, width: `${Math.max(1.2, (100 * s.dur) / t.total)}%`, background: k.bar }} />
+                        <span style={{ left: `${(100 * s.start) / total}%`, width: `${Math.max(1.2, (100 * (s.dur ?? 0)) / total)}%`, background: k.bar }} />
                       </span>
                     </button>
                   </li>
@@ -272,11 +280,13 @@ export function AgentTrace({ runId }: { runId: string }) {
               })}
           </ul>
         </div>
-        <div className="at-detail anim-fade" key={span.id}>
-          {span.llm && <LlmDetail s={span} />}
-          {span.tool && <ToolDetail s={span} />}
-          {span.guard && <GuardDetail s={span} />}
-        </div>
+        {span && (
+          <div className="at-detail anim-fade" key={span.id}>
+            {span.llm && <LlmDetail s={span} />}
+            {span.tool && <ToolDetail s={span} />}
+            {span.guard && <GuardDetail s={span} />}
+          </div>
+        )}
       </div>
     </div>
   );

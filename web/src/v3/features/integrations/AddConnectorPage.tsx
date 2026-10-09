@@ -7,7 +7,7 @@ import { Badge, Brand, Btn, Card, Check, Chip, Code, Col, Field, Icon, Input, La
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
-import { ChipSelect, AddChip } from "../../ui/demo";
+import { ChipSelect, AddChip, SampleOnly } from "../../ui/demo";
 
 const CATALOG = [
   ["gitlab", "GitLab"],
@@ -109,6 +109,8 @@ export default function AddConnectorPage() {
             {step === 2 && (
               <Col gap={18}>
                 <h2>{tx("范围与映射", "Scope & mapping")}</h2>
+                {/* Project scope rules and mapping suggestions are sample content; real mappings are reviewed on the Service mapping page. */}
+                <SampleOnly what={tx("项目范围与服务映射建议", "Project scope and mapping suggestions")}>
                 <Field label={tx("项目范围", "Projects")}>
                   <Row gap={6}>
                     <LabelChip k="group" v="platform/*" />
@@ -135,6 +137,7 @@ export default function AddConnectorPage() {
                     ))}
                   </Col>
                 </Field>
+                </SampleOnly>
               </Col>
             )}
             {step >= 3 && (

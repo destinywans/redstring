@@ -176,17 +176,30 @@ export default function NewRulePage() {
                 <PillSelect label={tx("级别", "Severity")} value={sev} options={["P1", "P2", "P3", "P4"] as Severity[]} onChange={setSev} />
               </Field>
               <Field label={tx("服务", "Service")}>
+                {/* The application selector is on the design board; real mode doesn't pretend the sample service is chosen. */}
                 <Row gap={6} style={{ height: 30 }}>
-                  <Badge>checkout-api</Badge>
-                  <Tier tier="T0" />
+                  {API_MODE === "mock" ? (
+                    <>
+                      <Badge>checkout-api</Badge>
+                      <Tier tier="T0" />
+                    </>
+                  ) : (
+                    <Muted>{tx("待选择应用", "Application not chosen")}</Muted>
+                  )}
                 </Row>
               </Field>
             </div>
             <Field label={tx("标签", "Labels")}>
               <Row gap={6} wrap>
-                <LabelChip k="team" v="trade" />
-                <LabelChip k="service" v="checkout-api" />
-                <LabelChip k="env" v="prod" />
+                {API_MODE === "mock" ? (
+                  <>
+                    <LabelChip k="team" v="trade" />
+                    <LabelChip k="service" v="checkout-api" />
+                    <LabelChip k="env" v="prod" />
+                  </>
+                ) : (
+                  <Muted size={11.5}>{tx("环境和应用标签由服务端按所选应用补齐", "Environment and application labels are added by the server for the chosen application")}</Muted>
+                )}
               </Row>
             </Field>
             <Field label={tx("通知摘要", "Notification summary")}>
@@ -284,7 +297,7 @@ export default function NewRulePage() {
               </Panel>
             )}
             {preview?.similar && (
-              <Callout tone="warn" icon="alert" action={<Btn h={26} onClick={() => toast(tx("已打开合并：新阈值将替换原规则，保留历史", "Merging: the new threshold replaces the old rule; history is kept"))}>{tx("合并到该规则", "Merge into it")}</Btn>}>
+              <Callout tone="warn" icon="alert" action={API_MODE === "mock" ? <Btn h={26} onClick={() => toast(tx("已打开合并：新阈值将替换原规则，保留历史", "Merging: the new threshold replaces the old rule; history is kept"))}>{tx("合并到该规则", "Merge into it")}</Btn> : undefined}>
                 {tx("已有相似规则「{n}」（已启用）。同时启用会重复告警，建议合并。", "A similar rule “{n}” is enabled. Enabling both duplicates alerts — consider merging.", { n: preview.similar.name })}
               </Callout>
             )}
@@ -301,7 +314,7 @@ export default function NewRulePage() {
           <Textarea rows={14} className="v3-textarea mono" value={yaml} onChange={(e) => setYaml(e.target.value)} spellCheck={false} />
           {tab === "import" && (
             <Row gap={8}>
-              <Btn icon="download" onClick={() => toast(tx("已从 Prometheus · 生产 拉取 42 条规则", "Pulled 42 rules from Prometheus · prod"))}>{tx("从 Prometheus 拉取", "Pull from Prometheus")}</Btn>
+              {API_MODE === "mock" && <Btn icon="download" onClick={() => toast(tx("已从 Prometheus · 生产 拉取 42 条规则", "Pulled 42 rules from Prometheus · prod"))}>{tx("从 Prometheus 拉取", "Pull from Prometheus")}</Btn>}
               <Spacer />
               <Btn kind="primary" icon="upload" onClick={async () => setImported((await api<{ items: Imported[] }>("POST", "/alert-rules/import", { body: { yaml } })).items)}>{tx("解析", "Parse")}</Btn>
             </Row>

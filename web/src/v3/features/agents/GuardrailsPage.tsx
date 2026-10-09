@@ -177,15 +177,25 @@ export default function GuardrailsPage() {
                     <span style={{ fontSize: "var(--fs-sm)" }}>{d.verdict}</span>
                   </Row>
                   <Row gap={6}>
-                    <Btn h={26} icon="play" to="/agents/runs/run_7f3a">
-                      {tx("查看运行", "View run")}
-                    </Btn>
+                    {(() => {
+                      // The run of the selected event; the sample data points at its sample run.
+                      const run = API_MODE === "mock" ? "run_7f3a" : data?.events.find((e) => e.id === d.id)?.run;
+                      return (
+                        run && (
+                          <Btn h={26} icon="play" to={`/agents/runs/${run}`}>
+                            {tx("查看运行", "View run")}
+                          </Btn>
+                        )
+                      );
+                    })()}
                     <Btn h={26} icon="plus" to="/agents/evals">
                       {tx("加入评测用例（越权与注入）", "Add as eval case (injection)")}
                     </Btn>
-                    <Btn h={26} kind="ghost" onClick={() => toast(tx("已标记为误报，规则会复核", "Marked as false positive for rule review"))}>
-                      {tx("误报", "False positive")}
-                    </Btn>
+                    {API_MODE === "mock" && (
+                      <Btn h={26} kind="ghost" onClick={() => toast(tx("已标记为误报，规则会复核", "Marked as false positive for rule review"))}>
+                        {tx("误报", "False positive")}
+                      </Btn>
+                    )}
                   </Row>
                 </Col>
               </Card>

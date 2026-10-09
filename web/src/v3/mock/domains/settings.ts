@@ -38,7 +38,9 @@ mock("GET", "/me/profile", () => ({
     ],
     tokens: P("2 个 · 最长 90 天", "2 · max 90 days"),
   },
+  unavailable: {},
 }));
+mock("DELETE", "/me/avatar", () => undefined);
 mock("PUT", "/me/profile", ({ body }) => ({ ok: true, ...(body as object) }));
 mock("DELETE", "/me/sessions/:id", () => ({ ok: true }));
 

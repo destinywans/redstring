@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { API_MODE, useGet, useSend } from "../../api/client";
 import type { PromptDetail, PromptItem, PromptTrial } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Field, Icon, Muted, Num, Panel, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, TextLink, Tile, cx } from "../../ui/core";
 import { toast, MenuButton } from "../../ui/overlays";
@@ -87,7 +87,7 @@ export default function PromptsPage() {
                       {tx("历史版本", "History")}
                     </Btn>
                   )}
-                  items={[p.version, "v11", "v10", "v9"].map((v, i) => ({
+                  items={(API_MODE === "mock" ? [p.version, "v11", "v10", "v9"] : [p.version]).map((v, i) => ({
                     label: i === 0 ? tx("{v} · 当前", "{v} · current", { v }) : tx("{v} · 与当前对比", "{v} · compare with current", { v }),
                     icon: "clock" as const,
                     active: i === 0,

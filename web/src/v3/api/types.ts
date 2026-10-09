@@ -8,7 +8,14 @@
 export type Tone = "neutral" | "accent" | "ok" | "warn" | "danger" | "info";
 export type Severity = "P1" | "P2" | "P3" | "P4";
 export type EnvName = "prod" | "staging" | "test";
-export type Tier = "T0" | "T1" | "T2";
+export type Tier = "T0" | "T1" | "T2" | "T3";
+/** Why a value is unknown (V3UnknownReason). */
+export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale";
+/**
+ * V3Unavailable: field path (dot-separated; `[]` marks a field of every array item) -> reason.
+ * A key present means that field is null in the body; `{}` means everything is proven.
+ */
+export type Unavailable = Record<string, UnknownReason>;
 
 export type Page<T> = { items: T[]; total: number; page: number; page_size: number };
 export type Items<T> = { items: T[] };
@@ -149,7 +156,8 @@ export type Conversation = {
   artifacts: Artifact[];
   side: {
     connectors: { name: string; calls: number }[];
-    context: { used: number; budget: number; parts: { label: string; tokens: number; color: string }[] };
+    /** used / budget are null when the model reported no input usage or has no configured input budget. */
+    context: { used: number | null; budget: number | null; parts: { label: string; tokens: number; color: string }[] };
     recalled: { kind: "runbook" | "postmortem"; title: string; score: number }[];
   };
 };
@@ -221,22 +229,32 @@ export type InvestigationTemplate = {
 
 /* ---------------- events: inbox, alerts, incidents ---------------- */
 export type InboxItem = { id: string; kind: "alert" | "approval" | "mention" | "runbook" | "report" | "access" | "agent"; tone: Tone; title: string; sub: string; time: string; unread: boolean; day: "today" | "yesterday"; href: string; alert_id?: string };
+/** Sample data carries time/text/done; the real queue reports id/status/created_at/attempts (local enqueue, not delivery). */
+export type AlertNotification = { channel: string; time?: string; text?: string; done?: boolean; id?: string; status?: "pending" | "sending" | "retrying" | "failed" | "sent"; created_at?: string; attempts?: number };
+/**
+ * GET /alerts/{id} (V3AlertDetail). Without the producers, source, rule, triage, series, labels, runbook and the
+ * grouping group/inhibited/change are null and `unavailable` lists them. Claim needs `revision` as expected_revision.
+ */
 export type AlertDetail = {
   id: string;
   severity: Severity;
   title: string;
   state: "firing" | "pending" | "resolved";
-  source: string;
-  env: EnvName;
+  source: string | null;
+  env: string;
   since: string;
-  rule: string;
-  triage?: { summary: string; confidence: "high" | "medium" | "low"; agent: string; duration_s: number; tools: number; investigation_id: string; proposal_id?: string };
-  series: { labels: string[]; values: number[]; threshold: number; release_at?: number };
-  labels: { k: string; v: string }[];
+  rule: string | null;
+  triage: { summary: string; confidence: "high" | "medium" | "low"; agent: string; duration_s: number; tools: number; investigation_id: string; proposal_id?: string } | null;
+  series: { labels: string[]; values: number[]; threshold: number; release_at?: number } | null;
+  labels: { k: string; v: string }[] | null;
   summary: string;
-  runbook?: { id: string; title: string };
-  notifications: { time: string; channel: string; text: string; done: boolean }[];
-  grouping: { group: string; inhibited: string; incident: { id: string; label: string }; change: { id: string; label: string } };
+  runbook: { id: string; title: string } | null;
+  notifications: AlertNotification[];
+  grouping: { group: string | null; inhibited: string | null; incident: { id: string; label?: string }; change: { id: string; label: string } | null };
+  revision?: string;
+  investigation_id?: string;
+  assignee_id?: string;
+  unavailable?: string[];
 };
 export type AlertInstance = { id: string; value: string; state: "firing" | "pending"; duration: string; series: number[]; pending?: { pct: number; text: string } };
 export type AlertGroup = {
@@ -260,20 +278,31 @@ export type AlertGroupPolicy = {
   timeline: { time: string; channel: string; text: string; done: boolean }[];
   inhibition: string[];
 };
-export type ServicePeek = { id: string; name: string; tier: Tier; team: string; env: EnvName; status: "ok" | "warn" | "danger"; kpis: { k: string; v: string; tone?: Tone }[]; owner: string; oncall: string; change: string };
-export type PersonPeek = { id: string; name: string; role: string; oncall?: string; load: string };
+/** Peeks are partial: null means unknown (never "healthy", "no owner" or "off call"). */
+export type ServicePeek = { id: string; name: string; tier: Tier | null; team: string | null; env: string; status: "ok" | "warn" | "danger" | null; kpis: { k: string; v: string; tone?: Tone }[]; owner: string | null; oncall: string | null; change: string | null };
+export type PersonPeek = { id: string; name: string; role: string | null; oncall: string | null; load: string | null };
+/**
+ * GET /incidents/{id}: sample data is fully filled; the real record has duration, commander, stage and every impact
+ * field null unless a human confirmed them, timeline entries are manual notes with RFC 3339 times, and human-confirmed
+ * cases (`record_kind: "case"`) carry `status_revision` for POST /incidents/{id}/status.
+ */
 export type Incident = {
   id: string;
   severity: Severity;
   title: string;
   status: "active" | "mitigated" | "resolved";
-  duration: string;
-  commander: string;
-  stage: number;
-  timeline: { time: string; actor: { kind: "brand" | "ai" | "person"; name: string }; text: string; sub?: string }[];
-  impact: { peak: string; budget_used: string; budget_left: number; note: string; series: number[] };
+  duration: string | null;
+  commander: string | null;
+  stage: number | null;
+  timeline: { id?: string; time: string; actor: { kind: "brand" | "ai" | "person" | "human" | "machine"; name: string }; text: string; sub?: string }[];
+  impact: { peak: string | null; budget_used: string | null; budget_left: number | null; note: string | null; series: number[] | null };
   roles: { role: string; name: string; ai?: boolean }[];
-  links: { kind: RefKind; label: string; href: string }[];
+  links: { kind: RefKind | string; label: string; href: string }[];
+  record_kind?: "case";
+  status_revision?: number;
+  investigation_id?: string | null;
+  partial?: boolean;
+  unavailable?: string[];
 };
 
 /* ---------------- alert rules, routing, silences ---------------- */
@@ -354,7 +383,7 @@ export type Runbook = {
   usage: { refs: number; resolve_rate: number; weekly: number[]; highlight: number };
   incidents: { id: string; title: string }[];
 };
-export type Postmortem = { id: string; title: string; severity: Severity; date: string; duration: string; cause: string; actions: string; status: "draft" | "published" };
+export type Postmortem = { id: string; title: string; severity: Severity | null; date: string; duration: string | null; cause: string; actions: string; status: "draft" | "published"; incident_id?: string };
 export type PostmortemSummary = {
   kpis: Kpi[];
   items: Postmortem[];
@@ -405,7 +434,7 @@ export type RetrievalHit = { brand?: string; title: string; snippet: string; key
 
 /* ---------------- resources & observability ---------------- */
 export type Health = "ok" | "warn" | "danger";
-/** Catalog row: values without current evidence are null and `unknown[field]` says why (PA-05). */
+/** Catalog row (V3ServiceSummary): values without current evidence are null and `unavailable[path]` says why (PA-05). */
 export type ServiceSummary = {
   id: string;
   name: string;
@@ -417,26 +446,37 @@ export type ServiceSummary = {
   slo: { target: string | null; budget_left: number | null };
   release: { brand: string; version: string; when: string } | null;
   alerts: number | null;
-  connectors: string[];
-  unknown?: Partial<Record<"tier" | "team" | "oncall" | "status" | "slo" | "alerts" | "release", string>>;
+  connectors: string[] | null;
+  /** Paths: tier, team, oncall, status, slo.target, slo.budget_left, release, alerts, connectors. */
+  unavailable: Unavailable;
 };
-export type ServiceCatalog = { kpis: Kpi[]; items: ServiceSummary[]; facets: { key: string; title: string; items: { label: string; count: number; on: boolean }[] }[] };
+/** Counts only services whose input is known; `unknown` services were left out. `value` is null (+ reason) only when all are unknown. */
+export type ServiceCatalogKpi = { id: string; label: string; value: string | null; tone?: Tone; series: number[]; unknown: number; reason?: UnknownReason; sub?: string };
+export type ServiceCatalog = { kpis: ServiceCatalogKpi[]; items: ServiceSummary[]; facets: { key: string; title: string; items: { label: string; count: number; on: boolean }[] }[] };
+export type ServiceDependency = { brand?: string; name: string; status: Health | null; meta: string; unavailable: Unavailable };
+export type ServiceBurn = { window: string; value: string; tone: "ok" | "warn" | "danger"; pct: number };
 export type ServiceDetail = {
   id: string;
   name: string;
-  tier: Tier;
-  team: string;
-  env: EnvName;
-  status: Health;
+  tier: Tier | null;
+  team: string | null;
+  /** Any environment key of the instance, e.g. prod, staging, test or dev. */
+  env: string;
+  status: Health | null;
   desc: string;
   deeplinks: { brand: string; name: string; url: string }[];
-  ai: { text: string; investigation: string; proposal?: string; meta: string };
-  signals: Kpi[];
-  slo: { availability: string; target: string; budget_left: number; burn: { window: string; value: string; tone: Tone; pct: number }[]; note: string };
-  changes: { brand: string; title: string; meta: string; tag?: string }[];
-  deps: { upstream: { brand?: string; name: string; status: Health; meta: string }[]; downstream: { brand?: string; name: string; status: Health; meta: string }[] };
-  tabs: Record<string, number>;
+  ai: { text: string; investigation: string; proposal?: string; meta: string } | null;
+  signals: Kpi[] | null;
+  slo: { availability: string | null; target: string | null; budget_left: number | null; burn: ServiceBurn[] | null; note: string };
+  changes: { brand: string; title: string; meta: string; tag?: string }[] | null;
+  deps: { upstream: ServiceDependency[]; downstream: ServiceDependency[] } | null;
+  /** The contract counts changes, deps and incidents; the other keys only appear in sample data. */
+  tabs: { changes: number | null; deps: number | null; incidents: number | null; resilience?: number; runbooks?: number };
+  /** Paths: tier, team, status, ai, signals, slo.availability, slo.target, slo.budget_left, slo.burn, changes, deps, tabs.deps, tabs.incidents. */
+  unavailable: Unavailable;
 };
+/** GET/PUT /services/{id}/slo: null with not_configured before the first save. */
+export type ServiceSloSettings = { target: "99.5" | "99.9" | "99.95" | "99.99" | null; window: "7d" | "30d" | null; revision: number; unavailable: Unavailable };
 export type Resilience = {
   synced: string;
   rollout: {
@@ -472,21 +512,31 @@ export type Topology = {
   detail: null | { id: string; name: string; meta: string; brand: string; conns: { used: number; max: number }; from_service: { used: number; max: number; service: string }; wait: number[]; health: { k: string; v: string }[]; owner: string; dependents: string; source: string };
   unavailable_fields?: string[];
 };
+/**
+ * GET /metrics/dashboard. Markers are null when no platform record falls in the window (not_generated); every metric
+ * block is null without a reviewed Prometheus source and query (not_configured) or when the panels don't add up (unavailable).
+ */
 export type MetricsDashboard = {
-  window: { labels: string[]; ticks: string[]; release_at: number; rollback_at: number; incident: [number, number]; incident_label: string };
-  kpis: Kpi[];
-  requests: { ok: number[]; client: number[]; server: number[] };
-  slo: { remaining: number; availability: string; delta: string; burn: { window: string; value: string; tone: Tone; pct: number }[]; note: string };
-  latency: { p50: number[]; p95: number[]; p99: number[]; heat: number[][]; buckets: string[] };
-  endpoints: { label: string; value: number; tone?: Tone }[];
-  instances: { label: string; values: number[]; tone?: Tone }[];
+  window: { labels: string[]; ticks: string[]; release_at: number | null; rollback_at: number | null; incident: [number, number] | null; incident_label: string | null };
+  kpis: Kpi[] | null;
+  requests: { ok: number[]; client: number[]; server: number[] } | null;
+  slo: { remaining: number; availability: string; delta: string; burn: { window: string; value: string; tone: Tone; pct: number }[]; note: string } | null;
+  latency: { p50: number[]; p95: number[]; p99: number[]; heat: number[][]; buckets: string[] } | null;
+  endpoints: { label: string; value: number; tone?: Tone }[] | null;
+  instances: { label: string; values: number[]; tone?: Tone }[] | null;
+  unavailable: Unavailable;
 };
 export type TraceSummary = { id: string; op: string; duration_ms: number; spans: number; error: boolean; time: string };
 export type Span = { id: string; depth: number; service: string; op: string; start: number; end: number; status: "ok" | "error"; label?: string; attrs?: { k: string; v: string }[]; error?: string };
 export type TraceSearch = { points: { t: number; ms: number; error: boolean; id?: string }[]; release_at: number; items: TraceSummary[] };
 export type TraceDetail = { id: string; op: string; duration_ms: number; spans: Span[]; time: string };
 export type LogLine = { time: string; level: "ERROR" | "WARN" | "INFO"; service: string; message: string; trace?: string };
-export type LogSearch = { total: string; errors: string; histogram: number[][]; items: LogLine[]; patterns: { template: string; level: LogLine["level"]; count: string; trend: number[]; new?: boolean }[] };
+export type LogPattern = { template: string; level: LogLine["level"]; count: string; trend: number[]; new?: boolean };
+/**
+ * GET /logs: proven lines; counts, histogram and patterns are null with reasons when unproven, and `items` is
+ * null too when no log source is bound at all (every key not_configured).
+ */
+export type LogSearch = { total: string | null; errors: string | null; histogram: number[][] | null; items: LogLine[] | null; patterns: LogPattern[] | null; unavailable: Unavailable };
 export type Pipeline = { id: string; brand: string; ref: string; service: string; title: string; trigger: string; status: "success" | "failed" | "running" | "canceled"; stages: ("ok" | "danger" | "accent" | "neutral")[]; duration: string; time: string };
 export type ChangesView = {
   kpis: Kpi[];
@@ -576,10 +626,14 @@ export type PushView = {
   stack: { enabled: boolean; components: { brand: string; name: string; role: string }[]; helm: string; compose: string; estimate: string };
 };
 
-export type MappingCell = { state: "ok" | "suggested" | "missing"; value?: string; brand?: string };
+/** A reviewed GitLab code candidate staged by POST /service-mappings/discover; accepting sends it back exactly. */
+export type MappingCandidate = { id: string; version: string; service_id: string; service: string; environment_id: string; system_id: "code"; connector_id: string; target_id: string; external_id: string; binding_revision: number; expires_at: string };
+export type MappingCell = { state: "ok" | "suggested" | "missing"; value?: string; brand?: string; candidate?: MappingCandidate };
+/** Per-row save snapshot for PUT /service-mappings (see docs/examples/v3-service-mapping-save.md); absent rows aren't editable. */
+export type MappingSave = { service_id: string; service_environment_id: string; binding_revision: number; bindings: { system_id: string; kind: string; connector_id: string; resource: string }[]; editable: boolean; unavailable_reason?: string };
 export type ServiceMapping = {
   systems: { id: string; brand: string; label: string }[];
-  rows: { service: string; cells: Record<string, MappingCell> }[];
+  rows: { service: string; cells: Record<string, MappingCell>; save?: MappingSave }[];
   suggestions: number;
 };
 
@@ -666,16 +720,23 @@ export type EvalCase = {
 export type RunRow = { id: string; agent: string; version: string; trigger: string; scope: string; status: "success" | "failed" | "blocked"; steps: string | null; tokens: string | null; duration: string | null; feedback?: { icon: string; tone: Tone; text: string } };
 /** trend/durations/counts are null until a live run producer exists (see `missing`). */
 export type RunsView = { kpis: Kpi[]; trend: { ok: number[]; failed: number[]; blocked: number[] } | null; durations: number[] | null; items: RunRow[]; counts: Record<"all" | "failed" | "blocked" | "negative", number> | null; missing?: string[] };
+/**
+ * GET /agent-runs/{id}. `start`, `dur` and `total` are milliseconds. Steps are null without recorded spans, `total`
+ * only exists for finished runs, and context / budget / isolated / memory have no producer yet (null, see `missing`).
+ */
 export type RunDetail = {
   id: string;
   chain: { label: string; value: string; icon: string; to?: string }[];
   stats: { k: string; v: string }[];
-  steps: { id: string; icon: string; name: string; start: number; dur: number; meta: string; kind: "model" | "tool"; call?: string; result?: string[]; connector?: string }[];
-  total: number;
-  context: { name: string; tokens: string; pct: number; color: string }[];
-  budget: string;
-  isolated: string[];
-  memory: { icon: string; name: string; desc: string; hits: { text: string; score?: string }[] }[];
+  steps: { id: string; icon: string; name: string; start: number; dur: number | null; meta: string; kind: "model" | "tool" | string; call?: string; result?: string[]; connector?: string }[] | null;
+  total: number | null;
+  context: { name: string; tokens: string; pct: number; color: string }[] | null;
+  budget: string | null;
+  isolated: string[] | null;
+  memory: { icon: string; name: string; desc: string; hits: { text: string; score?: string }[] }[] | null;
+  status?: "running" | "success" | "failed" | "blocked";
+  partial?: boolean;
+  missing?: string[];
 };
 export type GuardPolicy = { id: string; icon: string; name: string; desc: string; stat: string; enabled: boolean; forced?: boolean };
 export type GuardEvent = { id: string; time: string; agent: string; run: string; rule: string; action: "blocked" | "masked"; detail: string };
@@ -689,27 +750,30 @@ export type GuardrailsView = {
 
 /* ---------------- settings ---------------- */
 export type NotifyChannel = "feishu" | "email" | "sms" | "phone";
+/**
+ * GET /me/profile (V3ProfileView). Identity-evidence fields are null without a trusted identity source;
+ * `unavailable` names them (e.g. `contacts[].verified`, `contacts.feishu`, `security.factors`, `security.sessions[].device`).
+ * PUT sends the GET body back; only name, display_name, title, timezone and notifications may change.
+ */
 export type ProfileView = {
   name: string;
   display_name: string;
   department: string;
   title: string;
   timezone: string;
-  /** verified is null when no identity source can confirm it. */
   contacts: { kind: "email" | "phone" | "feishu"; label: string; value: string; verified: boolean | null; note?: string }[];
   notifications: { event: string; label: string; channels: Record<NotifyChannel, boolean> }[];
   security: {
     password_changed: string;
-    mfa_enabled: boolean;
+    mfa_enabled: boolean | null;
     org_rule: string | null;
-    factors: { kind: "passkey" | "totp" | "recovery"; name: string; sub: string }[];
+    factors: { kind: "passkey" | "totp" | "recovery"; name: string; sub: string }[] | null;
     sessions: { id: string; device: string | null; sub: string; current?: boolean }[];
     tokens: string;
   };
-  /** True without an identity source; unavailable_fields names what stays unknown. */
-  partial?: boolean;
-  unavailable_fields?: string[];
+  unavailable: Unavailable;
 };
+export type NotificationSettings = { quiet: { enabled: boolean; from: string; to: string }; digest: "off" | "daily" | "weekly"; subscriptions: { id: string; label: string; sub: string; on: boolean }[] };
 export type OrgNode = { id: string; name: string; count: number; depth: number; kind: "org" | "team" | "group" };
 export type Member = {
   id: string;
@@ -744,7 +808,12 @@ export type SecurityView = {
   vault: { name: string; sub: string; connected: boolean };
   token_ttl: string;
   password_policy: string;
+  /** `{}` on a proven view; PUT may echo it only when empty. */
+  unavailable?: Unavailable;
 };
+/** GET /security without a configured authority: every field null (not_configured) and no ETag, so it can't be saved. */
+export type SecurityUnknownView = { [K in Exclude<keyof SecurityView, "unavailable">]: null } & { unavailable: Unavailable };
+export type SecurityRead = SecurityView | SecurityUnknownView;
 export type AuditEntry = { id: string; time: string; actor: { kind: "user" | "agent" | "system"; name: string }; action: string; target: string; result: "ok" | "blocked" | "failed"; source: string };
 export type AuditView = {
   items: AuditEntry[];
@@ -854,16 +923,23 @@ export type CanvasDoc = {
 /* ---------------- v4: traces (application + agent) ---------------- */
 export type TraceFacet = { key: string; label: string; items: { value: string; count: number; color?: string; tone?: Tone }[] };
 export type TraceRow = { id: string; time: string; op: string; services: string[]; duration_ms: number; spans: number; errors: number; tokens?: string; cost?: string; agent?: string; model?: string; href: string };
+/**
+ * GET /traces. A complete list has every field; the observed list (`partial: true`) only proves the closed traces it
+ * found, so total, facets, histogram, scatter and view counts are null with reasons, and items is null too without a
+ * trace source binding.
+ */
 export type TraceList = {
   scope: "app" | "agent";
-  total: number;
+  total: number | null;
   took: string;
   colors: Record<string, string>;
-  facets: TraceFacet[];
-  views: { id: string; label: string; count?: number; query: string }[];
-  histogram: { counts: [number, number][]; axis: string[] };
-  scatter: { x: number; y: number; error: boolean; id?: string }[];
-  items: TraceRow[];
+  facets: TraceFacet[] | null;
+  views: { id: string; label: string; count?: number | null; query: string }[];
+  histogram: { counts: [number, number][]; axis: string[] } | null;
+  scatter: { x: number; y: number; error: boolean; id?: string }[] | null;
+  items: TraceRow[] | null;
+  partial?: boolean;
+  unavailable: Unavailable;
 };
 export type TraceSpan = {
   id: string;
@@ -899,8 +975,9 @@ export type AgentSpan = {
   kind: AgentSpanKind;
   name: string;
   meta: string;
+  /** Milliseconds from the run start; dur is null when the span recorded none. */
   start: number;
-  dur: number;
+  dur: number | null;
   llm?: {
     model: string;
     effort: string;
@@ -918,16 +995,19 @@ export type AgentSpan = {
   tool?: { brand: string; connector: string; budget: string; args: unknown; result: unknown; evidence: string };
   guard?: { target: string; rule: string; result: string };
 };
+/** GET /agent-runs/{id}/trace. Times are milliseconds; scores, session and turns have no producer yet and spans are null without records. */
 export type AgentTrace = {
   id: string;
   agent: string;
-  status: "success" | "failed" | "blocked";
+  status: "running" | "success" | "failed" | "blocked";
   stats: { k: string; v: string }[];
-  scores: { label: string; tone: Tone; icon?: string }[];
-  session: string;
-  turns: { n: number; brand: string; model: string; meta: string; current?: boolean; switched?: boolean; run_id?: string }[];
-  total: number;
-  spans: AgentSpan[];
+  scores: { label: string; tone: Tone; icon?: string }[] | null;
+  session: string | null;
+  turns: { n: number; brand: string; model: string; meta: string; current?: boolean; switched?: boolean; run_id?: string }[] | null;
+  total: number | null;
+  spans: AgentSpan[] | null;
+  partial?: boolean;
+  missing?: string[];
 };
 
 /* ---------------- v4: instance & environments ---------------- */

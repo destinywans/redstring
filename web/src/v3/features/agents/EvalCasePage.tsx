@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { API_MODE, useGet, useSend } from "../../api/client";
 import type { EvalCase, Severity } from "../../api/types";
 import { Badge, Brand, Btn, Card, Check, Col, Divider, Field, Icon, LabelChip, Muted, Num, Pills, Row, Section, Sev, Skeleton, Spacer, Strong, Textarea } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -117,7 +117,8 @@ export default function EvalCasePage() {
               </button>
               {tools && (
                 <ol className="tool-steps anim-fade">
-                  {["list_changes(service=checkout-api, window=2h)", "query_metrics(q=upstream_429_ratio)", "query_metrics(q=payment_p99)", "search_logs(q=\"rate limited\")"].map((s) => (
+                  {/* Sample calls with arguments in mock mode; the real case only names its tools. */}
+                  {(API_MODE === "mock" ? ["list_changes(service=checkout-api, window=2h)", "query_metrics(q=upstream_429_ratio)", "query_metrics(q=payment_p99)", "search_logs(q=\"rate limited\")"] : c.output.tools).map((s) => (
                     <li key={s} className="mono">{s}</li>
                   ))}
                 </ol>

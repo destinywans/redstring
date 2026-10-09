@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
+import { API_MODE, api, useGet } from "../../api/client";
 import type { SyncItem } from "../../api/types";
 import { Badge, Btn, Card, Col, Muted, Row, Skeleton, Spacer, Strong } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -53,7 +53,7 @@ export default function ConfigSyncPage() {
               </Col>
               {statusBadge(it.status)}
               <Spacer />
-              <Btn h={26} onClick={() => toast(tx("在 GitLab 中打开 {m} 的差异", "Opening the {m} diff in GitLab", { m: it.mr }))}>{tx("查看差异", "View diff")}</Btn>
+              {API_MODE === "mock" && <Btn h={26} onClick={() => toast(tx("在 GitLab 中打开 {m} 的差异", "Opening the {m} diff in GitLab", { m: it.mr }))}>{tx("查看差异", "View diff")}</Btn>}
               {prod && it.status === "pending" && (
                 <Btn h={26} kind="primary" loading={busy === it.id} onClick={() => importIt(it)}>
                   {tx("导入", "Import")}

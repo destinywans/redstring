@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, useGet } from "../../api/client";
+
+/** Pin, baseline compare and the Jaeger link only have sample targets so far. */
+const demo = API_MODE === "mock";
 import type { TraceSpan, TraceView } from "../../api/types";
 import { Badge, Brand, Btn, Code, Icon, IconBtn, Legend, Mono, Muted, Num, Row, SearchBox, Segmented, Skeleton, Spacer, Strong, Tabs, Tile, Toggle, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -97,10 +100,12 @@ export default function TraceDetailPage() {
                     ) : (
                       <Muted>{tx("没有关联对象", "No links")}</Muted>
                     ))}
-                  <Row gap={6}>
-                    <Btn h={26} icon="pin" onClick={() => toast(tx("已钉到画布 INV-231", "Pinned to canvas INV-231"))}>{tx("钉到画布", "Pin to canvas")}</Btn>
-                    <Btn h={26} kind="soft" icon="branch" to="/canvas/INV-231">{tx("带入调查", "Bring into investigation")}</Btn>
-                  </Row>
+                  {demo && (
+                    <Row gap={6}>
+                      <Btn h={26} icon="pin" onClick={() => toast(tx("已钉到画布 INV-231", "Pinned to canvas INV-231"))}>{tx("钉到画布", "Pin to canvas")}</Btn>
+                      <Btn h={26} kind="soft" icon="branch" to="/canvas/INV-231">{tx("带入调查", "Bring into investigation")}</Btn>
+                    </Row>
+                  )}
                 </div>
     </DetailPanel>
   ) : null;
@@ -111,10 +116,10 @@ export default function TraceDetailPage() {
       actions={
         <>
           <ScopeSwitch scope="app" onChange={(s) => s === "agent" && nav("/traces?scope=agent")} />
-          <Btn icon="layers" onClick={() => toast(tx("已与同接口 v2.8.0 基线链路对比：inventory.reserve 调用 1 → 4 次，+0.9 s", "Compared with the v2.8.0 baseline: inventory.reserve 1 → 4 calls, +0.9 s"))}>{tx("与基线对比", "Compare with baseline")}</Btn>
+          {demo && <Btn icon="layers" onClick={() => toast(tx("已与同接口 v2.8.0 基线链路对比：inventory.reserve 调用 1 → 4 次，+0.9 s", "Compared with the v2.8.0 baseline: inventory.reserve 1 → 4 calls, +0.9 s"))}>{tx("与基线对比", "Compare with baseline")}</Btn>}
           <Btn kind="ghost" icon="file" to="/logs">{tx("相关日志", "Related logs")}</Btn>
-          <Btn kind="ghost" icon="pin" onClick={() => toast(tx("已钉到画布 INV-231", "Pinned to canvas INV-231"))}>{tx("钉到画布", "Pin to canvas")}</Btn>
-          <Btn kind="ghost" icon="external" onClick={() => openExternal("Jaeger", `https://jaeger.example.internal/trace/${id}`)}>{tx("在 Jaeger 中打开", "Open in Jaeger")}</Btn>
+          {demo && <Btn kind="ghost" icon="pin" onClick={() => toast(tx("已钉到画布 INV-231", "Pinned to canvas INV-231"))}>{tx("钉到画布", "Pin to canvas")}</Btn>}
+          {demo && <Btn kind="ghost" icon="external" onClick={() => openExternal("Jaeger", `https://jaeger.example.internal/trace/${id}`)}>{tx("在 Jaeger 中打开", "Open in Jaeger")}</Btn>}
         </>
       }
     >

@@ -9,6 +9,11 @@ import { Heatmap, Lines, VBars, C, CS } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./parts.css";
 import { openExternal } from "../../ui/demo";
+import { API_MODE } from "../../api/client";
+
+/** Pin / add-to-report / download / edit buttons only have sample behaviour; real mode has no writer for them yet. */
+const demo = API_MODE === "mock";
+const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`);
 
 export type PartActions = {
   openArtifact?: (a: Partial<Artifact> & { kind: Artifact["kind"] }) => void;
@@ -21,8 +26,8 @@ function PartActionsBar({ onOpen, extra }: { onOpen?: () => void; extra?: ReactN
   return (
     <Row gap={2}>
       {onOpen && <IconBtn icon="panel" label={tx("在右侧产物面板打开", "Open in artifact panel")} size={24} onClick={onOpen} />}
-      <IconBtn icon="pin" label={tx("钉到 Canvas", "Pin to canvas")} size={24} onClick={() => toast(tx("已钉到 Canvas：成为证据节点", "Pinned to the canvas as an evidence node"))} />
-      <IconBtn icon="file" label={tx("加入报告", "Add to report")} size={24} onClick={() => toast(tx("已加入故障报告草稿", "Added to the report draft"))} />
+      {demo && <IconBtn icon="pin" label={tx("钉到 Canvas", "Pin to canvas")} size={24} onClick={() => toast(tx("已钉到 Canvas：成为证据节点", "Pinned to the canvas as an evidence node"))} />}
+      {demo && <IconBtn icon="file" label={tx("加入报告", "Add to report")} size={24} onClick={() => toast(tx("已加入故障报告草稿", "Added to the report draft"))} />}
       {extra}
     </Row>
   );
@@ -43,7 +48,8 @@ function ToolCalls({ p }: { p: Extract<Part, { type: "tool_calls" }> }) {
           <Brand key={k} name={k} size={18} />
         ))}
         <Spacer />
-        {!running && <span className="muted tnum">{tx("{t} tokens · {d} 秒", "{t} tokens · {d}s", { t: (p.tokens / 1000).toFixed(1) + "k", d: p.duration_s })}</span>}
+        {/* duration_s is seconds and call durations are milliseconds; short tool steps read as ms, not "0.0 s". */}
+        {!running && <span className="muted tnum">{tx("{t} tokens · {d}", "{t} tokens · {d}", { t: p.tokens >= 1000 ? (p.tokens / 1000).toFixed(1) + "k" : String(p.tokens), d: fmtMs(p.duration_s * 1000) })}</span>}
       </button>
       <div className={cx("body", open && "open")}>
         <ul>
@@ -53,8 +59,8 @@ function ToolCalls({ p }: { p: Extract<Part, { type: "tool_calls" }> }) {
               <b style={{ fontWeight: 500 }}>{c.tool}</b>
               <Mono size={11.5}>{c.args}</Mono>
               <Spacer />
-              <Muted size={11}>{c.status === "running" ? tx("进行中", "running") : `${(c.duration_ms / 1000).toFixed(1)} s`}</Muted>
-              {c.status === "running" ? <span className="v3-spinner spin" style={{ color: "var(--accent)" }} /> : <Icon name="check" size={13} color="var(--ok)" />}
+              <Muted size={11}>{c.status === "running" ? tx("进行中", "running") : fmtMs(c.duration_ms)}</Muted>
+              {c.status === "running" ? <span className="v3-spinner spin" style={{ color: "var(--accent)" }} /> : c.status === "error" ? <Icon name="x" size={13} color="var(--danger)" /> : <Icon name="check" size={13} color="var(--ok)" />}
             </li>
           ))}
         </ul>
@@ -189,7 +195,7 @@ function ImagePart({ p }: { p: Extract<Part, { type: "image" }> }) {
         <span style={{ fontSize: "var(--fs-sub)" }}>{p.title}.png</span>
         <Muted size={11.5}>{p.caption}</Muted>
         <Spacer />
-        <IconBtn icon="download" label={tx("下载", "Download")} size={24} onClick={() => toast(tx("已开始下载", "Download started"))} />
+        {demo && <IconBtn icon="download" label={tx("下载", "Download")} size={24} onClick={() => toast(tx("已开始下载", "Download started"))} />}
       </div>
       <Dialog open={zoom} onClose={() => setZoom(false)} title={p.title} width={960}>
         <div style={{ background: "var(--sunken)", borderRadius: 8, padding: 16 }}>
@@ -220,7 +226,7 @@ function FilesPart({ p }: { p: Extract<Part, { type: "files" }> }) {
           </span>
         </button>
       ))}
-      <Dialog open={!!open} onClose={() => setOpen(null)} title={open?.name} width={720} footer={<><Btn icon="download" onClick={() => toast(tx("已开始下载", "Download started"))}>{tx("下载", "Download")}</Btn><Btn kind="primary" icon="pin" onClick={() => { setOpen(null); toast(tx("已钉到 Canvas", "Pinned to canvas")); }}>{tx("钉到 Canvas", "Pin to canvas")}</Btn></>}>
+      <Dialog open={!!open} onClose={() => setOpen(null)} title={open?.name} width={720} footer={demo ? <><Btn icon="download" onClick={() => toast(tx("已开始下载", "Download started"))}>{tx("下载", "Download")}</Btn><Btn kind="primary" icon="pin" onClick={() => { setOpen(null); toast(tx("已钉到 Canvas", "Pinned to canvas")); }}>{tx("钉到 Canvas", "Pin to canvas")}</Btn></> : undefined}>
         <Muted size={11.5}>{tx("预览在沙箱中渲染，文件内容视为数据。", "Previews render in a sandbox; file contents are treated as data.")}</Muted>
         <Code style={{ marginTop: 8, maxHeight: 360 }}>{open?.preview}</Code>
       </Dialog>
@@ -300,9 +306,11 @@ function ProposalPart({ p }: { p: Extract<Part, { type: "proposal" }> }) {
             {tx("复核并批准", "Review & approve")}
           </Btn>
           <Btn to="/resources">{tx("查看影响范围", "Blast radius")}</Btn>
-          <Btn kind="ghost" onClick={() => toast(tx("已在对话中打开编辑", "Opened for editing"))}>
-            {tx("修改提案", "Edit proposal")}
-          </Btn>
+          {demo && (
+            <Btn kind="ghost" onClick={() => toast(tx("已在对话中打开编辑", "Opened for editing"))}>
+              {tx("修改提案", "Edit proposal")}
+            </Btn>
+          )}
         </Row>
       </div>
     </div>
@@ -344,7 +352,7 @@ function FormPart({ p }: { p: Extract<Part, { type: "form" }> }) {
         <Check key={f.id} label={f.label} checked={!!vals[f.id]} onChange={(c) => setVals((v) => ({ ...v, [f.id]: c }))} />
       ))}
       <Row gap={6}>
-        <Btn kind="primary" iconRight="right" disabled={done} onClick={() => { setDone(true); toast(tx("已提交，AI 继续分析", "Submitted — the AI continues")); }}>
+        <Btn kind="primary" iconRight="right" disabled={done || !demo} onClick={() => { setDone(true); toast(tx("已提交，AI 继续分析", "Submitted — the AI continues")); }}>
           {tx("继续分析", "Continue")}
         </Btn>
         <Btn kind="ghost" disabled={done} onClick={() => setDone(true)}>

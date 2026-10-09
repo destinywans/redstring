@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, useGet } from "../../api/client";
-import { Unavailable, errorReason } from "../../ui/unknown";
+import { PartialBanner, Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
 import type { TraceList } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Dot, Icon, Legend, Muted, Num, Panel, Row, Skeleton, Spacer, cx, type Tone } from "../../ui/core";
 import { StackedBars } from "../../charts";
@@ -38,9 +38,16 @@ export default function TracesPage() {
   const [q, setQ] = useState("");
   // Real mode sends the submitted query; the demo filters by view only.
   const [applied, setApplied] = useState("");
-  const { data, isLoading, error, refetch } = useGet<TraceList>("/traces", { scope, view, service: params.get("service") ?? undefined, q: API_MODE === "mock" ? undefined : applied || undefined });
+  const [range, setRange] = useState(scope === "agent" ? "24h" : "1h");
+  const { data, isLoading, error, refetch } = useGet<TraceList>("/traces", { scope, view, service: params.get("service") ?? undefined, q: API_MODE === "mock" ? undefined : applied || undefined, range: API_MODE === "mock" ? undefined : range });
+  const u = data?.unavailable ?? {};
+  // items is null only when no trace source is bound at all.
+  const noSource = !!data && data.items === null;
   const [saved, setSaved] = useState<{ name: string; query: string }[]>([]);
-  useEffect(() => setView(scope === "agent" ? "all" : "errors"), [scope]);
+  useEffect(() => {
+    setView(scope === "agent" ? "all" : "errors");
+    setRange(scope === "agent" ? "24h" : "1h");
+  }, [scope]);
   useEffect(() => {
     const v = data?.views.find((x) => x.id === view);
     if (v) setQ(v.query);
@@ -60,14 +67,23 @@ export default function TracesPage() {
           ) : (
             API_MODE === "mock" && <ChipSelect icon="database" label="" showLabel={false} defaultValue="tempo" options={[{ value: "tempo", label: tx("Tempo · 生产", "Tempo · prod") }, { value: "jaeger", label: "Jaeger · prod" }]} />
           )}
-          <RangeChip key={scope} defaultValue={scope === "agent" ? "24h" : "1h"} />
+          <RangeChip key={scope} value={range} onChange={setRange} />
         </>
       }
     >
       <div className="tr-layout">
         <aside className="tr-facets" aria-label={tx("筛选", "Filters")}>
           {isLoading && !error && <Skeleton h={300} />}
-          {data?.facets.map((f) => (
+          {data && data.facets === null && (
+            <section>
+              <b>{tx("筛选", "Filters")}</b>
+              <Row gap={6}>
+                <Muted size={11.5}>{tx("分面统计", "Facet counts")}</Muted>
+                <UnknownValue reason={u.facets} source="Tempo" />
+              </Row>
+            </section>
+          )}
+          {data?.facets?.map((f) => (
             <section key={f.key}>
               <b>{f.label}</b>
               {f.items.map((it) => {
@@ -119,13 +135,18 @@ export default function TracesPage() {
               <Unavailable reason={errorReason(error)} source="Tempo" desc={error instanceof ApiError && error.status === 422 ? error.message : undefined} />
             </Card>
           )}
+          {data?.partial && !noSource && (
+            <PartialBanner fields={[]}>
+              {tx("这里只列出这次有界搜索找到并确认已结束的链路，不是完整结果：总数、分面、数量分布和耗时分布暂缺。", "Only the finished traces this bounded search found are listed — not a complete result: totals, facets and the count and duration charts are missing.")}
+            </PartialBanner>
+          )}
           <Row gap={6} wrap>
             <Muted size={11.5}>{tx("视图", "Views")}</Muted>
             {data?.views.map((v) => (
               <Chip key={v.id} active={view === v.id} onClick={() => setView(v.id)}>
-                {v.count !== undefined && <Dot tone="danger" size={6} />}
+                {typeof v.count === "number" && <Dot tone="danger" size={6} />}
                 {v.label}
-                {v.count !== undefined && ` ${v.count}`}
+                {typeof v.count === "number" && ` ${v.count}`}
               </Chip>
             ))}
             {saved.map((v) => (
@@ -149,11 +170,18 @@ export default function TracesPage() {
             </Chip>
             )}
             <Spacer />
-            {data && <Muted size={11.5}>{tx("找到 {n} 条 · {t}", "{n} found · {t}", { n: data.total.toLocaleString(), t: data.took })}</Muted>}
+            {data && data.total !== null && <Muted size={11.5}>{tx("找到 {n} 条 · {t}", "{n} found · {t}", { n: data.total.toLocaleString(), t: data.took })}</Muted>}
+            {data && data.total === null && data.items && (
+              <Muted size={11.5}>
+                {tx("列出 {n} 条 · 总数", "{n} listed · total", { n: data.items.length })} <UnknownValue reason={u.total} source="Tempo" /> · {data.took}
+              </Muted>
+            )}
           </Row>
           <div className="tr-charts">
             <Panel title={tx("数量 · 按状态", "Count · by status")} right={<Legend items={[[tx("正常", "OK"), "var(--c1s)"], [tx("错误", "Error"), "var(--danger)"]]} />} bodyStyle={{ padding: "10px 14px" }}>
-              {data ? (
+              {data && !data.histogram ? (
+                <Unavailable reason={u.histogram} source="Tempo" title={tx("数量分布", "Count by status")} icon="activity" />
+              ) : data?.histogram ? (
                 <div className="v3-col" style={{ gap: 6 }}>
                   <StackedBars data={data.histogram.counts} colors={["var(--c1s)", "var(--danger)"]} height={96} names={[tx("正常", "OK"), tx("错误", "Error")]} />
                   <Row gap={0} style={{ justifyContent: "space-between" }}>
@@ -169,7 +197,9 @@ export default function TracesPage() {
               )}
             </Panel>
             <Panel title={tx("耗时分布", "Duration")} right={<Legend items={[[tx("正常", "OK"), "var(--c1)"], [tx("错误", "Error"), "var(--danger)"]]} />} bodyStyle={{ padding: "10px 14px" }}>
-              {data ? (
+              {data && !data.scatter ? (
+                <Unavailable reason={u.scatter} source="Tempo" title={tx("耗时分布", "Duration")} icon="activity" />
+              ) : data?.scatter ? (
                 <div className="v3-col" style={{ gap: 6 }}>
                   <svg width="100%" height="105" viewBox="0 0 440 110" preserveAspectRatio="none" role="img" aria-label={tx("耗时散点图", "Duration scatter")}>
                     <line x1={0} x2={440} y1={36} y2={36} className="ch-grid" />
@@ -180,7 +210,7 @@ export default function TracesPage() {
                     ))}
                   </svg>
                   <Row gap={6}>
-                    <Muted size={11.5}>{scope === "app" ? tx("框选一段查看这些链路", "Brush a region to filter these traces") : tx("点一个点打开运行", "Click a point to open the run")}</Muted>
+                    <Muted size={11.5}>{scope === "app" ? (API_MODE === "mock" ? tx("框选一段查看这些链路", "Brush a region to filter these traces") : tx("点一个点打开链路", "Click a point to open the trace")) : tx("点一个点打开运行", "Click a point to open the run")}</Muted>
                     <Spacer />
                     <Muted size={11.5}>{tx("纵轴：耗时", "Y: duration")}</Muted>
                   </Row>
@@ -192,6 +222,11 @@ export default function TracesPage() {
               )}
             </Panel>
           </div>
+          {noSource ? (
+            <Card>
+              <Unavailable reason={u.items} source={tx("链路来源", "a trace source")} icon="branch" />
+            </Card>
+          ) : (
           <Card style={{ overflow: "hidden" }}>
             <table className="v3-table tr-table">
               <thead>
@@ -207,7 +242,7 @@ export default function TracesPage() {
                 </tr>
               </thead>
               <tbody>
-                {data?.items.map((r) => (
+                {data?.items?.map((r) => (
                   <tr key={r.id} className="clickable" onClick={() => nav(r.href)}>
                     <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{r.time}</td>
                     <td>
@@ -240,9 +275,17 @@ export default function TracesPage() {
                     <td>{r.errors ? <Badge tone={"danger" as Tone}>{r.errors}</Badge> : <Muted>—</Muted>}</td>
                   </tr>
                 ))}
+                {data?.items && !data.items.length && (
+                  <tr>
+                    <td colSpan={scope === "agent" ? 8 : 6} className="muted" style={{ textAlign: "center", padding: 24 }}>
+                      {tx("这个时间范围内没有找到链路", "No traces found in this range")}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </Card>
+          )}
         </div>
       </div>
     </Page>

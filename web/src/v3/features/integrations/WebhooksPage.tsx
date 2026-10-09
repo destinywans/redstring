@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { API_MODE, useGet, useSend } from "../../api/client";
 import type { WebhookView } from "../../api/types";
 import { Badge, Brand, Btn, Card, Code, Col, Icon, KV, Mono, Muted, Num, Panel, Row, Section, Skeleton, Spacer, State, Strong, Tabs, TextLink, Toggle, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -296,7 +296,8 @@ function McpOut({ data, on, setOn, compact }: { data: WebhookView; on: boolean; 
           <Strong>{tx("只读 MCP Server", "Read-only MCP server")}</Strong>
           <Muted size={11.5}>{tx("让其他 Agent 查询事件与 Runbook", "Lets other agents query incidents and runbooks")}</Muted>
         </Col>
-        <Toggle on={on} onChange={(v) => { setOn(v); toast(v ? tx("MCP 服务已开启", "MCP service enabled") : tx("MCP 服务已关闭", "MCP service disabled"), { undo: () => setOn(!v) }); }} label={tx("MCP 服务", "MCP service")} />
+        {/* Turning the MCP server on/off has no endpoint yet; real mode shows the state read-only. */}
+        <Toggle on={on} disabled={API_MODE !== "mock"} onChange={(v) => { setOn(v); toast(v ? tx("MCP 服务已开启", "MCP service enabled") : tx("MCP 服务已关闭", "MCP service disabled"), { undo: () => setOn(!v) }); }} label={tx("MCP 服务", "MCP service")} />
       </Row>
       <Code>{data.mcp.url}</Code>
       <Row gap={4} wrap>

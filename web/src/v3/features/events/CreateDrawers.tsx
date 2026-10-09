@@ -195,8 +195,9 @@ export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () =
   const save = useSend("POST", "/notification-routes", ["/routing"]);
   useEffect(() => {
     if (!open) return;
-    setName(tx("交易平台 · 高优先级", "Trading · high priority"));
-    setMatchers([{ k: "team", op: "=", v: "trade" }, { k: "severity", op: "=~", v: "P1|P2" }, { k: "service", op: "=~", v: "checkout-api|payment-gateway" }]);
+    // Sample name and matchers only in mock mode; a real route starts empty.
+    setName(API_MODE === "mock" ? tx("交易平台 · 高优先级", "Trading · high priority") : "");
+    setMatchers(API_MODE === "mock" ? [{ k: "team", op: "=", v: "trade" }, { k: "severity", op: "=~", v: "P1|P2" }, { k: "service", op: "=~", v: "checkout-api|payment-gateway" }] : []);
     setTest(null);
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   const runTest = async () => setTest(await api<RouteTest>("POST", "/notification-routes/test", { body: { matchers, labels: { alertname: "HighErrorRate", team: "trade", severity: "P1" } } }));
@@ -215,10 +216,24 @@ export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () =
       icon={<Tile icon="bell" tone="accent" size={30} />}
       footer={
         <>
-          <Muted size={11.5}>{tx("保存后立即生效，写入审计", "Takes effect on save · audited")}</Muted>
+          {/* Real route changes are reviewed GitLab merge requests (202 pending_review), not live edits. */}
+          <Muted size={11.5}>{API_MODE === "mock" ? tx("保存后立即生效，写入审计", "Takes effect on save · audited") : tx("提交后生成合并请求，审核合并后才生效", "Submitting opens a merge request; it takes effect once reviewed and merged")}</Muted>
           <Spacer />
           <Btn kind="ghost" onClick={onClose}>{tx("取消", "Cancel")}</Btn>
-          <Btn kind="primary" icon="check" loading={save.isPending} onClick={async () => { await save.mutateAsync({ name, matchers, window, continue: cont }); toast(tx("路由已保存", "Route saved")); onClose(); }}>
+          <Btn
+            kind="primary"
+            icon="check"
+            loading={save.isPending}
+            onClick={async () => {
+              try {
+                await save.mutateAsync({ name, matchers, window, continue: cont });
+                toast(API_MODE === "mock" ? tx("路由已保存", "Route saved") : tx("已提交路由草稿，等待审核合并", "Route draft submitted for review"));
+                onClose();
+              } catch (e) {
+                toast(e instanceof ApiError ? e.message : tx("提交失败，请稍后重试", "Couldn't submit; try again later"), { tone: "danger" });
+              }
+            }}
+          >
             {tx("保存路由", "Save route")}
           </Btn>
         </>
@@ -228,10 +243,10 @@ export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () =
         <Field label={tx("名称", "Name")}>
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label={tx("匹配条件", "Matchers")} hint={tx("最近 24 小时匹配 37 条告警", "Matched 37 alerts in the last 24 h")}>
+        <Field label={tx("匹配条件", "Matchers")} hint={API_MODE === "mock" ? tx("最近 24 小时匹配 37 条告警", "Matched 37 alerts in the last 24 h") : undefined}>
           <MatcherList items={matchers} onChange={setMatchers} />
         </Field>
-        <Field label={tx("接收方", "Receivers")}>
+        {API_MODE === "mock" && <Field label={tx("接收方", "Receivers")}>
           <div className="v3-col" style={{ gap: 8 }}>
             <Row gap={8}>
               <Brand name="feishu" size={24} />
@@ -251,7 +266,7 @@ export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () =
               <AddChip label={tx("接收方", "Receiver")} free options={[tx("飞书「支付值班群」", "Feishu “Payments on-call”"), tx("值班表「交易平台副值班」", "Schedule “Trading secondary”"), tx("邮件 sre-leads@example.com", "Email sre-leads@example.com"), "Webhook · statuspage"]} />
             </Row>
           </div>
-        </Field>
+        </Field>}
         <div className="f-grid2">
           <Field label={tx("分组", "Group by")}>
             <Row gap={4} style={{ height: 30 }}>
@@ -270,7 +285,7 @@ export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () =
         <Field label={tx("时段", "Time window")} hint={tx("夜间 P2 改为次日汇总", "Night-time P2 goes to the next-day digest")}>
           <Segmented label={tx("时段", "Time window")} value={window} onChange={setWindow} options={[{ value: "all", label: tx("全天", "All day") }, { value: "work", label: tx("工作时间", "Work hours") }, { value: "night", label: tx("夜间", "Night") }]} />
         </Field>
-        <Field label={tx("升级", "Escalation")}>
+        {API_MODE === "mock" && <Field label={tx("升级", "Escalation")}>
           <div className="v3-col" style={{ gap: 6 }}>
             {esc.map((e) => (
               <Row key={e.n} gap={8}>
@@ -281,7 +296,7 @@ export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () =
               </Row>
             ))}
           </div>
-        </Field>
+        </Field>}
         <Row gap={8}>
           <Toggle on={cont} onChange={setCont} label={tx("继续匹配", "Continue")} />
           <span style={{ fontSize: "var(--fs-sm)" }}>{tx("命中后继续匹配后续路由", "Keep matching later routes after a hit")}</span>
@@ -325,11 +340,12 @@ export function NewInhibitDrawer({ open, onClose }: { open: boolean; onClose: ()
     setEqual(["cluster", "node"]);
   };
   useEffect(() => {
-    if (open) adopt();
-  }, [open]);
+    // The suggestion is sample data; a real rule starts empty.
+    if (open && API_MODE === "mock") adopt();
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!open) return;
-    const t = setTimeout(() => void api<InhibitPreview>("POST", "/inhibitions/preview", { body: { source: src, target: dst, equal } }).then(setPreview), 250);
+    if (!open || (API_MODE !== "mock" && (!src.length || !dst.length))) return;
+    const t = setTimeout(() => void api<InhibitPreview>("POST", "/inhibitions/preview", { body: { source: src, target: dst, equal } }).then(setPreview, () => setPreview(null)), 250);
     return () => clearTimeout(t);
   }, [open, src, dst, equal]);
   return (
@@ -342,10 +358,23 @@ export function NewInhibitDrawer({ open, onClose }: { open: boolean; onClose: ()
       icon={<Tile icon="mute" tone="accent" size={30} />}
       footer={
         <>
-          <Muted size={11.5}>{tx("保存后立即生效，写入审计", "Takes effect on save · audited")}</Muted>
+          <Muted size={11.5}>{API_MODE === "mock" ? tx("保存后立即生效，写入审计", "Takes effect on save · audited") : tx("提交后生成合并请求，审核合并后才生效", "Submitting opens a merge request; it takes effect once reviewed and merged")}</Muted>
           <Spacer />
           <Btn kind="ghost" onClick={onClose}>{tx("取消", "Cancel")}</Btn>
-          <Btn kind="primary" icon="check" loading={save.isPending} onClick={async () => { await save.mutateAsync({ source: src, target: dst, equal }); toast(tx("抑制规则已创建", "Inhibition rule created")); onClose(); }}>
+          <Btn
+            kind="primary"
+            icon="check"
+            loading={save.isPending}
+            onClick={async () => {
+              try {
+                await save.mutateAsync({ source: src, target: dst, equal });
+                toast(API_MODE === "mock" ? tx("抑制规则已创建", "Inhibition rule created") : tx("已提交抑制规则草稿，等待审核合并", "Inhibition draft submitted for review"));
+                onClose();
+              } catch (e) {
+                toast(e instanceof ApiError ? e.message : tx("提交失败，请稍后重试", "Couldn't submit; try again later"), { tone: "danger" });
+              }
+            }}
+          >
             {tx("创建抑制规则", "Create rule")}
           </Btn>
         </>
@@ -353,9 +382,11 @@ export function NewInhibitDrawer({ open, onClose }: { open: boolean; onClose: ()
     >
       <div className="f-drawer-body">
         <Muted size={12}>{tx("来源告警触发期间，抑制与它相关的目标告警，避免一次故障引发告警风暴。", "While the source alert fires, related target alerts are suppressed to prevent alert storms.")}</Muted>
-        <AiBanner action={<Btn h={24} onClick={adopt}>{tx("采用建议", "Use suggestion")}</Btn>}>
-          {tx("NodeDown 期间同一节点平均产生 23 条 Pod 与延迟告警。建议按 cluster、node 标签抑制 P2–P4。", "Each NodeDown produces ~23 pod and latency alerts on the same node. Suggest inhibiting P2–P4 by cluster and node.")}
-        </AiBanner>
+        {API_MODE === "mock" && (
+          <AiBanner action={<Btn h={24} onClick={adopt}>{tx("采用建议", "Use suggestion")}</Btn>}>
+            {tx("NodeDown 期间同一节点平均产生 23 条 Pod 与延迟告警。建议按 cluster、node 标签抑制 P2–P4。", "Each NodeDown produces ~23 pod and latency alerts on the same node. Suggest inhibiting P2–P4 by cluster and node.")}
+          </AiBanner>
+        )}
         <Field label={tx("来源告警（触发时）", "Source alert (while firing)")}>
           <MatcherList items={src} onChange={setSrc} />
         </Field>

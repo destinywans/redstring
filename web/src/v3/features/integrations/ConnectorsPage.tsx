@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { API_MODE, useGet, useSend } from "../../api/client";
 import type { ConnectorDetail, ConnectorList, ConnectorStatus } from "../../api/types";
 import { Badge, Brand, Btn, Code, Col, Dot, Icon, IconBtn, KV, Mono, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, TextLink, Toggle, cx, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -162,6 +162,8 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
                       </Col>
                       <Toggle
                         on={!off.has(t.name)}
+                        // Real toggles need PATCH /connectors/{id}/tool-settings; until then the switch is read-only.
+                        disabled={API_MODE !== "mock"}
                         label={t.name}
                         onChange={(v) => {
                           setOff((s) => {

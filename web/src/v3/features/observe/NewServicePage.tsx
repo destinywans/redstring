@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import { Avatar, Badge, Bar, Brand, Btn, Card, Chip, Col, Field, Icon, Input, Mono, Muted, Row, Segmented, Skeleton, Spacer, Stepper, Strong, Tile } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { AiBanner, PillSelect, Suggested } from "../../ui/forms";
 import { useI18n } from "../../i18n";
 import { ChipSelect, usePickLists } from "../../ui/demo";
 
-type Workload = { id: string; namespace: string; kind: string; replicas: number; image: string; owner_hint: string; tier_hint: "T0" | "T1" | "T2"; matched: string[]; missing: string[] };
-type Discover = { cluster: string; items: Workload[]; registered: number };
-type Form = { tier: "T0" | "T1" | "T2"; owner: string; slo: string; p99: string };
+/** GET /services/discover item (V3DiscoveredService); `resource_id` must be sent back so registration binds the exact workload (PA-12). */
+type Workload = { id: string; resource_id?: string; namespace: string; kind: string; replicas: number | null; image: string; owner_hint: string; tier_hint: string; matched: string[]; missing: string[]; unavailable_fields?: string[] };
+type Discover = { cluster: string; items: Workload[]; registered: number; ambiguous_workloads?: number };
+type Form = { tier: string; owner: string; slo: string; p99: string };
+const TIERS = ["T0", "T1", "T2", "T3"];
+const demo = API_MODE === "mock";
 
 const SYSTEMS: { brand: string; zh: string; en: string; value: (w: Workload) => string }[] = [
   { brand: "prometheus", zh: "指标", en: "Metrics", value: (w) => `job=${w.id}` },
@@ -32,8 +35,9 @@ export default function NewServicePage() {
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!data) return;
-    setPicked(Object.fromEntries(data.items.map((w) => [w.id, w.owner_hint !== "未识别" && w.owner_hint !== "Unknown"])));
-    setForms(Object.fromEntries(data.items.map((w) => [w.id, { tier: w.tier_hint, owner: "李明", slo: "99.9", p99: "300" }])));
+    setPicked(Object.fromEntries(data.items.map((w) => [w.id, !!w.owner_hint && w.owner_hint !== "未识别" && w.owner_hint !== "Unknown"])));
+    // Sample data pre-fills a sample owner and SLO; real registrations start from the workload's own hints only (PA-13).
+    setForms(Object.fromEntries(data.items.map((w) => [w.id, demo ? { tier: w.tier_hint, owner: "李明", slo: "99.9", p99: "300" } : { tier: TIERS.includes(w.tier_hint) ? w.tier_hint : "", owner: "", slo: "", p99: "" }])));
     setFocus(data.items[0]?.id ?? null);
   }, [data]);
   const chosen = useMemo(() => (data?.items ?? []).filter((w) => picked[w.id]), [data, picked]);
@@ -41,16 +45,22 @@ export default function NewServicePage() {
   const form = cur ? forms[cur.id] : undefined;
   const lists = usePickLists();
   const setForm = (patch: Partial<Form>) => cur && setForms({ ...forms, [cur.id]: { ...forms[cur.id], ...patch } });
-  const coverage = cur ? Math.round((100 * cur.matched.length) / (cur.matched.length + cur.missing.length + 1)) : 0;
+  // The sample counts a missing runbook into coverage; real mode only knows the matched / missing systems.
+  const coverage = cur ? Math.round((100 * cur.matched.length) / Math.max(1, cur.matched.length + cur.missing.length + (demo ? 1 : 0))) : 0;
   const register = async () => {
     setSaving(true);
     try {
-      const items = mode === "manual" ? [{ id: manual.name, namespace: manual.namespace }] : chosen.map((w) => ({ id: w.id, namespace: w.namespace, ...forms[w.id] }));
+      // Only fields the person filled are sent; discovery results carry their resource_id.
+      const filled = (f: Form) => Object.fromEntries(Object.entries(f).filter(([, v]) => v !== ""));
+      const items =
+        mode === "manual"
+          ? [{ id: manual.name.trim(), ...(manual.namespace.trim() ? { namespace: manual.namespace.trim() } : {}) }]
+          : chosen.map((w) => ({ id: w.id, namespace: w.namespace, ...(w.resource_id ? { resource_id: w.resource_id } : {}), ...filled(forms[w.id]) }));
       const r = await api<{ created: number }>("POST", "/services", { body: { items } });
       toast(tx("已登记 {n} 个服务", "Registered {n} services", { n: r.created }));
       nav("/services");
     } catch (e) {
-      toast(String((e as Error).message));
+      toast(e instanceof ApiError ? e.message : String((e as Error).message), { tone: "danger" });
     } finally {
       setSaving(false);
     }
@@ -68,7 +78,11 @@ export default function NewServicePage() {
               <Segmented label={tx("方式", "Mode")} value={mode} onChange={setMode} options={[{ value: "discover", label: tx("从 Kubernetes 发现", "Discover from Kubernetes"), icon: "grid" }, { value: "manual", label: tx("手动填写", "Fill in manually"), icon: "edit" }]} />
               {mode === "discover" && (
                 <>
-                  <ChipSelect icon="grid" label={tx("集群", "Cluster")} defaultValue={data?.cluster ?? "prod-sh-1"} key={data?.cluster} options={[...new Set([data?.cluster ?? "prod-sh-1", "prod-sh-1", "prod-bj-1"])]} />
+                  {demo ? (
+                    <ChipSelect icon="grid" label={tx("集群", "Cluster")} defaultValue={data?.cluster ?? "prod-sh-1"} key={data?.cluster} options={[...new Set([data?.cluster ?? "prod-sh-1", "prod-sh-1", "prod-bj-1"])]} />
+                  ) : (
+                    data?.cluster && <Chip icon="grid">{tx("集群 {c}", "Cluster {c}", { c: data.cluster })}</Chip>
+                  )}
                   <Spacer />
                   <Muted size={11.5}>{tx("只读发现 · 发现 {n} 个未登记的工作负载 · 已登记 {r} 个", "Read-only discovery · {n} unregistered workloads · {r} registered", { n: data?.items.length ?? 0, r: data?.registered ?? 0 })}</Muted>
                 </>
@@ -101,15 +115,19 @@ export default function NewServicePage() {
                           </td>
                           <td><Row gap={8}><Brand name="kubernetes" size={20} /><b style={{ fontWeight: 500 }}>{w.id}</b><Muted size={11}>{w.kind}</Muted></Row></td>
                           <td><Mono size={11.5} color="var(--muted)">{w.namespace}</Mono></td>
-                          <td className="tnum">{w.replicas}</td>
-                          <td><Muted size={12}>{w.owner_hint}</Muted></td>
+                          <td className="tnum">{w.replicas ?? "—"}</td>
+                          <td><Muted size={12}>{w.owner_hint || "—"}</Muted></td>
                           <td><Row gap={4}>{w.matched.map((m) => <Brand key={m} name={m} size={18} />)}{w.missing.length > 0 && <Muted size={11}>{tx("缺 {n}", "missing {n}", { n: w.missing.length })}</Muted>}</Row></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </Card>
-                <AiBanner>{tx("AI 根据 team 标签、GitLab 仓库和镜像名补全了负责人、等级和系统映射，右侧逐个确认。发现过程只读，不会修改集群。", "The AI filled owners, tiers and mappings from team labels, GitLab repos and image names — confirm each on the right. Discovery is read-only and never changes the cluster.")}</AiBanner>
+                {demo ? (
+                  <AiBanner>{tx("AI 根据 team 标签、GitLab 仓库和镜像名补全了负责人、等级和系统映射，右侧逐个确认。发现过程只读，不会修改集群。", "The AI filled owners, tiers and mappings from team labels, GitLab repos and image names — confirm each on the right. Discovery is read-only and never changes the cluster.")}</AiBanner>
+                ) : (
+                  <Muted size={12}>{tx("负责人线索和等级来自工作负载标签，请在右侧逐个确认；没填的项登记后再补。发现过程只读，不会修改集群。", "Owner and tier hints come from workload labels — confirm each on the right; anything left blank can be filled in later. Discovery is read-only and never changes the cluster.")}</Muted>
+                )}
               </>
             ) : (
               <div className="f-grid2" style={{ maxWidth: 640 }}>
@@ -143,22 +161,32 @@ export default function NewServicePage() {
               <div className="f-grid2">
                 <Field label={tx("等级", "Tier")}>
                   <Suggested>
-                    <PillSelect label={tx("等级", "Tier")} value={form.tier} options={["T0", "T1", "T2"]} onChange={(tier) => setForm({ tier })} />
+                    <PillSelect label={tx("等级", "Tier")} value={form.tier} options={demo ? ["T0", "T1", "T2"] : TIERS} onChange={(tier) => setForm({ tier })} />
                   </Suggested>
                 </Field>
                 <Field label={tx("负责人", "Owner")}>
-                  <ChipSelect label={tx("负责人", "Owner")} showLabel={false} value={form.owner} onChange={(v) => setForm({ owner: v as string })} options={[{ value: form.owner, label: form.owner }, ...lists.people.filter((p) => p.value !== form.owner)]} />
+                  <ChipSelect label={tx("负责人", "Owner")} showLabel={false} value={form.owner || undefined} onChange={(v) => setForm({ owner: v as string })} options={[...(form.owner ? [{ value: form.owner, label: form.owner }] : []), ...lists.people.filter((p) => p.value !== form.owner)]} />
                 </Field>
               </div>
               <Field label="SLO">
                 <Row gap={8}>
-                  <Input value={form.slo} onChange={(e) => setForm({ slo: e.target.value })} right={<span className="muted" style={{ fontSize: "var(--fs-sub)", whiteSpace: "nowrap" }}>{tx("% 可用性", "% avail.")}</span>} />
-                  <Input value={form.p99} onChange={(e) => setForm({ p99: e.target.value })} right={<span className="muted" style={{ fontSize: "var(--fs-sub)", whiteSpace: "nowrap" }}>ms P99</span>} />
+                  <Input value={form.slo} placeholder={demo ? undefined : "99.9"} onChange={(e) => setForm({ slo: e.target.value })} right={<span className="muted" style={{ fontSize: "var(--fs-sub)", whiteSpace: "nowrap" }}>{tx("% 可用性", "% avail.")}</span>} />
+                  <Input value={form.p99} placeholder={demo ? undefined : "300"} onChange={(e) => setForm({ p99: e.target.value })} right={<span className="muted" style={{ fontSize: "var(--fs-sub)", whiteSpace: "nowrap" }}>ms P99</span>} />
                 </Row>
               </Field>
               <Col gap={8}>
                 <Muted size={11.5}>{tx("系统映射", "System mappings")}</Muted>
-                {SYSTEMS.map((s) => {
+                {/* Real discovery only says which systems matched; the mapping values below are sample suggestions. */}
+                {!demo &&
+                  [...cur.matched.map((m) => [m, true] as const), ...cur.missing.map((m) => [m, false] as const)].map(([m, ok]) => (
+                    <Row key={m} gap={8}>
+                      <Brand name={m} size={20} />
+                      <span style={{ fontSize: "var(--fs-sub)" }}>{m}</span>
+                      <Spacer />
+                      {ok ? <Icon name="check" size={13} color="var(--ok)" /> : <Muted size={11.5}>{tx("未匹配，登记后在服务映射中补", "Not matched — map it after registering")}</Muted>}
+                    </Row>
+                  ))}
+                {demo && SYSTEMS.map((s) => {
                   const ok = cur.matched.includes(s.brand);
                   return (
                     <Row key={s.brand} gap={8}>
@@ -177,7 +205,11 @@ export default function NewServicePage() {
                   <Bar pct={coverage} tone={coverage >= 70 ? "ok" : "warn"} width="100%" height={8} />
                   <b style={{ fontSize: "var(--fs-sm)", color: coverage >= 70 ? "var(--ok)" : "var(--warn)" }}>{coverage}%</b>
                 </Row>
-                <Muted size={11.5}>{tx("缺 Runbook{m}", "Missing a runbook{m}", { m: cur.missing.length ? tx("、{s}", ", {s}", { s: cur.missing.join("、") }) : "" })}</Muted>
+                {demo ? (
+                  <Muted size={11.5}>{tx("缺 Runbook{m}", "Missing a runbook{m}", { m: cur.missing.length ? tx("、{s}", ", {s}", { s: cur.missing.join("、") }) : "" })}</Muted>
+                ) : (
+                  <Muted size={11.5}>{tx("已匹配 {a} 个系统，缺 {b} 个", "{a} systems matched, {b} missing", { a: cur.matched.length, b: cur.missing.length })}</Muted>
+                )}
               </Col>
             </div>
           </aside>

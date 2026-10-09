@@ -206,9 +206,11 @@ function Pull({ id }: { id: string | null }) {
               </Badge>
               <Muted size={11.5}>{d.sample.meta}</Muted>
               <Spacer />
-              <Chip icon="rotate" onClick={() => toast(tx("已重新请求 · 200 · 81 ms", "Re-requested · 200 · 81 ms"))}>
-                {tx("重新请求", "Re-request")}
-              </Chip>
+              {API_MODE === "mock" && (
+                <Chip icon="rotate" onClick={() => toast(tx("已重新请求 · 200 · 81 ms", "Re-requested · 200 · 81 ms"))}>
+                  {tx("重新请求", "Re-request")}
+                </Chip>
+              )}
             </Row>
             <Hl body={d.sample.body} highlights={d.sample.highlights} />
             <Muted size={11.5}>{tx("高亮部分与右侧映射一一对应，颜色相同。", "Highlights match the mapping on the right by colour.")}</Muted>

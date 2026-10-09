@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { API_MODE, useGet, useSend } from "../../api/client";
 import type { McpDetail, McpList, McpServer } from "../../api/types";
 import { Badge, Brand, Btn, Card, Col, Icon, IconBtn, KV, Mono, Muted, Num, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, Tabs, TextLink, Toggle, cx, type Tone } from "../../ui/core";
 import { Kpi, KpiRow } from "../../ui/data";
@@ -94,7 +94,7 @@ export default function McpPage() {
                       )}
                       items={[
                         { label: tx("查看详情", "Open details"), icon: "panel", onSelect: () => setSel(s.id) },
-                        { label: tx("重新发现工具", "Rediscover tools"), icon: "rotate", onSelect: () => toast(tx("{n}：工具列表已刷新，无新增", "{n}: tools refreshed, nothing new", { n: s.name })) },
+                        ...(API_MODE === "mock" ? [{ label: tx("重新发现工具", "Rediscover tools"), icon: "rotate" as const, onSelect: () => toast(tx("{n}：工具列表已刷新，无新增", "{n}: tools refreshed, nothing new", { n: s.name })) }] : []),
                         { sep: true, label: "" },
                         { label: tx("停用", "Disable"), icon: "x", danger: true, onSelect: () => void disableServer(s.name) },
                       ]}
@@ -281,9 +281,11 @@ function McpAside({ id, onClose }: { id: string; onClose: () => void }) {
               </Col>
             </Section>
             <Row gap={8}>
-              <Btn icon="rotate" onClick={() => toast(tx("连接正常 · 发现 12 个工具", "Connection OK · 12 tools discovered"))}>
-                {tx("测试连接", "Test connection")}
-              </Btn>
+              {API_MODE === "mock" && (
+                <Btn icon="rotate" onClick={() => toast(tx("连接正常 · 发现 12 个工具", "Connection OK · 12 tools discovered"))}>
+                  {tx("测试连接", "Test connection")}
+                </Btn>
+              )}
               <Btn icon="cpu" to="/agents/tools">
                 {tx("在 Agent 中配置", "Configure in agents")}
               </Btn>

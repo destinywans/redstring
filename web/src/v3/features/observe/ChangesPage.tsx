@@ -227,18 +227,21 @@ export default function ChangesPage() {
                 {d.alert.incident}
               </Badge>
             </div>
-            <Row gap={6}>
-              <Btn kind="primary" icon="branch" to="/canvas/INV-231">
-                {tx("带入调查", "Add to investigation")}
-              </Btn>
-              <Btn icon="undo" to="/review/PRP-88">
-                {tx("提议回滚", "Propose rollback")}
-              </Btn>
-              <Spacer />
-              <Btn kind="ghost" icon="external" onClick={() => openExternal("GitLab", "https://gitlab.example.internal/trade/checkout-api/-/pipelines")}>
-                {tx("在 GitLab 中打开", "Open in GitLab")}
-              </Btn>
-            </Row>
+            {/* These jump to the sample investigation, proposal and GitLab; real change actions are on the design board. */}
+            {API_MODE === "mock" && (
+              <Row gap={6}>
+                <Btn kind="primary" icon="branch" to="/canvas/INV-231">
+                  {tx("带入调查", "Add to investigation")}
+                </Btn>
+                <Btn icon="undo" to="/review/PRP-88">
+                  {tx("提议回滚", "Propose rollback")}
+                </Btn>
+                <Spacer />
+                <Btn kind="ghost" icon="external" onClick={() => openExternal("GitLab", "https://gitlab.example.internal/trade/checkout-api/-/pipelines")}>
+                  {tx("在 GitLab 中打开", "Open in GitLab")}
+                </Btn>
+              </Row>
+            )}
           </Col>
         )}
       </Drawer>

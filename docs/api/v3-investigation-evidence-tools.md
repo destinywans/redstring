@@ -27,3 +27,49 @@
 证据复用现有 `evidence` 表和分支证据视图。`evidence.run_id` 外键属于旧执行器的 `runs`，因此此入口保持其为 NULL，通过 assistant `EvidenceIDs` 和证据审计中的 `reply_id`/`step_id` 关联 V3 attempt。没有新增迁移，也没有接入 Agent Run Console、Eval 或记忆生产者。
 
 验证分层：`investigation_evidence_test.go` 为离线事件序列、范围、预算和失败测试；`TestInvestigationEvidenceRegisteredRoute` 使用随机可清理 PG schema、正式注册路由和受控进程内模型/工具，覆盖成功、源权限撤销、执行中退出登录、证据审计回滚、跨应用输出和知识下架。后者需要显式 `TEST_DATABASE_URL`，知识场景还需现有 pgvector 能力。受控测试不是实际连接器/模型、前端或部署验收。
+
+## 服务清单、错误代码与基础设施查询（PA-50、PA-51，2026-10-10）
+
+**服务清单**：普通对话多了一个只读工具 `list_services`，输入为空字符串或 `{}`。
+- 返回当前本人在本环境可查看的服务（最多 100 个，超出时 `truncated: true`），每项包括：精确服务键、名称、等级、团队，指标来源（`configured` / `not_configured` / `ambiguous`）及该服务已配置的指标查询 ID，日志来源是否配置。
+- 不返回端点、表达式或标签选择器，也不列出无权查看的服务。
+- 问题里没写服务名时，模型应先调用它，不要猜。
+- 调查节点只能读本调查的服务，所以不提供这个工具；改为在工具说明里直接写明本调查的服务键。
+
+**错误代码**：工具失败时，模型看到的错误以代码开头，后面说明下一步：
+
+| 代码 | 含义 |
+| --- | --- |
+| `invalid_input` | 输入格式不对，错误里给出正确格式 |
+| `unknown_service` | 本环境没有你可读的这个服务键。服务不存在和无权查看是同一句话，不泄露隐藏服务是否存在 |
+| `not_permitted` | 服务可见，但没有这类数据的权限（如日志、知识） |
+| `not_configured` | 该服务没有这类来源，或没有这个查询 ID；平台未配置知识检索时也是这个代码 |
+| `source_unavailable` | 已配置的来源或目录暂时失败，可以稍后重试 |
+
+`read_service_metrics` 在 `not_configured` 时会列出该服务已配置的查询 ID。
+
+**指标查询 ID**：
+- 不再写死四个。服务能用哪些 ID，由服务端审查过的每服务查询目录决定：当前读取 `AIOPS_TELEMETRY_CONFIG` 中 `applications.<资源>.prometheus_queries`（PA-19 切换后改读统一目录）。
+- ID 只能是小写字母、数字和下划线，最长 64 个字符。
+- 表达式只在服务端；模型只能传 ID，不能传 PromQL、URL 或时间范围（固定最近 15 分钟、30 秒步长、最多 8 条序列）。
+
+已知 ID 有固定含义，并只保留下表列出的标签。标签值超出安全的标识符格式时显示为 `unrecognized`，其余标签一律不返回（例如不返回 `instance` 中的内网地址）：
+
+| 查询 ID | 含义 | 保留的标签 |
+| --- | --- | --- |
+| `request_rate` | 每秒请求数 | 无 |
+| `error_rate` | 5xx 占比 | 无 |
+| `http_p95_seconds` | p95 延迟（秒） | 无 |
+| `instances_up` | 在线实例数 | 无 |
+| `node_cpu_busy_ratio` | 运行该服务的各节点 CPU 繁忙比例（0–1） | `node` |
+| `node_memory_available_ratio` | 这些节点的可用内存比例（0–1） | `node` |
+| `pod_restarts` | 窗口内各 Pod 容器的重启次数 | `pod`、`container` |
+| `pod_terminated_reason` | 各 Pod 容器上次终止原因（如 `OOMKilled`），值为 1 | `pod`、`container`、`reason` |
+| `consumer_lag` | 各主题的消费组积压条数 | `consumergroup`、`topic` |
+| `messages_consumed_rate` | 各主题每秒消费条数 | `consumergroup`、`topic` |
+
+运维也可以登记其他 ID，模型同样可以读取，但不保留任何标签。
+
+配置示例（占位符，实际表达式须由运维按本环境的指标名审查，确保只涉及该服务及其所在节点）：[v3-ai-metric-queries.example.json](../examples/v3-ai-metric-queries.example.json)。
+
+节点类查询通过 `on (cluster, node)` 与该服务的 `up` 序列关联，只返回运行该服务的节点。Pod 重启与消费积压依赖 kube-state-metrics 与 kafka_exporter，没有这些采集时查询结果为空（`no_samples`），不代表健康。

@@ -92,10 +92,15 @@ type Recent struct {
 	Href  string `json:"href"`
 }
 
+// AlertTrend buckets: bucket i covers [start+i*step, start+(i+1)*step). Labels
+// are UTC "15:04" and kept for compatibility; clients should label buckets
+// from Start and StepSeconds in the viewer's time zone (PA-25).
 type AlertTrend struct {
-	Labels  []string `json:"labels"`
-	Counts  [][4]int `json:"counts"`
-	Summary string   `json:"summary"`
+	Labels      []string `json:"labels"`
+	Start       string   `json:"start"`
+	StepSeconds float64  `json:"step_seconds"`
+	Counts      [][4]int `json:"counts"`
+	Summary     string   `json:"summary"`
 }
 
 type Summary struct {

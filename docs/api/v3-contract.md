@@ -59,7 +59,7 @@
 | GET | `/me/watched-services` | | 本人明确关注的当前有权服务；状态来源不足时 `status: null` 并标注 `availability` | implemented |
 | GET | `/search` | `q` | 六类持久且当前有权对象的有界搜索，含受治理 Runbook；无真实最近访问记录 | implemented |
 | GET | `/mentions` | `q`, `kind` | 服务、事件、调查、有效人员、本人对话及 Runbook 的有界候选 | implemented |
-| GET | `/home` | | 有界授权快照；无来源的 AI 简报、值班与服务健康可空，附 `availability` | implemented |
+| GET | `/home` | | 有界授权快照；无来源的 AI 简报、值班与服务健康可空，附 `availability`。`alert_trend` 另带 `start`（RFC 3339，整秒 UTC）和 `step_seconds`（可为小数），前端按本地时区自行生成横轴；`labels` 仍是 UTC `HH:MM`，仅为兼容保留（PA-25） | implemented |
 | GET | `/mentions/{kind}/{id}/preview` | | 当前有权六类对象的有证据预览；Runbook 缺失观测项明示，其他类别明确不可用 | implemented |
 | GET | `/commands` | | `{ items: CommandItem[] }`；仅经配置和授权的斜杠文字建议，不执行命令 | implemented |
 | GET | `/models` | | `ModelCatalog`：当前用户可用的模型、接口类型、推理强度档位与默认值 | implemented |

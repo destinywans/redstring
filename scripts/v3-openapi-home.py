@@ -26,9 +26,11 @@ S['V3HomeBriefing'] = obj({'summary': string(),
         ['n', 'label', 'href'])),
     'oncall': obj(fieldnames('name until next'), ['name', 'until', 'next'])},
     ['summary', 'generated_at', 'citations', 'oncall'])
-S['V3HomeAlertTrend'] = obj({'labels': arr(string()),
+S['V3HomeAlertTrend'] = obj({'labels': arr(string(description='UTC HH:MM bucket starts, kept for compatibility')),
+    'start': string(format='date-time', description='Start of bucket 0 (whole seconds, UTC); bucket i covers [start+i*step, start+(i+1)*step)'),
+    'step_seconds': {'type': 'number', 'exclusiveMinimum': 0, 'description': 'Bucket width in seconds; may be fractional (15m range: 37.5). Label buckets in the viewer time zone from start and step (PA-25).'},
     'counts': arr(arr(integer(minimum=0))), 'summary': string()},
-    ['labels', 'counts', 'summary'])
+    ['labels', 'start', 'step_seconds', 'counts', 'summary'])
 S['V3HomeSummary'] = obj({
     'greeting': obj(fieldnames('name summary'), ['name', 'summary']),
     'briefing': {'anyOf': [ref('V3HomeBriefing'), {'type': 'null'}]},

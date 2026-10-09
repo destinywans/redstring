@@ -146,20 +146,25 @@ func (s *Service) observe(ctx context.Context, scope httpapi.V3EnvironmentScope,
 	}
 	// Status is the measured burn signal raised by firing alerts. A critical
 	// alert or a danger burn decides it alone; anything milder needs both
-	// inputs, because the unknown one could still raise it.
+	// inputs, because the unknown one could still raise it. A metric result
+	// without the burn/availability panels has no burn signal (PA-41).
 	status := ""
+	burnStatus, burnReason := "", out.metricsReason
+	if out.metrics != nil {
+		burnStatus, burnReason = out.metrics.Status, out.metrics.Missing["status"]
+	}
 	switch {
-	case out.metrics != nil && out.alerts != nil:
-		status = out.metrics.Status
+	case burnStatus != "" && out.alerts != nil:
+		status = burnStatus
 		if out.critical {
 			status = "danger"
 		} else if *out.alerts > 0 && status == "ok" {
 			status = "warn"
 		}
-	case out.alerts != nil && out.critical, out.metrics != nil && out.metrics.Status == "danger":
+	case out.alerts != nil && out.critical, burnStatus == "danger":
 		status = "danger"
-	case out.metrics == nil:
-		out.statusReason = out.metricsReason
+	case burnStatus == "":
+		out.statusReason = burnReason
 	default:
 		out.statusReason = out.alertsReason
 	}
@@ -262,8 +267,10 @@ func (s *Service) project(ctx context.Context, scope httpapi.V3EnvironmentScope,
 		out.Unavailable["alerts"] = obs.alertsReason
 	}
 	if obs.metrics != nil {
-		budget := obs.metrics.BudgetLeft
-		out.SLO.BudgetLeft = &budget
+		out.SLO.BudgetLeft = obs.metrics.BudgetLeft
+		if out.SLO.BudgetLeft == nil {
+			out.Unavailable["slo.budget_left"] = obs.metrics.Missing["slo.budget_left"]
+		}
 		if out.Connectors, err = s.connectors(ctx, row, *obs.metrics); err != nil {
 			return out, err
 		}

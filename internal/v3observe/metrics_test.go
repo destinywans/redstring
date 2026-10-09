@@ -20,6 +20,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/wans/aiops-canvas/internal/v3metricpanels"
 )
 
 // The legacy telemetry stub is shared by independent target and trace tests.
@@ -48,6 +49,10 @@ func TestDashboardSeriesRequiresFullGridAndReviewedLabels(t *testing.T) {
 	end := time.Now().UTC().Truncate(100 * time.Second)
 	window := testDashboardWindow(end)
 	result := testDashboardEvidence(window)
+	dashboardSeries := func(result v3integrations.PrometheusMetricEvidence, window connectors.TimeWindow) (any, any, bool) {
+		_, ok := v3metricpanels.Parse(result.Series, window)
+		return nil, nil, ok
+	}
 	if _, _, ok := dashboardSeries(result, window); !ok {
 		t.Fatal("complete fixture rejected")
 	}
@@ -171,6 +176,59 @@ func TestDashboardRejectsUndefinedRatioAndContradictorySLO(t *testing.T) {
 	}
 }
 
+// PA-41: a partial panel set fills the blocks it can; the lab has no
+// connection wait, heat map or grouped panels.
+func TestDashboardAcceptsPartialPanelSet(t *testing.T) {
+	end := time.Now().UTC().Truncate(100 * time.Second)
+	window := testDashboardWindow(end)
+	result := testDashboardEvidence(window)
+	kept := result.Series[:0:0]
+	for _, line := range result.Series {
+		switch line.Labels["panel"] {
+		case "connection_wait_p95_ms", "latency_heat", "endpoint_p99_ms", "instance_wait_p95_ms", "slo_burn_6h":
+			continue
+		}
+		kept = append(kept, line)
+	}
+	result.Series = kept
+	target := 99.9
+	out := newDashboard(window, dashboardMarkers{})
+	if !out.applyMetrics(result, window, &target) {
+		t.Fatal("partial panel set rejected")
+	}
+	ids := []string{}
+	for _, k := range out.KPIs {
+		ids = append(ids, k.ID)
+	}
+	if strings.Join(ids, ",") != "rps,err,p99,cpu" || out.Requests == nil || out.Latency == nil || out.Latency.Heat != nil ||
+		out.Endpoints != nil || out.Instances != nil || out.SLO == nil || len(out.SLO.Burn) != 2 {
+		t.Fatalf("partial dashboard: kpis=%v %+v", ids, out)
+	}
+	for field, want := range map[string]string{"kpis.wait": "not_configured", "latency.heat": "not_configured",
+		"endpoints": "not_configured", "instances": "not_configured", "slo.burn.6h": "not_configured"} {
+		if out.Unavailable[field] != want {
+			t.Fatalf("%s reason %q: %v", field, out.Unavailable[field], out.Unavailable)
+		}
+	}
+	if _, present := out.Unavailable["requests"]; present {
+		t.Fatalf("present block reported missing: %v", out.Unavailable)
+	}
+	// Only SLO panels: no request, latency or KPI blocks, SLO still shown.
+	sloOnly := testDashboardEvidence(window)
+	kept = sloOnly.Series[:0:0]
+	for _, line := range sloOnly.Series {
+		if strings.HasPrefix(line.Labels["panel"], "slo_") {
+			kept = append(kept, line)
+		}
+	}
+	sloOnly.Series = kept
+	out = newDashboard(window, dashboardMarkers{})
+	if !out.applyMetrics(sloOnly, window, &target) || out.SLO == nil || len(out.SLO.Burn) != 3 || out.KPIs != nil ||
+		out.Requests != nil || out.Latency != nil || out.Unavailable["kpis"] != "not_configured" || out.Unavailable["requests"] != "not_configured" {
+		t.Fatalf("SLO-only dashboard: %+v %v", out, out.Unavailable)
+	}
+}
+
 func testDashboardWindow(end time.Time) connectors.TimeWindow {
 	return connectors.TimeWindow{Start: end.Add(-time.Hour), End: end, StepSeconds: dashboardStep}
 }
@@ -183,12 +241,12 @@ func testDashboardEvidence(window connectors.TimeWindow) v3integrations.Promethe
 			labels[key] = label
 		}
 		series := connectors.MetricSeries{Labels: labels}
-		for i := 0; i < dashboardSamples; i++ {
+		for i := 0; i <= dashboardPoints; i++ {
 			series.Samples = append(series.Samples, connectors.MetricSample{Timestamp: float64(window.Start.Unix() + int64(i*dashboardStep)), Value: fmt.Sprintf("%.3f", value)})
 		}
 		result.Series = append(result.Series, series)
 	}
-	for panel := range dashboardPanels {
+	for _, panel := range append(append([]string{}, v3metricpanels.ScalarPanels...), "latency_heat", "endpoint_p99_ms", "instance_wait_p95_ms") {
 		switch panel {
 		case "latency_heat":
 			for _, bucket := range dashboardHeatBuckets {
@@ -457,10 +515,12 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 		t.Fatal(err)
 	}
 	mode.Store(1)
-	incomplete := decode(request("?service=app"))
-	if incomplete.KPIs != nil || incomplete.Requests != nil || incomplete.SLO != nil || incomplete.Unavailable["kpis"] != "unavailable" ||
-		incomplete.Unavailable["latency"] != "unavailable" || incomplete.Window.ReleaseAt == nil {
-		t.Fatalf("incomplete panels must be unknown, not partial: %+v", incomplete)
+	// PA-41: a missing panel (here requests_2xx) leaves only the blocks
+	// that need it unknown; the rest of the dashboard is served.
+	partial := decode(request("?service=app"))
+	if partial.Requests != nil || partial.Unavailable["requests"] != "not_configured" || partial.Unavailable["kpis.rps"] != "not_configured" ||
+		partial.Latency == nil || partial.SLO == nil || len(partial.KPIs) != 3 || partial.Window.ReleaseAt == nil {
+		t.Fatalf("missing panel must leave only its blocks unknown: %+v %v", partial, partial.Unavailable)
 	}
 	mode.Store(0)
 	// A connector without the enabled query tool is not a registered source.

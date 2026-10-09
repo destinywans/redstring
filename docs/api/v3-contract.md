@@ -229,11 +229,11 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
 | GET | `/services` | `q`, `tier`, `team`, `status` | `ServiceCatalog`；当前有权服务，缺证据的字段为 `null` 并在逐项 `unavailable` 中给出原因；KPI 只统计已知值 | implemented |
-| GET | `/services/{id}` | | `ServiceDetail`；按持久服务身份汇集指标、告警、发布、依赖与当前调查，缺项同样为 `null` + 原因 | implemented |
+| GET | `/services/{id}` | | `ServiceDetail`；按持久服务身份汇集指标、告警、发布、依赖与当前调查，缺项同样为 `null` + 原因。仪表盘查询可只含部分面板（PA-41）：状态与 SLO 余量需要 `slo_burn_1h` 和 `slo_month_availability_pct`，燃烧窗口与信号只列已有的，缺失项在 `unavailable` 中注明 `not_configured`（如 `signals.wait`、`slo.burn.6h`） | implemented |
 | GET | `/services/{id}/resilience` | | `Resilience`；仅在固定 HTTPS 五类完整来源配置且证据有效时返回 200，否则 503 | implemented |
 | POST | `/services/{id}/resilience/proposals` | `{ kind, params: { investigation_id, reason, desired } }` | 201 `{ proposal_id }`；仅保存人工审阅提案，不创建可执行动作或合并请求 | implemented |
 | GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | 无 `topology_v1` 目录项时为授权 CMDB 部分响应；配置经审查的精确来源后可返回完整 `Topology`，来源不全返回 503 | implemented |
-| GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard` + `unavailable`；单环境、单服务。唯一持久 Prometheus 目标和经审查的 `dashboard` 查询齐备且面板守恒时返回指标块；无来源时指标块为 `null`（`not_configured`），面板不完整为 `unavailable`；没有平台记录的发布/回滚/事件标记为 `null`（`not_generated`）。服务可见但缺环境 `connectors.view` 时指标块为 `null`、缺 `events.view` 时标记为 `null`，原因均为 `no_authorized_target`，不再整页 403（PA-09）；不可见或不存在的服务仍 403 | implemented |
+| GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard` + `unavailable`；单环境、单服务。唯一持久 Prometheus 目标和经审查的 `dashboard` 查询齐备且面板守恒时返回指标块；无来源时指标块为 `null`（`not_configured`），面板不完整为 `unavailable`；没有平台记录的发布/回滚/事件标记为 `null`（`not_generated`）。服务可见但缺环境 `connectors.view` 时指标块为 `null`、缺 `events.view` 时标记为 `null`，原因均为 `no_authorized_target`，不再整页 403（PA-09）；不可见或不存在的服务仍 403。审查查询可以只返回部分面板（PA-41）：每个区块、KPI、燃烧窗口只需要自己的面板，缺的为 `null` 或从列表中省略，并在 `unavailable` 中注明 `not_configured`；已有面板之间矛盾时仍整体 `unavailable` | implemented |
 | POST | `/metrics/ask` | `{ service, view, range, question, request_id }`；`service` 为持久应用 ID，`view=request_rate\|http_p95_seconds`，`range=15m\|1h`，`request_id` 是 16–128 字符重试标识 | 首次接受为 201 `{ conversation_id }`；同一操作者同参数重试为 200，修改同一重试标识的内容返回 409。仅用当前有权的精确 Prometheus 来源快照；前端尚未发送必要字段 | implemented |
 | GET | `/traces` | `scope: app\|agent`, `view`, `q`（应用：有界 TraceQL 选择器；Agent：有界精确过滤）, `service` | 应用范围读取有界 Tempo 集合并逐条校验闭合；部署声明搜索完整（`tempo_search_fail_closed`）时返回完整 `TraceList`，否则返回已找到的 Trace、`partial: true`，总数/视图计数/分面/直方图/散点为 `null`（`not_configured`）；Agent 范围读取当前受权的持久已结束运行及已报告 Span；均带 `unavailable` | implemented |
 | GET | `/traces/{id}` | | 应用范围 `TraceView`：已存储且闭合的 Span 树、关键路径说明与服务调用图；无可靠关联时省略日志/链接 | implemented |

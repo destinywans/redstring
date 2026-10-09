@@ -194,7 +194,7 @@ const RULES = [
   { id: "r-cert", folder: P("周期规则", "Scheduled"), name: P("证书 30 天内到期", "Certificate expires in 30 days"), state: "ok", schedule: P("每天 09:00", "Daily 09:00") },
   { id: "r-diskpred", folder: P("周期规则", "Scheduled"), name: P("磁盘 7 天内写满预测", "Disk full in 7 days (forecast)"), state: "ok", schedule: P("每 6 小时", "Every 6 h") },
 ];
-mock("GET", "/alert-rules", () => ({ items: RULES, counts: { all: 23, firing: 3, scheduled: 2 } }));
+mock("GET", "/alert-rules", () => ({ items: RULES, counts: { all: 23, firing: 3, scheduled: 2 }, empty_reason: null, unavailable: {} }));
 mock("GET", "/alert-rules/:id", ({ params }) => {
   const r = RULES.find((x) => x.id === params.id) ?? RULES[0];
   return {

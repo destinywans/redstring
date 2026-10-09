@@ -36,7 +36,8 @@ export function PasskeysPanel() {
     if (!v) return;
     setBusy("add");
     try {
-      const o = await api<Ceremony>("POST", "/me/passkeys/registration/options", { body: {} });
+      // The server rejects any body here (422 passkey_invalid_input): send none.
+      const o = await api<Ceremony>("POST", "/me/passkeys/registration/options");
       const credential = await createCredential(o.options as Parameters<typeof createCredential>[0]);
       await api("POST", "/me/passkeys/registration/finish", { body: { challenge_id: o.id, credential, ...(v.label.trim() ? { label: v.label.trim().slice(0, 64) } : {}) } });
       toast(tx("通行密钥已添加", "Passkey added"));

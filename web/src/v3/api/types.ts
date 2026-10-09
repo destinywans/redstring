@@ -307,6 +307,12 @@ export type Incident = {
 
 /* ---------------- alert rules, routing, silences ---------------- */
 export type AlertRuleSummary = { id: string; folder: string; name: string; state: "firing" | "pending" | "ok"; schedule?: string };
+/**
+ * List-endpoint emptiness (PA-09): items null = source not configured (see unavailable); [] with
+ * empty_reason "no_authorized_target" = nothing visible to this user; [] with null = genuinely none.
+ */
+export type EmptyReason = "no_authorized_target" | null;
+export type AlertRuleList = { items: AlertRuleSummary[] | null; counts: { all: number; firing: number; scheduled: number } | null; empty_reason: EmptyReason; unavailable: Unavailable };
 export type AlertRule = AlertRuleSummary & {
   datasource: string;
   query_ref: string;

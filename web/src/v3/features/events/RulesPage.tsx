@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { Page } from "../../app/Shell";
 import { api, useGet } from "../../api/client";
-import type { AlertRule, AlertRuleSummary } from "../../api/types";
+import type { AlertRule, AlertRuleList, AlertRuleSummary } from "../../api/types";
+import { Unavailable } from "../../ui/unknown";
 import { Badge, Brand, Btn, Card, Chip, Code, Col, Dot, Env, Icon, Input, LabelChip, Legend, Muted, Pills, Radio, Row, SearchBox, Sev, Skeleton, Spacer, State, Tabs, TextLink, Toggle, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
@@ -28,8 +29,11 @@ export default function RulesPage() {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState("");
   const [tab, setTab] = useState<"def" | "history" | "preview">("def");
-  const list = useGet<{ items: AlertRuleSummary[]; counts: Record<string, number> }>("/alert-rules");
-  useFirstSelection(list.data?.items, (x) => x.id, sel, setSel);
+  const list = useGet<AlertRuleList>("/alert-rules");
+  // items null = no rule source configured; [] with empty_reason = nothing visible to you; [] alone = no rules yet.
+  const noSource = !!list.data && list.data.items === null;
+  const nothing = !!list.data && list.data.items?.length === 0;
+  useFirstSelection(list.data?.items ?? undefined, (x) => x.id, sel, setSel);
   const { data: r } = useGet<AlertRule>(sel ? `/alert-rules/${sel}` : null);
   const [threshold, setThreshold] = useState(1);
   const [forMin, setForMin] = useState(5);
@@ -63,7 +67,7 @@ export default function RulesPage() {
       <div className="v3-split">
         <div className="side" style={{ width: 320, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
           <SearchBox placeholder={tx("搜索规则", "Search rules")} value={q} onChange={setQ} width="100%" />
-          <Pills value={filter} onChange={setFilter} options={[{ value: "all", label: tx("全部", "All"), count: list.data?.counts.all }, { value: "firing", label: tx("触发中", "Firing"), count: list.data?.counts.firing }, { value: "scheduled", label: tx("周期规则", "Scheduled"), count: list.data?.counts.scheduled }]} />
+          <Pills value={filter} onChange={setFilter} options={[{ value: "all", label: tx("全部", "All"), count: list.data?.counts?.all }, { value: "firing", label: tx("触发中", "Firing"), count: list.data?.counts?.firing }, { value: "scheduled", label: tx("周期规则", "Scheduled"), count: list.data?.counts?.scheduled }]} />
           {folders.map(([folder, rules]) => (
             <div key={folder}>
               <div className="rule-folder">
@@ -84,7 +88,19 @@ export default function RulesPage() {
         </div>
         <div className="main">
           <Tabs value={tab} onChange={setTab} pad="0 22px" options={[{ value: "def", label: tx("定义", "Definition") }, { value: "history", label: tx("评估历史", "Evaluation history") }, { value: "preview", label: tx("通知预览", "Notification preview") }]} />
-          {!r ? (
+          {noSource ? (
+            <div style={{ padding: 22 }}>
+              <Unavailable reason={list.data?.unavailable.items} source={tx("告警规则来源", "an alert rule source")} title={tx("告警规则来源未接入", "No alert rule source connected")} icon="bell" />
+            </div>
+          ) : nothing ? (
+            <div style={{ padding: 22 }}>
+              {list.data?.empty_reason ? (
+                <Unavailable reason={list.data.empty_reason} title={tx("没有你能查看的规则", "No rules you can view")} icon="bell" />
+              ) : (
+                <Unavailable reason="not_generated" title={tx("还没有告警规则", "No alert rules yet")} desc={tx("新建一条规则，或导入现有的 Prometheus 规则文件。", "Create a rule or import an existing Prometheus rule file.")} icon="bell" />
+              )}
+            </div>
+          ) : !r ? (
             <Skeleton h={300} style={{ margin: 22 }} />
           ) : (
             <div className="rule-editor anim-fade" key={r.id + tab}>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, useGet } from "../../api/client";
 import type { CoverageCell, CoverageView } from "../../api/types";
 import { AiAvatar, Avatar, Badge, Brand, Btn, Card, Chip, Col, Delta, Icon, Muted, Panel, Pills, Row, SearchBox, Skeleton, Spacer, Tier, Tile, cx } from "../../ui/core";
 import { Kpi, KpiRow } from "../../ui/data";
@@ -125,7 +125,7 @@ export default function CoveragePage() {
               </thead>
               <tbody className="stagger">
                 {rows?.map((r) => (
-                  <tr key={r.service} className={cx(r.service === "checkout-api" && "selected")} style={{ height: 44 }}>
+                  <tr key={r.service} className={cx(API_MODE === "mock" && r.service === "checkout-api" && "selected")} style={{ height: 44 }}>
                     <td>
                       <Row gap={6}>
                         <b style={{ fontWeight: 600 }}>{r.service}</b>

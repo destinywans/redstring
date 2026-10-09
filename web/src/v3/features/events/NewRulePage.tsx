@@ -176,17 +176,30 @@ export default function NewRulePage() {
                 <PillSelect label={tx("级别", "Severity")} value={sev} options={["P1", "P2", "P3", "P4"] as Severity[]} onChange={setSev} />
               </Field>
               <Field label={tx("服务", "Service")}>
+                {/* The application selector is on the design board; real mode doesn't pretend the sample service is chosen. */}
                 <Row gap={6} style={{ height: 30 }}>
-                  <Badge>checkout-api</Badge>
-                  <Tier tier="T0" />
+                  {API_MODE === "mock" ? (
+                    <>
+                      <Badge>checkout-api</Badge>
+                      <Tier tier="T0" />
+                    </>
+                  ) : (
+                    <Muted>{tx("待选择应用", "Application not chosen")}</Muted>
+                  )}
                 </Row>
               </Field>
             </div>
             <Field label={tx("标签", "Labels")}>
               <Row gap={6} wrap>
-                <LabelChip k="team" v="trade" />
-                <LabelChip k="service" v="checkout-api" />
-                <LabelChip k="env" v="prod" />
+                {API_MODE === "mock" ? (
+                  <>
+                    <LabelChip k="team" v="trade" />
+                    <LabelChip k="service" v="checkout-api" />
+                    <LabelChip k="env" v="prod" />
+                  </>
+                ) : (
+                  <Muted size={11.5}>{tx("环境和应用标签由服务端按所选应用补齐", "Environment and application labels are added by the server for the chosen application")}</Muted>
+                )}
               </Row>
             </Field>
             <Field label={tx("通知摘要", "Notification summary")}>

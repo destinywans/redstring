@@ -7,7 +7,7 @@ import { toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./events.css";
-import { ChipSelect, AddChip } from "../../ui/demo";
+import { ChipSelect, AddChip, SampleOnly } from "../../ui/demo";
 import { useFirstSelection } from "../../ui/selection";
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
@@ -195,7 +195,9 @@ export default function RulesPage() {
                   </div>
                 </>
               )}
+              {/* Evaluation history and the notification preview are sample content: no endpoint reports them yet. */}
               {tab === "history" && (
+                <SampleOnly what={tx("评估历史", "Evaluation history")}>
                 <Card style={{ padding: 16 }}>
                   <Col gap={8}>
                     {["14:31:00", "14:30:30", "14:30:00", "14:29:30", "14:05:00", "14:04:30"].map((t, i) => (
@@ -208,8 +210,10 @@ export default function RulesPage() {
                     ))}
                   </Col>
                 </Card>
+                </SampleOnly>
               )}
               {tab === "preview" && (
+                <SampleOnly what={tx("通知预览", "Notification preview")}>
                 <Card style={{ padding: 16, maxWidth: 520 }}>
                   <div className="msg-preview">
                     <div className="head">{tx("[P1 触发] checkout-api 5xx 比例 8.4%", "[P1 firing] checkout-api 5xx ratio 8.4%")}</div>
@@ -224,6 +228,7 @@ export default function RulesPage() {
                     </div>
                   </div>
                 </Card>
+                </SampleOnly>
               )}
             </div>
           )}

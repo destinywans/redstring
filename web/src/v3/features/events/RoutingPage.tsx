@@ -116,15 +116,18 @@ export default function RoutingPage() {
                   {cur.matchers.map((m) => (
                     <LabelChip key={m.k + m.v} k={m.k} v={m.v} />
                   ))}
-                  <AddChip label={tx("条件", "Matcher")} free placeholder="severity=P2" options={["severity=P2", "namespace=checkout", "alertname=HighLatency"]} />
+                  {/* Nothing on this panel is saved yet (route edits are merge-request drafts); real mode shows it read-only. */}
+                  {API_MODE === "mock" && <AddChip label={tx("条件", "Matcher")} free placeholder="severity=P2" options={["severity=P2", "namespace=checkout", "alertname=HighLatency"]} />}
                 </Row>
               </Section>
               <Section title={tx("分组与时间", "Grouping & timing")}>
-                <Row gap={6}>
-                  <Muted>{tx("分组依据", "Group by")}</Muted>
-                  <Badge>service</Badge>
-                  <Badge>alertname</Badge>
-                </Row>
+                {API_MODE === "mock" && (
+                  <Row gap={6}>
+                    <Muted>{tx("分组依据", "Group by")}</Muted>
+                    <Badge>service</Badge>
+                    <Badge>alertname</Badge>
+                  </Row>
+                )}
                 {[
                   [tx("首次等待", "Group wait"), cur.timing[0], tx("合并同组告警后再发", "Merge the group before sending")],
                   [tx("组内间隔", "Group interval"), cur.timing[1], tx("组内有新告警时的最短间隔", "Minimum gap when the group changes")],
@@ -134,13 +137,30 @@ export default function RoutingPage() {
                     <Row gap={6}>
                       <Strong>{l}</Strong>
                       <Spacer />
-                      <Input defaultValue={v} width={92} aria-label={l} />
+                      {API_MODE === "mock" ? <Input defaultValue={v} width={92} aria-label={l} /> : <span className="mono">{v || "—"}</span>}
                     </Row>
                     <Muted size={11.5}>{h}</Muted>
                   </Col>
                 ))}
               </Section>
-              <Section title={tx("接收人", "Receivers")}>
+              {API_MODE !== "mock" && (
+                <Section title={tx("接收人", "Receivers")}>
+                  {cur.receivers.length ? (
+                    cur.receivers.map((r) => (
+                      <Row key={r.channel + r.target} gap={10}>
+                        <Tile icon="bell" size={26} />
+                        <Col gap={0} grow>
+                          <Strong>{r.target}</Strong>
+                          <Muted size={11.5}>{r.channel}</Muted>
+                        </Col>
+                      </Row>
+                    ))
+                  ) : (
+                    <Muted size={11.5}>{tx("这条路由没有直接的接收方", "This route has no direct receiver")}</Muted>
+                  )}
+                </Section>
+              )}
+              {API_MODE === "mock" && <Section title={tx("接收人", "Receivers")}>
                 <Row gap={10}>
                   <Brand name="feishu" size={26} />
                   <Col gap={0} grow>
@@ -157,7 +177,8 @@ export default function RoutingPage() {
                   </Col>
                   <Toggle on label="sms" />
                 </Row>
-              </Section>
+              </Section>}
+              {API_MODE === "mock" && <>
               <Section title={tx("升级策略", "Escalation")}>
                 <Row gap={6}>
                   <Badge>{tx("5 分钟未认领", "Unclaimed 5 min")}</Badge>
@@ -184,6 +205,7 @@ export default function RoutingPage() {
                   </div>
                 </div>
               </Section>
+              </>}
             </Col>
           </aside>
         )}

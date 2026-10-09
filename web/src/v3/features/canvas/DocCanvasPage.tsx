@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as RPE } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
-import type { CanvasBlock, CanvasDoc, CanvasDocNode, CanvasTurn, ModelChoice } from "../../api/types";
+import { API_MODE, api, useGet } from "../../api/client";
+import type { CanvasBlock, CanvasDoc, CanvasDocNode, CanvasTurn, Me, ModelChoice } from "../../api/types";
 import { AiAvatar, Avatar, AvatarGroup, Badge, Brand, Btn, Dot, Env, Icon, IconBtn, Muted, Row, Segmented, Skeleton, Spacer, Strong, Tabs, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { BrandMark } from "../../ui/BrandMark";
 import { toast } from "../../ui/overlays";
@@ -120,6 +120,7 @@ function Turn({ t }: { t: CanvasTurn }) {
 export default function DocCanvasPage() {
   const { id = "" } = useParams();
   const { tx } = useI18n();
+  const { data: me } = useGet<Me>("/me", undefined, { staleTime: 5 * 60_000 });
   const nav = useNavigate();
   const { data, isLoading } = useGet<CanvasDoc>(`/canvases/${id}`);
   const { data: catalog } = useModelCatalog();
@@ -215,7 +216,7 @@ export default function DocCanvasPage() {
     const d = describeChoice(catalog, c);
     const nodeId = sel;
     const push = (t: CanvasTurn) => setThreads((th) => ({ ...th, [nodeId]: { context: th[nodeId]?.context ?? "", turns: [...(th[nodeId]?.turns ?? []), t] } }));
-    push({ id: `u${Date.now()}`, role: "user", author: "王晨", text });
+    push({ id: `u${Date.now()}`, role: "user", author: API_MODE === "mock" ? "王晨" : me?.name ?? tx("我", "Me"), text });
     setBusy(c);
     const r = await api<{ reply: string }>("POST", `/canvases/${id}/nodes/${nodeId}/messages`, { body: { text, model: c?.model, reasoning: c?.reasoning } });
     setTimeout(() => {
@@ -273,9 +274,16 @@ export default function DocCanvasPage() {
               {tab === "context" && (
                 <div className="v3-col" style={{ gap: 8, fontSize: "var(--fs-sm)" }}>
                   <Muted size={11.5}>{tx("本节点可见的上下文", "Context visible to this node")}</Muted>
-                  <Row gap={6}><Icon name="layers" size={13} />{tx("主线：目标与范围 v4", "Main: Goal & scope v4")}</Row>
-                  <Row gap={6}><Icon name="book" size={13} />{tx("Runbook「下游超时与重试风暴」", "Runbook “Retry storms”")}</Row>
-                  <Row gap={6}><Icon name="file" size={13} />{tx("INC-1042 复盘", "INC-1042 postmortem")}</Row>
+                  {/* The list of context sources is sample content; real nodes show their thread context only. */}
+                  {API_MODE === "mock" ? (
+                    <>
+                      <Row gap={6}><Icon name="layers" size={13} />{tx("主线：目标与范围 v4", "Main: Goal & scope v4")}</Row>
+                      <Row gap={6}><Icon name="book" size={13} />{tx("Runbook「下游超时与重试风暴」", "Runbook “Retry storms”")}</Row>
+                      <Row gap={6}><Icon name="file" size={13} />{tx("INC-1042 复盘", "INC-1042 postmortem")}</Row>
+                    </>
+                  ) : (
+                    <span>{(sel && threads[sel]?.context) || tx("这个节点还没有记录上下文来源。", "This node has no recorded context sources yet.")}</span>
+                  )}
                   <Muted size={11.5}>{tx("兄弟分支的对话不会进入本节点上下文。", "Sibling branches' conversations are not included.")}</Muted>
                 </div>
               )}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, useGet } from "../../api/client";
 import type { Topology, TopologyNode } from "../../api/types";
 import { Avatar, Bar, Brand, Btn, Chip, Col, Dot, Icon, IconBtn, KV, Muted, Row, Section, Segmented, Skeleton, State, Strong, TextLink, Tile, cx } from "../../ui/core";
 import { toast, MenuButton } from "../../ui/overlays";
@@ -272,9 +272,14 @@ export default function ResourcesPage() {
         <div className="main" style={{ display: "flex", flexDirection: "column", padding: "14px 16px", gap: 10, overflow: "hidden" }}>
           <Row gap={8}>
             <Segmented label={tx("视图", "View")} value={view_} onChange={setViewMode} options={[{ value: "topo", label: tx("拓扑", "Topology") }, { value: "tree", label: tx("层级", "Hierarchy") }, { value: "sankey", label: tx("桑基", "Sankey") }]} />
-            <ChipSelect icon="grid" label={tx("集群", "Cluster")} defaultValue="prod-sh-1" options={["prod-sh-1", "prod-bj-1"]} />
-            <ChipSelect icon="box" label={tx("围绕", "Around")} defaultValue="checkout-api" options={lists.services.length ? lists.services : ["checkout-api"]} />
-            <ChipSelect label={tx("深度", "Depth")} defaultValue="2" options={["1", "2", "3"]} />
+            {/* Cluster / around / depth don't filter the real topology yet; only the sample shows them. */}
+            {API_MODE === "mock" && (
+              <>
+                <ChipSelect icon="grid" label={tx("集群", "Cluster")} defaultValue="prod-sh-1" options={["prod-sh-1", "prod-bj-1"]} />
+                <ChipSelect icon="box" label={tx("围绕", "Around")} defaultValue="checkout-api" options={lists.services.length ? lists.services : ["checkout-api"]} />
+                <ChipSelect label={tx("深度", "Depth")} defaultValue="2" options={["1", "2", "3"]} />
+              </>
+            )}
             <ChipSelect icon="layers" label="" showLabel={false} defaultValue="zone" options={[{ value: "zone", label: tx("按可用区分组", "Group by zone") }, { value: "ns", label: tx("按命名空间分组", "Group by namespace") }, { value: "team", label: tx("按团队分组", "Group by team") }]} />
             <span style={{ flexGrow: 1 }} />
             <Chip icon="alert" active={blast} onClick={() => setBlast((b) => !b)}>

@@ -7,6 +7,9 @@ knowledge     bad-release drill → declare an incident from the firing alert (o
               timeline note → drill off → mitigated → resolved → postmortem draft and
               save (admin) → runbook from the postmortem, dry run, submit → upload a
               Markdown document, register it as a knowledge source, search.
+settings      admin: API token issue → Bearer read in scope / refused out of scope → rotate
+              (old and new valid) → revoke; workspace PUT with current/stale/no ETag;
+              notification and AI preferences round trip; audit export and detail.
 canvas        new investigation → question on the root node (model with read-only
               tools) → derive a child branch → question on the child → rename the
               child (layout version) → writeback preview → write the child's
@@ -233,6 +236,35 @@ def upload(cookie, filename, content, kind='file'):
         return e.code, json.loads(e.read() or b'{}')
 
 
+RESOURCES = ['conversation', 'events', 'alert_rules', 'silences', 'proposals', 'runbooks', 'knowledge', 'services',
+             'connectors', 'agents', 'identity', 'audit', 'resources']
+
+
+def ensure_knowledge_reviewer():
+    """D9: a second person must publish a postmortem (self review is refused) and only admin holds
+    knowledge.manage built in, so a custom global role gives approver2 knowledge/runbook manage."""
+    matrix = [{'resource': r, 'grants': [1, 0, 0, 0, 1 if r in ('knowledge', 'runbooks') else 0]} for r in RESOURCES]
+    status, body = call('prod', 'POST', '/roles', {'id': 'custom-knowledge-reviewer', 'name': '知识审核',
+                                                   'description': '审核并发布复盘与 Runbook（验收 D9）',
+                                                   'scopes': [{'kind': 'global', 'id': '*'}], 'matrix': matrix})
+    if status not in (200, 201):
+        raise SystemExit(f'create role: {status} {body}')
+    accounts = json.loads((LOCAL / 'prod/secrets.json').read_text())['accounts']
+    _, members = call('prod', 'GET', '/members')
+    mid = next(m['id'] for m in members['items'] if m.get('email') == accounts['approver2']['email'])
+    _, access = call('prod', 'GET', f'/members/{mid}/access')
+    current = {r['id']: str(r['matrix_revision']) for r in access['roles'] if r.get('origin') == 'direct'}
+    if 'custom-knowledge-reviewer' not in current:
+        headers = {}
+        call('prod', 'GET', '/roles/custom-knowledge-reviewer', headers_out=headers)
+        current['custom-knowledge-reviewer'] = headers.get('X-Role-Matrix-Revision', '1')
+        status, body = call('prod', 'PUT', f'/members/{mid}/access', {'expected_revision': access['revision'],
+                            'role_ids': sorted(current), 'role_revisions': current, 'enabled': True})
+        if status != 200:
+            raise SystemExit(f'assign role: {status} {body}')
+    return login('prod', accounts['approver2'])
+
+
 def knowledge(run):
     """Incident during a real bad-release drill → resolve → postmortem → runbook → knowledge source and search."""
     operator = run.cookie
@@ -290,12 +322,17 @@ def knowledge(run):
     run.note(candidates=len(candidates.get('items') or []), includes_incident=bool(found))
     pm_draft = run.step('postmortem draft', 'GET', f'/postmortems/draft?incident={inc}')
     run.note(draft_keys=sorted(pm_draft.keys()))
-    pm = run.step('save the postmortem as draft', 'POST', '/postmortems', {
+    # PA-65: a draft postmortem can never move to review, so the author submits for review directly.
+    pm = run.step('submit the postmortem for review', 'POST', '/postmortems', {
         'incident_id': inc, 'source_revision': pm_draft.get('source_revision'),
-        'sections': pm_draft.get('sections') or [], 'actions': pm_draft.get('actions') or [], 'status': 'draft'})
+        'sections': pm_draft.get('sections') or [], 'actions': pm_draft.get('actions') or [], 'status': 'review'})
     pm_id = pm['id']
     run.note(postmortem=pm_id)
-    run.step('publish the postmortem', 'POST', f'/postmortems/{pm_id}/publish', {})
+    # The author may not publish their own postmortem (403 self_review_forbidden, checked below).
+    run.step('author cannot publish own postmortem', 'POST', f'/postmortems/{pm_id}/publish', {}, ok=(403,))
+    run.cookie = ensure_knowledge_reviewer()
+    run.step('reviewer (approver2, custom role) publishes the postmortem', 'POST', f'/postmortems/{pm_id}/publish', {})
+    run.cookie = None
     # PA-63: only postmortems of incidents closed through an investigation can seed a runbook.
     run.step('runbook draft from a manual-incident postmortem (PA-63)', 'GET',
              f'/runbooks/draft?source=postmortem&from={pm_id}', ok=(200, 422))
@@ -326,14 +363,94 @@ def knowledge(run):
     return inc
 
 
+def bearer(method, path, token, body=None):
+    ctx = ssl.create_default_context(cafile=str(LOCAL / 'tls/cert.pem'))
+    headers = {'Authorization': f'Bearer {token}', 'X-AIOps-Environment': 'prod', 'Origin': ORIGINS['prod']}
+    data = None
+    if body is not None:
+        data, headers['Content-Type'] = json.dumps(body).encode(), 'application/json'
+        headers['Idempotency-Key'] = secrets.token_hex(16)
+    req = urllib.request.Request(ORIGINS['prod'] + '/api/v1' + path, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def settings(run):
+    """Admin: API token issue/use/rotate/revoke, workspace ETag writes, personal preferences, audit export."""
+    run.cookie = None  # admin (stored browser state)
+    issued = run.step('issue an API token (1 day, connectors:view)', 'POST', '/api-tokens',
+                      {'name': 'acceptance-probe', 'scopes': ['connectors:view'], 'ttl': 86400})
+    token, tid = issued.get('secret_shown_once'), issued.get('id')
+    run.note(id=tid, secret_returned=bool(token))
+    listed = run.step('token list hides the secret', 'GET', '/api-tokens')
+    raw = json.dumps(listed)
+    run.note(secret_in_list=bool(token) and token in raw)
+    if token and token in raw:
+        run.steps[-1]['ok'] = False
+    checks = {'bearer GET /connectors': (bearer('GET', '/connectors', token), {200}),
+              'bearer GET /services (out of scope)': (bearer('GET', '/services', token), {401, 403}),
+              'bearer POST /connectors (write)': (bearer('POST', '/connectors', token, {}), {401, 403, 405})}
+    rotated = run.step('rotate the token', 'POST', f'/api-tokens/{tid}/rotate', {})
+    new = rotated.get('secret_shown_once')
+    checks['old secret still valid after rotate'] = (bearer('GET', '/connectors', token), {200})
+    checks['new secret valid'] = (bearer('GET', '/connectors', new), {200})
+    new_id = rotated.get('id') or tid
+    run.step('revoke the rotated token', 'DELETE', f'/api-tokens/{new_id}', ok=(200, 204))
+    checks['new secret refused after revoke'] = (bearer('GET', '/connectors', new), {401, 403})
+    for name, (status, expected) in checks.items():
+        run.steps.append({'step': name, 'status': status, 'ok': status in expected})
+        print(f"{'ok ' if status in expected else 'FAIL'} {status}  {name}", flush=True)
+    headers = {}
+    status, workspace = call('prod', 'GET', '/workspace', headers_out=headers)
+    etag = headers.get('ETag') or headers.get('Etag')
+    run.steps.append({'step': 'workspace read with ETag', 'status': status, 'etag': bool(etag), 'ok': status == 200 and bool(etag)})
+    body = {k: workspace.get(k) for k in ('name', 'slug', 'timezone', 'locale', 'week_start', 'retention_days', 'data_region', 'brand')}
+    def put_workspace(if_match):
+        extra = {} if if_match is None else {'If-Match': if_match}
+        ctx = ssl.create_default_context(cafile=str(LOCAL / 'tls/cert.pem'))
+        hdr = {'Origin': ORIGINS['prod'], 'Cookie': session_cookie('prod', 'admin'), 'X-AIOps-Environment': 'prod',
+               'Content-Type': 'application/json', 'Idempotency-Key': secrets.token_hex(16), **extra}
+        req = urllib.request.Request(ORIGINS['prod'] + '/api/v1/workspace', json.dumps(body).encode(), method='PUT', headers=hdr)
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+                return r.status, r.headers.get('ETag')
+        except urllib.error.HTTPError as e:
+            return e.code, None
+    s1, new_etag = put_workspace(etag)
+    s2, _ = put_workspace(etag)
+    s3, _ = put_workspace(None)
+    for name, status, expected in (('workspace PUT with current ETag', s1, {200}), ('workspace PUT with stale ETag', s2, {412}),
+                                   ('workspace PUT without If-Match', s3, {428})):
+        run.steps.append({'step': name, 'status': status, 'ok': status in expected})
+        print(f"{'ok ' if status in expected else 'FAIL'} {status}  {name}", flush=True)
+    before = run.step('notification settings', 'GET', '/me/notification-settings')
+    digest = 'weekly' if before.get('digest') != 'weekly' else 'daily'
+    after = run.step('change the digest', 'PUT', '/me/notification-settings', {'digest': digest})
+    run.note(saved=after.get('digest') == digest)
+    run.step('restore the digest', 'PUT', '/me/notification-settings', {'digest': before.get('digest') or 'off'})
+    ai = run.step('AI preferences', 'GET', '/me/ai-preferences')
+    run.step('save AI preferences unchanged', 'PUT', '/me/ai-preferences', ai)
+    exported = run.step('audit export', 'POST', '/audit/export', {'filter': 'all'})
+    run.note(url=exported.get('url'))
+    audit = run.step('audit list', 'GET', '/audit?filter=user')
+    first = (audit.get('items') or [{}])[0]
+    detail = run.step('audit detail with hash-chain check', 'GET', f"/audit/{first.get('id')}")
+    run.note(chain={k: detail.get(k) for k in ('chain', 'hash_chain', 'verified', 'integrity') if k in detail})
+    sec = run.step('security policy view (no authority configured)', 'GET', '/security')
+    run.note(unavailable=sec.get('unavailable'))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('path', choices=['canvas', 'conversation', 'knowledge'])
+    ap.add_argument('path', choices=['canvas', 'conversation', 'knowledge', 'settings'])
     a = ap.parse_args()
     run = Run(a.path)
     accounts = json.loads((LOCAL / 'prod/secrets.json').read_text())['accounts']
     run.cookie = login('prod', accounts['operator'])
-    {'canvas': canvas, 'conversation': conversation, 'knowledge': knowledge}[a.path](run)
+    {'canvas': canvas, 'conversation': conversation, 'knowledge': knowledge, 'settings': settings}[a.path](run)
     print(run.save())
 
 

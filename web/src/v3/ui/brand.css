@@ -1,0 +1,113 @@
+/* Redstring mark (BrandMark.tsx). Colours follow the theme through --brand-red / --brand-ink. */
+.rs-mark {
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+.rs-thread path {
+  stroke: var(--brand-red);
+}
+.rs-thread circle {
+  fill: var(--brand-red);
+}
+.rs-dot {
+  fill: var(--brand-ink);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.rs-dot.rs-cause {
+  fill: var(--brand-red);
+}
+
+/* intro: the line strikes down, each dot pops as the line reaches it, then a short flash */
+.rs-intro .rs-draw {
+  stroke-dasharray: var(--rs-len);
+  stroke-dashoffset: var(--rs-len);
+  animation: rs-draw 0.46s cubic-bezier(0.55, 0, 0.85, 0.45) forwards;
+}
+.rs-intro .rs-dot {
+  transform: scale(0);
+  animation: rs-pop 0.36s cubic-bezier(0.3, 1.7, 0.5, 1) forwards;
+  animation-delay: calc(var(--rs-at) * 0.46s);
+}
+.rs-intro .rs-body {
+  animation: rs-flash 0.5s linear 0.5s both;
+}
+
+/* loading: dimmed line, a current runs along it */
+.rs-loading .rs-thread {
+  opacity: 0.3;
+}
+.rs-glint {
+  stroke: var(--brand-red);
+  stroke-dasharray: 9 var(--rs-len);
+  animation: rs-run 1s linear infinite;
+}
+
+/* thinking: the dots light up in turn */
+.rs-thinking .rs-thread {
+  opacity: 0.55;
+}
+.rs-thinking .rs-dot {
+  animation: rs-think 1.5s ease-in-out infinite;
+  animation-delay: calc(var(--rs-i) * 0.22s);
+}
+
+@keyframes rs-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes rs-pop {
+  to {
+    transform: scale(1);
+  }
+}
+@keyframes rs-flash {
+  0% { opacity: 1; }
+  14% { opacity: 0.2; }
+  28% { opacity: 1; }
+  44% { opacity: 0.5; }
+  60%, 100% { opacity: 1; }
+}
+@keyframes rs-run {
+  from {
+    stroke-dashoffset: calc(var(--rs-len) + 9);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes rs-think {
+  0%, 100% { opacity: 0.3; transform: scale(0.82); }
+  35% { opacity: 1; transform: scale(1.08); }
+  60% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-mark .rs-draw,
+  .rs-mark .rs-dot,
+  .rs-mark .rs-body {
+    animation: none !important;
+    stroke-dashoffset: 0;
+    transform: none;
+    opacity: 1;
+  }
+  .rs-mark .rs-glint {
+    display: none;
+  }
+  .rs-loading .rs-thread,
+  .rs-thinking .rs-thread {
+    opacity: 1;
+  }
+}
+
+/* "AI is working" label used next to streaming replies and running canvas nodes */
+.rs-working {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--fs-sub);
+  white-space: nowrap;
+}

@@ -70,6 +70,8 @@
   --accent-soft: rgba(91, 91, 214, 0.1);
   --accent-line: rgba(91, 91, 214, 0.45);
   --accent-text: #5b5bd6;
+  --brand-red: #E5484D;
+  --brand-ink: #111113;
   --raised: #FFFFFF;
   color-scheme: light;
 }
@@ -144,6 +146,8 @@
   --accent-soft: rgba(110, 110, 224, 0.16);
   --accent-line: rgba(110, 110, 224, 0.6);
   --accent-text: #A9A9F0;
+  --brand-red: #F2555A;
+  --brand-ink: #F2F2F3;
   --raised: #242429;
   color-scheme: dark;
 }

@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { applyEvent, sendAndStream } from "../api/stream";
 import type { Message, ModelChoice } from "../api/types";
 import { AiAvatar, Brand, IconBtn, Muted, Strong, cx } from "../ui/core";
+import { BrandMark } from "../ui/BrandMark";
 import { Composer, NextSteps, type SendExtra } from "../ui/Composer";
 import { PartView } from "../features/conversation/Parts";
 import { useI18n } from "../i18n";
@@ -136,7 +137,7 @@ export function AskAiCard() {
                       {m.run.reasoning_label && ` · ${m.run.reasoning_label}`}
                     </span>
                   )}
-                  {m.streaming && <span className="v3-spinner spin" />}
+                  {m.streaming && <BrandMark size={14} state="thinking" label={tx("生成中", "Generating")} />}
                 </div>
                 {m.parts.map((p, i) => (
                   <PartView key={i} part={p} streamingText={m.streaming && i === m.parts.length - 1} actions={{ onStep: () => openFull() }} />

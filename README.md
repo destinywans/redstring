@@ -1,4 +1,11 @@
-# AIOps Canvas
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/redstring-mark-on-dark.svg">
+  <img src="docs/brand/redstring-mark.svg" width="72" height="72" alt="Redstring">
+</picture>
+
+# Redstring
+
+原名 AIOps Canvas，2026-10-09 起更名为 Redstring；代码中的模块名、命令和接口路径保持不变。标志与使用规范见 [docs/brand](docs/brand/README.md)。
 
 [GitHub 仓库](https://github.com/destinywans/aiops-canvas) · [Linear 项目](https://linear.app/wansss/project/aiops-canvas-3c9fce50a53b)
 

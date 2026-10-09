@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Artifact } from "../../api/types";
 import { Avatar, Badge, Btn, Card, Chip, Icon, IconBtn, Muted, Row, SearchBox, Spacer, Strong, Textarea, cx, type IconName } from "../../ui/core";
+import { BrandMark } from "../../ui/BrandMark";
 import { DataTable } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
@@ -41,7 +42,7 @@ function ReportView({ a }: { a: Extract<Artifact["content"], { kind: "report" }>
       )}
       {a.editing_note && (
         <div className="art-editing">
-          <span className="v3-spinner spin" />
+          <BrandMark size={16} state="thinking" />
           {a.editing_note}
         </div>
       )}

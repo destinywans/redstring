@@ -4,6 +4,7 @@ import { Page } from "../../app/Shell";
 import { api, useGet } from "../../api/client";
 import type { CanvasGraph, CanvasNode, EvidenceTrayItem } from "../../api/types";
 import { AvatarGroup, Badge, Btn, Col, Dot, Env, Icon, IconBtn, Muted, Row, Section, Segmented, Skeleton, Spacer, Strong, Tabs, Tile, KV, Mono, cx, type IconName } from "../../ui/core";
+import { BrandMark } from "../../ui/BrandMark";
 import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { Donut, Lines, Sparkline } from "../../charts";
@@ -148,7 +149,7 @@ function NodeCard({
             {tx("已排除", "Ruled out")}
           </Badge>
         )}
-        {n.status === "running" && <span className="v3-spinner spin" style={{ color: "var(--accent)" }} />}
+        {n.status === "running" && <BrandMark size={16} state="thinking" label={tx("AI 正在分析", "AI is working")} />}
       </div>
       {!collapsed && n.kind !== "evidence" && (
         <div className="cv-body">

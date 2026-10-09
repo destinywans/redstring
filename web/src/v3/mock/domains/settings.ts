@@ -199,7 +199,7 @@ const workspace = {
   week_start: "monday",
   retention_days: 180,
   data_region: P("本地部署 · 数据不出内网", "Self-hosted · data stays on-prem"),
-  brand: { name: "AIOps Canvas", logo: null as string | null, pending: true },
+  brand: { name: "Redstring", logo: null as string | null, pending: false },
 };
 mock("GET", "/workspace", () => workspace);
 mock("PUT", "/workspace", ({ body }) => Object.assign(workspace, body));

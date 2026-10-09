@@ -7,6 +7,7 @@ import { NAV, SETTINGS_GROUPS, SETTINGS_NAV, locate, type NavItem } from "./nav"
 import { CommandPalette, useCommandPalette } from "./CommandPalette";
 import { AskAiCard, useAskAi, useAskOpenClass } from "./AskAi";
 import { DemoHost } from "../ui/demo";
+import { BrandMark } from "../ui/BrandMark";
 import { API_MODE, useGet } from "../api/client";
 import type { Me, WatchedService } from "../api/types";
 import { EnvSwitch, useInstanceLoader } from "./EnvSwitch";
@@ -65,10 +66,8 @@ function Sidebar() {
   return (
     <nav className="v3-sidebar" aria-label={tx("主导航", "Main navigation")}>
       <div className="brand-row">
-        <span className="logo">A</span>
-        <span className="grow" style={{ fontWeight: 600, fontSize: "var(--fs-md)" }}>
-          AIOps Canvas
-        </span>
+        <BrandMark size={20} state="intro" />
+        <span className="grow brand-name">Redstring</span>
         <MenuButton
           place="bottom-end"
           trigger={({ onClick, ref }) => (
@@ -230,7 +229,7 @@ export function Page({ crumbs, title, actions, children, ai = true, bodyClass, f
   const { pathname } = useLocation();
   useEffect(() => {
     const t = crumbs?.map((c) => (isLinkCrumb(c) ? c.label : c)).filter((c) => typeof c === "string").slice(-1)[0] ?? (typeof title === "string" ? title : "");
-    document.title = t ? `${t} · AIOps Canvas` : "AIOps Canvas";
+    document.title = t ? `${t} · Redstring` : "Redstring";
   }, [crumbs, title]);
   return (
     <main className="v3-page">

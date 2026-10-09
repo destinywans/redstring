@@ -4,6 +4,7 @@ import { Page } from "../../app/Shell";
 import { api, useGet } from "../../api/client";
 import type { CanvasBlock, CanvasDoc, CanvasDocNode, CanvasTurn, ModelChoice } from "../../api/types";
 import { AiAvatar, Avatar, AvatarGroup, Badge, Brand, Btn, Dot, Env, Icon, IconBtn, Muted, Row, Segmented, Skeleton, Spacer, Strong, Tabs, Tile, cx, type IconName, type Tone } from "../../ui/core";
+import { BrandMark } from "../../ui/BrandMark";
 import { toast } from "../../ui/overlays";
 import { Composer } from "../../ui/Composer";
 import { describeChoice, useModelCatalog } from "../../ui/ModelPicker";
@@ -263,7 +264,7 @@ export default function DocCanvasPage() {
                   {busy && (
                     <Row gap={8}>
                       <AiAvatar size={22} />
-                      <span className="v3-spinner spin" />
+                      <BrandMark size={16} state="thinking" label={tx("生成中", "Generating")} />
                       <Muted size={11.5}>{describeChoice(catalog, busy)?.label}</Muted>
                     </Row>
                   )}

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Page } from "../../app/Shell";
 import { useGet, useSend } from "../../api/client";
 import { Badge, Btn, Chip, Field, Input, Muted, Panel, Row, Segmented, Skeleton, Strong, Icon } from "../../ui/core";
+import { BrandMark } from "../../ui/BrandMark";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import { SettingsHead } from "./common";
@@ -54,12 +55,12 @@ export default function WorkspacePage() {
             </Panel>
             <Panel title={tx("品牌", "Branding")} right={w.brand.pending && <Badge tone="warn">{tx("名称与 Logo 待定", "Name and logo pending")}</Badge>}>
               <Row gap={12}>
-                <span className="logo-slot">A</span>
+                <span className="logo-slot">{w.brand.logo ? <img src={w.brand.logo} alt="" /> : <BrandMark size={28} label={w.brand.name} />}</span>
                 <span className="v3-col grow" style={{ gap: 0 }}>
                   <Strong>{w.brand.name}</Strong>
-                  <Muted size={11.5}>{tx("产品名称和 Logo 确定后在这里替换，侧栏和浏览器标签同步更新。", "Replace the product name and logo here once decided; the sidebar and browser tab follow.")}</Muted>
+                  <Muted size={11.5}>{tx("当前的产品名称和 Logo，暂不支持按工作区自定义。", "The current product name and logo; per-workspace branding isn't supported yet.")}</Muted>
                 </span>
-                <Btn h={28} icon="upload" disabled title={tx("产品名称和 Logo 还在确定中，确定后开放上传", "Uploads open once the product name and logo are decided")}>{tx("上传 Logo", "Upload logo")}</Btn>
+                <Btn h={28} icon="upload" disabled title={tx("暂不支持自定义 Logo", "Custom logos aren't supported yet")}>{tx("上传 Logo", "Upload logo")}</Btn>
               </Row>
             </Panel>
             <Panel title={tx("新成员默认值", "Defaults for new members")}>

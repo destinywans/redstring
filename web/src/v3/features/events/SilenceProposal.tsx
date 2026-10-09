@@ -8,17 +8,8 @@ import { Dialog, Drawer, toast } from "../../ui/overlays";
 import { ChipSelect } from "../../ui/demo";
 import { Unavailable } from "../../ui/unknown";
 import { useI18n } from "../../i18n";
+import { serviceApplicationId } from "../../api/ids";
 
-/** Service IDs are base64url of "application NUL environment"; the application part ties a service to an investigation. */
-export function serviceApplicationId(serviceId: string) {
-  try {
-    const raw = atob(serviceId.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(serviceId.length / 4) * 4, "="));
-    const i = raw.indexOf("\u0000");
-    return i > 0 ? raw.slice(0, i) : null;
-  } catch {
-    return null;
-  }
-}
 
 /** Open investigations (status not closed) with the application key the alert labels use (the service name). */
 export function useOpenInvestigations(enabled: boolean) {

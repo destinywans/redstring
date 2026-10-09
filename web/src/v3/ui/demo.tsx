@@ -272,7 +272,8 @@ export function usePickLists() {
   const { data: svc } = useGet<ServiceCatalog>("/services", undefined, { staleTime: 5 * 60_000 });
   const { data: mem } = useGet<MembersView>("/members", { filter: "all" }, { staleTime: 5 * 60_000 });
   return {
-    services: (svc?.items ?? []).map((s) => ({ value: s.id, label: s.id, hint: s.tier })),
+    // Real service IDs are opaque; show the name and keep the ID as the value.
+    services: (svc?.items ?? []).map((s) => ({ value: s.id, label: s.name, hint: s.tier })),
     people: (mem?.items ?? []).filter((m) => !m.agent && m.status === "active").map((m) => ({ value: m.name, label: m.name, hint: m.department })),
   };
 }

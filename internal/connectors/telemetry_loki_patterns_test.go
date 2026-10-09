@@ -76,7 +76,8 @@ func TestLokiPatternsRequireExactWholeWindowAndEveryBucket(t *testing.T) {
 					add("", 41)
 				}
 			}
-		} else if full {
+		} else if full || last {
+			// Every sampled line falls into the final bucket.
 			rows = append(rows, map[string]any{"metric": map[string]string{}, "value": []any{float64(ns) / float64(time.Second), "101"}})
 		}
 		response := map[string]any{"status": "success", "data": map[string]any{"resultType": "vector", "result": rows}}
@@ -109,8 +110,13 @@ func TestLokiPatternsRequireExactWholeWindowAndEveryBucket(t *testing.T) {
 	for _, failure := range []string{"truncated", "bucket_mismatch", "missing_template", "warning", "timestamp_mismatch"} {
 		mode = failure
 		out = read()
-		if out.PatternSummary != nil || out.PatternError == "" {
+		if out.PatternSummary != nil || out.PatternError == "" || out.PatternState != "unavailable" {
 			t.Fatalf("%s was accepted: %+v", failure, out)
+		}
+		// Ungrouped exact counts inside the registered horizon remain proven.
+		if out.Summary == nil || out.Summary.Total != 101 || len(out.Summary.Buckets) != 30 ||
+			out.Summary.Buckets[29].Count != 101 || out.SummaryState != "" || out.SummaryError != "" {
+			t.Fatalf("%s lost the exact count fallback: %+v", failure, out.Summary)
 		}
 	}
 	unsafeApp := tm.config.Applications["demo"]
@@ -146,13 +152,31 @@ func TestLokiPatternsAcceptVerifiedZeroAndRejectUnregisteredSource(t *testing.T)
 	}
 	tm.config.Applications["demo"] = ApplicationTelemetry{LokiLabels: map[string]string{"application": "demo"}}
 	out, err = tm.QueryLogsWithPatterns(context.Background(), "demo", "loki", "", "info", window, 100)
-	if err != nil || out.PatternSummary != nil || out.PatternError == "" {
+	if err != nil || out.PatternSummary != nil || out.PatternError == "" || out.PatternState != "not_configured" ||
+		out.Summary != nil || out.SummaryState != "not_configured" || out.Entries == nil {
 		t.Fatalf("unregistered template was accepted: %+v %v", out, err)
+	}
+	// A registered lookback alone proves exact counts; templates stay unknown.
+	lookbackOnly := ApplicationTelemetry{LokiLabels: map[string]string{"application": "demo"}, LokiCompleteLookbackSeconds: 7200}
+	if _, err := NewTelemetry(TelemetryConfig{Loki: TelemetryEndpoint{URL: server.URL, AllowHTTP: true}, Applications: map[string]ApplicationTelemetry{"demo": lookbackOnly}}); err != nil {
+		t.Fatalf("count-only Loki registration rejected: %v", err)
+	}
+	tm.config.Applications["demo"] = lookbackOnly
+	out, err = tm.QueryLogsWithPatterns(context.Background(), "demo", "loki", "", "info", window, 100)
+	if err != nil || out.PatternSummary != nil || out.PatternState != "not_configured" || out.Summary == nil ||
+		out.Summary.Total != 0 || len(out.Summary.Buckets) != 30 || out.SummaryState != "" || out.SummaryError != "" {
+		t.Fatalf("count-only registration must prove counts without patterns: %+v %v", out, err)
+	}
+	lookbackOnly.LokiCompleteLookbackSeconds = 1799
+	tm.config.Applications["demo"] = lookbackOnly
+	out, err = tm.QueryLogsWithPatterns(context.Background(), "demo", "loki", "", "info", window, 100)
+	if err != nil || out.Summary != nil || out.SummaryState != "unavailable" {
+		t.Fatalf("count outside the registered lookback was accepted: %+v %v", out, err)
 	}
 	for _, invalid := range []ApplicationTelemetry{
 		{LokiLabels: map[string]string{"application": "demo"}, LokiPatternField: "user_email", LokiCompleteLookbackSeconds: 7200},
 		{LokiLabels: map[string]string{"application": "demo"}, LokiPatternField: "message_template"},
-		{LokiLabels: map[string]string{"application": "demo"}, LokiCompleteLookbackSeconds: 7200},
+		{LokiLabels: map[string]string{"application": "demo"}, LokiCompleteLookbackSeconds: -1},
 	} {
 		if _, err := NewTelemetry(TelemetryConfig{Loki: TelemetryEndpoint{URL: server.URL, AllowHTTP: true}, Applications: map[string]ApplicationTelemetry{"demo": invalid}}); err == nil {
 			t.Fatalf("accepted unsafe Loki pattern registration: %+v", invalid)

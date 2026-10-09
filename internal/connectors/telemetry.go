@@ -54,7 +54,8 @@ type ApplicationTelemetry struct {
 	// A trusted ingestion pipeline must put a reviewed, sanitized template in
 	// each JSON log line. The registered effective tenant query lookback and
 	// retention must both cover this many seconds; Loki may silently trim older
-	// data when max_query_lookback is shorter than the requested window.
+	// data when max_query_lookback is shorter than the requested window. The
+	// lookback alone attests complete counts; the template field needs it too.
 	LokiPatternField            string `json:"loki_pattern_field,omitempty"`
 	LokiCompleteLookbackSeconds int    `json:"loki_complete_lookback_seconds,omitempty"`
 	ElasticsearchIndex          string `json:"elasticsearch_index"`
@@ -138,10 +139,15 @@ type LogPatternSummary struct {
 	Patterns []LogPattern `json:"patterns"`
 }
 type LogEvidence struct {
-	Summary        *LogSummary        `json:"summary,omitempty"`
-	SummaryError   string             `json:"summary_error,omitempty"`
+	Summary      *LogSummary `json:"summary,omitempty"`
+	SummaryError string      `json:"summary_error,omitempty"`
+	// SummaryState and PatternState explain an absent complete summary or
+	// pattern set: "not_configured" when the registration cannot attest
+	// complete coverage, "unavailable" when a registered source did not prove it.
+	SummaryState   string             `json:"summary_state,omitempty"`
 	PatternSummary *LogPatternSummary `json:"pattern_summary,omitempty"`
 	PatternError   string             `json:"pattern_error,omitempty"`
+	PatternState   string             `json:"pattern_state,omitempty"`
 	Source         TelemetrySource    `json:"source"`
 	Entries        []LogEntry         `json:"entries"`
 	Empty          bool               `json:"empty"`
@@ -221,7 +227,7 @@ func NewTelemetry(config TelemetryConfig) (*Telemetry, error) {
 		}
 		if a.LokiPatternField != "" && a.LokiPatternField != "message_template" ||
 			a.LokiCompleteLookbackSeconds < 0 || a.LokiCompleteLookbackSeconds > 366*86400 ||
-			(a.LokiPatternField == "") != (a.LokiCompleteLookbackSeconds == 0) {
+			a.LokiPatternField != "" && a.LokiCompleteLookbackSeconds == 0 {
 			return nil, fmt.Errorf("invalid registered Loki pattern source for %s", app)
 		}
 		if len(a.TempoSafeOperations) > 100 {

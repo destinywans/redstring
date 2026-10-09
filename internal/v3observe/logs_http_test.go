@@ -221,6 +221,9 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 				LokiLabels:       map[string]string{"application": "checkout", "environment": "dev"},
 				LokiPatternField: "message_template", LokiCompleteLookbackSeconds: 7200,
 			},
+			"loki-without-lookback": {
+				LokiLabels: map[string]string{"application": "checkout", "environment": "dev"},
+			},
 		},
 	})
 	if err != nil {
@@ -253,8 +256,28 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 			t.Fatalf("status=%d body=%s, want %d %s", w.Code, w.Body.String(), status, code)
 		}
 	}
+	type partialLogs struct {
+		Total       *string           `json:"total"`
+		Errors      *string           `json:"errors"`
+		Histogram   [][]int64         `json:"histogram"`
+		Items       []logLine         `json:"items"`
+		Patterns    []json.RawMessage `json:"patterns"`
+		Unavailable map[string]string `json:"unavailable"`
+	}
+	decodePartial := func(w *httptest.ResponseRecorder) partialLogs {
+		t.Helper()
+		var out partialLogs
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &out) != nil || out.Unavailable == nil {
+			t.Fatalf("partial logs response: status=%d body=%s", w.Code, w.Body.String())
+		}
+		return out
+	}
 	checkError(request("?service=app&levels=DEBUG"), 422, "invalid_levels")
-	checkError(request("?service=app&levels=INFO&q=checkout"), 503, "not_configured")
+	unbound := decodePartial(request("?service=app&levels=INFO&q=checkout"))
+	if unbound.Total != nil || unbound.Errors != nil || unbound.Histogram != nil || unbound.Items != nil || unbound.Patterns != nil ||
+		unbound.Unavailable["items"] != "not_configured" || unbound.Unavailable["total"] != "not_configured" || len(unbound.Unavailable) != 5 {
+		t.Fatalf("unbound log scope must be explicitly not configured, not empty: %+v", unbound)
+	}
 	if providerCalls.Load() != 0 {
 		t.Fatal("provider queried without persisted binding")
 	}
@@ -262,26 +285,17 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		t.Fatal(err)
 	}
 	w := request("?service=app&levels=INFO&q=checkout")
-	checkError(w, 503, "log_patterns_unavailable")
 	if w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
 	}
-	var body struct {
-		Available struct {
-			Total     string    `json:"total"`
-			Errors    string    `json:"errors"`
-			Histogram [][]int64 `json:"histogram"`
-			Items     []logLine `json:"items_sample"`
-		} `json:"available"`
-		Missing []string `json:"missing"`
-	}
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if body.Available.Total != "1" || body.Available.Errors != "0" || len(body.Available.Items) != 1 || body.Available.Items[0].Level != "INFO" ||
-		body.Available.Items[0].Service != "app" || body.Available.Items[0].Message != "checkout accepted" || len(body.Available.Histogram) != 30 ||
-		len(body.Available.Histogram[29]) != 3 || body.Available.Histogram[29][2] != 1 || len(body.Missing) == 0 {
-		t.Fatalf("unexpected scoped log result: %+v", body)
+	// Exact counts and lines without a complete pattern aggregation: patterns
+	// are unknown, never an empty list.
+	body := decodePartial(w)
+	if body.Total == nil || *body.Total != "1" || body.Errors == nil || *body.Errors != "0" || len(body.Items) != 1 || body.Items[0].Level != "INFO" ||
+		body.Items[0].Service != "app" || body.Items[0].Message != "checkout accepted" || len(body.Histogram) != 30 ||
+		len(body.Histogram[29]) != 3 || body.Histogram[29][2] != 1 || body.Patterns != nil ||
+		len(body.Unavailable) != 1 || body.Unavailable["patterns"] != "unavailable" {
+		t.Fatalf("unexpected scoped log result: %s", w.Body.String())
 	}
 	completePatterns.Store(true)
 	w = request("?service=app&levels=INFO&q=checkout")
@@ -298,6 +312,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		} `json:"patterns"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &complete); err != nil || w.Code != 200 ||
+		!strings.Contains(w.Body.String(), `"unavailable":{}`) ||
 		complete.Total != "1" || complete.Errors != "0" || len(complete.Histogram) != 30 ||
 		len(complete.Items) != 1 || len(complete.Patterns) != 1 ||
 		complete.Patterns[0].Template != "checkout accepted" || complete.Patterns[0].Level != "INFO" ||
@@ -372,6 +387,22 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"total":"0"`) ||
 		!strings.Contains(w.Body.String(), `"patterns":[]`) || lokiCalls.Load() == 0 {
 		t.Fatalf("configured Loki exact zero failed: status=%d calls=%d body=%s", w.Code, lokiCalls.Load(), w.Body.String())
+	}
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"loki","resource":"loki-without-lookback"}]'::jsonb WHERE id='app-dev'`); err != nil {
+		t.Fatal(err)
+	}
+	countQueries := lokiCalls.Load()
+	unregistered := decodePartial(request("?service=app&levels=INFO,ERROR&q=checkout&provider=loki"))
+	if unregistered.Items == nil || len(unregistered.Items) != 0 || unregistered.Total != nil || unregistered.Errors != nil ||
+		unregistered.Histogram != nil || unregistered.Patterns != nil || unregistered.Unavailable["total"] != "not_configured" ||
+		unregistered.Unavailable["errors"] != "not_configured" || unregistered.Unavailable["patterns"] != "not_configured" {
+		t.Fatalf("Loki without a registered lookback must keep lines and leave counts unknown: %+v", unregistered)
+	}
+	if lokiCalls.Load() != countQueries+2 {
+		t.Fatalf("unregistered Loki lookback must not issue count queries: %d", lokiCalls.Load()-countQueries)
+	}
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"},{"kind":"loki","resource":"same-app-different-source"}]'::jsonb WHERE id='app-dev'`); err != nil {
+		t.Fatal(err)
 	}
 	checkError(request("?service=app&levels=INFO&provider=unknown"), 422, "invalid_provider")
 	checkError(request("?service=app&levels=INFO&provider=loki&provider=elasticsearch"), 422, "invalid_provider")

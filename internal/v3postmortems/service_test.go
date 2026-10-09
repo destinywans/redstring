@@ -353,7 +353,7 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	}
 	assertError(call("GET", "/api/v1/postmortems/records", "dev", adminToken, ""), 413, "scope_too_large")
 	postmortemRunbook := `{"title":"Evidence based response","source":"postmortem","from":"ready","steps":[{"n":1,"kind":"check","title":"Inspect evidence","readonly":true}],"status":"draft"}`
-	assertError(call("POST", "/api/v1/runbooks", "dev", adminToken, postmortemRunbook), 422, "invalid_source")
+	assertError(call("POST", "/api/v1/runbooks", "dev", adminToken, postmortemRunbook), 422, "source_not_published")
 	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", teamToken, ""), 403, "self_review_forbidden")
 	if _, err := db.Exec(ctx, `UPDATE investigations SET status='active' WHERE id='closed-inv'`); err != nil {
 		t.Fatal(err)

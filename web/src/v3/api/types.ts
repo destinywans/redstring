@@ -258,6 +258,7 @@ export type AlertDetail = {
   unavailable?: string[];
 };
 export type AlertInstance = { id: string; value: string; state: "firing" | "pending"; duration: string; series: number[]; pending?: { pct: number; text: string } };
+/** Real groups are local persisted incidents: service is the application ID, owner/inhibited/notify.channel may be null. */
 export type AlertGroup = {
   id: string;
   severity: Severity;
@@ -266,18 +267,22 @@ export type AlertGroup = {
   count: number;
   state: "firing" | "pending" | "silenced" | "resolved";
   since: string;
-  notify: { channel?: string; text: string };
+  notify: { channel?: string | null; text: string; status?: string | null };
   badges: { text: string; tone: Tone }[];
-  owner?: string;
-  inhibited?: boolean;
+  owner?: string | null;
+  inhibited?: boolean | null;
   instances: AlertInstance[];
+  environment_id?: string;
+  unavailable?: string[];
 };
+/** inhibition is null and timeline entries may lack done (unknown) when the source can't prove them. */
 export type AlertGroupPolicy = {
   group_by: string[];
   route: string;
   timing: { key: "group_wait" | "group_interval" | "repeat_interval"; label: string; value: string; help: string }[];
-  timeline: { time: string; channel: string; text: string; done: boolean }[];
-  inhibition: string[];
+  timeline: { time: string; channel: string; text: string; done?: boolean | null }[];
+  inhibition: string[] | null;
+  unavailable?: string[];
 };
 /** Peeks are partial: null means unknown (never "healthy", "no owner" or "off call"). */
 export type ServicePeek = { id: string; name: string; tier: Tier | null; team: string | null; env: string; status: "ok" | "warn" | "danger" | null; kpis: { k: string; v: string; tone?: Tone }[]; owner: string | null; oncall: string | null; change: string | null };

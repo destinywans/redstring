@@ -10,8 +10,17 @@ S['V3Me'] = v3_object('id name email phone title team department timezone', {
     'oncall': {'oneOf': [obj({'active': v3_bool(), 'until': string(), 'schedule': string()}, ['active']), {'type': 'null'}]},
     'oncall_state': string(enum=['verified', 'not_configured', 'unavailable']),
     'roles': arr(string()), 'mfa': obj({'totp': v3_bool(), 'passkeys': integer()}, ['totp','passkeys']),
-    'preferences': ref('V3Preferences')},
-    ['id','name','email','phone','title','team','department','timezone','oncall','oncall_state','roles','mfa','preferences'])
+    'preferences': ref('V3Preferences'),
+    'permissions': {'type': 'object', 'additionalProperties': {'type': 'object', 'additionalProperties': {
+        'type': 'object', 'additionalProperties': string(enum=['all', 'scoped', 'conditional'])}},
+        'description': 'Effective grants per selected environment: environment ID -> module code (as in route permissions, '
+            'e.g. environment, conversation, canvas, events, alert_rules, silences, proposals, runbooks, knowledge, services, '
+            'resources, connectors, agents, models, members, roles, audit) -> action -> reach. all: a global or '
+            'environment-wide grant; scoped: only some applications or teams, so the object decides; conditional: '
+            'approve, which still needs a human identity, a passkey and the proposal checks. An absent action is not '
+            'granted. Computed with the V3 policy scope rules after the environment.view gate (PA-64); the server '
+            'still authorizes every request.'}},
+    ['id','name','email','phone','title','team','department','timezone','oncall','oncall_state','roles','mfa','preferences','permissions'])
 S['V3MePreferencesPatch'] = obj(S['V3Preferences']['properties'])
 S['V3MePreferencesPatch']['minProperties'] = 1
 S['V3MePatch'] = obj({'name':string(minLength=1,maxLength=120),

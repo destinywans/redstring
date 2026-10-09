@@ -61,7 +61,9 @@ func TestRecoverInterruptedPreservesDurablePartsInEventOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []map[string]any{{"type": "text", "markdown": "partial answer"}, firstStatus, firstCalls, chart, secondStatus, secondCalls,
-		{"type": "status", "text": "Model reply failed", "detail": "Retry this message after checking the model connection."}}
+		// Lease recovery has no request, so the interruption status is in the
+		// default language with a stable code (PA-60).
+		replyFailurePart(false, true)}
 	// Normalize number representations through JSON, as PostgreSQL returns
 	// jsonb numbers into interface values as float64.
 	var normalizedWant []map[string]any

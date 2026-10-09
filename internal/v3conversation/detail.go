@@ -112,7 +112,7 @@ func (s *Service) readOwnedDetail(ctx context.Context, sessionToken string, user
 		m.State = state
 		m.Streaming = state == "streaming"
 		if state == "failed" && m.Role == "assistant" && !hasReplyFailurePart(m.Parts) {
-			m.Parts = append(m.Parts, json.RawMessage(`{"type":"status","text":"Model reply failed"}`))
+			m.Parts = append(m.Parts, marshal(replyFailurePart(replyEnglish(ctx), false)))
 		}
 		messages = append(messages, m)
 	}
@@ -143,9 +143,12 @@ func hasReplyFailurePart(parts []json.RawMessage) bool {
 	for _, raw := range parts {
 		var part struct {
 			Type string `json:"type"`
+			Code string `json:"code"`
 			Text string `json:"text"`
 		}
-		if json.Unmarshal(raw, &part) == nil && part.Type == "status" && part.Text == "Model reply failed" {
+		// Replies failed before PA-60 carry the English text and no code.
+		if json.Unmarshal(raw, &part) == nil && part.Type == "status" &&
+			(part.Code == "reply_failed" || part.Code == "reply_interrupted" || part.Text == "Model reply failed") {
 			return true
 		}
 	}

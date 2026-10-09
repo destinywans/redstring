@@ -74,6 +74,11 @@ v3_route('get','/runbooks/draft','Read a source-validated Runbook outline',
         'source_sha256':string(pattern='^[0-9a-f]{64}$')},
         ['title','applies_to','trigger','steps','sources','outline','draft_mode','missing','source_sha256']),
     desc='Requires one selected environment and a valid explicit source ID. Registered code templates return a truthful outline with empty steps until a person supplies operational details. Published postmortem, owned completed conversation and owned Markdown import return bounded, source-backed structured outlines only after current source authorization. source_sha256 identifies the exact source content consumed by this response and can bind a later create request. Source text is treated as untrusted data, not model instructions or verified remediation; explicit write actions require approval. The response is a deterministic source outline, not proof of AI generation or a validated recovery procedure. It does not create a Runbook.')
+P['/runbooks/draft']['get']['description'] += (' A published postmortem of an ops incident must still be closed by its recorded'
+    ' investigation.closed event; one of a manual incident (case) must still be resolved by its recorded resolved status'
+    ' event (PA-63). For a postmortem the caller may read, 422 source_not_published, source_not_current or'
+    ' source_kind_unsupported says why it cannot seed a Runbook; an unknown or unreadable source stays 422 invalid_source.'
+    ' POST /runbooks returns the same codes.')
 P['/runbooks/draft']['get']['responses']['413'] = {
     'description':'The selected source exceeds the bounded draft input limit',
     'content':{'application/json':{'schema':ref('Error')}}}

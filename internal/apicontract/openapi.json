@@ -39571,7 +39571,7 @@
       "get": {
         "summary": "Read a source-validated Runbook outline",
         "operationId": "get_runbooks_draft",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and a valid explicit source ID. Registered code templates return a truthful outline with empty steps until a person supplies operational details. Published postmortem, owned completed conversation and owned Markdown import return bounded, source-backed structured outlines only after current source authorization. source_sha256 identifies the exact source content consumed by this response and can bind a later create request. Source text is treated as untrusted data, not model instructions or verified remediation; explicit write actions require approval. The response is a deterministic source outline, not proof of AI generation or a validated recovery procedure. It does not create a Runbook.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and a valid explicit source ID. Registered code templates return a truthful outline with empty steps until a person supplies operational details. Published postmortem, owned completed conversation and owned Markdown import return bounded, source-backed structured outlines only after current source authorization. source_sha256 identifies the exact source content consumed by this response and can bind a later create request. Source text is treated as untrusted data, not model instructions or verified remediation; explicit write actions require approval. The response is a deterministic source outline, not proof of AI generation or a validated recovery procedure. It does not create a Runbook. A published postmortem of an ops incident must still be closed by its recorded investigation.closed event; one of a manual incident (case) must still be resolved by its recorded resolved status event (PA-63). For a postmortem the caller may read, 422 source_not_published, source_not_current or source_kind_unsupported says why it cannot seed a Runbook; an unknown or unreadable source stays 422 invalid_source. POST /runbooks returns the same codes.",
         "responses": {
           "200": {
             "description": "Success",
@@ -65085,6 +65085,24 @@
           },
           "preferences": {
             "$ref": "#/components/schemas/V3Preferences"
+          },
+          "permissions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": [
+                    "all",
+                    "scoped",
+                    "conditional"
+                  ]
+                }
+              }
+            },
+            "description": "Effective grants per selected environment: environment ID -> module code (as in route permissions, e.g. environment, conversation, canvas, events, alert_rules, silences, proposals, runbooks, knowledge, services, resources, connectors, agents, models, members, roles, audit) -> action -> reach. all: a global or environment-wide grant; scoped: only some applications or teams, so the object decides; conditional: approve, which still needs a human identity, a passkey and the proposal checks. An absent action is not granted. Computed with the V3 policy scope rules after the environment.view gate (PA-64); the server still authorizes every request."
           }
         },
         "additionalProperties": false,
@@ -65101,7 +65119,8 @@
           "oncall_state",
           "roles",
           "mfa",
-          "preferences"
+          "preferences",
+          "permissions"
         ]
       },
       "V3MePreferencesPatch": {
@@ -66221,6 +66240,18 @@
           },
           "href": {
             "type": "string"
+          },
+          "alert_state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "firing",
+              "resolved",
+              null
+            ],
+            "description": "Current alert state of the incident; null when the source reports neither. Resolved incidents stay listed until claimed (PA-58, D7)."
           }
         },
         "additionalProperties": false,
@@ -66232,7 +66263,8 @@
           "symptom",
           "meta",
           "ai",
-          "href"
+          "href",
+          "alert_state"
         ]
       },
       "V3HomeService": {
@@ -66604,6 +66636,14 @@
               "$ref": "#/components/schemas/V3HomeRecent"
             }
           },
+          "firing_services": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Distinct visible services with a firing, non-suspected alert; null without an events grant (PA-58, D7)."
+          },
           "availability": {
             "type": "object",
             "additionalProperties": {
@@ -66623,6 +66663,7 @@
           "alert_trend",
           "activity",
           "recent",
+          "firing_services",
           "availability"
         ]
       },
@@ -67554,6 +67595,16 @@
               },
               "detail": {
                 "type": "string"
+              },
+              "code": {
+                "type": "string",
+                "enum": [
+                  "reply_failed",
+                  "reply_interrupted",
+                  "evidence_limit",
+                  "output_truncated"
+                ],
+                "description": "Stable reason for clients to translate or style; text and detail follow the Accept-Language of the request that started the reply (PA-60). Absent on older parts."
               }
             },
             "additionalProperties": false,

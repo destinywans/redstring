@@ -415,6 +415,45 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 		}
 	}
 	assert(draft("postmortem", "runbook-source-pm", otherToken), 422, "invalid_source")
+	// PA-63: a manual incident's published postmortem seeds a Runbook from its
+	// recorded resolved status event; reopening the incident or unpublishing
+	// the postmortem gives a specific reason instead of "not found".
+	for _, statement := range []string{
+		`INSERT INTO v3_incident_cases(id,application_id,environment_id,environment_key,title,severity,actor_id,request_key,request_hash)
+ VALUES('INC-runbook-case','app-1','app-1-dev','dev','Bad release','P2',$1,'case-request-1',repeat('a',64))`,
+		`INSERT INTO v3_incident_case_status_events(case_id,revision,from_status,to_status,actor_id,request_id,request_hash)
+ VALUES('INC-runbook-case',2,'active','resolved',$1,'case-status-1',repeat('b',64))`,
+		`UPDATE v3_incident_cases c SET status='resolved',status_revision=2,resolved_status_event_id=se.id,resolved_at=se.created_at
+ FROM v3_incident_case_status_events se WHERE se.case_id=c.id AND c.id='INC-runbook-case' AND $1<>''`,
+		`INSERT INTO v3_postmortems(id,incident_id,application_id,environment_id,source_kind,source_case_status_event_id,sections,actions,status,created_by)
+ SELECT 'runbook-case-pm','INC-runbook-case','app-1','dev','case',se.id,
+  '[{"key":"timeline","title":"What happened","text":"Bad release rolled back"}]','[{"text":"Add a release gate","owner":"SRE","due":""}]','published',$1
+ FROM v3_incident_case_status_events se WHERE se.case_id='INC-runbook-case'`,
+	} {
+		if _, err := db.Exec(ctx, statement, creator.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var caseDraft struct {
+		Steps        []Step `json:"steps"`
+		SourceSHA256 string `json:"source_sha256"`
+	}
+	caseResponse := draft("postmortem", "INC-runbook-case", creatorToken)
+	if err := json.Unmarshal(caseResponse.Body.Bytes(), &caseDraft); err != nil || caseResponse.Code != 200 || len(caseDraft.Steps) != 2 ||
+		caseDraft.Steps[1].Title != "Add a release gate" || !caseDraft.Steps[1].Approval || caseDraft.SourceSHA256 == "" {
+		t.Fatalf("manual incident postmortem draft: %d %s", caseResponse.Code, caseResponse.Body.String())
+	}
+	assert(create("postmortem", "runbook-case-pm", "dev", creatorToken), 201, "")
+	assert(draft("postmortem", "runbook-case-pm", otherToken), 422, "invalid_source")
+	if _, err := db.Exec(ctx, `UPDATE v3_postmortems SET status='review' WHERE id='runbook-case-pm'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(draft("postmortem", "runbook-case-pm", creatorToken), 422, "source_not_published")
+	if _, err := db.Exec(ctx, `UPDATE v3_postmortems SET status='published' WHERE id='runbook-case-pm';
+ UPDATE v3_incident_cases SET status='active',status_revision=3,resolved_status_event_id=NULL,resolved_at=NULL WHERE id='INC-runbook-case'`); err != nil {
+		t.Fatal(err)
+	}
+	assert(draft("postmortem", "runbook-case-pm", creatorToken), 422, "source_not_current")
 	assert(draft("conversation", "runbook-conversation", otherToken), 422, "invalid_source")
 	assert(draft("import", "upload-other", creatorToken), 422, "invalid_source")
 	var previousDraft struct {
@@ -459,7 +498,7 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	if err := blocked.Commit(ctx); err != nil {
 		t.Fatal(err)
 	}
-	assert(<-finished, 422, "invalid_source")
+	assert(<-finished, 422, "source_not_published")
 	var afterDocs, afterAudits int
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM knowledge_documents WHERE created_by=$1 AND source LIKE 'runbook://v3/%'`, creator.ID).Scan(&afterDocs); err != nil {
 		t.Fatal(err)

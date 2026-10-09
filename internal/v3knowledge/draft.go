@@ -37,6 +37,8 @@ func (s *Service) draftHandler() http.HandlerFunc {
 		case errors.Is(err, errSourceTooLarge):
 			httpapi.Error(w, 413, "source_too_large", "Source exceeds the bounded Runbook draft limit")
 			return
+		case postmortemSourceError(w, err):
+			return
 		case errors.Is(err, store.ErrForbidden), errors.Is(err, store.ErrNotFound), errors.Is(err, pgx.ErrNoRows), errors.Is(err, errSourceEmpty):
 			httpapi.Error(w, 422, "invalid_source", "Source was not found or is not accessible in this environment")
 			return
@@ -65,6 +67,8 @@ func (s *Service) draftHandler() http.HandlerFunc {
 		switch {
 		case errors.Is(err, errSourceTooLarge):
 			httpapi.Error(w, 413, "source_too_large", "Source exceeds the bounded Runbook draft limit")
+			return
+		case postmortemSourceError(w, err):
 			return
 		case errors.Is(err, store.ErrForbidden), errors.Is(err, store.ErrNotFound), errors.Is(err, pgx.ErrNoRows), errors.Is(err, errSourceEmpty):
 			httpapi.Error(w, 422, "invalid_source", "Source was not found or is not accessible in this environment")

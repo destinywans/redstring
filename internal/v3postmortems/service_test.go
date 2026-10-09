@@ -140,6 +140,8 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 		       ('missing','test','app','app-dev','missing','No close','warning','resolved','resolved',now()-interval '2 hours','missing-inv'),
 		       ('open','test','app','app-dev','open','Open','info','open','firing',now()-interval '2 hours',''),
 		       ('other','test','other','other-test','other','Other app','info','resolved','resolved',now()-interval '2 hours','other-inv')`,
+		// Replace the viewer's global environment grant (PA-55) with dev only.
+		`DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='environment'`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('viewer','environment','view','environment','dev'),('viewer','knowledge','view','application','app'),('viewer','events','view','application','app') ON CONFLICT DO NOTHING`,
 		`INSERT INTO rbac_roles(id,name) VALUES('team-postmortems','Team Postmortems')`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
@@ -351,7 +353,7 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	}
 	assertError(call("GET", "/api/v1/postmortems/records", "dev", adminToken, ""), 413, "scope_too_large")
 	postmortemRunbook := `{"title":"Evidence based response","source":"postmortem","from":"ready","steps":[{"n":1,"kind":"check","title":"Inspect evidence","readonly":true}],"status":"draft"}`
-	assertError(call("POST", "/api/v1/runbooks", "dev", adminToken, postmortemRunbook), 422, "invalid_source")
+	assertError(call("POST", "/api/v1/runbooks", "dev", adminToken, postmortemRunbook), 422, "source_not_published")
 	assertError(call("POST", "/api/v1/postmortems/"+made.ID+"/publish", "dev", teamToken, ""), 403, "self_review_forbidden")
 	if _, err := db.Exec(ctx, `UPDATE investigations SET status='active' WHERE id='closed-inv'`); err != nil {
 		t.Fatal(err)

@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { AiAvatar, Avatar, Badge, Btn, Dot, Icon, IconBtn, Kbd, Tile, cx } from "../ui/core";
+import { AiAvatar, Avatar, Badge, Btn, Dot, Icon, IconBtn, Kbd, Skeleton, Tile, cx } from "../ui/core";
 import { MenuButton, Toaster, toast } from "../ui/overlays";
 import { useI18n } from "../i18n";
 import { NAV, SETTINGS_GROUPS, SETTINGS_NAV, locate, type NavItem } from "./nav";
@@ -9,6 +9,7 @@ import { AskAiCard, useAskAi, useAskOpenClass } from "./AskAi";
 import { DemoHost } from "../ui/demo";
 import { BrandMark } from "../ui/BrandMark";
 import { PageBoundary } from "../ui/PageBoundary";
+import { LoadError } from "../ui/unknown";
 import { API_MODE, SIGNED_IN_KEY, useGet } from "../api/client";
 import type { Me, WatchedService } from "../api/types";
 import { EnvSwitch, useInstanceLoader } from "./EnvSwitch";
@@ -229,7 +230,11 @@ function useCrumbHref() {
   };
 }
 
-export function Page({ crumbs, title, actions, children, ai = true, bodyClass, flush }: { crumbs?: Crumb[]; title?: ReactNode; actions?: ReactNode; children: ReactNode; ai?: boolean; bodyClass?: string; flush?: boolean }) {
+/**
+ * `error` is the page's main read failure (pass it only while there is no data): the body then
+ * explains the missing or failing source instead of an empty table or an endless skeleton.
+ */
+export function Page({ crumbs, title, actions, children, ai = true, bodyClass, flush, error, errorSource }: { crumbs?: Crumb[]; title?: ReactNode; actions?: ReactNode; children: ReactNode; ai?: boolean; bodyClass?: string; flush?: boolean; error?: unknown; errorSource?: string }) {
   const { tx } = useI18n();
   const toggleAi = useAskAi((s) => s.toggle);
   const aiOpen = useAskAi((s) => s.isOpen);
@@ -280,7 +285,7 @@ export function Page({ crumbs, title, actions, children, ai = true, bodyClass, f
           </Btn>
         )}
       </header>
-      <div className={cx("v3-page-body", flush && "flush", bodyClass)}>{children}</div>
+      <div className={cx("v3-page-body", flush && "flush", bodyClass)}>{error ? <LoadError error={error} source={errorSource} /> : children}</div>
     </main>
   );
 }
@@ -313,7 +318,10 @@ export function Shell() {
       {inSettings ? <SettingsSidebar /> : <Sidebar />}
       <div id="v3-main" className="v3-main" key={pathname.split("/").slice(0, 2).join("/")}>
         <PageBoundary resetKey={pathname}>
-          <Outlet />
+          {/* Pages load lazily; suspend here so the sidebar stays while a page's code arrives. */}
+          <Suspense fallback={<PageLoading />}>
+            <Outlet />
+          </Suspense>
         </PageBoundary>
       </div>
       <CommandPalette />
@@ -325,3 +333,19 @@ export function Shell() {
 }
 
 export { AiAvatar, Tile };
+
+/** Content-area placeholder while a page's code loads; the shell around it stays interactive. */
+export function PageLoading() {
+  return (
+    <main className="v3-page" data-loading="">
+      <header className="v3-topbar">
+        <Skeleton w={180} h={12} />
+      </header>
+      <div className="v3-content">
+        <Skeleton h={90} />
+        <Skeleton h={220} />
+        <Skeleton h={160} />
+      </div>
+    </main>
+  );
+}

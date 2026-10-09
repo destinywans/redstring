@@ -12,6 +12,7 @@
     "staging": {
       "url": "https://alertmanager-staging.example.invalid",
       "bearer_token_file": "/absolute/path/private/alertmanager-staging.token",
+      "ca_file": "/absolute/path/private/internal-ca.pem",
       "environment_label": "environment"
     }
   }

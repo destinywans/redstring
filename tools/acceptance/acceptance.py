@@ -33,6 +33,9 @@ MODELS = ['deepseek-flash', 'deepseek-v4-pro']
 # --host-resolver-rules; nothing is added to /etc/hosts or the keychain.
 PROXY = 'aiops-acceptance-proxy'
 TLS = LOCAL / 'tls'
+# The lab Alertmanager speaks plain HTTP; a production tier only accepts HTTPS, so the proxy
+# also fronts it on 127.0.0.1 with its own IP-SAN cert (trusted via ca_file) and a bearer token.
+ALERTMANAGER = {'https': 18445, 'upstream': 'host.docker.internal:19093'}
 INSTANCES = {
     'prod': {
         'port': 18090, 'https': 18443, 'host': 'prod.redstring.test', 'db': 'redstring_prod',
@@ -209,6 +212,16 @@ def tls():
     der = subprocess.run(['openssl', 'pkey', '-pubin', '-outform', 'der'], input=pub, check=True, capture_output=True).stdout
     import base64, hashlib
     (TLS / 'spki.txt').write_text(base64.b64encode(hashlib.sha256(der).digest()).decode() + '\n')
+    am_cert, am_key, am_token = TLS / 'alertmanager.pem', TLS / 'alertmanager.key', TLS / 'alertmanager.token'
+    if not am_cert.exists():
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes',
+                        '-keyout', str(am_key), '-out', str(am_cert), '-days', '60', '-subj', '/CN=alertmanager acceptance',
+                        '-addext', 'subjectAltName=IP:127.0.0.1', '-addext', 'basicConstraints=critical,CA:TRUE'],
+                       check=True, capture_output=True)
+        os.chmod(am_key, 0o600)
+    if not am_token.exists():
+        private_write(am_token, secrets.token_urlsafe(32) + '\n')
+    token = am_token.read_text().strip()
     # Upstream keepalive: Docker Desktop's host.docker.internal path times out when every
     # proxied request opens a new connection (seen under 8 parallel browsers).
     upstreams = ''.join(f"""
@@ -235,9 +248,24 @@ def tls():
             proxy_read_timeout 3600s;
         }}
     }}""" for name, spec in INSTANCES.items())
-    (TLS / 'nginx.conf').write_text('worker_processes 2;\nevents { worker_connections 4096; }\nhttp {' + upstreams + servers + '\n}\n')
+    servers += f"""
+    server {{
+        listen {ALERTMANAGER['https']} ssl;
+        ssl_certificate /tls/alertmanager.pem;
+        ssl_certificate_key /tls/alertmanager.key;
+        location / {{
+            if ($http_authorization != "Bearer {token}") {{ return 401; }}
+            proxy_pass http://{ALERTMANAGER['upstream']};
+            proxy_set_header Authorization "";
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 30s;
+        }}
+    }}"""
+    conf = TLS / 'nginx.conf'
+    conf.write_text('worker_processes 2;\nevents { worker_connections 4096; }\nhttp {' + upstreams + servers + '\n}\n')
+    os.chmod(conf, 0o600)
     subprocess.run(['docker', 'rm', '-f', PROXY], capture_output=True)
-    ports = sum((['-p', f"127.0.0.1:{spec['https']}:{spec['https']}"] for spec in INSTANCES.values()), [])
+    ports = sum((['-p', f"127.0.0.1:{p}:{p}"] for p in [*(spec['https'] for spec in INSTANCES.values()), ALERTMANAGER['https']]), [])
     subprocess.run(['docker', 'run', '-d', '--name', PROXY, '--label', 'aiops.acceptance=2026-10-09', *ports,
                     '-v', f'{TLS}:/tls:ro', '-v', f"{TLS / 'nginx.conf'}:/etc/nginx/nginx.conf:ro", 'nginx:latest'],
                    check=True, capture_output=True)

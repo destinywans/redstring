@@ -10,7 +10,7 @@ import { ChipSelect, openExternal } from "../../ui/demo";
 
 export default function SecurityPage() {
   const { tx } = useI18n();
-  const { data } = useGet<SecurityView>("/security");
+  const { data, error } = useGet<SecurityView>("/security");
   const [s, setS] = useState<SecurityView | null>(null);
   const save = useSend<SecurityView>("PUT", "/security", ["/security"]);
   useEffect(() => {
@@ -21,6 +21,8 @@ export default function SecurityPage() {
   return (
     <Page
       ai={false}
+      error={!data ? error : undefined}
+      errorSource={tx("安全策略来源", "security policy source")}
       crumbs={[tx("设置", "Settings"), tx("安全策略", "Security policy")]}
       actions={
         <Btn kind="primary" icon="check" disabled={!dirty} loading={save.isPending} onClick={() => s && save.mutate(s, { onSuccess: () => toast(tx("安全策略已保存并写入审计", "Security policy saved and audited")) })}>

@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, ApiError, useGet } from "../../api/client";
+import { PageUnavailable } from "../../ui/unknown";
 import type { ChangesView, Pipeline } from "../../api/types";
 import { Badge, Brand, Btn, Card, CardHead, Chip, Col, Icon, Muted, Row, Skeleton, Spacer, State, Strong, Tile, cx } from "../../ui/core";
 import { Drawer } from "../../ui/overlays";
@@ -14,7 +16,26 @@ const STATUS = { success: "ok", failed: "danger", running: "accent", canceled: "
 
 export default function ChangesPage() {
   const { tx } = useI18n();
-  const { data } = useGet<ChangesView>("/changes");
+  const [params] = useSearchParams();
+  // The view covers one native delivery run of one service; there is no run list yet, so it opens from a link.
+  const service = params.get("service_id");
+  const run = params.get("run_id");
+  const selected = API_MODE === "mock" || (!!service && !!run);
+  const { data, error } = useGet<ChangesView>(selected ? "/changes" : null, API_MODE === "mock" ? undefined : { service_id: service ?? "", run_id: run ?? "" });
+  if (!selected || (error instanceof ApiError && error.status === 503))
+    return (
+      <Page crumbs={[tx("资源与观测", "Resources"), tx("变更与发布", "Changes & releases")]}>
+        <PageUnavailable
+          icon="branch"
+          title={selected ? tx("这次交付运行的证据还不完整", "This delivery run's evidence is incomplete") : tx("还没有选中交付运行", "No delivery run selected")}
+          desc={
+            selected
+              ? tx("变更视图需要原生交付运行、GitOps 发布记录、告警覆盖声明和人工审阅都齐全，缺一项就不展示，避免把时间相邻当成因果。", "The view needs the native run, GitOps release record, alert coverage and a human review; it is withheld when any is missing so adjacency is never shown as cause.")
+              : tx("变更视图展示某个服务的一次原生交付运行。接入 Argo Workflows 与 GitOps 后，从服务详情或交付记录打开。", "The view shows one native delivery run of a service. Connect Argo Workflows and GitOps, then open it from a service or delivery record.")
+          }
+        />
+      </Page>
+    );
   const [off, setOff] = useState<Set<string>>(new Set(["harbor"]));
   const [open, setOpen] = useState<string | null>(null);
   const [status, setStatus] = useState<Pipeline["status"] | "all">("all");

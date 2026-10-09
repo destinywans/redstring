@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useMutation, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
 import { currentLocale, usePreferences } from "../app/preferences";
 import { handleMock } from "../mock/router";
@@ -50,10 +51,14 @@ function toLogin() {
   location.assign(`/login?next=${next}${hadSession ? "&expired=1" : ""}`);
 }
 
+/** A fresh idempotency key; writes carry one so the server can replay instead of repeating them. */
+export const newIdempotencyKey = () =>
+  typeof crypto.randomUUID === "function" ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+
 export async function api<T>(
   method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
-  opts: { query?: Query; body?: unknown } = {},
+  opts: { query?: Query; body?: unknown; idempotencyKey?: string } = {},
 ): Promise<T> {
   if (API_MODE === "mock") return handleMock<T>(method, path, opts.query ?? {}, opts.body);
   const res = await fetch(`/api/v1${path}${qs(opts.query)}`, {
@@ -64,6 +69,7 @@ export async function api<T>(
       // Global environment (see app/environment.ts); production instances ignore it.
       ...(currentEnv() ? { "X-AIOps-Environment": currentEnv() } : {}),
       ...(opts.body !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(method !== "GET" ? { "Idempotency-Key": opts.idempotencyKey ?? newIdempotencyKey() } : {}),
     },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
@@ -103,9 +109,18 @@ export function useSend<TBody, TResult = unknown>(
   invalidate: string[] = [],
 ) {
   const client = useQueryClient();
+  // Re-sending the identical request while it is in flight or after it failed (double click, retry after a
+  // dropped connection) reuses its key, so the server replays instead of repeating it. Success starts afresh.
+  const last = useRef<{ sig: string; key: string } | null>(null);
   return useMutation<TResult, ApiError, TBody>({
-    mutationFn: (body) => api<TResult>(method, typeof path === "function" ? path(body) : path, { body }),
+    mutationFn: (body) => {
+      const url = typeof path === "function" ? path(body) : path;
+      const sig = `${method} ${url} ${JSON.stringify(body ?? null)}`;
+      if (last.current?.sig !== sig) last.current = { sig, key: newIdempotencyKey() };
+      return api<TResult>(method, url, { body, idempotencyKey: last.current.key });
+    },
     onSuccess: () => {
+      last.current = null;
       for (const prefix of invalidate)
         client.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith(prefix) });
     },

@@ -68,6 +68,7 @@ func parseV3AlertmanagerSourceWithPolicies(contents []byte, instance v3Instance,
 			URL                 string            `json:"url"`
 			BearerTokenFile     string            `json:"bearer_token_file"`
 			AllowHTTP           bool              `json:"allow_http"`
+			CAFile              string            `json:"ca_file"`
 			EnvironmentLabel    string            `json:"environment_label"`
 			ApplicationBindings map[string]string `json:"application_bindings"`
 			SourceIDs           []string          `json:"source_ids"`
@@ -168,7 +169,7 @@ func parseV3AlertmanagerSourceWithPolicies(contents []byte, instance v3Instance,
 				return nil, nil, nil, nil, fmt.Errorf("production Alertmanager requires HTTPS")
 			}
 		}
-		endpoints[env] = v3alertmanager.Endpoint{URL: value.URL, BearerTokenFile: value.BearerTokenFile, AllowHTTP: value.AllowHTTP}
+		endpoints[env] = v3alertmanager.Endpoint{URL: value.URL, BearerTokenFile: value.BearerTokenFile, AllowHTTP: value.AllowHTTP, CAFile: value.CAFile}
 		labels[env] = value.EnvironmentLabel
 		bindings[env] = value.ApplicationBindings
 	}

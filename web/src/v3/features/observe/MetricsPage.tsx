@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, useGet } from "../../api/client";
+import { PageUnavailable } from "../../ui/unknown";
 import type { MetricsDashboard } from "../../api/types";
 import { AiAvatar, Badge, Bar, Brand, Btn, Card, Chip, Cite, Col, Icon, IconBtn, LabelChip, Legend, Muted, Panel, Row, Segmented, Skeleton, Spacer, Strong, TextLink, cx, type Tone } from "../../ui/core";
 import { KBand } from "../../ui/data";
@@ -18,17 +19,23 @@ export default function MetricsPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
   const [params] = useSearchParams();
-  const service = params.get("service") ?? "checkout-api";
+  const service = params.get("service") ?? (API_MODE === "mock" ? "checkout-api" : "");
   const lists = usePickLists();
-  const { data: d } = useGet<MetricsDashboard>("/metrics/dashboard", { service });
+  const { data: d, error } = useGet<MetricsDashboard>(service ? "/metrics/dashboard" : null, { service });
   const [align, setAlign] = useState(false);
   const [ai, setAi] = useState(false);
   const [lat, setLat] = useState<"heat" | "pct" | "box">("heat");
   const [hover, setHover] = useState<number | null>(null);
   const sync = { index: hover, set: setHover };
-  if (!d)
+  if (!service)
     return (
       <Page crumbs={[tx("资源与观测", "Resources"), tx("指标", "Metrics")]}>
+        <PageUnavailable icon="activity" configure={false} title={tx("先选一个服务", "Pick a service first")} desc={tx("指标看板按单个服务展示。从服务目录或服务详情进入。", "The metrics dashboard covers one service. Open it from the service catalog or a service page.")} />
+      </Page>
+    );
+  if (!d)
+    return (
+      <Page crumbs={[tx("资源与观测", "Resources"), tx("指标", "Metrics")]} error={error} errorSource="Prometheus">
         <div className="v3-content">
           <Skeleton h={120} />
           <Skeleton h={260} />
@@ -37,10 +44,14 @@ export default function MetricsPage() {
       </Page>
     );
   const w = d.window;
-  const markers = [
-    { at: w.release_at, label: tx("v2.8.1 发布", "v2.8.1 release"), tone: "warn" },
-    { at: w.rollback_at, label: tx("限制重试", "Retries limited"), tone: "ok" },
-  ];
+  // Release and rollback markers are demo annotations; real mode has no change source wired here yet.
+  const markers =
+    API_MODE === "mock"
+      ? [
+          { at: w.release_at, label: tx("v2.8.1 发布", "v2.8.1 release"), tone: "warn" },
+          { at: w.rollback_at, label: tx("限制重试", "Retries limited"), tone: "ok" },
+        ]
+      : [];
   const bands = align ? [{ from: w.incident[0], to: w.incident[1], color: "var(--accent-soft)" }] : [];
   const stats = Array.from({ length: 12 }, (_, k) => {
     const seg = d.latency.p95.slice(k * 3, k * 3 + 3);
@@ -163,7 +174,7 @@ export default function MetricsPage() {
               style={{ flex: "2 1 0" }}
               right={
                 <Row gap={4}>
-                  <Segmented label={tx("延迟图表类型", "Latency chart")} value={lat} onChange={setLat} options={[{ value: "heat", label: tx("热力图", "Heatmap") }, { value: "pct", label: tx("分位线", "Percentiles") }, { value: "box", label: tx("箱线图", "Box plot") }]} />
+                  <Segmented label={tx("延迟图表类型", "Latency chart")} value={lat} onChange={setLat} options={[{ value: "heat" as const, label: tx("热力图", "Heatmap") }, { value: "pct" as const, label: tx("分位线", "Percentiles") }, ...(API_MODE === "mock" ? [{ value: "box" as const, label: tx("箱线图", "Box plot") }] : [])]} />
                   <IconBtn icon="pin" label={tx("钉到调查", "Pin to investigation")} size={24} />
                 </Row>
               }
@@ -190,7 +201,8 @@ export default function MetricsPage() {
                     sync={sync}
                   />
                 )}
-                {lat === "box" && <BoxPlot stats={stats} height={150} max={2000} />}
+                {/* The box plot is estimated from p95 for the demo; real mode has no quartile source. */}
+                {lat === "box" && API_MODE === "mock" && <BoxPlot stats={stats} height={150} max={2000} />}
               </div>
               <Axis labels={w.ticks} style={{ paddingLeft: lat === "heat" ? 56 : 0 }} />
               <Row gap={8} style={{ marginTop: 8 }}>

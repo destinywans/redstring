@@ -46,6 +46,8 @@ export default function RulesPage() {
   return (
     <Page
       flush
+      error={!list.data ? list.error : undefined}
+      errorSource={tx("告警规则来源", "alert rule source")}
       crumbs={[tx("事件与告警", "Events"), tx("告警规则", "Alert rules")]}
       actions={
         <>

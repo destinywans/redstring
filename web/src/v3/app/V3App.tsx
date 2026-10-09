@@ -47,7 +47,7 @@ function CanvasRoute() {
 
 function Loading() {
   return (
-    <main className="v3-page">
+    <main className="v3-page" data-loading="">
       <header className="v3-topbar">
         <Skeleton w={180} h={12} />
       </header>

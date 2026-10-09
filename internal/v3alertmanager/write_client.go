@@ -144,7 +144,7 @@ func (c *Client) write(ctx context.Context, environment, method, path string, bo
 			return nil, ErrSilenceCreateExpired
 		}
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.httpFor(environment).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: Alertmanager request: %v", ErrSilenceWriteUncertain, err)
 	}

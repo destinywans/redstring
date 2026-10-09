@@ -18,12 +18,12 @@ export function SettingsHead({ title, desc, right }: { title: string; desc?: Rea
 
 /** Profile, notifications and account security share `/me/profile`; each page edits its own slice. */
 export function useProfileForm() {
-  const { data } = useGet<ProfileView>("/me/profile");
+  const { data, error } = useGet<ProfileView>("/me/profile");
   const [form, setForm] = useState<ProfileView | null>(null);
   const save = useSend<ProfileView>("PUT", "/me/profile", ["/me"]);
   useEffect(() => {
     if (data) setForm(structuredClone(data));
   }, [data]);
   const dirty = !!data && !!form && JSON.stringify(data) !== JSON.stringify(form);
-  return { form, setForm, save, dirty };
+  return { form, setForm, save, dirty, error };
 }

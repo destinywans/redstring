@@ -44,6 +44,8 @@ for (const instance of Object.keys(INSTANCES) as InstanceName[]) {
           await page.goto(INSTANCES[instance].origin + route);
           // React replaces the #boot placeholder on mount; only then do page queries start.
           const mounted = await page.waitForFunction(() => !document.getElementById("boot"), undefined, { timeout: 20_000 }).then(() => true, () => false);
+          // Lazy page code may still be arriving; a page stuck loading for 20s counts as blank.
+          await page.waitForFunction(() => !document.querySelector("[data-loading]"), undefined, { timeout: 20_000 }).catch(() => undefined);
           await m.quiet();
           expect.soft(mounted, "app mounted within 20s").toBe(true);
           await m.settle();

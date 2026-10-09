@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, ApiError, useGet } from "../../api/client";
+import { Unavailable, errorReason } from "../../ui/unknown";
 import type { TraceList } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Dot, Icon, Legend, Muted, Num, Panel, Row, Skeleton, Spacer, cx, type Tone } from "../../ui/core";
 import { StackedBars } from "../../charts";
@@ -33,9 +34,11 @@ export default function TracesPage() {
   const [params, setParams] = useSearchParams();
   const scope = params.get("scope") === "agent" ? "agent" : "app";
   const [view, setView] = useState(scope === "agent" ? "all" : "errors");
-  const [checked, setChecked] = useState<Record<string, boolean>>({ "service:checkout-api": true, [`status:${tx("错误", "Error")}`]: true, "op:POST /api/orders": true, "version:v2.8.1": true });
-  const { data, isLoading, refetch } = useGet<TraceList>("/traces", { scope, view, service: params.get("service") ?? undefined });
+  const [checked, setChecked] = useState<Record<string, boolean>>(API_MODE === "mock" ? { "service:checkout-api": true, [`status:${tx("错误", "Error")}`]: true, "op:POST /api/orders": true, "version:v2.8.1": true } : {});
   const [q, setQ] = useState("");
+  // Real mode sends the submitted query; the demo filters by view only.
+  const [applied, setApplied] = useState("");
+  const { data, isLoading, error, refetch } = useGet<TraceList>("/traces", { scope, view, service: params.get("service") ?? undefined, q: API_MODE === "mock" ? undefined : applied || undefined });
   const [saved, setSaved] = useState<{ name: string; query: string }[]>([]);
   useEffect(() => setView(scope === "agent" ? "all" : "errors"), [scope]);
   useEffect(() => {
@@ -55,7 +58,7 @@ export default function TracesPage() {
           {scope === "agent" ? (
             <Badge>{tx("Agent 运行记录", "Agent runs")}</Badge>
           ) : (
-            <ChipSelect icon="database" label="" showLabel={false} defaultValue="tempo" options={[{ value: "tempo", label: tx("Tempo · 生产", "Tempo · prod") }, { value: "jaeger", label: "Jaeger · prod" }]} />
+            API_MODE === "mock" && <ChipSelect icon="database" label="" showLabel={false} defaultValue="tempo" options={[{ value: "tempo", label: tx("Tempo · 生产", "Tempo · prod") }, { value: "jaeger", label: "Jaeger · prod" }]} />
           )}
           <RangeChip key={scope} defaultValue={scope === "agent" ? "24h" : "1h"} />
         </>
@@ -63,7 +66,7 @@ export default function TracesPage() {
     >
       <div className="tr-layout">
         <aside className="tr-facets" aria-label={tx("筛选", "Filters")}>
-          {isLoading && <Skeleton h={300} />}
+          {isLoading && !error && <Skeleton h={300} />}
           {data?.facets.map((f) => (
             <section key={f.key}>
               <b>{f.label}</b>
@@ -80,7 +83,7 @@ export default function TracesPage() {
               })}
             </section>
           ))}
-          {scope === "app" && data && (
+          {scope === "app" && data && API_MODE === "mock" && (
             <section>
               <b>{tx("耗时", "Duration")}</b>
               <div className="tr-durhist">
@@ -101,7 +104,8 @@ export default function TracesPage() {
             className="tr-query"
             onSubmit={(e) => {
               e.preventDefault();
-              void refetch();
+              if (API_MODE !== "mock" && q !== applied) setApplied(q);
+              else void refetch();
             }}
           >
             <label className="grow">
@@ -110,6 +114,11 @@ export default function TracesPage() {
             </label>
             <Btn kind="primary" icon="search" h={34} type="submit">{tx("搜索", "Search")}</Btn>
           </form>
+          {error && !data && (
+            <Card>
+              <Unavailable reason={errorReason(error)} source="Tempo" desc={error instanceof ApiError && error.status === 422 ? error.message : undefined} />
+            </Card>
+          )}
           <Row gap={6} wrap>
             <Muted size={11.5}>{tx("视图", "Views")}</Muted>
             {data?.views.map((v) => (
@@ -124,6 +133,8 @@ export default function TracesPage() {
                 {v.name}
               </Chip>
             ))}
+            {/* Saved views are demo-only: there is no shared view store yet. */}
+            {API_MODE === "mock" && (
             <Chip
               icon="plus"
               onClick={async () => {
@@ -136,6 +147,7 @@ export default function TracesPage() {
             >
               {tx("保存视图", "Save view")}
             </Chip>
+            )}
             <Spacer />
             {data && <Muted size={11.5}>{tx("找到 {n} 条 · {t}", "{n} found · {t}", { n: data.total.toLocaleString(), t: data.took })}</Muted>}
           </Row>
@@ -150,6 +162,8 @@ export default function TracesPage() {
                     ))}
                   </Row>
                 </div>
+              ) : error ? (
+                <Muted>—</Muted>
               ) : (
                 <Skeleton h={110} />
               )}
@@ -160,7 +174,7 @@ export default function TracesPage() {
                   <svg width="100%" height="105" viewBox="0 0 440 110" preserveAspectRatio="none" role="img" aria-label={tx("耗时散点图", "Duration scatter")}>
                     <line x1={0} x2={440} y1={36} y2={36} className="ch-grid" />
                     <line x1={0} x2={440} y1={73} y2={73} className="ch-grid" />
-                    {scope === "app" && <rect x={232} y={6} width={104} height={58} rx={4} className="tr-brush" />}
+                    {scope === "app" && API_MODE === "mock" && <rect x={232} y={6} width={104} height={58} rx={4} className="tr-brush" />}
                     {data.scatter.map((p, i) => (
                       <circle key={i} cx={p.x} cy={p.y} r={p.error ? 3.2 : 2.6} fill={p.error ? "var(--danger)" : "var(--c1)"} className={cx(p.id && "clickable")} onClick={() => p.id && nav(scope === "agent" ? `/agents/runs/${p.id}` : `/traces/${p.id}`)} />
                     ))}
@@ -171,6 +185,8 @@ export default function TracesPage() {
                     <Muted size={11.5}>{tx("纵轴：耗时", "Y: duration")}</Muted>
                   </Row>
                 </div>
+              ) : error ? (
+                <Muted>—</Muted>
               ) : (
                 <Skeleton h={110} />
               )}

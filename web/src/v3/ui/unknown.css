@@ -104,3 +104,8 @@
   color: var(--muted);
   font-size: var(--fs-sub);
 }
+.unk-detail {
+  font-family: var(--mono);
+  font-size: var(--fs-cap);
+  color: var(--faint);
+}

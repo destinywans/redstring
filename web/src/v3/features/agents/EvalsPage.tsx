@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { API_MODE, ApiError, useGet, useSend } from "../../api/client";
+import { PageUnavailable } from "../../ui/unknown";
 import type { EvalExperiment } from "../../api/types";
 import { Badge, Brand, Btn, Card, Col, Icon, Legend, Mono, Muted, Num, Panel, Row, Section, Skeleton, Spacer, Tabs, TextLink, Tile, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -13,7 +14,40 @@ import { openForm } from "../../ui/demo";
 export default function EvalsPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
-  const { data: e } = useGet<EvalExperiment>("/evals/exp-v12-v13");
+  const [params, setParams] = useSearchParams();
+  // There is no experiment list yet (PA-20): real mode opens one experiment by ?id=.
+  const expId = API_MODE === "mock" ? "exp-v12-v13" : params.get("id");
+  const { data: e } = useGet<EvalExperiment>(expId ? `/evals/${expId}` : null);
+  const create = useSend<{ agent_id: string; title: string; baseline_version: string; candidate_version: string }, { id: string; status: string; execution_available: boolean }>("POST", "/evals");
+  const newExperiment = async () => {
+    const v = await openForm({
+      title: tx("新建评测实验", "New experiment"),
+      desc: tx("对比同一 Agent 的两个已发布版本。实验先保存为待运行，不会立即调用模型。", "Compare two published versions of one agent. The experiment is saved as pending; no model is called yet."),
+      fields: [
+        { key: "agent", label: tx("Agent ID", "Agent ID"), mono: true, required: true },
+        { key: "title", label: tx("实验名称", "Title"), required: true },
+        { key: "a", label: tx("基线版本", "Baseline version"), mono: true, required: true },
+        { key: "b", label: tx("候选版本", "Candidate version"), mono: true, required: true },
+      ],
+      submit: tx("保存实验", "Save experiment"),
+    });
+    if (!v) return;
+    const r = await create.mutateAsync({ agent_id: v.agent, title: v.title, baseline_version: v.a, candidate_version: v.b }).catch((err: ApiError) => (toast(err.message, { tone: "danger" }), null));
+    if (!r) return;
+    toast(r.execution_available ? tx("实验已保存，待运行", "Experiment saved, ready to run") : tx("实验已保存；运行器未接入，暂不能执行", "Experiment saved; the runner is not connected, so it can't run yet"));
+    setParams({ id: r.id });
+  };
+  if (API_MODE !== "mock" && !expId)
+    return (
+      <Page crumbs={[tx("Agent 运行台", "Agent console"), tx("评测", "Evaluations")]} actions={<Btn kind="primary" icon="play" onClick={() => void newExperiment()}>{tx("新建实验", "New experiment")}</Btn>}>
+        <PageUnavailable
+          icon="activity"
+          configure={false}
+          title={tx("还没有打开的评测实验", "No experiment open")}
+          desc={tx("评测对比同一 Agent 的两个版本。新建实验后会在这里打开；实验列表还在开发中。", "An evaluation compares two versions of one agent. A new experiment opens here; the experiment list is still in development.")}
+        />
+      </Page>
+    );
   const [tab, setTab] = useState("exp");
   const [sel, setSel] = useState("INV-187");
   const rerun = useSend<void, { id: string }>("POST", "/evals");

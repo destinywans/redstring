@@ -15,7 +15,7 @@ import { PageHead } from "../conversation/ConversationsPage";
 export default function ConfigSyncPage() {
   const { tx } = useI18n();
   const prod = useEnv((s) => s.instance?.tier === "production");
-  const { data, refetch } = useGet<{ direction: "import" | "export"; items: SyncItem[] }>("/config-sync");
+  const { data, refetch, error } = useGet<{ direction: "import" | "export"; items: SyncItem[] }>("/config-sync");
   const [busy, setBusy] = useState<string | null>(null);
   const importIt = async (it: SyncItem) => {
     setBusy(it.id);
@@ -30,7 +30,7 @@ export default function ConfigSyncPage() {
   const statusBadge = (s: SyncItem["status"]) =>
     ({ pending: <Badge tone="warn">{tx("待审核", "To review")}</Badge>, imported: <Badge tone="ok">{tx("已导入", "Imported")}</Badge>, exported: <Badge tone="info">{tx("已导出 · 合并请求中", "Exported · in review")}</Badge>, merged: <Badge tone="ok">{tx("已合并", "Merged")}</Badge> })[s];
   return (
-    <Page crumbs={[tx("集成中心", "Integrations"), tx("配置同步", "Config sync")]}>
+    <Page error={!data ? error : undefined} errorSource={tx("配置仓库", "configuration repository")} crumbs={[tx("集成中心", "Integrations"), tx("配置同步", "Config sync")]}>
       <div className="v3-content" style={{ maxWidth: 980 }}>
         <PageHead
           title={prod ? tx("配置同步 · 待导入", "Config sync · to import") : tx("配置同步 · 已导出", "Config sync · exported")}

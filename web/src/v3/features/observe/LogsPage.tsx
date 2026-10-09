@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, ApiError, useGet } from "../../api/client";
+import { Unavailable, errorReason } from "../../ui/unknown";
 import type { LogLine, LogSearch } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, Input, Muted, Num, Row, Spacer, Strong, Tile, Toggle, cx } from "../../ui/core";
 import { StackedBars, Sparkline } from "../../charts";
@@ -14,14 +15,15 @@ const LV = { ERROR: "danger", WARN: "warn", INFO: "neutral" } as const;
 export default function LogsPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
-  const [query, setQuery] = useState('service:"checkout-api" and level:(error or warn)');
+  const [query, setQuery] = useState(API_MODE === "mock" ? 'service:"checkout-api" and level:(error or warn)' : "");
   const [applied, setApplied] = useState("");
   const [levels, setLevels] = useState<Set<LogLine["level"]>>(new Set(["ERROR", "WARN", "INFO"]));
   const [live, setLive] = useState(false);
   const [extra, setExtra] = useState<LogLine[]>([]);
-  const { data } = useGet<LogSearch>("/logs", { q: applied, levels: [...levels].join(",") });
+  const { data, error, isFetching } = useGet<LogSearch>("/logs", { q: applied, levels: [...levels].join(",") });
   useEffect(() => {
-    if (!live) return;
+    // The demo fakes a live tail; real mode has no streaming source yet, so nothing is invented.
+    if (!live || API_MODE !== "mock") return;
     const t = setInterval(() => {
       const now = new Date();
       const ts = `${now.toTimeString().slice(0, 8)}.${String(now.getMilliseconds()).padStart(3, "0")}`;
@@ -44,27 +46,31 @@ export default function LogsPage() {
       actions={
         <>
           <RangeChip defaultValue="30m" />
-          <Btn icon="external" onClick={() => openExternal("Kibana", `https://kibana.example.internal/app/discover#/?_a=(query:(language:kuery,query:'${encodeURIComponent(query)}'))`)}>{tx("在 Kibana 中打开", "Open in Kibana")}</Btn>
+          {API_MODE === "mock" && <Btn icon="external" onClick={() => openExternal("Kibana", `https://kibana.example.internal/app/discover#/?_a=(query:(language:kuery,query:'${encodeURIComponent(query)}'))`)}>{tx("在 Kibana 中打开", "Open in Kibana")}</Btn>}
         </>
       }
     >
       <div className="v3-split">
         <div className="main">
           <div className="v3-content">
-            <form className="v3-row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); setApplied(query.includes("checkout") ? "checkout" : query); }}>
-              <ChipSelect icon="database" label="" showLabel={false} defaultValue="es" options={[{ value: "es", label: tx("Elasticsearch · 生产", "Elasticsearch · prod") }, { value: "loki", label: "Loki · prod" }]} />
-              <ChipSelect label="" showLabel={false} defaultValue="kql" options={[{ value: "kql", label: "KQL" }, { value: "lucene", label: "Lucene" }]} />
+            <form className="v3-row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); setApplied(API_MODE === "mock" && query.includes("checkout") ? "checkout" : query); }}>
+              {API_MODE === "mock" && <ChipSelect icon="database" label="" showLabel={false} defaultValue="es" options={[{ value: "es", label: tx("Elasticsearch · 生产", "Elasticsearch · prod") }, { value: "loki", label: "Loki · prod" }]} />}
+              {API_MODE === "mock" && <ChipSelect label="" showLabel={false} defaultValue="kql" options={[{ value: "kql", label: "KQL" }, { value: "lucene", label: "Lucene" }]} />}
               <Input mono value={query} onChange={(e) => setQuery(e.target.value)} style={{ flexGrow: 1 }} aria-label={tx("日志查询", "Log query")} />
               <Btn kind="primary" icon="search" h={32} type="submit">
                 {tx("搜索", "Search")}
               </Btn>
-              <Muted>{tx("实时", "Live")}</Muted>
-              <Toggle on={live} onChange={setLive} label={tx("实时", "Live")} />
+              {API_MODE === "mock" && (
+                <>
+                  <Muted>{tx("实时", "Live")}</Muted>
+                  <Toggle on={live} onChange={setLive} label={tx("实时", "Live")} />
+                </>
+              )}
             </form>
             <Card style={{ padding: "10px 14px" }}>
               <Row gap={8}>
                 <Strong>{tx("日志量", "Volume")}</Strong>
-                <Muted size={11.5}>{tx("共 {a} 条 · 错误 {b}", "{a} lines · {b} errors", { a: data?.total ?? "…", b: data?.errors ?? "…" })}</Muted>
+                <Muted size={11.5}>{data ? tx("共 {a} 条 · 错误 {b}", "{a} lines · {b} errors", { a: data.total, b: data.errors }) : error ? "—" : "…"}</Muted>
                 <Spacer />
                 {(["ERROR", "WARN", "INFO"] as const).map((l) => (
                   <Chip key={l} active={levels.has(l)} onClick={() => toggle(l)}>
@@ -75,6 +81,11 @@ export default function LogsPage() {
               </Row>
               {data && <StackedBars data={data.histogram} colors={["var(--c3)", "var(--c4)", "var(--c5s)"]} height={70} names={["ERROR", "WARN", "INFO"]} gap={3} />}
             </Card>
+            {error && !isFetching && (
+              <Card>
+                <Unavailable reason={errorReason(error)} source="Loki" desc={error instanceof ApiError && error.status === 422 ? error.message : undefined} />
+              </Card>
+            )}
             <Card style={{ overflow: "hidden" }}>
               <table className="v3-table logs-table">
                 <thead>
@@ -123,7 +134,7 @@ export default function LogsPage() {
                     {p.level}
                   </Badge>
                   <Num>{p.count}</Num>
-                  {p.new && <Badge tone="danger">{tx("新出现 · 14:05", "New · 14:05")}</Badge>}
+                  {p.new && <Badge tone="danger">{API_MODE === "mock" ? tx("新出现 · 14:05", "New · 14:05") : tx("新出现", "New")}</Badge>}
                   <Spacer />
                   <Sparkline values={p.trend} width={70} height={18} color={p.level === "ERROR" ? "var(--danger)" : "var(--muted)"} />
                 </Row>
@@ -132,9 +143,11 @@ export default function LogsPage() {
             ))}
           </ul>
           <Row gap={6} style={{ padding: "0 16px 16px" }}>
-            <Btn icon="branch" to="/canvas/INV-231">
-              {tx("带入调查", "Add to investigation")}
-            </Btn>
+            {API_MODE === "mock" && (
+              <Btn icon="branch" to="/canvas/INV-231">
+                {tx("带入调查", "Add to investigation")}
+              </Btn>
+            )}
             <Btn kind="ghost" icon="bell" to="/alert-rules">
               {tx("按模式建告警", "Alert on pattern")}
             </Btn>

@@ -364,16 +364,21 @@ export type PostmortemSummary = {
   followups: { text: string; owner: string; due: string; tone: Tone }[] | null;
   unknown_fields?: string[];
 };
-export type MemoryLayer = { id: "working" | "service" | "episodic" | "semantic"; name: string; count: string; desc: string };
-export type MemoryFact = { id: string; fact: string; source: string; confidence: "high" | "medium" | "low"; confirmed: string | null; recalls: number; expires: string };
+export type MemoryLayer = { id: "working" | "service" | "episodic" | "semantic"; name: string; count: string | number; desc?: string; description?: string };
+/** Real facts carry `revision`/`state`; confidence, recalls and expiry are null until measured. */
+export type MemoryFact = { id: string; fact: string; source: string; confidence: "high" | "medium" | "low" | null; confirmed: string | null; recalls: number | null; expires: string | null; revision?: number; state?: string };
+export type MemoryConflictSide = { id?: string; text: string; source: string };
 export type MemoryView = {
   layers: MemoryLayer[];
-  services: { id: string; count: number }[];
-  service: string;
-  conflict?: { a: { text: string; source: string }; b: { text: string; source: string } };
+  services: { id: string; name?: string; key?: string; count: number }[];
+  service: string | null;
+  conflict?: { id?: string; a: MemoryConflictSide; b: MemoryConflictSide } | null;
   facts: MemoryFact[];
-  policy: string;
+  policy: string | null;
+  partial?: boolean;
+  unavailable_fields?: string[];
 };
+export type MemoryPolicy = { ttl_days: 30 | 90 | 180; proposers: "human" | "human_ai"; revision: number };
 export type KnowledgeSourceMock = { id: string; brand?: string; name: string; kind: string; sync: string; docs: number; chunks: string; last: string; status: "connected" | "error"; error?: string };
 export type KnowledgeSourceEvidence = {
   id: string;

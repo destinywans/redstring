@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { api, useGet, useSend } from "../../api/client";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { API_MODE, ApiError, api, useGet, useSend } from "../../api/client";
 import { Avatar, AvatarGroup, Badge, Brand, Btn, Check, Chip, Dot, Field, Icon, Input, LabelChip, Muted, Row, Segmented, Sev, Spacer, Textarea, Tier, Tile, Toggle, type Severity } from "../../ui/core";
 import { Drawer, toast } from "../../ui/overlays";
 import { AiBanner, AiTag, Callout, MatcherList, PillSelect, Suggested, type Matcher } from "../../ui/forms";
@@ -15,12 +15,13 @@ type IncidentDraft = {
   severity: Severity;
   severity_hint: string;
   env: string;
-  services: { id: string; tier: string; ai?: boolean }[];
-  impact: string;
+  services: { id: string; tier: string | null; ai?: boolean }[];
+  impact: string | null;
   alerts: { id: string; severity: Severity; text: string; at: string }[];
-  commander: { name: string; note: string };
-  participants: string[];
-  war_room: string;
+  /** Unknown until a roster/collaboration source is connected. */
+  commander: { name: string; note: string } | null;
+  participants: string[] | null;
+  war_room: string | null;
 };
 
 /** New incident: AI pre-fills from the selected alerts; the person confirms. */
@@ -35,22 +36,31 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
   const [extraPeople, setExtraPeople] = useState<string[]>([]);
   const lists = usePickLists();
   const nav = useNavigate();
-  const { data, refetch, isFetching } = useGet<IncidentDraft>(open ? "/incidents/draft" : null, undefined, { staleTime: 0 });
+  // A draft is built only from 1–20 selected alerts (?alerts=a,b); without them the form starts blank.
+  const [params] = useSearchParams();
+  const alertIds = (params.get("alerts") ?? "").split(",").filter(Boolean).slice(0, 20);
+  const drafted = API_MODE === "mock" || alertIds.length > 0;
+  const { data, refetch, isFetching } = useGet<IncidentDraft>(open && drafted ? "/incidents/draft" : null, API_MODE === "mock" ? undefined : { alerts: alertIds.join(",") }, { staleTime: 0 });
   const [title, setTitle] = useState("");
   const [sev, setSev] = useState<Severity>("P1");
   const [impact, setImpact] = useState("");
   const [alerts, setAlerts] = useState<Record<string, boolean>>({});
-  const [opts, setOpts] = useState({ war_room: true, notify: true, status_page: false, open_canvas: true });
+  // External collaboration has no executor yet: never request it outside the demo.
+  const [opts, setOpts] = useState({ war_room: API_MODE === "mock", notify: API_MODE === "mock", status_page: false, open_canvas: true });
   const create = useSend<Record<string, unknown>, { id: string; investigation_id?: string }>("POST", "/incidents", ["/incidents"]);
   useEffect(() => {
     if (!data) return;
     setTitle(data.title);
     setSev(data.severity);
-    setImpact(data.impact);
+    setImpact(data.impact ?? "");
     setAlerts(Object.fromEntries(data.alerts.map((a) => [a.id, true])));
   }, [data]);
   const submit = async () => {
-    const r = await create.mutateAsync({ title, severity: sev, impact, env: envSel || (curEnv && !curEnv.viewOnly ? curEnv.id : data?.env), services: [...(data?.services.map((s) => s.id) ?? []), ...extraSvc], alert_ids: Object.keys(alerts).filter((k) => alerts[k]), commander: commander || data?.commander.name, participants: [...(data?.participants ?? []), ...extraPeople], ...opts });
+    const r = await create.mutateAsync({ title, severity: sev, impact, env: envSel || (curEnv && !curEnv.viewOnly ? curEnv.id : data?.env), services: [...(data?.services.map((s) => s.id) ?? []), ...extraSvc], alert_ids: Object.keys(alerts).filter((k) => alerts[k]), commander: commander || data?.commander?.name || undefined, participants: [...(data?.participants ?? []), ...extraPeople], ...opts }).catch((e: ApiError) => {
+      toast(e.message, { tone: "danger" });
+      return null;
+    });
+    if (!r) return;
     toast(tx("已创建事件 {id}", "Created incident {id}", { id: r.id }));
     onClose();
     if (r.investigation_id) nav(`/canvas/${r.investigation_id}`);
@@ -61,7 +71,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
       onClose={onClose}
       width={540}
       title={tx("新建事件", "New incident")}
-      sub={tx("从 {n} 条告警预填 · 可修改", "Pre-filled from {n} alerts · editable", { n: data?.alerts.length ?? 0 })}
+      sub={drafted ? tx("从 {n} 条告警预填 · 可修改", "Pre-filled from {n} alerts · editable", { n: data?.alerts.length ?? 0 }) : tx("手动填写", "Fill in manually")}
       icon={<Tile icon="alert" tone="danger" size={30} />}
       footer={
         <>
@@ -73,9 +83,17 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
       }
     >
       <div className="f-drawer-body">
-        <AiBanner action={<Btn kind="ghost" h={24} icon="rotate" loading={isFetching} onClick={() => void refetch()}>{tx("重新生成", "Regenerate")}</Btn>}>
-          {tx("AI 根据 {n} 条告警预填了标题、级别和影响服务（虚线框），请确认后创建", "The AI pre-filled title, severity and services from {n} alerts (dashed) — confirm before creating", { n: data?.alerts.length ?? 0 })}
-        </AiBanner>
+        {API_MODE === "mock" ? (
+          <AiBanner action={<Btn kind="ghost" h={24} icon="rotate" loading={isFetching} onClick={() => void refetch()}>{tx("重新生成", "Regenerate")}</Btn>}>
+            {tx("AI 根据 {n} 条告警预填了标题、级别和影响服务（虚线框），请确认后创建", "The AI pre-filled title, severity and services from {n} alerts (dashed) — confirm before creating", { n: data?.alerts.length ?? 0 })}
+          </AiBanner>
+        ) : (
+          drafted && (
+            <Callout tone="accent" icon="info">
+              {tx("已按所选 {n} 条告警预填标题、最高级别和服务（虚线框），请确认后创建。影响、指挥人和参与人需要你填写。", "Title, highest severity and service are pre-filled from the {n} selected alerts (dashed); confirm before creating. Fill in impact, commander and participants.", { n: data?.alerts.length ?? 0 })}
+            </Callout>
+          )
+        )}
         <Field label={tx("标题", "Title")}>
           <Suggested>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -103,7 +121,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
               {data?.services.map((s) => (
                 <span key={s.id} className="v3-row" style={{ gap: 4 }}>
                   <Badge>{s.id}</Badge>
-                  <Tier tier={s.tier} />
+                  {s.tier && <Tier tier={s.tier} />}
                   {s.ai && <AiTag />}
                 </span>
               ))}
@@ -133,25 +151,29 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
             <ChipSelect
               label={tx("指挥人", "Commander")}
               showLabel={false}
-              value={commander || data?.commander.name || ""}
+              value={commander || data?.commander?.name || ""}
               onChange={(v) => setCommander(v as string)}
-              options={[...(data ? [{ value: data.commander.name, label: data.commander.name, hint: data.commander.note }] : []), ...lists.people.filter((p) => p.value !== data?.commander.name)]}
+              options={[...(data?.commander ? [{ value: data.commander.name, label: data.commander.name, hint: data.commander.note }] : []), ...lists.people.filter((p) => p.value !== data?.commander?.name)]}
             />
           </Field>
           <Field label={tx("参与人", "Participants")}>
             <Row gap={8} style={{ height: 30 }}>
               <AvatarGroup names={data?.participants ?? []} size={22} />
-              <AddChip label={tx("成员", "Member")} options={lists.people.filter((p) => !data?.participants.includes(p.value))} value={extraPeople} onChange={setExtraPeople} />
+              <AddChip label={tx("成员", "Member")} options={lists.people.filter((p) => !data?.participants?.includes(p.value))} value={extraPeople} onChange={setExtraPeople} />
             </Row>
           </Field>
         </div>
+        {API_MODE === "mock" ? (
         <Field label={tx("协作与通知", "Collaboration & notifications")}>
-          <div className="v3-col" style={{ gap: 6 }}>
-            <Check checked={opts.war_room} onChange={(v) => setOpts({ ...opts, war_room: v })} label={tx("创建飞书作战群「{n}」", "Create Feishu war room “{n}”", { n: data?.war_room ?? "" })} sub={tx("拉入指挥人、参与人和交易平台值班", "Adds the commander, participants and trading on-call")} />
-            <Check checked={opts.notify} onChange={(v) => setOpts({ ...opts, notify: v })} label={tx("通知干系人：支付值班群、客服负责人", "Notify stakeholders: payments on-call, support lead")} />
-            <Check checked={opts.status_page} onChange={(v) => setOpts({ ...opts, status_page: v })} label={tx("同步到状态页", "Post to status page")} sub={tx("对外公告需要二次确认", "Public notices need a second confirmation")} />
-          </div>
-        </Field>
+            <div className="v3-col" style={{ gap: 6 }}>
+              <Check checked={opts.war_room} onChange={(v) => setOpts({ ...opts, war_room: v })} label={tx("创建飞书作战群「{n}」", "Create Feishu war room “{n}”", { n: data?.war_room ?? "" })} sub={tx("拉入指挥人、参与人和交易平台值班", "Adds the commander, participants and trading on-call")} />
+              <Check checked={opts.notify} onChange={(v) => setOpts({ ...opts, notify: v })} label={tx("通知干系人：支付值班群、客服负责人", "Notify stakeholders: payments on-call, support lead")} />
+              <Check checked={opts.status_page} onChange={(v) => setOpts({ ...opts, status_page: v })} label={tx("同步到状态页", "Post to status page")} sub={tx("对外公告需要二次确认", "Public notices need a second confirmation")} />
+            </div>
+          </Field>
+        ) : (
+          <Muted size={11.5}>{tx("作战群、干系人通知和状态页还没有接入；创建事件不会对外发送任何消息。", "War rooms, stakeholder notices and the status page are not connected; creating an incident sends nothing externally.")}</Muted>
+        )}
         <Callout tone="accent" icon="branch">
           <Check checked={opts.open_canvas} onChange={(v) => setOpts({ ...opts, open_canvas: v })} label={tx("同时创建调查画布", "Also open an investigation canvas")} sub={tx("使用「故障调查」模板，自动带入告警、最近变更和相关指标", "Uses the incident template with alerts, recent changes and metrics")} />
         </Callout>

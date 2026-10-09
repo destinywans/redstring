@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
+import { API_MODE, api, useGet } from "../../api/client";
 import type { RouteNode } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, Input, LabelChip, Muted, Row, Section, Skeleton, Spacer, Strong, Tabs, Tile, Toggle, cx } from "../../ui/core";
 import { useI18n } from "../../i18n";
@@ -60,14 +60,14 @@ export default function RoutingPage() {
   const { tx } = useI18n();
   const [creating, setCreating] = useCreateParam("route");
   const [tab, setTab] = useState("tree");
-  const { data } = useGet<{ root: RouteNode }>("/notification-routes");
+  const { data, error } = useGet<{ root: RouteNode }>("/notification-routes");
   const [sel, setSel] = useState<RouteNode | null>(null);
-  const [labels, setLabels] = useState("service=checkout-api, env=prod, team=trade, severity=P1");
+  const [labels, setLabels] = useState(API_MODE === "mock" ? "service=checkout-api, env=prod, team=trade, severity=P1" : "");
   const [result, setResult] = useState<{ path: string[]; receivers: string } | null>(null);
   const cur = sel ?? data?.root.children[0]?.children[0];
   const test = async () => setResult(await api("POST", "/notification-routes/test", { body: { labels } }));
   return (
-    <Page flush crumbs={[tx("事件与告警", "Events"), tx("通知与路由", "Routing")]} actions={<Btn kind="primary" icon="plus" onClick={() => setCreating(true)}>{tx("新建路由", "New route")}</Btn>}>
+    <Page flush error={!data ? error : undefined} errorSource="Alertmanager" crumbs={[tx("事件与告警", "Events"), tx("通知与路由", "Routing")]} actions={<Btn kind="primary" icon="plus" onClick={() => setCreating(true)}>{tx("新建路由", "New route")}</Btn>}>
       <NewRouteDrawer open={creating} onClose={() => setCreating(false)} />
       <Tabs value={tab} onChange={setTab} options={[{ value: "tree", label: tx("路由树", "Route tree") }, { value: "receivers", label: tx("接收人", "Receivers") }, { value: "templates", label: tx("通知模板", "Templates") }, { value: "oncall", label: tx("值班与升级", "On-call & escalation") }, { value: "log", label: tx("发送记录", "Delivery log") }]} />
       <div className="v3-split">

@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet, useSend, api } from "../../api/client";
+import { API_MODE, ApiError, useGet, useSend, api } from "../../api/client";
+import { PageUnavailable } from "../../ui/unknown";
 import type { ContractKind, PullDraft, PushView } from "../../api/types";
 import { Badge, Brand, Btn, Chip, Code, Col, Icon, KV, LabelChip, Mono, Muted, Num, Panel, Row, Segmented, Skeleton, Spacer, State, Stepper, Strong, TextLink, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -15,18 +16,32 @@ export default function IngestPage() {
   const { pathname } = useLocation();
   const mode = pathname.endsWith("/push") ? "push" : pathname.endsWith("/stack") ? "stack" : "pull";
   const test = useSend<void, { code: number }>("POST", "/ingest/push/test");
+  const [params] = useSearchParams();
+  const pullId = API_MODE === "mock" ? "pull-ops-metrics" : params.get("source");
+  const pullTest = useSend<Record<string, never>, { ok: boolean; rows: number; dropped: number; captured_at: string }>("POST", `/ingest/pull/${pullId}/test`);
+  const runPullTest = async () => {
+    const r = await pullTest.mutateAsync({}).catch((e: ApiError) => (toast(e.message, { tone: "danger" }), null));
+    if (r) toast(r.ok ? tx("拉取成功：{n} 行，丢弃 {d} 行", "Pulled {n} rows, dropped {d}", { n: r.rows, d: r.dropped }) : tx("拉取未通过：{n} 行，丢弃 {d} 行", "Pull failed checks: {n} rows, dropped {d}", { n: r.rows, d: r.dropped }), { tone: r.ok ? "ok" : "danger" });
+  };
   return (
     <Page
       flush
       crumbs={[tx("集成中心", "Integrations"), tx("通用接入", "Generic ingest"), mode === "pull" ? tx("新建 Pull 接入", "New pull source") : mode === "push" ? tx("事件接入", "Event push") : tx("配套栈", "Starter stack")]}
       actions={
         mode === "pull" ? (
-          <>
-            <Btn onClick={() => toast(tx("草稿已保存", "Draft saved"))}>{tx("保存草稿", "Save draft")}</Btn>
-            <Btn kind="primary" icon="play" onClick={() => toast(tx("测试通过，接入已启用", "Test passed — source enabled"))}>
-              {tx("测试并启用", "Test & enable")}
+          API_MODE === "mock" ? (
+            <>
+              <Btn onClick={() => toast(tx("草稿已保存", "Draft saved"))}>{tx("保存草稿", "Save draft")}</Btn>
+              <Btn kind="primary" icon="play" onClick={() => toast(tx("测试通过，接入已启用", "Test passed — source enabled"))}>
+                {tx("测试并启用", "Test & enable")}
+              </Btn>
+            </>
+          ) : (
+            // Pull sources are registered in server configuration; the page can only test one.
+            <Btn kind="primary" icon="play" disabled={!pullId} loading={pullTest.isPending} onClick={() => void runPullTest()}>
+              {tx("测试拉取", "Test pull")}
             </Btn>
-          </>
+          )
         ) : (
           <>
             <Btn icon="key" to="/integrations/webhooks">
@@ -55,7 +70,7 @@ export default function IngestPage() {
         <Spacer />
         <Muted size={11.5}>{tx("Pull 适合查询型数据（指标、日志、链路），Push 适合事件型数据（告警、变更、资源变更）", "Pull suits query data (metrics, logs, traces); Push suits events (alerts, changes, resource updates)")}</Muted>
       </nav>
-      {mode === "pull" ? <Pull /> : <Push stackOnly={mode === "stack"} />}
+      {mode === "pull" ? <Pull id={pullId} /> : <Push stackOnly={mode === "stack"} />}
     </Page>
   );
 }
@@ -86,13 +101,21 @@ function Hl({ body, highlights }: { body: string; highlights: { text: string; co
   return <pre className="v3-code sample">{parts}</pre>;
 }
 
-function Pull() {
+function Pull({ id }: { id: string | null }) {
   const { tx } = useI18n();
-  const { data: d } = useGet<PullDraft>("/ingest/pull/pull-ops-metrics");
+  const { data: d } = useGet<PullDraft>(id ? `/ingest/pull/${id}` : null);
   const [contract, setContract] = useState<ContractKind>("metric");
   const [accepted, setAccepted] = useState(false);
   const [step, setStep] = useState<number | null>(null);
   const [testing, setTesting] = useState(false);
+  if (!id)
+    return (
+      <PageUnavailable
+        icon="download"
+        title={tx("还没有打开的拉取来源", "No pull source open")}
+        desc={tx("拉取来源由运维在服务端配置中登记；登记后在这里查看请求模板、字段映射并测试。来源列表还在开发中。", "Pull sources are registered in server configuration; once registered, review the request, field mapping and test here. The source list is still in development.")}
+      />
+    );
   if (!d)
     return (
       <div className="v3-content">

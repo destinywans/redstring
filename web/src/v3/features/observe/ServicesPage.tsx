@@ -8,6 +8,7 @@ import { DataTable, Kpi, KpiRow } from "../../ui/data";
 import { useI18n } from "../../i18n";
 import { PageHead } from "../conversation/ConversationsPage";
 import "./observe.css";
+import { LoadError } from "../../ui/unknown";
 import { ChipSelect } from "../../ui/demo";
 
 /** Header + tab strip shared by the service detail views. */
@@ -69,7 +70,7 @@ export default function ServicesPage() {
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
   const [tier, setTier] = useState<string | undefined>();
-  const { data, isLoading } = useGet<ServiceCatalog>("/services", { q, tier });
+  const { data, isLoading, error } = useGet<ServiceCatalog>("/services", { q, tier });
   const { data: me } = useGet<Me>("/me");
   const { data: watched } = useGet<{ items: WatchedService[] }>("/me/watched-services");
   const [sort, setSort] = useState("status");
@@ -87,6 +88,9 @@ export default function ServicesPage() {
         </>
       }
     >
+      {error && !data ? (
+        <LoadError error={error} source={tx("服务证据", "service evidence")} />
+      ) : (
       <div className="v3-split">
         <div className="side" style={{ width: 220, padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
           {data?.facets.map((f) => (
@@ -111,7 +115,7 @@ export default function ServicesPage() {
             <PageHead title={tx("服务目录", "Service catalog")} desc={tx("以服务为中心汇总负责人、SLO、发布与告警；所有数据来自已接入的连接器，深入分析跳到对应平台。", "Owners, SLOs, releases and alerts per service; data comes from connected systems, deep analysis links out.")} />
             <KpiRow>{data?.kpis.map((k) => <Kpi key={k.id} label={k.label} value={k.value} sub={k.sub} tone={k.tone} values={k.series.length ? k.series : undefined} />)}</KpiRow>
             <Row gap={8}>
-              <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: 8 }, { value: "mine", label: tx("我负责的", "Mine"), count: 3 }, { value: "watched", label: tx("我关注的", "Watched"), count: 4 }]} />
+              <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: data?.items.length }, { value: "mine", label: tx("我负责的", "Mine"), count: data?.items.filter((s) => s.oncall === me?.name || s.team === me?.team).length }, { value: "watched", label: tx("我关注的", "Watched"), count: data ? data.items.filter((s) => watched?.items.some((w) => w.id === s.id)).length : undefined }]} />
               <SearchBox placeholder={tx("搜索服务", "Search services")} value={q} onChange={setQ} />
               <span style={{ flexGrow: 1 }} />
               <ChipSelect
@@ -160,6 +164,7 @@ export default function ServicesPage() {
           </div>
         </div>
       </div>
+      )}
     </Page>
   );
 }

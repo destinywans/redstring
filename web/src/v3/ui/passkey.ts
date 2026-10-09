@@ -45,3 +45,39 @@ export async function getAssertion(options: AssertionOptions, signal?: AbortSign
     },
   };
 }
+
+type CreationOptions = {
+  publicKey: Omit<PublicKeyCredentialCreationOptions, "challenge" | "user" | "excludeCredentials"> & {
+    challenge: string;
+    user: { id: string; name: string; displayName: string };
+    excludeCredentials?: { id: string; type: PublicKeyCredentialType; transports?: AuthenticatorTransport[] }[];
+  };
+};
+
+/** Runs the browser's passkey creation prompt for server-issued registration options. */
+export async function createCredential(options: CreationOptions, signal?: AbortSignal) {
+  const pk = options.publicKey;
+  const cred = (await navigator.credentials.create({
+    signal,
+    publicKey: {
+      ...pk,
+      challenge: toBytes(pk.challenge),
+      user: { ...pk.user, id: toBytes(pk.user.id) },
+      excludeCredentials: pk.excludeCredentials?.map((c) => ({ ...c, id: toBytes(c.id) })),
+    },
+  })) as PublicKeyCredential | null;
+  if (!cred) throw new DOMException("No credential", "NotAllowedError");
+  const r = cred.response as AuthenticatorAttestationResponse;
+  return {
+    id: cred.id,
+    rawId: toB64url(cred.rawId),
+    type: cred.type,
+    authenticatorAttachment: cred.authenticatorAttachment ?? undefined,
+    clientExtensionResults: cred.getClientExtensionResults(),
+    response: {
+      attestationObject: toB64url(r.attestationObject),
+      clientDataJSON: toB64url(r.clientDataJSON),
+      transports: typeof r.getTransports === "function" ? r.getTransports() : undefined,
+    },
+  };
+}

@@ -2,7 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { Btn, Icon, Tile, type IconName } from "./core";
-import { useGet } from "../api/client";
+import { ApiError, useGet } from "../api/client";
 import type { Me } from "../api/types";
 import { useI18n } from "../i18n";
 import "./unknown.css";
@@ -132,8 +132,8 @@ export function PartialBanner({ fields, children }: { fields: string[]; children
   );
 }
 
-/** A page whose only source is not connected. */
-export function PageUnavailable({ title, desc, steps, to = "/integrations", icon = "plug" }: { title: ReactNode; desc: ReactNode; steps?: ReactNode[]; to?: string; icon?: IconName }) {
+/** A page whose only source is not connected. `configure={false}` drops the integrations hint when the fix lies elsewhere. */
+export function PageUnavailable({ title, desc, steps, to = "/integrations", icon = "plug", configure = true, detail }: { title: ReactNode; desc: ReactNode; steps?: ReactNode[]; to?: string; icon?: IconName; configure?: boolean; detail?: ReactNode }) {
   const { tx } = useI18n();
   const admin = useIsAdmin();
   return (
@@ -141,6 +141,7 @@ export function PageUnavailable({ title, desc, steps, to = "/integrations", icon
       <Tile icon={icon} size={36} />
       <b>{title}</b>
       <p>{desc}</p>
+      {detail && <code className="unk-detail">{detail}</code>}
       {steps && steps.length > 0 && (
         <ol>
           {steps.map((s, i) => (
@@ -148,7 +149,7 @@ export function PageUnavailable({ title, desc, steps, to = "/integrations", icon
           ))}
         </ol>
       )}
-      {admin ? (
+      {!configure ? null : admin ? (
         <Btn kind="primary" h={30} to={to}>
           {tx("去集成中心", "Open Integrations")}
         </Btn>
@@ -161,3 +162,33 @@ export function PageUnavailable({ title, desc, steps, to = "/integrations", icon
 
 /** Reasons arrive keyed by field; returns the reason for one field or a fallback. */
 export const reasonFor = (map: Record<string, string> | null | undefined, field: string, fallback?: UnknownReason): UnknownReason | undefined => map?.[field] ?? fallback;
+
+/** Maps a failed read to an unknown reason: 501 and "not configured" mean not connected; other 5xx are unavailable. */
+export function errorReason(error: unknown): UnknownReason {
+  if (!(error instanceof ApiError)) return "unavailable";
+  if (error.status === 501 || /not_configured|not_connected/.test(error.code)) return "not_connected";
+  return "unavailable";
+}
+
+/**
+ * A page whose main read failed: says why instead of an empty table or an endless skeleton.
+ * Admins also see the server's reason code, which is what they need to fix the source.
+ */
+export function LoadError({ error, source, title, icon }: { error: unknown; source?: string; title?: ReactNode; icon?: IconName }) {
+  const { tx } = useI18n();
+  const admin = useIsAdmin();
+  const reasonText = useReasonText();
+  if (error instanceof ApiError && error.status === 403)
+    return <PageUnavailable icon="lock" configure={false} title={tx("没有权限查看", "You can't view this")} desc={tx("需要管理员在当前环境授予查看权限。", "An admin needs to grant view access in this environment.")} />;
+  const reason = errorReason(error);
+  const text = reasonText(reason, source);
+  return (
+    <PageUnavailable
+      icon={icon ?? (reason === "not_connected" ? "plug" : "alert")}
+      configure={text.configurable}
+      title={title ?? (source && text.configurable ? `${text.label}${source}` : text.label)}
+      desc={text.desc}
+      detail={admin && error instanceof ApiError ? `${error.status} ${error.code}` : undefined}
+    />
+  );
+}

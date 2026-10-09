@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
 import { usePreferences } from "../../app/preferences";
-import { useGet, useSend } from "../../api/client";
+import { API_MODE, useGet, useSend } from "../../api/client";
+import { Unavailable, errorReason } from "../../ui/unknown";
+import { PasskeysPanel } from "./PasskeysPanel";
 import type { NotifyChannel } from "../../api/types";
 import { Avatar, Badge, Brand, Btn, Chip, Col, Field, Input, Muted, Panel, Row, Section, Segmented, Skeleton, Spacer, State, Strong, TextLink, Tile, Toggle, type IconName, Icon } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -24,10 +26,10 @@ function SaveBtn({ dirty, pending, onSave }: { dirty: boolean; pending: boolean;
 export default function ProfilePage() {
   const { tx } = useI18n();
   const locale = usePreferences((s) => s.locale);
-  const { form, setForm, save, dirty } = useProfileForm();
+  const { form, setForm, save, dirty, error } = useProfileForm();
   const set = (k: "name" | "display_name" | "title", v: string) => setForm((f) => (f ? { ...f, [k]: v } : f));
   return (
-    <Page ai={false} bodyClass="set-narrow" crumbs={[tx("设置", "Settings"), tx("个人资料", "Profile")]} actions={<SaveBtn dirty={dirty} pending={save.isPending} onSave={() => form && save.mutate(form, { onSuccess: () => toast(tx("个人资料已保存", "Profile saved")) })} />}>
+    <Page ai={false} bodyClass="set-narrow" error={!form ? error : undefined} errorSource={tx("身份来源", "identity source")} crumbs={[tx("设置", "Settings"), tx("个人资料", "Profile")]} actions={<SaveBtn dirty={dirty} pending={save.isPending} onSave={() => form && save.mutate(form, { onSuccess: () => toast(tx("个人资料已保存", "Profile saved")) })} />}>
       <div className="v3-content anim-fade">
         <SettingsHead title={tx("个人资料", "Profile")} desc={tx("你在工作区里的名字、头像和联系方式。", "Your name, photo and contact details in this workspace.")} />
         {!form ? (
@@ -127,7 +129,7 @@ export default function ProfilePage() {
 
 export function NotificationsPage() {
   const { tx } = useI18n();
-  const { form, setForm, save, dirty } = useProfileForm();
+  const { form, setForm, save, dirty, error } = useProfileForm();
   const { data: extra } = useGet<{ quiet: { enabled: boolean; from: string; to: string }; digest: "off" | "daily" | "weekly"; subscriptions: { id: string; label: string; sub: string; on: boolean }[] }>("/me/notification-settings");
   const [quiet, setQuiet] = useState<boolean | null>(null);
   const [digest, setDigest] = useState<"off" | "daily" | "weekly" | null>(null);
@@ -144,7 +146,7 @@ export function NotificationsPage() {
     toast(tx("通知设置已保存", "Notification settings saved"));
   };
   return (
-    <Page ai={false} bodyClass="set-narrow" crumbs={[tx("设置", "Settings"), tx("通知", "Notifications")]} actions={<SaveBtn dirty={dirty || extraDirty} pending={save.isPending} onSave={onSave} />}>
+    <Page ai={false} bodyClass="set-narrow" error={!form ? error : undefined} errorSource={tx("身份来源", "identity source")} crumbs={[tx("设置", "Settings"), tx("通知", "Notifications")]} actions={<SaveBtn dirty={dirty || extraDirty} pending={save.isPending} onSave={onSave} />}>
       <div className="v3-content anim-fade">
         <SettingsHead title={tx("通知", "Notifications")} desc={tx("决定哪些事情、通过哪个渠道找到你。值班期间以值班规则为准。", "Choose what reaches you and through which channel. On-call rules take over while you're on call.")} />
         {!form ? (
@@ -224,15 +226,23 @@ export function NotificationsPage() {
 
 export function AccountSecurityPage() {
   const { tx } = useI18n();
-  const { form } = useProfileForm();
+  const { form, error: profileError } = useProfileForm();
   const [ended, setEnded] = useState<Set<string>>(new Set());
   const endSession = useSend<string>("DELETE", (id) => `/me/sessions/${id}`);
   return (
     <Page ai={false} bodyClass="set-narrow" crumbs={[tx("设置", "Settings"), tx("账号安全", "Account security")]}>
       <div className="v3-content anim-fade">
         <SettingsHead title={tx("账号安全", "Account security")} desc={tx("你自己的登录方式、两步验证、设备与访问令牌。工作区的统一策略在「安全策略」。", "Your own sign-in, two-factor, devices and tokens. Workspace-wide rules live in Security policy.")} />
+        {/* Passkeys stand on their own: approvals need them even when no identity source fills the rest. */}
+        {API_MODE !== "mock" && <PasskeysPanel />}
         {!form ? (
-          <Skeleton h={300} />
+          profileError ? (
+            <Panel title={tx("登录、会话与令牌", "Sign-in, sessions and tokens")}>
+              <Unavailable reason={errorReason(profileError)} source={tx("身份来源", "identity source")} />
+            </Panel>
+          ) : (
+            <Skeleton h={300} />
+          )
         ) : (
         <Panel title={tx("登录与两步验证", "Sign-in and two-factor")}>
               <Col gap={8}>

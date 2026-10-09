@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api } from "../../api/client";
+import { API_MODE, ApiError, api } from "../../api/client";
+import { useEnv } from "../../app/environment";
 import { Badge, Brand, Btn, Field, Icon, Input, LabelChip, Muted, Panel, Row, Segmented, Spacer, Tabs, Textarea, Tier, Tile, Toggle, type Severity } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Callout, PillSelect } from "../../ui/forms";
@@ -60,12 +61,26 @@ export default function NewRulePage() {
   const [saving, setSaving] = useState<string | null>(null);
 
   useEffect(() => {
-    setAsk(tx("checkout-api 5 分钟内 5xx 比例超过 1% 时告警，持续 5 分钟", "Alert when checkout-api 5xx ratio exceeds 1% over 5 minutes, for 5 minutes"));
+    if (API_MODE === "mock") setAsk(tx("checkout-api 5 分钟内 5xx 比例超过 1% 时告警，持续 5 分钟", "Alert when checkout-api 5xx ratio exceeds 1% over 5 minutes, for 5 minutes"));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const instance = useEnv((s) => s.instance);
+  const env = useEnv((s) => s.env);
   useEffect(() => {
-    const t = setTimeout(() => void api<Preview>("POST", "/alert-rules/preview", { body: { query, op, threshold: Number(threshold), for_minutes: Number(forMin), range } }).then(setPreview), 300);
-    return () => clearTimeout(t);
-  }, [query, op, threshold, forMin, range]);
+    // Only preview a written query in one known environment; failures are shown, never thrown.
+    if (!query.trim() || !Number.isFinite(Number(threshold)) || !(Number(forMin) >= 0)) return setPreview(null);
+    if (API_MODE !== "mock" && !instance) return;
+    if (env === "all") return setPreview({ valid: false, error: tx("预览只针对一个环境，请先切换到具体环境", "Preview covers one environment; switch to a specific one") });
+    let live = true;
+    const t = setTimeout(() => {
+      api<Preview>("POST", "/alert-rules/preview", { body: { query, op, threshold: Number(threshold), for_minutes: Number(forMin), range } })
+        .then((r) => live && setPreview(r))
+        .catch((e: unknown) => live && setPreview({ valid: false, error: e instanceof ApiError ? e.message : tx("暂时无法预览", "Preview is unavailable right now") }));
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [query, op, threshold, forMin, range, env, instance]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const generate = async () => {
     setGen(true);
@@ -213,11 +228,11 @@ export default function NewRulePage() {
             >
               {preview?.valid && preview.values ? (
                 <div className="v3-col" style={{ gap: 6 }}>
-                  <Lines series={[{ name: tx("5xx 比例", "5xx ratio"), values: preview.values, color: "var(--c3)", fill: "var(--c3s)" }]} height={150} threshold={Number(threshold)} bands={bands} markers={[{ at: 15, label: tx("发布 v2.8.1", "v2.8.1"), tone: "warn" }]} axis={["13:35", "14:05", "14:35"]} format={(v) => `${v}%`} />
+                  <Lines series={[{ name: API_MODE === "mock" ? tx("5xx 比例", "5xx ratio") : tx("查询结果", "Query result"), values: preview.values, color: "var(--c3)", fill: "var(--c3s)" }]} height={150} threshold={Number(threshold)} bands={bands} markers={API_MODE === "mock" ? [{ at: 15, label: tx("发布 v2.8.1", "v2.8.1"), tone: "warn" }] : []} axis={API_MODE === "mock" ? ["13:35", "14:05", "14:35"] : []} format={(v) => (API_MODE === "mock" ? `${v}%` : String(v))} />
                   <Row gap={8}>
                     <Legend items={[[tx("5xx 比例", "5xx ratio"), "var(--c3)"], [tx("阈值 {t}%", "Threshold {t}%", { t: threshold }), "var(--danger)"], [tx("会触发", "Would fire"), "var(--danger-soft)"]]} />
                     <Spacer />
-                    <Muted size={11.5}>{tx("当前值 {v}% · {s}", "Now {v}% · {s}", { v: preview.current ?? 0, s: preview.fires ? tx("会触发", "would fire") : tx("不会触发", "would not fire") })}</Muted>
+                    <Muted size={11.5}>{tx("当前值 {v} · {s}", "Now {v} · {s}", { v: preview.current ?? "—", s: preview.fires ? tx("会触发", "would fire") : tx("不会触发", "would not fire") })}</Muted>
                   </Row>
                 </div>
               ) : (

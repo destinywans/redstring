@@ -5,6 +5,8 @@ package v3alertmanager
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,11 +34,23 @@ type Endpoint struct {
 	URL             string
 	BearerTokenFile string
 	AllowHTTP       bool // Explicit opt-in for a trusted local/test endpoint.
+	// CAFile optionally adds a PEM bundle to the system roots for this
+	// environment only, for Alertmanagers behind an internal CA.
+	CAFile string
 }
 
 type Client struct {
 	endpoints map[string]Endpoint
 	http      *http.Client
+	// perEnv holds clients for environments with their own CA bundle.
+	perEnv map[string]*http.Client
+}
+
+func (c *Client) httpFor(environment string) *http.Client {
+	if hc := c.perEnv[environment]; hc != nil {
+		return hc
+	}
+	return c.http
 }
 
 func New(endpoints map[string]Endpoint, client *http.Client) (*Client, error) {
@@ -65,6 +79,9 @@ func New(endpoints map[string]Endpoint, client *http.Client) (*Client, error) {
 				return nil, errors.New("HTTP Alertmanager bearer tokens require a loopback IP")
 			}
 		}
+		if ep.CAFile != "" && (!filepath.IsAbs(ep.CAFile) || u.Scheme != "https") {
+			return nil, errors.New("Alertmanager CA file must be absolute and used with HTTPS")
+		}
 		copyEndpoints[env] = ep
 	}
 	if client == nil {
@@ -75,7 +92,32 @@ func New(endpoints map[string]Endpoint, client *http.Client) (*Client, error) {
 		clientCopy.Timeout = 15 * time.Second
 	}
 	clientCopy.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	return &Client{endpoints: copyEndpoints, http: &clientCopy}, nil
+	out := &Client{endpoints: copyEndpoints, http: &clientCopy}
+	for env, ep := range copyEndpoints {
+		if ep.CAFile == "" {
+			continue
+		}
+		pem, err := os.ReadFile(ep.CAFile)
+		if err != nil || len(pem) > 1<<20 {
+			return nil, errors.New("Alertmanager CA file is unavailable")
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, errors.New("invalid Alertmanager CA file")
+		}
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+		perEnv := clientCopy
+		perEnv.Transport = tr
+		if out.perEnv == nil {
+			out.perEnv = map[string]*http.Client{}
+		}
+		out.perEnv[env] = &perEnv
+	}
+	return out, nil
 }
 
 type Matcher struct {
@@ -247,7 +289,7 @@ func (c *Client) get(ctx context.Context, environment, path string) ([]byte, err
 		}
 		req.Header.Set("Authorization", "Bearer "+value)
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.httpFor(environment).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("Alertmanager request: %w", err)
 	}

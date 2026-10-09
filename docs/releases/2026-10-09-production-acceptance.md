@@ -62,6 +62,8 @@
 | PA-47 | P1 | 告警被静默后，Alertmanager 不再发送它的恢复通知，产品里的事件一直停在“触发中”（演练中 checkout-api 恢复后 8 分钟以上仍是触发） | 后端已修复：对 Alertmanager 配置中 `source_ids` 明确绑定的 webhook 源，后台对账器（`AIOPS_V3_ALERT_RECONCILE_SECONDS`，默认 60 秒，0 关闭）读取 `GET /api/v2/alerts`：指纹已消失或已被更晚的新告警取代的触发中事件标为已恢复并写审计（`v3.alert.reconciled`，系统身份）；仍在的记录静默/抑制状态（迁移 `165`，现有业务库未执行），告警组显示“已静默（Alertmanager）”等徽标，超过 5 分钟未核对显示“上游状态未核实”。上游读失败、记录无效或 2 分钟内刚更新的事件不改动。按“已静默”筛选告警组仍返回 503 |
 | PA-48 | P3 | 从告警组“调查”生成的调查编号没有 `INV-` 前缀，和画布新建的调查不一致 | 后端已修复：`POST /alert-groups/bulk` 的 `investigate` 新建调查使用 `INV-` 前缀；已有的旧编号不改 |
 | PA-49 | P3 | 有多个开放调查时，静默抽屉的调查选择器只是一个没有文字、也没有无障碍名称的下拉按钮 | 已转前端 |
+| PA-50 | P2 | 对话问题里没写服务名时，AI 无法知道自己能查哪些服务：只读工具对“服务键不存在或无权限”和“来源不可用”返回同一个错误，模型试了 15 次猜测的键后结论为“证据后端不可达”（节点压力演练） | 已转后端：提供列出本人可读服务键的只读工具（或写进工具说明），并把“未知或无权限的服务键”与“来源不可用”区分开，不泄露无权服务是否存在 |
+| PA-51 | P2 | AI 指标工具把查询写死为 4 个服务级 ID（`request_rate`、`error_rate`、`http_p95_seconds`、`instances_up`），实验 Prometheus 里已有的 node_exporter 节点 CPU/内存（`aiops-vm-nodes`，3 台）和 `lab:vm_node_*` 录制规则 AI 读不到，节点压力类告警无法定位到节点；实验侧另缺 Kafka 消费积压（无 kafka_exporter）和 Pod 重启/OOMKilled（无 kube-state-metrics）采集 | 已转后端：在审查查询目录里增加基础设施查询 ID（该服务所在节点的 CPU/内存、Pod 重启、消费积压），仍按服务授权、表达式只在服务端；已转实验会话补 kafka_exporter 与 kube-state-metrics |
 
 ### PA-05/PA-16 五个读接口
 
@@ -81,6 +83,18 @@
 
 ### 进展
 
+- **故障演练（其余 5 个场景，prod，`tools/acceptance/drill.py` 计时）**：每个场景都走完注入 → Prometheus → Alertmanager → 产品告警组 → AI 对话取证 → 关闭 → 恢复，全部自动关闭开关，结束后实验侧无残留故障、Kafka 积压 0。
+
+  | 场景 | 告警 | 触发 | 进入产品 | 关闭后清除 / 产品恢复 | AI 调查 |
+  | --- | --- | --- | --- | --- | --- |
+  | 重试风暴 | `LabHigh5xxRate` order-api | 53 s | 未计时（脚本当时把服务 ID 对错），事后核对告警组计数加 1 | 约 2 分钟 / 已恢复 | 失败：15 次取证后超预算（PA-45，修复前） |
+  | Pod OOM | `LabAPIDown` checkout-api 一个 Pod（内核 OOMKill，重启 5 次） | 183 s | 263 s | 20 s / 40 s | 失败：14 次取证后超预算（PA-45，修复前） |
+  | Pod 崩溃 | `LabAPIDown` 同一 Pod（退出码 3） | 61 s | 71 s | 101 s / 111 s（等下一次重启） | 失败：输出达上限，已生成内容全丢（PA-46，修复前） |
+  | 消费者停止 | `LabMessageConsumptionNotProgressing` message-api | 253 s | 263 s | 14 s / 14 s | 完成：7 次取证，正确判定“消费者被主动暂停”，排除崩溃和上游断流；指出无法量化积压（PA-51） |
+  | 节点压力 | `LabVMNodeMemoryPressure` worker1 上三个应用 | 102 s | 113 s | 21 s / 41 s | 完成但 0 份证据：问题没写服务名，猜键全部失败（PA-50）；没有编造，明确“无法判定” |
+
+  修复部署后重跑重试风暴：63 s 触发、73 s 进入产品；AI 取证 15 次后正常作答（PA-45 验证通过），判定 order-api 是受害方、根因在 checkout-api 一侧，放大机制是 order-api 带同一 trace 的重试叠加嵌套超时（checkout-api 入站约 1.9 倍而 order-api 入站未增）。注入点是 checkout-api 的 SQL 延迟，AI 把它推测为“下游 product 依赖”，并注明未取证。关闭后 134 s 清除、154 s 产品恢复。
+  节点压力一轮在 PA-44～48 修复部署后运行，并直接在实验 Alertmanager 建静默（`--lab-silence`）验证 PA-47：静默后约 140 s 三个告警组出现“已静默（Alertmanager）”；关闭演练后 Alertmanager 不发恢复通知，产品由对账器以 `absent_upstream` 标为已恢复并写系统审计 `v3.alert.reconciled`，比 Prometheus 清除晚 20 s。
 - **故障演练闭环（坏发布导致 5xx，prod）**：开启演练后约 1 分钟 `LabHigh5xxRate` 触发，经 Alertmanager webhook 进入产品，order-api 因调用 checkout-api 同时告警。AI（DeepSeek）调用 12 次只读工具，判定根因是 checkout-api 的注入型 500、order-api 为下游传导（两边错误日志 trace_id 逐条对应、错误率逐点相同）。从告警组发起调查，在静默抽屉提议静默，两人用通行密钥批准，执行器写入后 Alertmanager 中该告警变为已抑制；关闭演练（相当于回滚）后告警恢复，再经提案结束静默。服务目录显示两服务“降级”、错误预算 0。暴露 PA-44～49。
 - **PA-05 服务目录与详情（后端）**：`GET /services`、`GET /services/{id}` 缺证据时不再整体 503（原 `service_view_incomplete` 已删除），改为 200 部分结果：缺的字段为 `null`，原因写进逐项 `unavailable`（`not_connected` / `not_configured` / `no_authorized_target` / `not_generated` / `unavailable` / `stale`），不把未知写成 0、ok、空列表或“未值班”。KPI 和 facet 只统计已知值，KPI 带被排除的 `unknown` 数，全部未知时为 `null` + `reason`；`status` 筛选只匹配已知状态，排序把未知放最后。读取期间来源封印或告警覆盖变化改报 `503 service_source_changed`，数据库/策略不可用仍为 `503 service_view_unavailable`，403/404/422 不变。`GET /services/{id}/slo` 首次保存前返回 200（target/window 为 `null`，revision 0），不再 `503 slo_not_configured`。契约顺带放开 `tier` 到 T0–T3、详情 `env` 为任意环境键。OpenAPI 与[服务目录与详情](../api/v3-service-views.md)已更新；v3serviceviews 数据库测试（含新登记服务无证据 → 200 + 原因、KPI 忽略未知）通过。前端类型和页面另行适配。
 - **第二轮对拍（修复 PA-01～07、10、17、22、24 后）**：两个实例 × 中英文 × 深浅色共 216 次页面加载，干净 110 次（上一轮 0）。剩下的主要是数据来源未配置导致的 503，以及静默、新建规则页的自动预览异常。

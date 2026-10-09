@@ -8,7 +8,10 @@ Stages: drill on (aiops-test scripts/lab-faults.py) → alert pending/firing in 
 active in Alertmanager → firing alert group in the product → AI investigation through the
 product API (operator account, real model and read-only tools) → drill off → alert gone from
 Prometheus → product group resolved. Writes .local/acceptance/e2e/drills/<drill>.json.
-No silences are created here (see PA-47); every knob is turned off even when a stage fails.
+Every knob is turned off even when a stage fails. --lab-silence silences the drill's alerts directly
+in the lab Alertmanager once they reach the product (a silence suppresses the resolved webhook), then
+checks that the product reconciles the group to silenced and later resolved on its own (PA-47);
+the silence is expired at the end.
 """
 import argparse
 import base64
@@ -61,9 +64,29 @@ def am_alerts(names, apps):
             if a['labels'].get('alertname') in names and (not apps or a['labels'].get('application') in apps)}
 
 
-def product_groups(app_id_set):
+def product_groups(app_id_set, badges=False):
     _, groups = call('prod', 'GET', '/alert-groups')
-    return {i['id']: i['state'] for i in (groups.get('items') or []) if i.get('service') in app_id_set}
+    items = [i for i in (groups.get('items') or []) if i.get('service') in app_id_set]
+    if badges:
+        return {i['id']: [b.get('text') if isinstance(b, dict) else b for b in (i.get('badges') or [])] for i in items}
+    return {i['id']: i['state'] for i in items}
+
+
+def am_silence(names, minutes=30):
+    body = json.dumps({'matchers': [{'name': 'alertname', 'value': '|'.join(names), 'isRegex': True, 'isEqual': True},
+                                    {'name': 'redstring_env', 'value': 'prod', 'isRegex': False, 'isEqual': True}],
+                       'startsAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+                       'endsAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(time.time() + minutes * 60)),
+                       'createdBy': 'redstring-acceptance', 'comment': 'acceptance drill: PA-47 reconcile check'}).encode()
+    req = urllib.request.Request(f'{AM}/api/v2/silences', body, {'Content-Type': 'application/json'}, method='POST')
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.load(r)['silenceID']
+
+
+def am_expire(silence_id):
+    req = urllib.request.Request(f'{AM}/api/v2/silence/{silence_id}', method='DELETE')
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return r.status
 
 
 def ask(question, timeout=300):
@@ -111,6 +134,7 @@ def main():
     ap.add_argument('--extra', nargs='*', default=[], help='extra lab-faults.py arguments, e.g. --app order-api')
     ap.add_argument('--fire-timeout', type=int, default=600)
     ap.add_argument('--recover-timeout', type=int, default=900)
+    ap.add_argument('--lab-silence', action='store_true', help='silence the alerts in the lab Alertmanager (PA-47 check)')
     a = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     ids = app_ids()
@@ -124,6 +148,12 @@ def main():
         firing = wait('product_firing', lambda: {g: s for g, s in product_groups(watched).items() if s == 'firing' and before.get(g) != 'firing'} or
                       {g: s for g, s in product_groups(watched).items() if s == 'firing'}, 180, log)
         log['product_groups'] = sorted(firing or {})
+        if a.lab_silence:
+            log['lab_silence'] = am_silence(a.alerts)
+            print(f"  lab silence {log['lab_silence']}", flush=True)
+            badge = wait('product_silenced_badge', lambda: {g: b for g, b in product_groups(watched, badges=True).items()
+                                                           if g in log['product_groups'] and any('静默' in str(x) for x in b)}, 300, log)
+            log['silenced_badges'] = badge
         print('  asking the AI…', flush=True)
         log['ai'] = ask(a.question)
         log['ai_done'] = round(time.time() - log['t0'])
@@ -133,6 +163,8 @@ def main():
         print(f"  +{log['off_at']:>4}s drill off: {lab('drill', a.drill, 'off', *a.extra)}", flush=True)
     wait('prometheus_cleared', lambda: not prom_alerts(a.alerts, a.apps) or None, a.recover_timeout, log)
     wait('product_resolved', lambda: (all(s != 'firing' for g, s in product_groups(watched).items() if g in set(log.get('product_groups') or [])) or None), 300, log)
+    if log.get('lab_silence'):
+        log['lab_silence_expired'] = am_expire(log['lab_silence'])
     log['lab_status'] = lab('status')
     (OUT / f'{a.drill}.json').write_text(json.dumps(log, ensure_ascii=False, indent=2))
     print(f"report: {OUT / (a.drill + '.json')}")

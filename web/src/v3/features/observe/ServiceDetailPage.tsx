@@ -1,8 +1,9 @@
 import { useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
-import type { Resilience, ServiceDetail } from "../../api/types";
-import { Badge, Bar, Brand, Btn, Card, Col, Dot, Icon, Muted, Num, Panel, Row, Skeleton, Spacer, State, Strong, TextLink, Tile, type Tone } from "../../ui/core";
+import { API_MODE, useGet } from "../../api/client";
+import type { Resilience, ServiceDependency, ServiceDetail } from "../../api/types";
+import { Badge, Bar, Brand, Btn, Card, Col, Dot, Empty, Icon, Muted, Num, Panel, Row, Skeleton, Spacer, State, Strong, TextLink, Tile, type Tone } from "../../ui/core";
+import { LoadError, PartialBanner, Unavailable, UnknownValue, anyReason, unknownLabels } from "../../ui/unknown";
 import { KBand } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
@@ -13,9 +14,12 @@ import "./observe.css";
 import { openExternal } from "../../ui/demo";
 
 function useService() {
-  const { id = "checkout-api" } = useParams();
-  return useGet<ServiceDetail>(`/services/${id}`);
+  const { id = API_MODE === "mock" ? "checkout-api" : "" } = useParams();
+  return useGet<ServiceDetail>(id ? `/services/${id}` : null);
 }
+
+/** Investigate this service: sample data opens the sample investigation; real mode starts a new one scoped to it. */
+export const investigateHref = (s: ServiceDetail) => (API_MODE === "mock" ? "/canvas/INV-231" : s.ai?.investigation ? `/canvas/${s.ai.investigation}` : `/canvases?new=investigation&service=${encodeURIComponent(s.id)}`);
 
 function BurnRow({ label, value, tone, pct }: { label: string; value: string; tone: Tone; pct: number }) {
   return (
@@ -32,86 +36,139 @@ function BurnRow({ label, value, tone, pct }: { label: string; value: string; to
 
 export default function ServiceDetailPage() {
   const { tx } = useI18n();
-  const { data: s } = useService();
+  const { data: s, error } = useService();
   if (!s)
     return (
-      <Page crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services"), "…"]}>
+      <Page crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services"), "…"]} error={error} errorSource={tx("服务证据", "service evidence")}>
         <div className="v3-content">
           <Skeleton h={60} />
           <Skeleton h={300} />
         </div>
       </Page>
     );
+  const u = s.unavailable;
+  const missing = unknownLabels([u], {
+    ai: tx("AI 解读", "AI summary"),
+    signals: tx("黄金指标", "golden signals"),
+    slo: "SLO",
+    changes: tx("最近变更", "recent changes"),
+    deps: tx("依赖", "dependencies"),
+  });
   return (
-    <Page crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services"), s.name]} actions={<Btn kind="primary" icon="branch" to="/canvas/INV-231">{tx("发起调查", "Investigate")}</Btn>}>
+    <Page crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services"), s.name]} actions={<Btn kind="primary" icon="branch" to={investigateHref(s)}>{tx("发起调查", "Investigate")}</Btn>}>
       <ServiceHeader s={s} />
       <div className="v3-content anim-fade">
-        <div className="svc-ai">
-          <Icon name="sparkles" size={16} color="var(--accent-text)" style={{ marginTop: 2 }} />
-          <Col gap={8} grow>
-            <Markdown text={s.ai.text} />
-            <Row gap={6}>
-              <Btn h={26} icon="branch" to={`/canvas/${s.ai.investigation}`}>
-                {tx("打开调查", "Open investigation")}
-              </Btn>
-              {s.ai.proposal && (
-                <Btn h={26} icon="shield" to={`/review/${s.ai.proposal}`}>
-                  {tx("复核回滚提案", "Review rollback")}
+        {missing.length > 0 && <PartialBanner fields={missing} />}
+        {s.ai ? (
+          <div className="svc-ai">
+            <Icon name="sparkles" size={16} color="var(--accent-text)" style={{ marginTop: 2 }} />
+            <Col gap={8} grow>
+              <Markdown text={s.ai.text} />
+              <Row gap={6}>
+                <Btn h={26} icon="branch" to={`/canvas/${s.ai.investigation}`}>
+                  {tx("打开调查", "Open investigation")}
                 </Btn>
-              )}
-              <Muted size={11.5}>{s.ai.meta}</Muted>
+                {s.ai.proposal && (
+                  <Btn h={26} icon="shield" to={`/review/${s.ai.proposal}`}>
+                    {tx("复核提案", "Review proposal")}
+                  </Btn>
+                )}
+                <Muted size={11.5}>{s.ai.meta}</Muted>
+              </Row>
+            </Col>
+          </div>
+        ) : (
+          <div className="svc-ai">
+            <Icon name="sparkles" size={16} color="var(--muted)" style={{ marginTop: 2 }} />
+            <Row gap={6} grow>
+              <Muted>{tx("AI 解读", "AI summary")}</Muted>
+              <UnknownValue reason={u.ai} />
             </Row>
-          </Col>
-        </div>
-        <div className="v3-row stagger" style={{ gap: 12, alignItems: "stretch" }}>
-          {s.signals.map((k) => (
-            <KBand key={k.id} label={k.label} value={k.value} unit={k.unit} sub={k.sub} tone={k.tone as Tone} values={k.series} delta={k.delta} deltaGood={k.delta_good} style={{ flex: "1 1 0" }} />
-          ))}
-        </div>
+          </div>
+        )}
+        {s.signals ? (
+          <div className="v3-row stagger" style={{ gap: 12, alignItems: "stretch" }}>
+            {s.signals.map((k) => (
+              <KBand key={k.id} label={k.label} value={k.value} unit={k.unit} sub={k.sub} tone={k.tone as Tone} values={k.series} delta={k.delta} deltaGood={k.delta_good} style={{ flex: "1 1 0" }} />
+            ))}
+          </div>
+        ) : (
+          <Card>
+            <Unavailable reason={u.signals} source={tx("指标来源", "a metrics source")} title={tx("黄金指标", "Golden signals")} icon="activity" />
+          </Card>
+        )}
         <div className="svc-grid">
-          <Panel title={tx("SLO · 可用性 {t}", "SLO · availability {t}", { t: s.slo.target })}>
-            <Row gap={14}>
-              <Gauge pct={s.slo.budget_left / 100} size={128} tone="warn" label={`${s.slo.budget_left}%`} sub={tx("错误预算剩余", "budget left")} />
-              <Col gap={8} grow>
-                <Row gap={6}>
-                  <Muted>{tx("本月可用性", "This month")}</Muted>
-                  <Spacer />
-                  <Num>{s.slo.availability}</Num>
-                </Row>
-                {s.slo.burn.map((b) => (
-                  <BurnRow key={b.window} label={b.window} value={b.value} tone={b.tone} pct={b.pct} />
-                ))}
-                <Muted size={11.5}>{s.slo.note}</Muted>
-              </Col>
-            </Row>
-          </Panel>
-          <Panel title={tx("最近变更", "Recent changes")} right={<TextLink to="/changes">{tx("全部", "All")}</TextLink>}>
-            <ul>
-              {s.changes.map((c) => (
-                <li key={c.title} className="svc-change">
-                  <Brand name={c.brand} size={22} />
-                  <Col gap={0} grow>
-                    <span className="ellipsis" style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>
-                      {c.title}
-                    </span>
-                    <Muted size={11.5}>{c.meta}</Muted>
+          <Panel title={s.slo.target ? tx("SLO · 可用性 {t}", "SLO · availability {t}", { t: s.slo.target }) : "SLO"}>
+            {s.slo.target === null && s.slo.budget_left === null && s.slo.availability === null ? (
+              <Unavailable reason={anyReason(u, "slo.target", "slo.budget_left", "slo.availability")} title="SLO" icon="shield" />
+            ) : (
+              <Row gap={14}>
+                {s.slo.budget_left !== null ? (
+                  <Gauge pct={s.slo.budget_left / 100} size={128} tone="warn" label={`${s.slo.budget_left}%`} sub={tx("错误预算剩余", "budget left")} />
+                ) : (
+                  <Col gap={4} align="center" style={{ width: 128 }}>
+                    <Muted size={11.5}>{tx("错误预算剩余", "budget left")}</Muted>
+                    <UnknownValue reason={u["slo.budget_left"]} source="Prometheus" />
                   </Col>
-                  {c.tag && <Badge tone="warn">{c.tag}</Badge>}
-                </li>
-              ))}
-            </ul>
+                )}
+                <Col gap={8} grow>
+                  <Row gap={6}>
+                    <Muted>{tx("目标", "Target")}</Muted>
+                    <Spacer />
+                    {s.slo.target !== null ? <Num>{s.slo.target}</Num> : <UnknownValue reason={u["slo.target"]} />}
+                  </Row>
+                  <Row gap={6}>
+                    <Muted>{tx("本月可用性", "This month")}</Muted>
+                    <Spacer />
+                    {s.slo.availability !== null ? <Num>{s.slo.availability}</Num> : <UnknownValue reason={u["slo.availability"]} source="Prometheus" />}
+                  </Row>
+                  {s.slo.burn === null ? (
+                    <Row gap={6}>
+                      <Muted>{tx("燃烧速率", "Burn rate")}</Muted>
+                      <Spacer />
+                      <UnknownValue reason={u["slo.burn"]} source="Prometheus" />
+                    </Row>
+                  ) : (
+                    s.slo.burn.map((b) => <BurnRow key={b.window} label={b.window} value={b.value} tone={b.tone} pct={b.pct} />)
+                  )}
+                  {s.slo.note && <Muted size={11.5}>{s.slo.note}</Muted>}
+                </Col>
+              </Row>
+            )}
+          </Panel>
+          <Panel title={tx("最近变更", "Recent changes")} right={<TextLink to={`/changes?service_id=${encodeURIComponent(s.id)}`}>{tx("全部", "All")}</TextLink>}>
+            {s.changes === null ? (
+              <Unavailable reason={u.changes} source={tx("交付来源", "a delivery source")} icon="branch" />
+            ) : s.changes.length === 0 ? (
+              <Empty icon="branch" title={tx("近期没有变更记录", "No recent changes")} />
+            ) : (
+              <ul>
+                {s.changes.map((c) => (
+                  <li key={c.title} className="svc-change">
+                    <Brand name={c.brand} size={22} />
+                    <Col gap={0} grow>
+                      <span className="ellipsis" style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>
+                        {c.title}
+                      </span>
+                      <Muted size={11.5}>{c.meta}</Muted>
+                    </Col>
+                    {c.tag && <Badge tone="warn">{c.tag}</Badge>}
+                  </li>
+                ))}
+              </ul>
+            )}
           </Panel>
           <Panel title={tx("依赖", "Dependencies")} right={<TextLink to="/resources">{tx("拓扑", "Topology")}</TextLink>}>
-            <Col gap={7}>
-              <Muted size={11}>{tx("上游", "Upstream")}</Muted>
-              {s.deps.upstream.map((d) => (
-                <Dep key={d.name} d={d} />
-              ))}
-              <Muted size={11}>{tx("下游", "Downstream")}</Muted>
-              {s.deps.downstream.map((d) => (
-                <Dep key={d.name} d={d} />
-              ))}
-            </Col>
+            {s.deps === null ? (
+              <Unavailable reason={u.deps} source={tx("拓扑来源", "a topology source")} icon="layers" />
+            ) : (
+              <Col gap={7}>
+                <Muted size={11}>{tx("上游", "Upstream")}</Muted>
+                {s.deps.upstream.length ? s.deps.upstream.map((d) => <Dep key={d.name} d={d} />) : <Muted size={11.5}>{tx("没有发现上游", "None found")}</Muted>}
+                <Muted size={11}>{tx("下游", "Downstream")}</Muted>
+                {s.deps.downstream.length ? s.deps.downstream.map((d) => <Dep key={d.name} d={d} />) : <Muted size={11.5}>{tx("没有发现下游", "None found")}</Muted>}
+              </Col>
+            )}
           </Panel>
         </div>
       </div>
@@ -119,7 +176,7 @@ export default function ServiceDetailPage() {
   );
 }
 
-function Dep({ d }: { d: ServiceDetail["deps"]["upstream"][number] }) {
+function Dep({ d }: { d: ServiceDependency }) {
   return (
     <Row gap={8}>
       {d.brand ? <Brand name={d.brand} size={20} /> : <Tile icon="box" size={20} />}
@@ -127,7 +184,7 @@ function Dep({ d }: { d: ServiceDetail["deps"]["upstream"][number] }) {
         {d.name}
       </span>
       <Muted size={11.5}>{d.meta}</Muted>
-      <Dot tone={d.status} size={7} />
+      {d.status ? <Dot tone={d.status} size={7} /> : <UnknownValue reason={d.unavailable.status} />}
     </Row>
   );
 }
@@ -145,21 +202,31 @@ function Source({ brand, text, link }: { brand: string; text: string; link: stri
 
 export function ResiliencePage() {
   const { tx } = useI18n();
-  const { data: s } = useService();
-  const { data: r } = useGet<Resilience>(s ? `/services/${s.id}/resilience` : null);
+  const { data: s, error: sErr } = useService();
+  const { data: r, error: rErr } = useGet<Resilience>(s ? `/services/${s.id}/resilience` : null);
+  // The propose / sync / advice buttons only have sample behaviour; real resilience proposals need an open
+  // investigation and a kind-specific request (docs/api/v3-resilience.md) and wait for their own design.
+  const demo = API_MODE === "mock";
   const propose = (what: string) => toast(tx("已生成提案「{w}」，等待人工批准", "Proposal “{w}” created — awaiting approval", { w: what }), { undo: () => undefined });
   if (!s || !r)
     return (
-      <Page crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services"), "…"]}>
+      <Page crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services"), s ? { label: s.name, to: `/services/${s.id}` } : "…", tx("流量与韧性", "Traffic & resilience")]}>
+        {s && <ServiceHeader s={s} />}
         <div className="v3-content">
-          <Skeleton h={60} />
-          <Skeleton h={500} />
+          {sErr || rErr ? (
+            <LoadError error={sErr ?? rErr} source={tx("灰度、熔断、限流、开关与伸缩来源", "rollout, breaker, rate-limit, flag and autoscaling sources")} />
+          ) : (
+            <>
+              <Skeleton h={60} />
+              <Skeleton h={500} />
+            </>
+          )}
         </div>
       </Page>
     );
   const STATE = { closed: ["ok", tx("关闭", "Closed")], open: ["danger", tx("打开", "Open")], half_open: ["warn", tx("半开", "Half-open")], none: ["neutral", tx("未配置", "None")] } as const;
   return (
-    <Page crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services"), { label: s.name, to: `/services/${s.id}` }, tx("流量与韧性", "Traffic & resilience")]} actions={<Btn kind="primary" icon="branch" to="/canvas/INV-231">{tx("发起调查", "Investigate")}</Btn>}>
+    <Page crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services"), { label: s.name, to: `/services/${s.id}` }, tx("流量与韧性", "Traffic & resilience")]} actions={<Btn kind="primary" icon="branch" to={investigateHref(s)}>{tx("发起调查", "Investigate")}</Btn>}>
       <ServiceHeader s={s} />
       <div className="v3-content anim-fade">
         <Card className="ro-banner">
@@ -169,7 +236,7 @@ export function ResiliencePage() {
             <Muted size={11.5}>{tx("平台聚合展示灰度、熔断、限流、开关与伸缩状态，供排障和 Agent 取证。需要干预时点「提议…」：可逆动作走提案与人工批准，配置类改动在配置仓库发起合并请求。", "The platform aggregates canary, breaker, rate-limit, flag and autoscaling state for troubleshooting and agent evidence. To intervene, use “Propose…”: reversible actions go through proposal and approval; config changes open a merge request in the config repo.")}</Muted>
           </Col>
           <Muted size={11.5}>{r.synced}</Muted>
-          <Btn icon="rotate" onClick={() => toast(tx("已从 5 个来源重新同步", "Re-synced from 5 sources"))}>{tx("立即同步", "Sync now")}</Btn>
+          {demo && <Btn icon="rotate" onClick={() => toast(tx("已从 5 个来源重新同步", "Re-synced from 5 sources"))}>{tx("立即同步", "Sync now")}</Btn>}
         </Card>
         <div className="res-grid stagger">
           <Panel title={tx("灰度发布", "Progressive delivery")} icon="branch" right={<Badge>{tx("只读", "Read-only")}</Badge>}>
@@ -218,8 +285,10 @@ export function ResiliencePage() {
                 </Card>
               </Row>
               <Row gap={6}>
+                {demo && <>
                 <Btn h={26} icon="shield" onClick={() => propose(tx("暂停灰度", "Pause canary"))}>{tx("提议暂停", "Propose pause")}</Btn>
                 <Btn h={26} icon="rotate" onClick={() => propose(tx("回滚灰度", "Roll back canary"))}>{tx("提议回滚", "Propose rollback")}</Btn>
+                </>}
                 <Spacer />
                 <Muted size={11.5}>{r.rollout.next}</Muted>
               </Row>
@@ -257,10 +326,12 @@ export function ResiliencePage() {
                 <Icon name="alert" size={13} style={{ marginTop: 2 }} />
                 <span>{r.breaker_note}</span>
               </div>
-              <Row gap={6}>
-                <Btn h={26} icon="sparkles" onClick={() => toast(tx("已生成改进建议，加入 Runbook 草稿", "Advice drafted into a runbook"))}>{tx("生成改进建议", "Draft advice")}</Btn>
-                <Btn kind="ghost" h={26} icon="shield" onClick={() => propose(tx("调整驱逐阈值", "Tune ejection"))}>{tx("提议调整驱逐阈值", "Propose ejection change")}</Btn>
-              </Row>
+              {demo && (
+                <Row gap={6}>
+                  <Btn h={26} icon="sparkles" onClick={() => toast(tx("已生成改进建议，加入 Runbook 草稿", "Advice drafted into a runbook"))}>{tx("生成改进建议", "Draft advice")}</Btn>
+                  <Btn kind="ghost" h={26} icon="shield" onClick={() => propose(tx("调整驱逐阈值", "Tune ejection"))}>{tx("提议调整驱逐阈值", "Propose ejection change")}</Btn>
+                </Row>
+              )}
               <Source brand="istio" text={tx("Istio DestinationRule · Sentinel 控制台 · 同步于 2 分钟前", "Istio DestinationRule · Sentinel console · synced 2 min ago")} link={tx("在 Kiali 中打开", "Open in Kiali")} />
             </Col>
           </Panel>
@@ -290,10 +361,10 @@ export function ResiliencePage() {
               <div className="ok-note">
                 <Icon name="check" size={13} />
                 <span className="grow">{r.limit_note}</span>
-                <TextLink to="/canvas/INV-231" icon="plus">{tx("作为证据加入", "Add as evidence")}</TextLink>
+                {demo && <TextLink to="/canvas/INV-231" icon="plus">{tx("作为证据加入", "Add as evidence")}</TextLink>}
               </div>
               <Row gap={6}>
-                <Btn kind="ghost" h={26} icon="shield" onClick={() => propose(tx("临时调整限流阈值（合并请求）", "Temporary limit change (MR)"))}>{tx("提议临时调整阈值", "Propose temporary change")}</Btn>
+                {demo && <Btn kind="ghost" h={26} icon="shield" onClick={() => propose(tx("临时调整限流阈值（合并请求）", "Temporary limit change (MR)"))}>{tx("提议临时调整阈值", "Propose temporary change")}</Btn>}
                 <Spacer />
                 <Muted size={11.5}>{tx("阈值来自网关配置仓库；调整会生成合并请求", "Limits live in the gateway config repo; changes open a merge request")}</Muted>
               </Row>
@@ -315,7 +386,7 @@ export function ResiliencePage() {
                   <span className={`ro-toggle ${f.on ? "on" : ""}`} role="img" aria-label={f.on ? tx("开启（只读）", "On (read-only)") : tx("关闭（只读）", "Off (read-only)")}>
                     <span />
                   </span>
-                  <Btn kind="ghost" h={24} onClick={() => propose(`${f.action} ${f.key}`)}>{f.action}</Btn>
+                  {demo && <Btn kind="ghost" h={24} onClick={() => propose(`${f.action} ${f.key}`)}>{f.action}</Btn>}
                 </Row>
               ))}
               <Row gap={6}>
@@ -374,10 +445,12 @@ export function ResiliencePage() {
                 </li>
               ))}
             </ul>
-            <Row gap={6}>
-              <Btn kind="primary" icon="plus" to="/canvas/INV-231">{tx("全部作为证据加入 INV-231", "Add all as evidence to INV-231")}</Btn>
-              <Btn icon="file" to="/executions/EXE-51">{tx("写入复盘报告", "Add to report")}</Btn>
-            </Row>
+            {demo && (
+              <Row gap={6}>
+                <Btn kind="primary" icon="plus" to="/canvas/INV-231">{tx("全部作为证据加入 INV-231", "Add all as evidence to INV-231")}</Btn>
+                <Btn icon="file" to="/executions/EXE-51">{tx("写入复盘报告", "Add to report")}</Btn>
+              </Row>
+            )}
           </section>
         </div>
       </div>

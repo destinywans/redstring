@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { CanvasKind, CanvasStatus, CanvasSummary, CanvasTemplateOption, CanvasThumb } from "../../api/types";
 import { AvatarGroup, Badge, Btn, Chip, Field, Icon, Input, Muted, Pills, Row, SearchBox, Skeleton, Spacer, Textarea, Tile, Toggle, cx, type IconName, type Tone } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
@@ -70,7 +70,10 @@ export default function CanvasesPage() {
   const setDlg = (open: boolean) => {
     const next = new URLSearchParams(params);
     if (open) next.set("new", params.get("new") || "plan");
-    else next.delete("new");
+    else {
+      next.delete("new");
+      next.delete("service");
+    }
     setParams(next, { replace: true });
   };
   const c = data?.counts;
@@ -143,19 +146,20 @@ export default function CanvasesPage() {
           ))}
         </div>
       </div>
-      <NewCanvasDialog open={dlg} initialKind={(params.get("new") as CanvasKind) || "plan"} onClose={() => setDlg(false)} />
+      <NewCanvasDialog open={dlg} initialKind={(params.get("new") as CanvasKind) || "plan"} initialServices={params.getAll("service")} onClose={() => setDlg(false)} />
     </Page>
   );
 }
 
 /** Type + template picker for a new canvas. Canvases are not only for investigations. */
-export function NewCanvasDialog({ open, onClose, initialKind = "plan" }: { open: boolean; onClose: () => void; initialKind?: CanvasKind }) {
+export function NewCanvasDialog({ open, onClose, initialKind = "plan", initialServices }: { open: boolean; onClose: () => void; initialKind?: CanvasKind; initialServices?: string[] }) {
   const { tx, zh } = useI18n();
   const nav = useNavigate();
   const [kind, setKind] = useState<CanvasKind>(initialKind);
   const [tpl, setTpl] = useState<string | null>(null);
   const lists = usePickLists();
-  const [svcs, setSvcs] = useState<string[]>(["checkout-api", "payment-gateway", "order-service"]);
+  // Sample services and the sample load-test plan exist only in mock mode; a real canvas starts from what the caller passed.
+  const [svcs, setSvcs] = useState<string[]>([]);
   const [title, setTitle] = useState("");
   const [goal, setGoal] = useState("");
   const [draft, setDraft] = useState(true);
@@ -163,13 +167,16 @@ export function NewCanvasDialog({ open, onClose, initialKind = "plan" }: { open:
   const { data } = useGet<{ items: CanvasTemplateOption[] }>(open ? "/canvas-templates" : null, undefined, { staleTime: 5 * 60_000 });
   const list = useMemo(() => (data?.items ?? []).filter((t) => t.kind === kind), [data, kind]);
   useEffect(() => {
-    if (open) setKind(KIND_META[initialKind] ? initialKind : "plan");
-  }, [open, initialKind]);
+    if (!open) return;
+    setKind(KIND_META[initialKind] ? initialKind : "plan");
+    setSvcs(initialServices?.length ? initialServices : API_MODE === "mock" ? ["checkout-api", "payment-gateway", "order-service"] : []);
+  }, [open, initialKind]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => setTpl(list.find((t) => t.is_default)?.id ?? list[0]?.id ?? null), [list]);
   useEffect(() => {
     if (!open) return;
-    setTitle(kind === "plan" ? tx("双十一大促压测计划", "Singles' Day load-test plan") : "");
-    setGoal(kind === "plan" ? tx("交易链路扛住 36k QPS（去年峰值 × 3），P99 < 800 ms，错误率 < 0.5%。", "Trade path holds 36k QPS (last year × 3), P99 < 800 ms, errors < 0.5%.") : "");
+    const sample = API_MODE === "mock" && kind === "plan";
+    setTitle(sample ? tx("双十一大促压测计划", "Singles' Day load-test plan") : "");
+    setGoal(sample ? tx("交易链路扛住 36k QPS（去年峰值 × 3），P99 < 800 ms，错误率 < 0.5%。", "Trade path holds 36k QPS (last year × 3), P99 < 800 ms, errors < 0.5%.") : "");
   }, [kind, open]); // eslint-disable-line react-hooks/exhaustive-deps
   const create = async () => {
     if (!title.trim()) {
@@ -182,6 +189,8 @@ export function NewCanvasDialog({ open, onClose, initialKind = "plan" }: { open:
       toast(draft ? tx("画布已创建，AI 正在起草初始节点", "Canvas created — the AI is drafting the first nodes") : tx("画布已创建", "Canvas created"));
       onClose();
       nav(r.href);
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : tx("创建失败，请稍后重试", "Couldn't create it; try again later"), { tone: "danger" });
     } finally {
       setBusy(false);
     }

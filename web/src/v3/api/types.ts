@@ -8,7 +8,14 @@
 export type Tone = "neutral" | "accent" | "ok" | "warn" | "danger" | "info";
 export type Severity = "P1" | "P2" | "P3" | "P4";
 export type EnvName = "prod" | "staging" | "test";
-export type Tier = "T0" | "T1" | "T2";
+export type Tier = "T0" | "T1" | "T2" | "T3";
+/** Why a value is unknown (V3UnknownReason). */
+export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale";
+/**
+ * V3Unavailable: field path (dot-separated; `[]` marks a field of every array item) -> reason.
+ * A key present means that field is null in the body; `{}` means everything is proven.
+ */
+export type Unavailable = Record<string, UnknownReason>;
 
 export type Page<T> = { items: T[]; total: number; page: number; page_size: number };
 export type Items<T> = { items: T[] };
@@ -405,7 +412,7 @@ export type RetrievalHit = { brand?: string; title: string; snippet: string; key
 
 /* ---------------- resources & observability ---------------- */
 export type Health = "ok" | "warn" | "danger";
-/** Catalog row: values without current evidence are null and `unknown[field]` says why (PA-05). */
+/** Catalog row (V3ServiceSummary): values without current evidence are null and `unavailable[path]` says why (PA-05). */
 export type ServiceSummary = {
   id: string;
   name: string;
@@ -417,26 +424,37 @@ export type ServiceSummary = {
   slo: { target: string | null; budget_left: number | null };
   release: { brand: string; version: string; when: string } | null;
   alerts: number | null;
-  connectors: string[];
-  unknown?: Partial<Record<"tier" | "team" | "oncall" | "status" | "slo" | "alerts" | "release", string>>;
+  connectors: string[] | null;
+  /** Paths: tier, team, oncall, status, slo.target, slo.budget_left, release, alerts, connectors. */
+  unavailable: Unavailable;
 };
-export type ServiceCatalog = { kpis: Kpi[]; items: ServiceSummary[]; facets: { key: string; title: string; items: { label: string; count: number; on: boolean }[] }[] };
+/** Counts only services whose input is known; `unknown` services were left out. `value` is null (+ reason) only when all are unknown. */
+export type ServiceCatalogKpi = { id: string; label: string; value: string | null; tone?: Tone; series: number[]; unknown: number; reason?: UnknownReason; sub?: string };
+export type ServiceCatalog = { kpis: ServiceCatalogKpi[]; items: ServiceSummary[]; facets: { key: string; title: string; items: { label: string; count: number; on: boolean }[] }[] };
+export type ServiceDependency = { brand?: string; name: string; status: Health | null; meta: string; unavailable: Unavailable };
+export type ServiceBurn = { window: string; value: string; tone: "ok" | "warn" | "danger"; pct: number };
 export type ServiceDetail = {
   id: string;
   name: string;
-  tier: Tier;
-  team: string;
-  env: EnvName;
-  status: Health;
+  tier: Tier | null;
+  team: string | null;
+  /** Any environment key of the instance, e.g. prod, staging, test or dev. */
+  env: string;
+  status: Health | null;
   desc: string;
   deeplinks: { brand: string; name: string; url: string }[];
-  ai: { text: string; investigation: string; proposal?: string; meta: string };
-  signals: Kpi[];
-  slo: { availability: string; target: string; budget_left: number; burn: { window: string; value: string; tone: Tone; pct: number }[]; note: string };
-  changes: { brand: string; title: string; meta: string; tag?: string }[];
-  deps: { upstream: { brand?: string; name: string; status: Health; meta: string }[]; downstream: { brand?: string; name: string; status: Health; meta: string }[] };
-  tabs: Record<string, number>;
+  ai: { text: string; investigation: string; proposal?: string; meta: string } | null;
+  signals: Kpi[] | null;
+  slo: { availability: string | null; target: string | null; budget_left: number | null; burn: ServiceBurn[] | null; note: string };
+  changes: { brand: string; title: string; meta: string; tag?: string }[] | null;
+  deps: { upstream: ServiceDependency[]; downstream: ServiceDependency[] } | null;
+  /** The contract counts changes, deps and incidents; the other keys only appear in sample data. */
+  tabs: { changes: number | null; deps: number | null; incidents: number | null; resilience?: number; runbooks?: number };
+  /** Paths: tier, team, status, ai, signals, slo.availability, slo.target, slo.budget_left, slo.burn, changes, deps, tabs.deps, tabs.incidents. */
+  unavailable: Unavailable;
 };
+/** GET/PUT /services/{id}/slo: null with not_configured before the first save. */
+export type ServiceSloSettings = { target: "99.5" | "99.9" | "99.95" | "99.99" | null; window: "7d" | "30d" | null; revision: number; unavailable: Unavailable };
 export type Resilience = {
   synced: string;
   rollout: {

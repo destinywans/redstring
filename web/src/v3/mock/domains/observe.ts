@@ -32,14 +32,14 @@ mock("GET", "/services", ({ query }) => {
   const q = String(query.q ?? "").toLowerCase();
   const tier = query.tier as string | undefined;
   const status = query.status as string | undefined;
-  const items = SERVICES.filter((s) => (!q || s.id.includes(q)) && (!tier || s.tier === tier) && (!status || s.status === status));
+  const items = SERVICES.filter((s) => (!q || s.id.includes(q)) && (!tier || s.tier === tier) && (!status || s.status === status)).map((s) => ({ ...s, unavailable: {} }));
   return {
     kpis: [
-      { id: "n", label: P("服务", "Services"), value: "9", sub: P("生产 9 · 预发 9", "prod 9 · staging 9"), series: [] },
-      { id: "bad", label: P("异常", "Degraded"), value: "1", tone: "danger", sub: P("checkout-api · 5xx 8.4%", "checkout-api · 5xx 8.4%"), series: [] },
-      { id: "warn", label: P("有告警", "Alerting"), value: "2", tone: "warn", sub: "inventory-service, inventory-worker", series: [] },
-      { id: "budget", label: P("错误预算 < 50%", "Budget < 50%"), value: "1", tone: "warn", sub: P("按当前速率 2 小时耗尽", "Exhausted in ~2 h at current burn"), series: [] },
-      { id: "rel", label: P("本周发布", "Releases this week"), value: "14", sub: P("失败 1 · 回滚 1", "1 failed · 1 rolled back"), series: [1, 2, 1, 3, 2, 4, 1] },
+      { id: "n", label: P("服务", "Services"), value: "9", unknown: 0, sub: P("生产 9 · 预发 9", "prod 9 · staging 9"), series: [] },
+      { id: "bad", label: P("异常", "Degraded"), value: "1", unknown: 0, tone: "danger", sub: P("checkout-api · 5xx 8.4%", "checkout-api · 5xx 8.4%"), series: [] },
+      { id: "warn", label: P("有告警", "Alerting"), value: "2", unknown: 0, tone: "warn", sub: "inventory-service, inventory-worker", series: [] },
+      { id: "budget", label: P("错误预算 < 50%", "Budget < 50%"), value: "1", unknown: 0, tone: "warn", sub: P("按当前速率 2 小时耗尽", "Exhausted in ~2 h at current burn"), series: [] },
+      { id: "rel", label: P("本周发布", "Releases this week"), value: "14", unknown: 0, sub: P("失败 1 · 回滚 1", "1 failed · 1 rolled back"), series: [1, 2, 1, 3, 2, 4, 1] },
     ],
     items,
     facets: [
@@ -72,10 +72,11 @@ mock("GET", "/services/:id", ({ params }) => {
       { brand: "gitlab", title: "#8790 · v2.8.0 · feat: coupon stacking", meta: P("9/19 · 李明 · 成功", "9/19 · Li Ming · success") },
     ],
     deps: {
-      upstream: [{ brand: "nginx", name: "api-gateway", status: "ok", meta: "1.2k/s" }],
-      downstream: [{ name: "inventory-service", status: "danger", meta: P("3.9k/s · 超时 31%", "3.9k/s · 31% timeouts") }, { name: "payment-gateway", status: "ok", meta: "P99 180 ms" }, { brand: "postgresql", name: "orders-db", status: "ok", meta: P("等待 P95 6 ms", "wait P95 6 ms") }, { brand: "redis", name: "session-cache", status: "ok", meta: P("命中 96%", "hit 96%") }, { brand: "kafka", name: "order-events", status: "ok", meta: P("延迟 12 ms", "lag 12 ms") }],
+      upstream: [{ brand: "nginx", name: "api-gateway", status: "ok", meta: "1.2k/s", unavailable: {} }],
+      downstream: [{ name: "inventory-service", status: "danger", meta: P("3.9k/s · 超时 31%", "3.9k/s · 31% timeouts"), unavailable: {} }, { name: "payment-gateway", status: "ok", meta: "P99 180 ms", unavailable: {} }, { brand: "postgresql", name: "orders-db", status: "ok", meta: P("等待 P95 6 ms", "wait P95 6 ms"), unavailable: {} }, { brand: "redis", name: "session-cache", status: "ok", meta: P("命中 96%", "hit 96%"), unavailable: {} }, { brand: "kafka", name: "order-events", status: "ok", meta: P("延迟 12 ms", "lag 12 ms"), unavailable: {} }],
     },
     tabs: { changes: 3, deps: 6, resilience: 5, runbooks: 4, incidents: 2 },
+    unavailable: {},
   };
 });
 

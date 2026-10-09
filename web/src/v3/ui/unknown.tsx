@@ -163,6 +163,23 @@ export function PageUnavailable({ title, desc, steps, to = "/integrations", icon
 /** Reasons arrive keyed by field; returns the reason for one field or a fallback. */
 export const reasonFor = (map: Record<string, string> | null | undefined, field: string, fallback?: UnknownReason): UnknownReason | undefined => map?.[field] ?? fallback;
 
+/** The first reason among several field paths of a V3 `unavailable` map (e.g. `slo.target`, `slo.budget_left`). */
+export const anyReason = (map: Record<string, string> | null | undefined, ...paths: string[]): UnknownReason | undefined => paths.map((p) => map?.[p]).find(Boolean);
+
+/**
+ * Labels the unknown paths of one or more `unavailable` maps for a PartialBanner, de-duplicated.
+ * `labels` maps a path (or its first segment) to user-facing text; unmapped paths are skipped.
+ */
+export function unknownLabels(maps: (Record<string, string> | null | undefined)[], labels: Record<string, string>) {
+  const out = new Set<string>();
+  for (const m of maps)
+    for (const path of Object.keys(m ?? {})) {
+      const label = labels[path] ?? labels[path.split(/[.[]/)[0]];
+      if (label) out.add(label);
+    }
+  return [...out];
+}
+
 /** Maps a failed read to an unknown reason: 501 and "not configured" mean not connected; other 5xx are unavailable. */
 export function errorReason(error: unknown): UnknownReason {
   if (!(error instanceof ApiError)) return "unavailable";

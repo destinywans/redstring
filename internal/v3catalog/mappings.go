@@ -159,6 +159,25 @@ var mappingSystems = []mappingSystem{
 	{ID: "workload", Brand: "kubernetes", Label: "工作负载"},
 }
 
+var mappingSystemLabelsEN = map[string]string{
+	"metrics": "Metrics", "logs": "Logs", "traces": "Traces", "code": "Code",
+	"deploy": "Deploy", "dash": "Dashboards", "workload": "Workloads",
+}
+
+// mappingSystemsFor returns the category labels in the request language
+// (English when Accept-Language starts with en); IDs and brands are fixed.
+func mappingSystemsFor(acceptLanguage string) []mappingSystem {
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(acceptLanguage)), "en") {
+		return mappingSystems
+	}
+	out := make([]mappingSystem, len(mappingSystems))
+	for i, system := range mappingSystems {
+		system.Label = mappingSystemLabelsEN[system.ID]
+		out[i] = system
+	}
+	return out
+}
+
 func mappingKind(kind string) string {
 	switch strings.ToLower(kind) {
 	case "prometheus", "victoriametrics":
@@ -358,5 +377,5 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 		}
 		output = append(output, *row)
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"systems": mappingSystems, "rows": output, "suggestions": suggestions})
+	httpapi.WriteJSON(w, 200, map[string]any{"systems": mappingSystemsFor(r.Header.Get("Accept-Language")), "rows": output, "suggestions": suggestions})
 }

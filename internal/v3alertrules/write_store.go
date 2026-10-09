@@ -436,22 +436,50 @@ func (s *WriteService) reserveImport(ctx context.Context, actor core.User, env, 
 
 // items is the frozen new-rule page's compact import result. Detailed
 // candidates retain group and draft identity for review.
-func importResultItems(candidates []map[string]any) []map[string]any {
+// The persisted result keeps both languages; responses, including idempotent
+// replays, recompute the notes for the request's Accept-Language.
+func importResultItems(candidates []map[string]any, language ...string) []map[string]any {
+	pick := func(zh, en string) string { return zh + " / " + en }
+	if len(language) > 0 {
+		english := strings.HasPrefix(strings.ToLower(strings.TrimSpace(language[0])), "en")
+		pick = func(zh, en string) string {
+			if english {
+				return en
+			}
+			return zh
+		}
+	}
 	items := make([]map[string]any, 0, len(candidates))
 	for _, candidate := range candidates {
 		outcome, _ := candidate["outcome"].(string)
-		note := "已保存待审草稿 / Draft saved for review"
+		note := pick("已保存待审草稿", "Draft saved for review")
 		if outcome == "duplicate" {
-			note = "同一规则身份已存在，已跳过 / Existing rule identity skipped"
+			note = pick("同一规则身份已存在，已跳过", "Existing rule identity skipped")
 			if state, _ := candidate["draft_state"].(string); state == "stale_remote" {
-				note = "远端草稿需人工核对，已跳过 / Remote draft needs review"
+				note = pick("远端草稿需人工核对，已跳过", "Remote draft needs review")
 			} else if state != "" && state != "pending_review" {
-				note = "已有草稿需处理，已跳过 / Existing draft needs review"
+				note = pick("已有草稿需处理，已跳过", "Existing draft needs review")
 			}
 		}
 		items = append(items, map[string]any{"name": candidate["name"], "status": outcome, "note": note})
 	}
 	return items
+}
+
+// localizedImportResult returns a copy of an import result whose item notes
+// follow the request language. Unexpected candidate shapes are left as stored.
+func localizedImportResult(result map[string]any, r *http.Request) map[string]any {
+	raw, err := json.Marshal(result["candidates"])
+	var candidates []map[string]any
+	if err != nil || json.Unmarshal(raw, &candidates) != nil || candidates == nil {
+		return result
+	}
+	out := make(map[string]any, len(result))
+	for key, value := range result {
+		out[key] = value
+	}
+	out["items"] = importResultItems(candidates, r.Header.Get("Accept-Language"))
+	return out
 }
 
 func (s *WriteService) replay(r *http.Request, actor core.User, operation, key, digest, env, app string) (map[string]any, bool, error) {

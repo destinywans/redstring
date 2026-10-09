@@ -62,6 +62,81 @@ type TraceList struct {
 	Partial          bool           `json:"partial,omitempty"`
 	Missing          []string       `json:"missing,omitempty"`
 	HistogramStates  []string       `json:"histogram_non_success_states,omitempty"`
+	// Unavailable is empty: every field of this list is derived from its
+	// complete population. See ObservedTraceList for the partial shape.
+	Unavailable map[string]string `json:"unavailable"`
+}
+
+// ObservedTraceList is the app-scope list when Tempo search completeness is
+// not attested. Every item is a closed stored trace, but the searched set may
+// be incomplete, so the total, view counts, facets, histogram and scatter are
+// null with their reason in Unavailable instead of counts of a sample.
+type ObservedTraceList struct {
+	Scope       string                    `json:"scope"`
+	Total       *int                      `json:"total"`
+	Took        string                    `json:"took"`
+	Colors      map[string]string         `json:"colors"`
+	Facets      []TraceFacet              `json:"facets"`
+	Views       []ObservedTraceViewOption `json:"views"`
+	Histogram   *TraceHistogram           `json:"histogram"`
+	Scatter     []TraceScatter            `json:"scatter"`
+	Items       []TraceRow                `json:"items"`
+	Partial     bool                      `json:"partial"`
+	Unavailable map[string]string         `json:"unavailable"`
+}
+
+type TraceHistogram struct {
+	Counts [][2]int `json:"counts"`
+	Axis   []string `json:"axis"`
+}
+
+type ObservedTraceViewOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Count *int   `json:"count"`
+	Query string `json:"query"`
+}
+
+func observedTraceReasons(reason string, items bool) map[string]string {
+	result := map[string]string{"total": reason, "views[].count": reason, "facets": reason, "histogram": reason, "scatter": reason}
+	if items {
+		result["items"] = reason
+	}
+	return result
+}
+
+// BuildObservedList keeps the closed traces the search returned and refuses
+// every population-derived figure. The reason says why the set is unproven.
+func BuildObservedList(traces []connectors.CompleteTrace, view, service string, took time.Duration, reason string) ObservedTraceList {
+	result := ObservedTraceList{Scope: "app", Took: fmt.Sprintf("%d ms", took.Milliseconds()), Colors: traceColors(traces),
+		Items: []TraceRow{}, Partial: true, Unavailable: observedTraceReasons(reason, false),
+		Views: []ObservedTraceViewOption{{ID: "all", Label: "All", Query: ""},
+			{ID: "errors", Label: "Errors", Query: "{ status = error }"},
+			{ID: "slow", Label: "Slow", Query: "{ trace:duration >= 1s }"}}}
+	for _, trace := range traces {
+		row := rowFor(trace, service)
+		if view == "errors" && row.Errors == 0 || view == "slow" && row.DurationMS < 1000 {
+			continue
+		}
+		result.Items = append(result.Items, row)
+	}
+	sort.Slice(result.Items, func(i, j int) bool {
+		if result.Items[i].Time != result.Items[j].Time {
+			return result.Items[i].Time > result.Items[j].Time
+		}
+		return result.Items[i].ID < result.Items[j].ID
+	})
+	return result
+}
+
+// UnconfiguredList states that no Tempo binding serves this scope. No item
+// list is returned, so an absent source cannot read as "no traces".
+func UnconfiguredList() ObservedTraceList {
+	return ObservedTraceList{Scope: "app", Took: "0 ms", Colors: map[string]string{}, Partial: true,
+		Views: []ObservedTraceViewOption{{ID: "all", Label: "All", Query: ""},
+			{ID: "errors", Label: "Errors", Query: "{ status = error }"},
+			{ID: "slow", Label: "Slow", Query: "{ trace:duration >= 1s }"}},
+		Unavailable: observedTraceReasons("not_configured", true)}
 }
 
 type TraceViewOption struct {
@@ -219,7 +294,8 @@ func BuildList(traces []connectors.CompleteTrace, window connectors.TimeWindow, 
 		base = append(base, rowFor(trace, service))
 	}
 	result := TraceList{Scope: "app", Took: fmt.Sprintf("%d ms", took.Milliseconds()),
-		Colors: traceColors(traces), Facets: []TraceFacet{}, Scatter: []TraceScatter{}, Items: []TraceRow{}}
+		Colors: traceColors(traces), Facets: []TraceFacet{}, Scatter: []TraceScatter{}, Items: []TraceRow{},
+		Unavailable: map[string]string{}}
 	errorCount, slowCount := 0, 0
 	for _, row := range base {
 		if row.Errors > 0 {

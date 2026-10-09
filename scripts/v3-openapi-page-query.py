@@ -40,7 +40,7 @@ for _path,_name,_enum in [('/logs','source',['elasticsearch','loki']),('/traces'
     page_parameter(_path,_name,string(enum=_enum))
 for _path,_names in [('/canvases',['participant','service','status']),('/conversations',['scope','status']),('/runbooks',['scope','owner']),('/postmortems',['service','cause']),('/members',['role','source']),('/audit',['action','result'])]:
     for _name in _names: page_parameter(_path,_name,multiple=True)
-P['/logs']['get']['description'] += ' source is a compatible alias for provider; both must agree. range changes the actual upstream window (default 30m). Existing provider max-window/lookback limits apply; excess returns503 without shrinking the requested window.'
+P['/logs']['get']['description'] += ' source is a compatible alias for provider; both must agree. range changes the actual upstream window (default 30m). Existing provider max-window limits apply and an excess returns 503 without shrinking the requested window; a window beyond the registered Loki lookback leaves counts and patterns null with unavailable.'
 P['/traces']['get']['description'] += ' App traces default 1h; range changes the actual complete-trace query. Only Tempo has a connected complete trace provider; requested Jaeger returns 503 trace_source_not_connected. Agent traces have no external source and reject source.'
 P['/metrics/dashboard']['get']['description'] += ' source=prometheus selects the implemented provider; victoriametrics returns 503 metrics_source_not_connected rather than querying Prometheus.'
 P['/home']['get']['description'] += ' range changes the actual ingress window, 24 equal histogram buckets, activity cutoff and recent-conversation cutoff; current unresolved attention remains current state, independent of range.'

@@ -208,6 +208,7 @@ func buildAgentTraceList(source v3agents.TraceRunObservations, filters []agentTr
 		WindowEndAt:   source.WindowEndAt.UTC().Format(time.RFC3339Nano), ExcludedRunning: &source.ExcludedRunning,
 		Partial: true, Missing: []string{"producer_coverage", "complete_span_coverage", "cost"},
 		HistogramStates: []string{"failed", "blocked", "reported_span_error"},
+		Unavailable:     map[string]string{},
 	}
 	population := make([]v3agents.TraceRunObservation, 0, len(source.Items))
 	errorCount, slowCount, blockedCount := 0, 0, 0

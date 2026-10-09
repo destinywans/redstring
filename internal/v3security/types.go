@@ -26,6 +26,36 @@ type SecurityView struct {
 	PasswordPolicy  string            `json:"password_policy"`
 }
 
+// securityResponse is the GET/PUT body: the authority's view plus an empty
+// unavailable map, because every field of a valid snapshot is proven.
+type securityResponse struct {
+	SecurityView
+	Unavailable map[string]string `json:"unavailable"`
+}
+
+// unknownSecurityView is returned when no runtime authority is configured.
+// Every field is null; nothing local can prove the effective policy.
+type unknownSecurityView struct {
+	SSO             *struct{}         `json:"sso"`
+	SCIM            *bool             `json:"scim"`
+	MFAPolicy       *string           `json:"mfa_policy"`
+	MFAMethods      *struct{}         `json:"mfa_methods"`
+	ApprovalPasskey *bool             `json:"approval_passkey"`
+	Session         *struct{}         `json:"session"`
+	Vault           *struct{}         `json:"vault"`
+	TokenTTL        *string           `json:"token_ttl"`
+	PasswordPolicy  *string           `json:"password_policy"`
+	Unavailable     map[string]string `json:"unavailable"`
+}
+
+func newUnknownSecurityView(reason string) unknownSecurityView {
+	unavailable := map[string]string{}
+	for _, field := range []string{"sso", "scim", "mfa_policy", "mfa_methods", "approval_passkey", "session", "vault", "token_ttl", "password_policy"} {
+		unavailable[field] = reason
+	}
+	return unknownSecurityView{Unavailable: unavailable}
+}
+
 type SSOProvider struct {
 	Brand   string `json:"brand"`
 	Name    string `json:"name"`

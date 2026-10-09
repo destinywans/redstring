@@ -26,6 +26,7 @@
 | 过滤 | 列表过滤用查询参数：`q`（搜索）、`filter` / `category` / `kind` 等枚举；数组参数重复键（`?k=a&k=b`） |
 | 写操作 | 模型只读取证。任何对外部系统的写动作都只生成**提案**，人工批准后由独立执行器执行；本契约中的 POST/PUT/PATCH 只修改平台自身配置或状态 |
 | 审计 | 所有写请求和 Agent 工具调用都写入审计（`GET /audit`） |
+| 未知 | 缺少可选证据时读接口仍返回 200：受影响字段为 `null`，同时在 `unavailable` 中按字段路径给出原因，例如 `{"total": "not_configured", "security.factors": "unavailable"}`（`[]` 表示数组每项的字段）。原因只有六种：`not_configured`（没有来源或登记）、`not_connected`（没有接入集成）、`no_authorized_target`（当前用户没有可见目标）、`not_generated`（平台尚未产生或记录）、`unavailable`（已配置的来源失败或没有证明）、`stale`（证据已过期）。未知不能写成 0、空列表、正常或“未值班”；字段都已证明时 `unavailable` 是空对象。只有请求本身无法完成（唯一来源已配置但失败、存储失败、授权失败）才返回错误。2026-10-09 起适用于 `/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard`；`/home` 和 `/me` 沿用各自的 `availability`、`oncall_state` |
 | 环境 | 请求头 `X-AIOps-Environment: <环境 id> \| all`，取右上角的当前环境；列表、AI 取证范围和执行目标都按它过滤。`all` 只允许在非生产实例中使用，且只能查看，写请求要返回 `409 env_view_only`。生产实例只有 `prod` 一个环境，可以不带这个请求头 |
 
 ### 流式对话
@@ -231,13 +232,13 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/services/{id}/resilience` | | `Resilience`；仅在固定 HTTPS 五类完整来源配置且证据有效时返回 200，否则 503 | implemented |
 | POST | `/services/{id}/resilience/proposals` | `{ kind, params: { investigation_id, reason, desired } }` | 201 `{ proposal_id }`；仅保存人工审阅提案，不创建可执行动作或合并请求 | implemented |
 | GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | 无 `topology_v1` 目录项时为授权 CMDB 部分响应；配置经审查的精确来源后可返回完整 `Topology`，来源不全返回 503 | implemented |
-| GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard`；单环境、单服务、唯一持久 Prometheus 目标和经审查的精确范围查询，完整面板与来源核对后返回 | implemented |
+| GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard` + `unavailable`；单环境、单服务。唯一持久 Prometheus 目标和经审查的 `dashboard` 查询齐备且面板守恒时返回指标块；无来源时指标块为 `null`（`not_configured`），面板不完整为 `unavailable`；没有平台记录的发布/回滚/事件标记为 `null`（`not_generated`） | implemented |
 | POST | `/metrics/ask` | `{ service, view, range, question, request_id }`；`service` 为持久应用 ID，`view=request_rate\|http_p95_seconds`，`range=15m\|1h`，`request_id` 是 16–128 字符重试标识 | 首次接受为 201 `{ conversation_id }`；同一操作者同参数重试为 200，修改同一重试标识的内容返回 409。仅用当前有权的精确 Prometheus 来源快照；前端尚未发送必要字段 | implemented |
-| GET | `/traces` | `scope: app\|agent`, `view`, `q`（应用：有界 TraceQL 选择器；Agent：有界精确过滤）, `service` | 应用范围读取有界完整 Tempo 集合；Agent 范围读取当前受权的持久已结束运行及已报告 Span，均返回 `TraceList` | implemented |
+| GET | `/traces` | `scope: app\|agent`, `view`, `q`（应用：有界 TraceQL 选择器；Agent：有界精确过滤）, `service` | 应用范围读取有界 Tempo 集合并逐条校验闭合；部署声明搜索完整（`tempo_search_fail_closed`）时返回完整 `TraceList`，否则返回已找到的 Trace、`partial: true`，总数/视图计数/分面/直方图/散点为 `null`（`not_configured`）；Agent 范围读取当前受权的持久已结束运行及已报告 Span；均带 `unavailable` | implemented |
 | GET | `/traces/{id}` | | 应用范围 `TraceView`：已存储且闭合的 Span 树、关键路径说明与服务调用图；无可靠关联时省略日志/链接 | implemented |
 | GET | `/services/discover` | 单个可选 `cluster`；重复参数返回 422 | 只读发现经授权的新鲜 Kubernetes 工作负载快照；返回稳定资源 ID、采集来源与时间、未知字段清单；同名歧义候选不返回 | implemented |
 | POST | `/services` | `{ items: [{ id, namespace, resource_id?, tier, owner, slo, p99 }] }`；`resource_id` 为发现接口返回的稳定 CMDB 标识，提供时必须有 namespace | `{ created }` | implemented |
-| GET | `/logs` | `q`, `levels`, `service?`, `provider?` | `LogSearch`；完整来源模式计数与趋势 | implemented |
+| GET | `/logs` | `q`, `levels`, `service?`, `provider?` | `LogSearch` + `unavailable`；返回可证明的限量日志行；全部来源证明了全窗计数才给 `total`/`errors`/`histogram`，模式计数与趋势守恒才给 `patterns`，否则为 `null` 并注明原因；未绑定日志来源时全部为 `null`（`not_configured`） | implemented |
 | GET | `/changes` | `service_id`, `run_id`, `range?=24h\|7d`, `sources?=native` | 单一有证据的原生交付运行及所选窗口的 `ChangesView` | implemented |
 
 韧性提案 POST 只接受当前真人会话、单一环境、精确服务与同服务开放调查，并在事务内复核 `services.view`、`proposals.change`、`canvas.view` 后保存不可变审阅正文和审计；六种 `kind` 均要求对应的有界 `desired` 字段，重复提交会建立新记录。正文中的目标源状态、风险、可逆性和执行路径仍未核实；此操作不创建执行动作、批准、外部变更或 GitLab 合并请求。`GET /services/{id}/resilience` 可由固定 HTTPS 聚合来源提供五类完整观测，服务端核对范围、修订、采集时间、项目数及完整 DTO；未配置或证据不全返回 `503 resilience_source_unavailable`，不能以空数组或零冒充真实状态。实际聚合器尚未部署或核验；详见[韧性视图与提案](v3-resilience.md)。冻结前端按钮只显示本地提示，整页仍待对接；本批只做源码接线和最小编译，未跑测试或真实来源联调。
@@ -250,11 +251,11 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 完整拓扑代码路径要求单环境、可见 `around` 中心、同应用的小邻域和已审查目录中的 `topology_v1` 精确 Prometheus 查询；节点健康/影响、关系流量和中心连接等六个对齐样本必须逐项匹配当前 CMDB 身份与修订。任一目录项会启用实例完整模式，未为某应用配置精确来源时明确 503；没有该目录项时仍返回标记 `complete_v3_dto: false` 的授权 CMDB 部分响应。布局只由有权图计算，`blast` 是观测受影响资源计数，不推断传播因果。运维必须核实 PromQL 和录制规则本身的应用/环境隔离；本集成尚无真实 Prometheus 或浏览器证据。详见[拓扑来源契约](v3-topology-view.md)。
 
-观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；可见服务缺 `connectors.view` 在目标查询前返回 403，隐藏或不存在的服务同样返回资源不存在，读取中撤权不返回样本。完整 `GET /metrics/dashboard` 另要求经审查的 `dashboard` 查询目录一次返回 37 个时间点及请求、延迟、CPU、SLO、热力和排名等全部受信面板，再从持久发布、回滚和事件记录取得时间标记；缺项返回 503，不以样本补推。读取后复核精确 Cookie 会话、当前授权、目标绑定和 SLO 配置。图上的时间重合只表示并列证据，不证明发布引发事件。冻结指标页仍硬编码多处标签/版本/SLO/分析文案，且对齐开关未发送 `align`；真实 Prometheus 尚未联调，因此页面和产品未验收。`GET /logs` 在唯一授权目标及已配置的 Elasticsearch 或 Loki 范围内，分别查询所选等级的全窗总数、错误数、直方图、限量日志行和完整模板模式聚合；逐桶守恒、来源配置及当前授权/绑定均核对后才返回 `200 LogSearch`，包括精确零结果。缺少完整聚合返回 `503 log_patterns_unavailable` 和真实的部分证据；显式空 `levels` 返回空结果。模式来自受信采集模板或 Elasticsearch 类别聚合，不声称 AI 聚类；真实目标的历史映射/租户覆盖、脱敏和查询性能验收见 [日志来源接线](v3-logs-source.md)。
+观测查询只使用持久化应用、环境、负责人团队及已配置的外部目标绑定；不同来源绑定冲突返回 `409 ambiguous_binding`，范围过大返回 `422 scope_limit`。`GET /metrics/samples` 辅助接口可在单环境、唯一显式 V3 Prometheus 指标目标和操作者审查过精确范围的查询目录下返回有界真实标量样本；可见服务缺 `connectors.view` 在目标查询前返回 403，隐藏或不存在的服务同样返回资源不存在，读取中撤权不返回样本。`GET /metrics/dashboard` 的指标块另要求同一唯一目标所在连接器启用 `query_metrics`，且经审查的 `dashboard` 查询目录一次返回 37 个时间点及请求、延迟、CPU、SLO、热力和排名等全部受信面板；旧 CMDB 遥测绑定不参与。缺来源或查询时指标块为 `null`（`not_configured`），面板缺项或矛盾时指标块整体为 `null`（`unavailable`），不以样本补推；SLO 另需 0～100 之间的持久目标且预算/燃烧面板与之一致，否则只有 `slo` 为 `null`。发布、回滚和事件标记来自持久记录，窗口内没有记录时为 `null`（`not_generated`，平台只记录自己执行的发布）；读取失败仍为 503（2026-10-09 生产验收修订 PA-05：原先任一项缺失都整体 503）。读取后复核精确 Cookie 会话、当前授权、目标绑定和 SLO 配置。图上的时间重合只表示并列证据，不证明发布引发事件。冻结指标页仍硬编码多处标签/版本/SLO/分析文案，且对齐开关未发送 `align`；真实 Prometheus 尚未联调，因此页面和产品未验收。`GET /logs` 在唯一授权目标及已配置的 Elasticsearch 或 Loki 范围内，分别查询所选等级的全窗总数、错误数、直方图、限量日志行和完整模板模式聚合；逐桶守恒、来源配置及当前授权/绑定均核对后才返回计数，包括精确零结果。日志行总是返回所选来源可证明的限量样本；任一来源没有证明全窗计数时 `total`、`errors`、`histogram` 为 `null`，模式不能守恒时 `patterns` 为 `null`，`unavailable` 注明 `not_configured`（Loki 应用未登记 `loki_complete_lookback_seconds` 或 `loki_pattern_field`）或 `unavailable`；未绑定日志来源时全部字段为 `null`（`not_configured`）。来源查询失败仍为 503；显式空 `levels` 返回空结果（2026-10-09 生产验收修订 PA-05：原先 Loki 未登记模板来源时整体 503）。模式来自受信采集模板或 Elasticsearch 类别聚合，不声称 AI 聚类；真实目标的历史映射/租户覆盖、脱敏和查询性能验收见 [日志来源接线](v3-logs-source.md)。
 
 `POST /metrics/ask` 已有单环境、单持久应用及唯一授权 Prometheus 指标目标的有界快照与持久对话实现，正式入口也接入来源版本复核。快照只含实际样本，稀疏样本不证明整窗趋势；模型上下文将其视为未信任观察，不向该对话开放通用工具。首次接受和相同请求重试分别返回 201/200；来源或权限撤销后，对话读取、SSE 和后续模型工作拒绝继续使用该快照。冻结页面只提交 `view`/`question` 并跳普通对话，缺稳定应用、时间窗与重试标识；本批遵照用户要求未运行定向测试或真实 Prometheus/模型调用，`implemented` 仅指配置来源后后端具完整处理链。多实例上线前必须先让所有对话读取和模型工作实例识别 `metrics_source_required`，再开放创建流量；见 [指标提问来源与恢复](v3-metrics-ask.md)。
 
-应用范围 Trace 由单环境持久 Tempo 目标绑定及当前 `traces.view` 确定；同一静态目标跨隐藏范围复用、选择器重叠或目标修订变化均拒绝。列表把最近一小时搜索触顶窗口继续拆分，最多 64 次查询、40 条 Trace、6 个目标，每条无时间界限拉取最多 500 个 Span 并验证唯一根、父链闭合与无环；超预算或来源失败返回 413/503，不用部分样本推总量。`200 TraceList` 的分面、十二个时间桶和散点来自同一返回全集。列表要求服务端 `tempo_search_fail_closed` 配置，设置前需核目标 Tempo 的 `fail_on_high_lag=true`；该配置默认关闭，不是运行时证明。详情的操作名称仅显示服务端白名单或路由模板，缺可靠日志/变更/Runbook 关联时省略链接。Agent 范围无需 Tempo，读取数据库时钟最近 24 小时内当前受权的持久已结束运行和已报告 Span，要求 `agents.view` 与 `traces.view`；运行中数量单列，超过 2000 项运行或 20000 个运行/模型身份上限时返回 413，不把截断样本当全量。未报告的 token、模型、成本和插桩覆盖率明确列为缺失；详见[Agent 范围的链路列表](v3-agent-trace-list.md)。应用范围的完整性仅指当次 Tempo 返回的已存储且闭合的 Trace，不证明采样遗漏或未插桩 Span；真实 Tempo、延迟配置及冻结页面 `q`/散点 `service` 接线尚未验收，见 [Trace 来源边界](v3-traces-source.md)。
+应用范围 Trace 由单环境持久 Tempo 目标绑定及当前 `traces.view` 确定；同一静态目标跨隐藏范围复用、选择器重叠或目标修订变化均拒绝。列表把最近一小时搜索触顶窗口继续拆分，最多 64 次查询、40 条 Trace、6 个目标，每条无时间界限拉取最多 500 个 Span 并验证唯一根、父链闭合与无环；超预算或来源失败返回 413/503，不用部分样本推总量。完整 `TraceList` 的分面、十二个时间桶和散点来自同一返回全集，只在服务端声明 `tempo_search_fail_closed` 时返回，设置前需按所用 Tempo 版本核实搜索完整性；该配置默认关闭，不是运行时证明。未声明时返回已找到且闭合的 Trace（`partial: true`），总数、视图计数、分面、直方图和散点为 `null`（`not_configured`），不从这些样本推算总量；未绑定 Tempo 时连 `items` 也为 `null`（2026-10-09 生产验收修订 PA-05：原先整体 `503 not_configured`）。详情的操作名称仅显示服务端白名单或路由模板，缺可靠日志/变更/Runbook 关联时省略链接。Agent 范围无需 Tempo，读取数据库时钟最近 24 小时内当前受权的持久已结束运行和已报告 Span，要求 `agents.view` 与 `traces.view`；运行中数量单列，超过 2000 项运行或 20000 个运行/模型身份上限时返回 413，不把截断样本当全量。未报告的 token、模型、成本和插桩覆盖率明确列为缺失；详见[Agent 范围的链路列表](v3-agent-trace-list.md)。应用范围的完整性仅指当次 Tempo 返回的已存储且闭合的 Trace，不证明采样遗漏或未插桩 Span；真实 Tempo、延迟配置及冻结页面 `q`/散点 `service` 接线尚未验收，见 [Trace 来源边界](v3-traces-source.md)。
 
 ## v4 新建流程（`create.ts`）
 
@@ -397,8 +398,8 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/me/profile` | 单一所选环境；需当前真人账号、活动会话与环境查看权 | 受信身份来源完整覆盖联系人验证、MFA 因子和全部活动会话设备/登录方式时返回持久资料 `ProfileView`；缺证据 503 | implemented |
-| PUT | `/me/profile` | 单一所选环境、完整 `ProfileView`；仅姓名、显示名、职务、时区和通知可编辑 | 同事务复核当前证据、会话及权限后保存可编辑字段与审计；联系人、部门和安全字段不可借完整提交改写 | implemented |
+| GET | `/me/profile` | 单一所选环境；需当前真人账号、活动会话与环境查看权 | `ProfileView` + `unavailable`：持久资料、通知、密码修改审计、全部活动会话和本地 MFA 登记照常返回；联系方式验证、飞书联系方式、组织规则、因子列表和会话设备只来自受信身份来源，缺来源或证据失效时为 `null` 并注明原因 | implemented |
+| PUT | `/me/profile` | 单一所选环境、GET 返回的完整 `ProfileView`（含 `null`，`unavailable` 可回传并被忽略）；仅姓名、显示名、职务、时区和通知可编辑 | 同事务复核会话及权限后保存可编辑字段与审计；联系人、部门和安全字段（含未知字段）必须与当前视图一致，不可借完整提交改写；不再依赖身份来源 | implemented |
 | DELETE | `/me/sessions/{id}` | | 204 | implemented |
 | GET | `/members` | `filter: all\|admin\|no_mfa\|disabled`, `q`；`no_mfa` 缺证据时 503 | 当前受权持久成员与角色；登录、MFA、组与目录来源未知时可空 | implemented |
 | POST | `/members/invitations` | `{ email, role?: "viewer" }` | `{ ok: true }`；仅 SMTP relay 接受且状态落库后成功 | implemented |
@@ -407,7 +408,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | GET | `/roles` | | `{ items: Role[] }` | implemented |
 | GET | `/roles/{id}` | | `RoleDetail` 与响应头 `X-Role-Matrix-Revision` | implemented |
 | PUT | `/roles/{id}` | `{ matrix }` 和 GET 返回的 `If-Role-Matrix-Revision`；机器身份的“批准”列必须拒绝 | `{ ok: true }` 与新矩阵版本响应头 | implemented |
-| GET | `/security` | 单环境、当前人类平台管理员和全局 `workspace.manage` | 仅受审权威控制器提供完整、新鲜、同实例/环境且实际生效的 `SecurityView` 与强 ETag；缺来源或待对账 503 | implemented |
+| GET | `/security` | 单环境、当前人类平台管理员和全局 `workspace.manage` | 受审权威控制器提供完整、新鲜、同实例/环境且实际生效的 `SecurityView`、空 `unavailable` 与强 ETag；未配置权威时 200，九个字段全部为 `null`（`not_configured`）且无 ETag；已配置权威失败或待对账 503 | implemented |
 | PUT | `/security` | GET 的强 `If-Match` 与完整 `SecurityView`；只允许受支持的策略开关变动 | 同一操作 ID 的权威 apply 回执和完整同修订读回均验证后记录台账/审计，返回新视图与 ETag；未知结果不报成功 | implemented |
 | GET | `/me/notification-settings` | | `{ quiet: { enabled, from, to }, digest: off\|daily\|weekly, subscriptions }`；只读取当前账号已保存偏好，无记录时返回平台默认值，不代表通知渠道已接通 | implemented |
 | PUT | `/me/notification-settings` | 部分更新 `{ quiet?: boolean\|{enabled,from,to}, digest?, subscriptions?: { [existing_id]: boolean }\|现有订阅完整列表 }` | 保存并返回当前账号合并后的完整通知偏好；订阅标识与文案不能在此接口新建或修改，不代表通知已投递 | implemented |
@@ -419,7 +420,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | implemented |
 | POST | `/audit/export` | 过滤条件 | `{ url }` | implemented |
 
-`GET/PUT /me/profile` 已接可选受信 HTTPS 身份证据来源：只有当前真人账号、活动 Cookie 会话、单环境查看权、完整且新鲜的联系人验证、MFA 因子及全部会话设备/登录方式证据与本实例持久登记一致时才返回完整 `ProfileView`。PUT 只改可编辑资料和通知偏好，事务内复核并审计；不允许借完整提交改写联系人、部门或安全事实。两条仅按有条件后端路径计 `implemented`；默认未配置来源时返回 `503 identity_evidence_unavailable`，仓库尚无可提供全部设备/登录方式的权威生产者，真实来源与冻结页面未验收；见[本人资料证据边界](v3-profile-evidence.md)。会话删除是独立接口。
+`GET/PUT /me/profile` 按当前真人账号、活动 Cookie 会话和单环境查看权返回持久资料、通知、密码修改审计、全部活动会话及本地 MFA 登记；可选受信 HTTPS 身份证据来源再补联系人验证、飞书联系方式、组织规则、因子列表和会话设备/登录方式，且须与本实例持久登记一致。没有来源、来源失败或证据过期时这些字段为 `null`，`unavailable` 注明 `not_configured`、`unavailable` 或 `stale`（2026-10-09 生产验收修订 PA-16：原先整体 `503 identity_evidence_unavailable`，资料、通知和账号安全三页都打不开）。PUT 提交 GET 的完整视图，只改可编辑资料和通知偏好，事务内复核并审计；联系人、部门和安全字段（含未知字段）必须与当前视图一致。仓库尚无可提供全部设备/登录方式的权威生产者，真实来源与冻结页面未验收；见[本人资料证据边界](v3-profile-evidence.md)。会话删除是独立接口。
 
 `POST /members/sync` 与 `POST /members/mfa-reminders` 可通过受保护的单环境成员来源配置接入飞书目录、权威 MFA/收件人证据及专用提醒机器人，默认不配置时明确 503。同步在读取完整目录后于写入事务重核管理员、会话和成员归属；新成员默认禁用且不授环境/应用权限，也不因快照缺席自动离职。提醒要求同实例、租户和环境绑定的五分钟内完整证据，单次最多 20 人、每位收件人 24 小时及每位管理员每小时最多 100 条；外发前再次锁定管理员、会话、目标和待发送台账，发送与回执审计保持同一限时授权事务。部分或未知发送结果不能当作全部失败并自动重试。两条只按受审来源齐备时的后端条件成功路径计 `implemented`；仓库未提供实际 MFA 权威服务，飞书租户/权限、现有库迁移、真实发送与冻结页面均未验收；见[成员来源配置](v3-member-sources.md)。
 
@@ -564,6 +565,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-10-09 | 生产验收 PA-05/PA-16：新增「未知」约定（`null` + `unavailable` 原因）。`/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard` 在可选证据缺失时返回 200，受影响字段可空；`ProfileView`、`SecurityView`、`LogSearch`、`TraceList`、`MetricsDashboard` 字段由必有改为可空，属于破坏性语义修改，`types.ts` 与页面由前端轮同步。OpenAPI 已重新生成。 |
 | 2026-10-07 | 后端对齐 v1.1：27 个新接口具备持久化/真实读取，5 个可信来源缺口已接线并按用户决定明确 503；服务端参数、迁移 158～161、OpenAPI 与定向隔离验证已同步，原 166 项不升级。 |
 | 2026-10-07 | 契约 v1.1：新增「v1.1 页面交互接口」一节。第 1 张表列出前端需对齐的已实现约束（令牌有效期与权限、邀请角色、护栏内置策略、新建实验和 Agent 的请求体），第 2 张表补入后端已实现的 19 个接口，第 3 张表新定义 32 个待实现接口，并补充查询参数。原 166 项的路径和字段不变，没有破坏性修改。 |
 | 2026-09-29 | WAN-119 角色详情 GET/PUT 按后端单路由判据标为 `implemented`；矩阵写入新增 `If-Role-Matrix-Revision` 强前置条件，版本随 GET/PUT 响应头返回，用于防止旧页面覆盖持久授权。冻结页面尚未传递该头，页面验收另列。 |

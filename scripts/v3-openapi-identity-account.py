@@ -4,7 +4,7 @@ v3_route('patch','/me','Update current account',body=ref('V3MePatch'),response=r
     desc='Requires one selected authorized environment and an active human account/session. Only name, title, timezone and supported preference fields are self-editable; email, phone, team, department, roles, MFA and on-call are server-owned and rejected. The transaction locks the account before its session, rechecks authority and evidence, then saves profile/preferences and audit atomically before returning the full Me response. Editing the account does not depend on on-call evidence; the response reports on-call as in GET /me.')
 v3_route('patch','/me/preferences','Update visual and language preferences',body=ref('V3PreferencesPatch'),response=ref('V3Preferences'))
 v3_route('get','/me/profile','Read personal profile',response=ref('V3ProfileView'))
-v3_route('put','/me/profile','Update personal profile',body=ref('V3ProfileView'),response=ref('V3ProfileView'))
+v3_route('put','/me/profile','Update personal profile',body=ref('V3ProfileUpdate'),response=ref('V3ProfileView'))
 v3_route('delete','/me/sessions/{id}','Revoke one account session',status=204)
 S['V3MFATOTPStatus'] = obj({'state':string(enum=['none','pending','expired','active']),
     'recovery_remaining':integer(minimum=0)},['state','recovery_remaining'])
@@ -125,17 +125,20 @@ v3_route('get','/models/observations','Read one model metadata observation',
 for _method in ('get','patch'):
     P['/me'][_method]['responses']['503']['description'] = 'Authoritative current on-call evidence is unavailable or stale'
 P['/me/profile']['get']['description'] += (' Requires one selected authorized environment and a current human account/session. '
-    'An operator-configured trusted HTTPS source must return a fresh, complete, exact instance/user/environment/contact/session-bound '
-    'snapshot of contact verification, MFA enrollment and factors, organization rule, and device/login method for every active session. '
-    'Factor types and counts must agree with the same-instance TOTP/passkey registrations used by GET /me. '
-    'The account database supplies editable fields, notifications, password audit time and session expiry. Unknown, stale, incomplete '
-    'or unconfigured evidence returns 503 identity_evidence_unavailable; no security state is guessed.')
-P['/me/profile']['put']['description'] += (' Accepts one complete ProfileView in a selected authorized environment. Only name, display_name, '
-    'title, timezone and notifications are editable; department, contacts and every security field must exactly match the current '
-    'authoritative view. The source is called before database locks, then the transaction rechecks exact session, human account, '
-    'environment.view, source freshness and the complete contact/session set before writing fields and a secret-free audit atomically. '
-    'Unconfigured, stale or incomplete evidence returns 503 without a partial write. Production startup must inject both the trusted '
-    'source and instance ID; a configured source has not yet been verified against a real provider.')
+    'The account database supplies name, display name, department, title, timezone, stored email/phone, notifications, password audit '
+    'time and every active session with its expiry; mfa_enabled comes from the same-instance TOTP/passkey enrollment as GET /me '
+    '(null with not_configured when that is not configured). An operator-configured trusted HTTPS source adds contact verification, '
+    'the IdP-linked Feishu contact, the organization rule, the factor list and each session\'s device and login method; its snapshot '
+    'must be fresh, complete and bound to the exact instance/user/environment/contacts/sessions, and its factors must agree with local '
+    'enrollment. Without that evidence those fields are null and unavailable names them: contacts[].verified, contacts.feishu, '
+    'security.org_rule, security.factors, security.sessions[].device with not_configured (no source), unavailable (source failed or '
+    'contradicted local enrollment) or stale (snapshot no longer covers the locked rows or expired). The read is still 200.')
+P['/me/profile']['put']['description'] += (' Accepts the complete ProfileView from GET in a selected authorized environment, including its '
+    'nulls; an echoed unavailable map is ignored. Only name, display_name, title, timezone and notifications are editable; department, '
+    'contacts and every security field, unknown ones included, must exactly match the current view or 422 invalid_settings is returned '
+    'without a write. The evidence source, when configured, is called before database locks; the transaction rechecks exact session, '
+    'human account and environment.view before writing fields and a secret-free audit atomically. Editable fields are local, so the '
+    'write does not depend on the evidence source.')
 v3_route('post','/uploads','Store an inert conversation attachment',
     body=obj({'kind':string(enum=['link','paste']),'name':string(),
         'url':string(),'text':string(),'size':integer(),'mime':string()},['kind','name']),

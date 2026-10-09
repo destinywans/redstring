@@ -22,6 +22,9 @@ type Access interface {
 
 type Source interface {
 	QueryCompleteTraces(context.Context, connectors.CompleteTraceQuery) ([]connectors.CompleteTrace, error)
+	// QueryObservedTraces serves the list without requiring a deployment
+	// attestation of search completeness; it reports whether one exists.
+	QueryObservedTraces(context.Context, connectors.CompleteTraceQuery) (connectors.TraceObservation, error)
 }
 
 type Service struct {
@@ -192,7 +195,7 @@ func sourceError(w http.ResponseWriter, err error, detail bool) {
 	}
 	switch telemetry.Kind {
 	case "configuration":
-		httpapi.Error(w, 503, "not_configured", "Tempo provider is not configured")
+		httpapi.Error(w, 503, "not_configured", "Tempo provider or the trace resource registration is not configured")
 	case "limit":
 		if detail {
 			httpapi.Error(w, 413, "trace_too_large", "Trace exceeds the bounded span limit")
@@ -210,7 +213,9 @@ func sourceError(w http.ResponseWriter, err error, detail bool) {
 	}
 }
 
-func (s *Service) scope(w http.ResponseWriter, r *http.Request) ([]string, []target, bool) {
+// scope resolves the authorized Tempo targets. With allowNone, an unfiltered
+// scope without any binding is returned empty for the caller to report.
+func (s *Service) scope(w http.ResponseWriter, r *http.Request, allowNone ...bool) ([]string, []target, bool) {
 	environments, ok := s.allowedEnvironments(w, r)
 	if !ok {
 		return nil, nil, false
@@ -233,6 +238,9 @@ func (s *Service) scope(w http.ResponseWriter, r *http.Request) ([]string, []tar
 		if service != "" {
 			httpapi.Error(w, 404, "not_found", "Service has no accessible trace source")
 			return nil, nil, false
+		}
+		if len(allowNone) > 0 && allowNone[0] {
+			return environments, targets, true
 		}
 		httpapi.Error(w, 503, "not_configured", "No authorized trace binding is configured")
 		return nil, nil, false
@@ -346,8 +354,18 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_query", "Use one bounded TraceQL span selector")
 		return
 	}
-	environments, targets, ok := s.scope(w, r)
+	environments, targets, ok := s.scope(w, r, true)
 	if !ok {
+		return
+	}
+	if len(targets) == 0 {
+		// No Tempo binding serves this scope. Recheck the session so the
+		// answer still belongs to a live login, then report the state.
+		if !s.unchanged(w, r, environments, targets, "") {
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		httpapi.WriteJSON(w, 200, UnconfiguredList())
 		return
 	}
 	all, ok := s.allTargets(w, r, environments, targets)
@@ -357,7 +375,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	end := start.UTC().Truncate(time.Second)
 	window := connectors.TimeWindow{Start: end.Add(-duration), End: end}
-	traces, err := s.Source.QueryCompleteTraces(r.Context(), connectors.CompleteTraceQuery{
+	observed, err := s.Source.QueryObservedTraces(r.Context(), connectors.CompleteTraceQuery{
 		Resources: resources(all), SearchResources: resources(targets), Window: window, Filter: filter})
 	if err != nil {
 		sourceError(w, err, false)
@@ -368,7 +386,13 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	httpapi.WriteJSON(w, 200, BuildList(traces, window, view, service, time.Since(start)))
+	if !observed.PopulationComplete {
+		// Search completeness is not attested for this deployment: return
+		// the closed traces found, never counts or charts of that sample.
+		httpapi.WriteJSON(w, 200, BuildObservedList(observed.Traces, view, service, time.Since(start), "not_configured"))
+		return
+	}
+	httpapi.WriteJSON(w, 200, BuildList(observed.Traces, window, view, service, time.Since(start)))
 }
 
 func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {

@@ -121,20 +121,119 @@ func (t *Telemetry) QueryLogsWithPatterns(ctx context.Context, appID, provider, 
 		return LogEvidence{}, &TelemetryError{Kind: "scope", Message: "Unknown registered log provider"}
 	}
 	out, err := t.queryLokiOptions(ctx, appID, w, limit, search, level)
-	if err == nil {
-		if len(out.Source.Warnings) != 0 {
-			out.PatternError = "Complete Loki log counts are unavailable"
-		} else if patterns, summary, patternErr := t.lokiCompletePatterns(ctx, appID, out.Source, level); patternErr != nil {
-			out.PatternError = "Complete Loki log patterns are unavailable: " + patternErr.Error()
-		} else if int64(len(out.Entries)) > summary.Total {
-			out.PatternError = "Loki log sample exceeds complete count"
-		} else {
-			out.Summary = summary
-			out.SummaryError = ""
-			out.PatternSummary = patterns
-		}
+	if err != nil {
+		return out, err
 	}
-	return out, err
+	app := t.config.Applications[appID]
+	unproven := func(summaryState, summaryErr, patternState, patternErr string) {
+		out.Summary, out.PatternSummary = nil, nil
+		out.SummaryState, out.SummaryError = summaryState, summaryErr
+		out.PatternState, out.PatternError = patternState, patternErr
+	}
+	switch {
+	case app.LokiCompleteLookbackSeconds == 0:
+		// Without a registered lookback and retention horizon a count could be
+		// silently trimmed by the tenant's max_query_lookback.
+		unproven("not_configured", "Complete Loki log counts are not registered for this application",
+			"not_configured", "trusted Loki template source is not registered")
+	case len(out.Source.Warnings) != 0:
+		unproven("unavailable", "Complete Loki log counts are unavailable", "unavailable", "Complete Loki log counts are unavailable")
+	default:
+		patterns, summary, patternErr := t.lokiCompletePatterns(ctx, appID, out.Source, level)
+		if patternErr == nil && int64(len(out.Entries)) <= summary.Total {
+			out.Summary, out.SummaryError, out.PatternSummary = summary, "", patterns
+			break
+		}
+		patternState, message := "unavailable", "Loki log sample exceeds complete count"
+		if patternErr != nil {
+			message = "Complete Loki log patterns are unavailable: " + patternErr.Error()
+		}
+		if app.LokiPatternField == "" {
+			patternState, message = "not_configured", "trusted Loki template source is not registered"
+		}
+		// The registered horizon still proves exact counts when templates do
+		// not account for every line.
+		counts, countErr := t.lokiCompleteCounts(ctx, app, out.Source, level)
+		if countErr != nil || int64(len(out.Entries)) > counts.Total {
+			unproven("unavailable", "Complete Loki log counts are unavailable", patternState, message)
+			break
+		}
+		out.Summary, out.SummaryError, out.SummaryState = counts, "", ""
+		out.PatternState, out.PatternError = patternState, message
+	}
+	return out, nil
+}
+
+// lokiCountWidth applies the registered coverage horizon to the given number of
+// sequential bounded requests and returns the histogram bucket width.
+func (t *Telemetry) lokiCountWidth(app ApplicationTelemetry, window TimeWindow, requests int) (time.Duration, error) {
+	if app.LokiCompleteLookbackSeconds == 0 {
+		return 0, errors.New("Loki query lookback is not registered")
+	}
+	// Keep the worst-case timeout of every following request inside the
+	// trusted source coverage horizon so a late request cannot be silently
+	// shortened by max_query_lookback.
+	coverageMargin := time.Duration(requests*t.config.TimeoutSeconds+5) * time.Second
+	if t.now().UTC().Sub(window.Start)+coverageMargin > time.Duration(app.LokiCompleteLookbackSeconds)*time.Second {
+		return 0, errors.New("requested window exceeds registered Loki query lookback and retention")
+	}
+	width := time.Duration(logBucketSeconds(window)) * time.Second
+	if width <= 0 || window.End.Sub(window.Start) > 32*width {
+		return 0, errors.New("Loki histogram exceeds bucket budget")
+	}
+	return width, nil
+}
+
+// lokiCompleteCounts is the count-only part of lokiCompletePatterns. It uses
+// the same horizon and strict warning-free instant counts for every bucket.
+func (t *Telemetry) lokiCompleteCounts(ctx context.Context, app ApplicationTelemetry, source TelemetrySource, level string) (*LogSummary, error) {
+	width, err := t.lokiCountWidth(app, source.Window, 34)
+	if err != nil {
+		return nil, err
+	}
+	total, err := t.lokiExactCount(ctx, source, source.Query, source.Window.Start, source.Window.End)
+	if err != nil {
+		return nil, err
+	}
+	summary := &LogSummary{Total: total, BucketSeconds: int(width / time.Second), Buckets: []LogBucket{}}
+	var bucketTotal int64
+	for start := source.Window.Start; start.Before(source.Window.End); start = start.Add(width) {
+		end := start.Add(width)
+		if end.After(source.Window.End) {
+			end = source.Window.End
+		}
+		count, err := t.lokiExactCount(ctx, source, source.Query, start, end)
+		if err != nil {
+			return nil, err
+		}
+		if count > total-bucketTotal {
+			return nil, errors.New("Loki bucket exceeds exact total")
+		}
+		bucketTotal += count
+		summary.Buckets = append(summary.Buckets, LogBucket{Timestamp: start, Count: count})
+	}
+	if bucketTotal != total || len(summary.Buckets) > 32 {
+		return nil, errors.New("Loki histogram does not cover exact total")
+	}
+	if summary.ErrorCount, err = t.lokiErrorCount(ctx, source, level, total); err != nil {
+		return nil, err
+	}
+	return summary, nil
+}
+
+func (t *Telemetry) lokiErrorCount(ctx context.Context, source TelemetrySource, level string, total int64) (*int64, error) {
+	count := int64(0)
+	if level == "" {
+		errorsQuery := source.Query + lokiCanonicalLevelFilter("error|fatal|critical|panic")
+		exact, err := t.lokiExactCount(ctx, source, errorsQuery, source.Window.Start, source.Window.End)
+		if err != nil || exact > total {
+			return nil, errors.New("incomplete Loki error count")
+		}
+		count = exact
+	} else if level == "error" || level == "fatal" {
+		count = total
+	}
+	return &count, nil
 }
 
 const lokiTemplateLabel = "aiops_pattern_template"
@@ -272,16 +371,10 @@ func (t *Telemetry) lokiCompletePatterns(ctx context.Context, appID string, sour
 	if app.LokiPatternField != "message_template" || app.LokiCompleteLookbackSeconds == 0 {
 		return nil, nil, errors.New("trusted Loki template source is not registered")
 	}
-	// Up to 34 sequential bounded HTTP requests can follow this check. Keep
-	// their worst-case timeout inside the trusted source coverage horizon so
-	// a late request cannot be silently shortened by max_query_lookback.
-	coverageMargin := time.Duration(34*t.config.TimeoutSeconds+5) * time.Second
-	if t.now().UTC().Sub(source.Window.Start)+coverageMargin > time.Duration(app.LokiCompleteLookbackSeconds)*time.Second {
-		return nil, nil, errors.New("requested window exceeds registered Loki query lookback and retention")
-	}
-	width := time.Duration(logBucketSeconds(source.Window)) * time.Second
-	if width <= 0 || source.Window.End.Sub(source.Window.Start) > 32*width {
-		return nil, nil, errors.New("Loki histogram exceeds bucket budget")
+	// Up to 34 sequential bounded HTTP requests can follow this check.
+	width, err := t.lokiCountWidth(app, source.Window, 34)
+	if err != nil {
+		return nil, nil, err
 	}
 	total, err := t.lokiExactCount(ctx, source, source.Query, source.Window.Start, source.Window.End)
 	if err != nil {
@@ -350,19 +443,8 @@ func (t *Telemetry) lokiCompletePatterns(ctx context.Context, appID string, sour
 			return nil, nil, errors.New("Loki template buckets do not cover whole-window count")
 		}
 	}
-	if level == "" {
-		errorsQuery := source.Query + lokiCanonicalLevelFilter("error|fatal|critical|panic")
-		count, err := t.lokiExactCount(ctx, source, errorsQuery, source.Window.Start, source.Window.End)
-		if err != nil || count > total {
-			return nil, nil, errors.New("incomplete Loki error count")
-		}
-		summary.ErrorCount = &count
-	} else {
-		count := int64(0)
-		if level == "error" || level == "fatal" {
-			count = total
-		}
-		summary.ErrorCount = &count
+	if summary.ErrorCount, err = t.lokiErrorCount(ctx, source, level, total); err != nil {
+		return nil, nil, err
 	}
 	return patterns, summary, nil
 }

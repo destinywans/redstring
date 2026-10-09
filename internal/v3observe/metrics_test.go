@@ -92,21 +92,41 @@ func TestDashboardSeriesRequiresFullGridAndReviewedLabels(t *testing.T) {
 	}
 }
 
+func at(t time.Time) *time.Time { return &t }
+
 func TestDashboardRejectsUndefinedRatioAndContradictorySLO(t *testing.T) {
 	end := time.Now().UTC().Truncate(100 * time.Second)
 	window := testDashboardWindow(end)
-	marker := dashboardMarkers{release: end.Add(-30 * time.Minute), rollback: end.Add(-10 * time.Minute), incidentStart: end.Add(-25 * time.Minute), incidentEnd: end.Add(-5 * time.Minute)}
-	result := testDashboardEvidence(window)
-	if _, ok := buildDashboard(result, window, marker, 99.9); !ok {
-		t.Fatal("valid dashboard rejected")
+	marker := dashboardMarkers{release: at(end.Add(-30 * time.Minute)), rollback: at(end.Add(-10 * time.Minute)), incidentStart: at(end.Add(-25 * time.Minute)), incidentEnd: at(end.Add(-5 * time.Minute))}
+	target := 99.9
+	build := func(result v3integrations.PrometheusMetricEvidence, marker dashboardMarkers, target *float64) (metricsDashboard, bool) {
+		out := newDashboard(window, marker)
+		ok := out.applyMetrics(result, window, target)
+		return out, ok
 	}
-	boundary := dashboardMarkers{release: window.Start.Add(50 * time.Second), rollback: window.End.Add(-10 * time.Second), incidentStart: window.Start.Add(40 * time.Second), incidentEnd: window.Start.Add(60 * time.Second)}
-	near, ok := buildDashboard(result, window, boundary, 99.9)
-	if !ok || near.Window.ReleaseAt != 0 || near.Window.RollbackAt != 35 || near.Window.Incident != [2]int{0, 1} {
+	result := testDashboardEvidence(window)
+	valid, ok := build(result, marker, &target)
+	if !ok || valid.SLO == nil || len(valid.Unavailable) != 0 || valid.Window.ReleaseAt == nil || valid.Window.Incident == nil {
+		t.Fatalf("valid dashboard rejected: ok=%v unavailable=%v", ok, valid.Unavailable)
+	}
+	boundary := dashboardMarkers{release: at(window.Start.Add(50 * time.Second)), rollback: at(window.End.Add(-10 * time.Second)), incidentStart: at(window.Start.Add(40 * time.Second)), incidentEnd: at(window.Start.Add(60 * time.Second))}
+	near, ok := build(result, boundary, &target)
+	if !ok || *near.Window.ReleaseAt != 0 || *near.Window.RollbackAt != 35 || *near.Window.Incident != [2]int{0, 1} {
 		t.Fatalf("first-bin markers: %+v complete=%v", near.Window, ok)
 	}
-	if _, ok := buildDashboard(result, window, marker, 100); ok {
-		t.Fatal("accepted undefined 100% SLO budget")
+	// Markers the platform did not record are null with a reason, never a bin.
+	unmarked, ok := build(result, dashboardMarkers{}, &target)
+	if !ok || unmarked.Window.ReleaseAt != nil || unmarked.Window.RollbackAt != nil || unmarked.Window.Incident != nil ||
+		unmarked.Window.IncidentLabel != nil || unmarked.Unavailable["window.release_at"] != "not_generated" ||
+		unmarked.Unavailable["window.incident"] != "not_generated" || unmarked.KPIs == nil || unmarked.SLO == nil {
+		t.Fatalf("absent markers: %+v %v", unmarked.Window, unmarked.Unavailable)
+	}
+	undefined := 100.0
+	for _, missing := range []*float64{nil, &undefined} {
+		noBudget, ok := build(result, marker, missing)
+		if !ok || noBudget.SLO != nil || noBudget.Unavailable["slo"] != "not_configured" || noBudget.KPIs == nil {
+			t.Fatalf("undefined SLO target must only hide the SLO block: %v %+v", ok, noBudget.Unavailable)
+		}
 	}
 	for i := range result.Series {
 		if result.Series[i].Labels["panel"] == "requests_total" {
@@ -116,7 +136,7 @@ func TestDashboardRejectsUndefinedRatioAndContradictorySLO(t *testing.T) {
 			break
 		}
 	}
-	if _, ok := buildDashboard(result, window, marker, 99.9); ok {
+	if _, ok := build(result, marker, &target); ok {
 		t.Fatal("accepted zero request denominator")
 	}
 	result = testDashboardEvidence(window)
@@ -128,8 +148,9 @@ func TestDashboardRejectsUndefinedRatioAndContradictorySLO(t *testing.T) {
 			break
 		}
 	}
-	if _, ok := buildDashboard(result, window, marker, 99.9); ok {
-		t.Fatal("accepted contradictory SLO budget")
+	contradictory, ok := build(result, marker, &target)
+	if !ok || contradictory.SLO != nil || contradictory.Unavailable["slo"] != "unavailable" || contradictory.Requests == nil {
+		t.Fatalf("contradictory SLO budget must leave only the SLO unknown: %v %+v", ok, contradictory.Unavailable)
 	}
 	result = testDashboardEvidence(window)
 	for i := range result.Series {
@@ -140,7 +161,7 @@ func TestDashboardRejectsUndefinedRatioAndContradictorySLO(t *testing.T) {
 			}
 		}
 	}
-	if _, ok := buildDashboard(result, window, marker, 99.9); ok {
+	if _, ok := build(result, marker, &target); ok {
 		t.Fatal("accepted overflowing request totals")
 	}
 	old := end.Add(-2 * time.Hour)
@@ -355,7 +376,21 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 		}
 	}
 	check(request("?service=app&range=6h"), 422, "invalid_metric_request")
-	check(request("?service=app"), 503, "dashboard_markers_unavailable")
+	decode := func(w *httptest.ResponseRecorder) metricsDashboard {
+		t.Helper()
+		var out metricsDashboard
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &out) != nil || out.Unavailable == nil {
+			t.Fatalf("dashboard: %d %s", w.Code, w.Body.String())
+		}
+		return out
+	}
+	// Metrics are served without any platform-recorded marker in the window.
+	unmarked := decode(request("?service=app"))
+	if unmarked.KPIs == nil || unmarked.Window.ReleaseAt != nil || unmarked.Window.Incident != nil ||
+		unmarked.Unavailable["window.release_at"] != "not_generated" || unmarked.Unavailable["window.rollback_at"] != "not_generated" ||
+		unmarked.Unavailable["kpis"] != "" || len(unmarked.Window.Labels) != dashboardPoints {
+		t.Fatalf("unmarked dashboard: %+v", unmarked)
+	}
 	end := time.Now().UTC().Truncate(100 * time.Second)
 	if _, err = db.Exec(ctx, `INSERT INTO deployment_plans VALUES('plan','app','app-dev');
  INSERT INTO deployment_executions VALUES('deploy','plan','succeeded');
@@ -380,11 +415,10 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 	if w.Code != 200 {
 		t.Fatalf("configured dashboard: %d %s", w.Code, w.Body.String())
 	}
-	var body metricsDashboard
-	if err = json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if len(body.Window.Labels) != dashboardPoints || len(body.KPIs) != 5 || len(body.Requests.OK) != dashboardPoints || len(body.Latency.Heat) != 8 || len(body.SLO.Burn) != 3 || len(body.Endpoints) != 1 || len(body.Instances) != 1 || body.Window.IncidentLabel == "" || w.Header().Get("Cache-Control") != "no-store" {
+	body := decode(w)
+	if len(body.Window.Labels) != dashboardPoints || len(body.KPIs) != 5 || len(body.Requests.OK) != dashboardPoints || len(body.Latency.Heat) != 8 ||
+		body.SLO == nil || len(body.SLO.Burn) != 3 || len(body.Endpoints) != 1 || len(body.Instances) != 1 || body.Window.IncidentLabel == nil ||
+		len(body.Unavailable) != 0 || !strings.Contains(w.Body.String(), `"unavailable":{}`) || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("incomplete dashboard: %+v", body)
 	}
 	beforeCalls := calls.Load()
@@ -417,8 +451,25 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 		t.Fatal(err)
 	}
 	mode.Store(1)
-	check(request("?service=app"), 503, "metric_result_incomplete")
+	incomplete := decode(request("?service=app"))
+	if incomplete.KPIs != nil || incomplete.Requests != nil || incomplete.SLO != nil || incomplete.Unavailable["kpis"] != "unavailable" ||
+		incomplete.Unavailable["latency"] != "unavailable" || incomplete.Window.ReleaseAt == nil {
+		t.Fatalf("incomplete panels must be unknown, not partial: %+v", incomplete)
+	}
 	mode.Store(0)
+	// A connector without the enabled query tool is not a registered source.
+	if _, err = db.Exec(ctx, `UPDATE v3_connectors SET tools='[{"name":"query_metrics","enabled":false}]' WHERE id='connector'`); err != nil {
+		t.Fatal(err)
+	}
+	beforeCalls = calls.Load()
+	unconfigured := decode(request("?service=app"))
+	if unconfigured.KPIs != nil || unconfigured.Unavailable["kpis"] != "not_configured" || unconfigured.Unavailable["slo"] != "not_configured" ||
+		unconfigured.Window.ReleaseAt == nil || calls.Load() != beforeCalls {
+		t.Fatalf("unconfigured source: %+v calls=%d", unconfigured, calls.Load()-beforeCalls)
+	}
+	if _, err = db.Exec(ctx, `UPDATE v3_connectors SET tools='[{"name":"query_metrics","enabled":true}]' WHERE id='connector'`); err != nil {
+		t.Fatal(err)
+	}
 	mode.Store(2)
 	response := make(chan *httptest.ResponseRecorder, 1)
 	go func() { response <- request("?service=app") }()

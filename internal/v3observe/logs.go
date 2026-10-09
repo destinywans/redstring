@@ -41,6 +41,30 @@ type logPattern struct {
 	CountNum int64   `json:"-"`
 }
 
+// logSearch is LogSearch with explicit unknowns. Items are the bounded, level
+// checked lines the sources returned; total, errors, histogram and patterns
+// are null with a reason in Unavailable when no source proved them complete.
+type logSearch struct {
+	Total       *string           `json:"total"`
+	Errors      *string           `json:"errors"`
+	Histogram   [][3]int64        `json:"histogram"`
+	Items       []logLine         `json:"items"`
+	Patterns    []logPattern      `json:"patterns"`
+	Unavailable map[string]string `json:"unavailable"`
+}
+
+// logReason merges the reasons of several sources for one field. A missing
+// registration is reported over a transient failure because retrying cannot fix it.
+func logReason(current, next string) string {
+	if next != "not_configured" {
+		next = "unavailable"
+	}
+	if current == "not_configured" {
+		return current
+	}
+	return next
+}
+
 type logPatternTelemetry interface {
 	QueryLogsWithPatterns(context.Context, string, string, string, string, connectors.TimeWindow, int) (connectors.LogEvidence, error)
 }
@@ -141,7 +165,11 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(targets) == 0 {
-		httpapi.Error(w, 503, "not_configured", "No authorized log binding is configured")
+		// No log source is registered for this scope: a stable deployment
+		// state rather than a failed read. Nothing is reported as zero or empty.
+		w.Header().Set("Cache-Control", "no-store")
+		httpapi.WriteJSON(w, 200, logSearch{Unavailable: map[string]string{"total": "not_configured", "errors": "not_configured",
+			"histogram": "not_configured", "items": "not_configured", "patterns": "not_configured"}})
 		return
 	}
 	if len(targets) > 3 {
@@ -150,14 +178,18 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	if noLevels {
-		httpapi.WriteJSON(w, 200, map[string]any{"total": "0", "errors": "0", "histogram": [][3]int64{}, "items": []logLine{}, "patterns": []any{}})
+		zero := "0"
+		httpapi.WriteJSON(w, 200, logSearch{Total: &zero, Errors: &zero, Histogram: [][3]int64{}, Items: []logLine{},
+			Patterns: []logPattern{}, Unavailable: map[string]string{}})
 		return
 	}
 	window := observationWindow(duration)
 	items := []logLine{}
 	total, errorsCount := int64(0), int64(0)
 	patternCounts := map[logPatternKey]*logPatternCounts{}
-	patternsComplete := true
+	// A count, error count or pattern set is known only when every selected
+	// source and level proved it. Lines remain usable evidence either way.
+	countReason, errorsReason, patternReason := "", "", ""
 	// Each level is queried separately so total and histogram refer to the
 	// selected levels, not a misleading sample or an unrelated global count.
 	buckets := map[int64][3]int64{}
@@ -175,26 +207,34 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 				httpapi.Error(w, 503, "not_configured", "Selected log provider is not configured")
 				return
 			}
-			if err != nil || result.Source.Failure != nil || result.Summary == nil || result.SummaryError != "" || result.Summary.Total < 0 {
-				httpapi.Error(w, 503, "telemetry_unavailable", "Log query or complete count is unavailable")
+			if err != nil || result.Source.Failure != nil {
+				httpapi.Error(w, 503, "telemetry_unavailable", "Log query is unavailable")
 				return
 			}
-			if result.PatternError != "" {
-				patternsComplete = false
+			if result.Summary == nil || result.SummaryError != "" || result.Summary.Total < 0 {
+				countReason = logReason(countReason, result.SummaryState)
+				if level == "error" {
+					errorsReason = logReason(errorsReason, result.SummaryState)
+				}
+			} else {
+				total += result.Summary.Total
+				if level == "error" {
+					errorsCount += result.Summary.Total
+				}
+				idx := map[string]int{"error": 0, "warn": 1, "info": 2}[level]
+				for _, bucket := range result.Summary.Buckets {
+					stamp := bucket.Timestamp.UTC().Unix()
+					counts := buckets[stamp]
+					counts[idx] += bucket.Count
+					buckets[stamp] = counts
+				}
 			}
-			total += result.Summary.Total
-			if level == "error" {
-				errorsCount += result.Summary.Total
-			}
-			idx := map[string]int{"error": 0, "warn": 1, "info": 2}[level]
-			for _, bucket := range result.Summary.Buckets {
-				stamp := bucket.Timestamp.UTC().Unix()
-				counts := buckets[stamp]
-				counts[idx] += bucket.Count
-				buckets[stamp] = counts
-			}
-			if result.PatternSummary == nil {
-				patternsComplete = patternsComplete && result.Summary.Total == 0
+			if result.PatternError != "" || result.PatternSummary == nil {
+				// An exact zero count without a pattern error has no patterns
+				// to account for; anything else leaves the pattern set unproven.
+				if result.PatternError != "" || result.Summary == nil || result.Summary.Total != 0 {
+					patternReason = logReason(patternReason, result.PatternState)
+				}
 			} else {
 				for _, pattern := range result.PatternSummary.Patterns {
 					key := logPatternKey{Template: pattern.Template, Level: strings.ToUpper(level)}
@@ -256,6 +296,20 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	for _, key := range keys {
 		histogram = append(histogram, buckets[key])
 	}
+	out := logSearch{Items: items, Unavailable: map[string]string{}}
+	if countReason == "" {
+		value := fmt.Sprint(total)
+		out.Total, out.Histogram = &value, histogram
+	} else {
+		out.Unavailable["total"], out.Unavailable["histogram"] = countReason, countReason
+		patternReason = logReason(patternReason, countReason)
+	}
+	if errorsReason == "" {
+		value := fmt.Sprint(errorsCount)
+		out.Errors = &value
+	} else {
+		out.Unavailable["errors"] = errorsReason
+	}
 	patterns := make([]logPattern, 0, len(patternCounts))
 	var patternedTotal int64
 	for key, counts := range patternCounts {
@@ -266,16 +320,16 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 			trend = append(trend, value)
 			trendedTotal += value
 		}
-		if key.Template == "" || counts.Count < 0 || trendedTotal != counts.Count || len(counts.Buckets) > len(keys) {
-			patternsComplete = false
+		if (key.Template == "" || counts.Count < 0 || trendedTotal != counts.Count || len(counts.Buckets) > len(keys)) && patternReason == "" {
+			patternReason = "unavailable"
 		}
 		patternedTotal += counts.Count
 		patterns = append(patterns, logPattern{Template: key.Template, Level: key.Level, Count: fmt.Sprint(counts.Count), Trend: trend, CountNum: counts.Count})
 	}
-	if patternedTotal != total {
-		patternsComplete = false
+	if patternReason == "" && patternedTotal != total {
+		patternReason = "unavailable"
 	}
-	if patternsComplete {
+	if patternReason == "" {
 		sort.Slice(patterns, func(i, j int) bool {
 			if patterns[i].CountNum != patterns[j].CountNum {
 				return patterns[i].CountNum > patterns[j].CountNum
@@ -285,16 +339,11 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 			}
 			return patterns[i].Template < patterns[j].Template
 		})
-		httpapi.WriteJSON(w, 200, map[string]any{"total": fmt.Sprint(total), "errors": fmt.Sprint(errorsCount),
-			"histogram": histogram, "items": items, "patterns": patterns})
-		return
+		out.Patterns = patterns
+	} else {
+		// Pattern counts and trends must account for the exact total; a
+		// partial set is not shown as the complete pattern list.
+		out.Unavailable["patterns"] = patternReason
 	}
-	// A provider without a complete pattern aggregation still offers genuine
-	// counts and bounded line evidence, but not the full LogSearch contract.
-	httpapi.WriteJSON(w, 503, map[string]any{
-		"error": map[string]string{"code": "log_patterns_unavailable", "message": "Complete log pattern counts and trends are not available from registered sources"},
-		"available": map[string]any{"total": fmt.Sprint(total), "errors": fmt.Sprint(errorsCount),
-			"histogram": histogram, "items_sample": items},
-		"missing": []string{"patterns", "pattern_counts", "pattern_trends"},
-	})
+	httpapi.WriteJSON(w, 200, out)
 }

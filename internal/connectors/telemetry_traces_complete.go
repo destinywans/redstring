@@ -101,11 +101,35 @@ func completeTraceOperation(span otelSpan, allowed []string) string {
 	return "operation withheld"
 }
 
+// TraceObservation is the result of a bounded search whose population may or
+// may not be attested. Every trace in it passed the same closed-tree checks.
+type TraceObservation struct {
+	Traces []CompleteTrace
+	// PopulationComplete is true only when the deployment attests that Tempo
+	// search discovers every stored trace (tempo_search_fail_closed).
+	PopulationComplete bool
+}
+
 // QueryCompleteTraces returns a complete, bounded search population or an
 // error. Tempo's search selects the first N matches; reaching N requires a
 // narrower query. Every selected trace is then read without start/end, since
 // Tempo documents that time-bounded trace-by-ID queries can be partial.
 func (t *Telemetry) QueryCompleteTraces(ctx context.Context, q CompleteTraceQuery) ([]CompleteTrace, error) {
+	return t.queryStoredTraces(ctx, q, true)
+}
+
+// QueryObservedTraces runs the same bounded search and closed-tree reads
+// without requiring the search completeness attestation. Callers must not
+// derive totals, facets or distributions unless PopulationComplete is true.
+func (t *Telemetry) QueryObservedTraces(ctx context.Context, q CompleteTraceQuery) (TraceObservation, error) {
+	traces, err := t.queryStoredTraces(ctx, q, false)
+	if err != nil {
+		return TraceObservation{}, err
+	}
+	return TraceObservation{Traces: traces, PopulationComplete: t.config.TempoSearchFailClosed}, nil
+}
+
+func (t *Telemetry) queryStoredTraces(ctx context.Context, q CompleteTraceQuery, requireAttested bool) ([]CompleteTrace, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	source := TelemetrySource{Provider: "tempo", CapturedAt: t.now().UTC()}
@@ -123,7 +147,7 @@ func (t *Telemetry) QueryCompleteTraces(ctx context.Context, q CompleteTraceQuer
 	}
 	var err error
 	if q.TraceID == "" {
-		if !t.config.TempoSearchFailClosed {
+		if requireAttested && !t.config.TempoSearchFailClosed {
 			return nil, failure(&source, "configuration", "Tempo search completeness is not verified for this deployment", nil)
 		}
 		source.Window, err = t.window(q.Window, false)

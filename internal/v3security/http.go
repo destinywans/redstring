@@ -27,11 +27,35 @@ func selectedEnvironment(r *http.Request) (string, bool) {
 	return scope.EnvironmentIDs[0], true
 }
 
+// withoutEmptyUnavailable drops the echoed GET "unavailable" key. Only an
+// empty map can come from a writable (complete) view.
+func withoutEmptyUnavailable(raw json.RawMessage) (json.RawMessage, bool) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil {
+		return raw, true
+	}
+	value, present := fields["unavailable"]
+	if !present {
+		return raw, true
+	}
+	var reasons map[string]string
+	if json.Unmarshal(value, &reasons) != nil || reasons == nil || len(reasons) != 0 {
+		return nil, false
+	}
+	delete(fields, "unavailable")
+	stripped, err := json.Marshal(fields)
+	return stripped, err == nil
+}
+
 func decodeSecurityView(w http.ResponseWriter, r *http.Request) (SecurityView, bool) {
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	var raw json.RawMessage
-	if err := decoder.Decode(&raw); err != nil || decoder.Decode(new(any)) != io.EOF ||
-		rejectDuplicateJSONKeys(raw) != nil || validateSecurityView(raw) != nil {
+	err := decoder.Decode(&raw)
+	ok := err == nil && decoder.Decode(new(any)) == io.EOF && rejectDuplicateJSONKeys(raw) == nil
+	if ok {
+		raw, ok = withoutEmptyUnavailable(raw)
+	}
+	if !ok || validateSecurityView(raw) != nil {
 		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_security_view", "Expected one complete security settings object")
 		return SecurityView{}, false
 	}
@@ -47,7 +71,7 @@ func respondSecurity(w http.ResponseWriter, r *http.Request, snapshot RuntimeSna
 	if err == nil {
 		w.Header().Set("ETag", securityETag(RuntimeScope{InstanceID: snapshot.InstanceID, EnvironmentID: snapshot.EnvironmentID}, snapshot.Revision))
 		w.Header().Set("Cache-Control", "private, no-store")
-		httpapi.WriteJSON(w, http.StatusOK, snapshot.View)
+		httpapi.WriteJSON(w, http.StatusOK, securityResponse{SecurityView: snapshot.View, Unavailable: map[string]string{}})
 		return
 	}
 	switch {
@@ -81,7 +105,14 @@ func (s *Service) Register(api *httpapi.Server) {
 			httpapi.Error(w, http.StatusUnprocessableEntity, "environment_required", "Select one environment to inspect security policy")
 			return
 		}
-		view, err := s.read(r.Context(), httpapi.CurrentUser(r), sessionToken(r), environmentID)
+		view, reason, err := s.read(r.Context(), httpapi.CurrentUser(r), sessionToken(r), environmentID)
+		if err == nil && reason != "" {
+			// No authority: every field is unknown and there is no revision,
+			// so no ETag is issued and PUT stays unavailable.
+			w.Header().Set("Cache-Control", "private, no-store")
+			httpapi.WriteJSON(w, http.StatusOK, newUnknownSecurityView(reason))
+			return
+		}
 		respondSecurity(w, r, view, err)
 	})
 	api.Register("PUT /api/v1/security", "admin", func(w http.ResponseWriter, r *http.Request) {

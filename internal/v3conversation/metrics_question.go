@@ -156,7 +156,9 @@ func (s *Service) StartMetricsQuestion(ctx context.Context, in MetricsQuestionIn
 		return MetricsQuestionResult{}, ErrMetricsQuestionInvalid
 	}
 	// JSON quoting prevents observations or labels from becoming prompt syntax.
-	evidenceJSON, err := json.Marshal(in.EvidenceSnapshot)
+	// The model reads RFC 3339 sample times (PA-53); the digest below still
+	// covers the snapshot exactly as observed.
+	evidenceJSON, err := json.Marshal(modelMetricSnapshot(in.EvidenceSnapshot))
 	if err != nil {
 		return MetricsQuestionResult{}, err
 	}
@@ -425,4 +427,40 @@ func (s *Service) authorizeMetricsConversationTx(ctx context.Context, tx pgx.Tx,
 		return err
 	}
 	return s.authorizeMetricsSourceTx(ctx, tx, owner, env, source)
+}
+
+// modelMetricSnapshot rewrites the samples of a metric snapshot from Unix
+// seconds to RFC 3339 UTC for the model (PA-53). Anything it cannot parse is
+// returned unchanged.
+func modelMetricSnapshot(snapshot string) string {
+	var parsed map[string]json.RawMessage
+	if json.Unmarshal([]byte(snapshot), &parsed) != nil {
+		return snapshot
+	}
+	var samples []struct {
+		Timestamp float64 `json:"timestamp"`
+		Value     string  `json:"value"`
+	}
+	raw, ok := parsed["samples"]
+	if !ok || json.Unmarshal(raw, &samples) != nil {
+		return snapshot
+	}
+	type sample struct {
+		Time  string `json:"time"`
+		Value string `json:"value"`
+	}
+	converted := make([]sample, 0, len(samples))
+	for _, s := range samples {
+		converted = append(converted, sample{Time: metricSampleTime(s.Timestamp), Value: s.Value})
+	}
+	encoded, err := json.Marshal(converted)
+	if err != nil {
+		return snapshot
+	}
+	parsed["samples"] = encoded
+	out, err := json.Marshal(parsed)
+	if err != nil {
+		return snapshot
+	}
+	return string(out)
 }

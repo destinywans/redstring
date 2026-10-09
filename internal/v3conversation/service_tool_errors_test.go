@@ -68,7 +68,7 @@ func TestServiceToolsExplainFailuresAndListReadableServices(t *testing.T) {
 	telemetry := &catalogTelemetry{queries: map[string][]string{"registered-checkout": {"error_rate", "node_cpu_busy_ratio", "request_rate"}},
 		result: connectors.MetricEvidence{Source: connectors.TelemetrySource{Provider: "prometheus", CapturedAt: time.Now().UTC()},
 			Series: []connectors.MetricSeries{
-				{Labels: map[string]string{"node": "lab-vm-1", "instance": "10.0.0.7:9100", "job": "aiops-vm-nodes"}, Samples: []connectors.MetricSample{{Timestamp: 100, Value: "0.93"}}},
+				{Labels: map[string]string{"node": "lab-vm-1", "instance": "10.0.0.7:9100", "job": "aiops-vm-nodes"}, Samples: []connectors.MetricSample{{Timestamp: 1791565135, Value: "0.93"}, {Timestamp: 1791565165.5, Value: "0.95"}}},
 				{Labels: map[string]string{"node": "bad value with spaces"}, Samples: []connectors.MetricSample{{Timestamp: 100, Value: "0.12"}}},
 			}}}
 	visible := map[string]string{"checkout": "app-checkout", "payments": "app-payments", "dual": "app-dual"}
@@ -128,6 +128,12 @@ func TestServiceToolsExplainFailuresAndListReadableServices(t *testing.T) {
 		len(body.Series[0].Labels) != 1 || body.Series[0].Labels["node"] != "lab-vm-1" || body.Series[1].Labels["node"] != "unrecognized" ||
 		strings.Contains(evidence.Content, "10.0.0.7") || strings.Contains(evidence.Content, "aiops-vm-nodes") {
 		t.Fatalf("node labels: %s", evidence.Content)
+	}
+	// PA-53: sample times are RFC 3339 UTC like the log samples, never epoch.
+	if !strings.Contains(evidence.Content, `{"time":"2026-10-09T16:58:55Z","value":"0.93"}`) ||
+		!strings.Contains(evidence.Content, `"time":"2026-10-09T16:59:25.5Z"`) || strings.Contains(evidence.Content, "1791565135") ||
+		strings.Contains(evidence.Content, `"timestamp"`) {
+		t.Fatalf("sample times: %s", evidence.Content)
 	}
 	// Service-level queries keep no labels.
 	if evidence, err = read("checkout", "request_rate"); err != nil || strings.Contains(evidence.Content, "lab-vm-1") {
@@ -199,5 +205,18 @@ func TestServiceToolsExplainFailuresAndListReadableServices(t *testing.T) {
 	}
 	if _, err := list.Read(ctx, "checkout"); toolCode(t, err) != inference.ToolInvalidInput {
 		t.Fatalf("list input: %v", err)
+	}
+}
+
+// PA-53: the metric snapshot of /metrics/ask reaches the model with RFC 3339
+// sample times; unparsable input is passed through unchanged.
+func TestModelMetricSnapshotUsesRFC3339(t *testing.T) {
+	got := modelMetricSnapshot(`{"view":"request_rate","samples":[{"timestamp":1791565135,"value":"5"}],"window":{"start":"2026-10-09T16:45:00Z"}}`)
+	if !strings.Contains(got, `"samples":[{"time":"2026-10-09T16:58:55Z","value":"5"}]`) || strings.Contains(got, "1791565135") ||
+		!strings.Contains(got, `"view":"request_rate"`) || !strings.Contains(got, "2026-10-09T16:45:00Z") {
+		t.Fatalf("snapshot: %s", got)
+	}
+	if raw := `not json`; modelMetricSnapshot(raw) != raw {
+		t.Fatal("unparsable snapshot changed")
 	}
 }

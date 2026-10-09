@@ -139,3 +139,14 @@ func TestTrimmedMetricEvidenceIsSummarizedPerSeries(t *testing.T) {
 		t.Fatalf("summary: %s", text)
 	}
 }
+
+// PA-53: per-series summaries read RFC 3339 sample times as well.
+func TestMetricSummaryReadsRFC3339Times(t *testing.T) {
+	summary, ok := summarizeMetricContent(`{"query_id":"consumer_lag","series":[{"index":1,"labels":{"topic":"orders"},"samples":[` +
+		`{"time":"2026-10-09T16:58:55Z","value":"5"},{"time":"2026-10-09T17:00:25Z","value":"120"}]}]}`)
+	raw, _ := json.Marshal(summary)
+	if !ok || !strings.Contains(string(raw), `"first_at":"2026-10-09T16:58:55Z"`) || !strings.Contains(string(raw), `"last_at":"2026-10-09T17:00:25Z"`) ||
+		!strings.Contains(string(raw), `"change":115`) {
+		t.Fatalf("summary: %s %v", raw, ok)
+	}
+}

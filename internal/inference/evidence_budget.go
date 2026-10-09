@@ -136,11 +136,14 @@ func summarizeMetricContent(content string) (map[string]any, bool) {
 		return nil, false
 	}
 	var series []struct {
-		Index   int               `json:"index"`
-		Labels  map[string]string `json:"labels"`
+		Index  int               `json:"index"`
+		Labels map[string]string `json:"labels"`
+		// Samples carry an RFC 3339 time (PA-53) or, from older
+		// evidence, Unix seconds.
 		Samples []struct {
-			Timestamp float64 `json:"timestamp"`
-			Value     string  `json:"value"`
+			Time      string   `json:"time"`
+			Timestamp *float64 `json:"timestamp"`
+			Value     string   `json:"value"`
 		} `json:"samples"`
 	}
 	if raw, ok := parsed["series"]; !ok || json.Unmarshal(raw, &series) != nil {
@@ -153,7 +156,7 @@ func summarizeMetricContent(content string) (map[string]any, bool) {
 		}
 	}
 	round := func(v float64) float64 { return math.Round(v*1e6) / 1e6 }
-	at := func(ts float64) string { return time.Unix(int64(ts), 0).UTC().Format(time.RFC3339) }
+	at := func(ts time.Time) string { return ts.UTC().Format(time.RFC3339) }
 	summaries := make([]map[string]any, 0, len(series))
 	for _, line := range series {
 		item := map[string]any{"points": len(line.Samples)}
@@ -164,17 +167,25 @@ func summarizeMetricContent(content string) (map[string]any, bool) {
 			item["labels"] = line.Labels
 		}
 		var first, last, low, high float64
-		var firstAt, lastAt float64
+		var firstAt, lastAt time.Time
 		defined := 0
 		for _, sample := range line.Samples {
 			v, err := strconv.ParseFloat(sample.Value, 64)
 			if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
 				continue
 			}
-			if defined == 0 {
-				first, low, high, firstAt = v, v, v, sample.Timestamp
+			var sampleAt time.Time
+			if sample.Time != "" {
+				if sampleAt, err = time.Parse(time.RFC3339Nano, sample.Time); err != nil {
+					continue
+				}
+			} else if sample.Timestamp != nil {
+				sampleAt = time.Unix(int64(*sample.Timestamp), 0)
 			}
-			last, lastAt = v, sample.Timestamp
+			if defined == 0 {
+				first, low, high, firstAt = v, v, v, sampleAt
+			}
+			last, lastAt = v, sampleAt
 			low, high = math.Min(low, v), math.Max(high, v)
 			defined++
 		}

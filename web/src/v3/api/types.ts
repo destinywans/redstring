@@ -229,22 +229,32 @@ export type InvestigationTemplate = {
 
 /* ---------------- events: inbox, alerts, incidents ---------------- */
 export type InboxItem = { id: string; kind: "alert" | "approval" | "mention" | "runbook" | "report" | "access" | "agent"; tone: Tone; title: string; sub: string; time: string; unread: boolean; day: "today" | "yesterday"; href: string; alert_id?: string };
+/** Sample data carries time/text/done; the real queue reports id/status/created_at/attempts (local enqueue, not delivery). */
+export type AlertNotification = { channel: string; time?: string; text?: string; done?: boolean; id?: string; status?: "pending" | "sending" | "retrying" | "failed" | "sent"; created_at?: string; attempts?: number };
+/**
+ * GET /alerts/{id} (V3AlertDetail). Without the producers, source, rule, triage, series, labels, runbook and the
+ * grouping group/inhibited/change are null and `unavailable` lists them. Claim needs `revision` as expected_revision.
+ */
 export type AlertDetail = {
   id: string;
   severity: Severity;
   title: string;
   state: "firing" | "pending" | "resolved";
-  source: string;
-  env: EnvName;
+  source: string | null;
+  env: string;
   since: string;
-  rule: string;
-  triage?: { summary: string; confidence: "high" | "medium" | "low"; agent: string; duration_s: number; tools: number; investigation_id: string; proposal_id?: string };
-  series: { labels: string[]; values: number[]; threshold: number; release_at?: number };
-  labels: { k: string; v: string }[];
+  rule: string | null;
+  triage: { summary: string; confidence: "high" | "medium" | "low"; agent: string; duration_s: number; tools: number; investigation_id: string; proposal_id?: string } | null;
+  series: { labels: string[]; values: number[]; threshold: number; release_at?: number } | null;
+  labels: { k: string; v: string }[] | null;
   summary: string;
-  runbook?: { id: string; title: string };
-  notifications: { time: string; channel: string; text: string; done: boolean }[];
-  grouping: { group: string; inhibited: string; incident: { id: string; label: string }; change: { id: string; label: string } };
+  runbook: { id: string; title: string } | null;
+  notifications: AlertNotification[];
+  grouping: { group: string | null; inhibited: string | null; incident: { id: string; label?: string }; change: { id: string; label: string } | null };
+  revision?: string;
+  investigation_id?: string;
+  assignee_id?: string;
+  unavailable?: string[];
 };
 export type AlertInstance = { id: string; value: string; state: "firing" | "pending"; duration: string; series: number[]; pending?: { pct: number; text: string } };
 export type AlertGroup = {
@@ -605,10 +615,14 @@ export type PushView = {
   stack: { enabled: boolean; components: { brand: string; name: string; role: string }[]; helm: string; compose: string; estimate: string };
 };
 
-export type MappingCell = { state: "ok" | "suggested" | "missing"; value?: string; brand?: string };
+/** A reviewed GitLab code candidate staged by POST /service-mappings/discover; accepting sends it back exactly. */
+export type MappingCandidate = { id: string; version: string; service_id: string; service: string; environment_id: string; system_id: "code"; connector_id: string; target_id: string; external_id: string; binding_revision: number; expires_at: string };
+export type MappingCell = { state: "ok" | "suggested" | "missing"; value?: string; brand?: string; candidate?: MappingCandidate };
+/** Per-row save snapshot for PUT /service-mappings (see docs/examples/v3-service-mapping-save.md); absent rows aren't editable. */
+export type MappingSave = { service_id: string; service_environment_id: string; binding_revision: number; bindings: { system_id: string; kind: string; connector_id: string; resource: string }[]; editable: boolean; unavailable_reason?: string };
 export type ServiceMapping = {
   systems: { id: string; brand: string; label: string }[];
-  rows: { service: string; cells: Record<string, MappingCell> }[];
+  rows: { service: string; cells: Record<string, MappingCell>; save?: MappingSave }[];
   suggestions: number;
 };
 

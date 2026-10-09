@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
+import { PartialBanner, UnknownValue } from "../../ui/unknown";
 import type { AlertDetail, InboxItem } from "../../api/types";
 import { Badge, Brand, Btn, Card, Col, Dot, Icon, IconBtn, KV, LabelChip, Muted, Panel, Row, Sev, Skeleton, Spacer, State, Tabs, Tile, TextLink, Kbd, cx, type IconName, type Tone } from "../../ui/core";
 import { MenuButton, toast } from "../../ui/overlays";
@@ -18,8 +19,9 @@ export function AlertDetailView({ id }: { id: string }) {
   const { tx } = useI18n();
   const curEnv = useCurrentEnv();
   const nav = useNavigate();
-  const { data: a } = useGet<AlertDetail>(`/alerts/${id}`);
+  const { data: a, refetch } = useGet<AlertDetail>(`/alerts/${id}`);
   const [claimed, setClaimed] = useState(false);
+  const demo = API_MODE === "mock";
   if (!a)
     return (
       <Col gap={12} style={{ padding: 20 }}>
@@ -28,37 +30,47 @@ export function AlertDetailView({ id }: { id: string }) {
         <Skeleton h={200} />
       </Col>
     );
+  const isClaimed = claimed || !!a.assignee_id;
+  const investigation = a.triage?.investigation_id ?? a.investigation_id;
+  const STATE = { firing: ["danger", tx("触发中", "Firing")], pending: ["warn", tx("待触发", "Pending")], resolved: ["ok", tx("已恢复", "Resolved")] } as const;
+  const claim = async () => {
+    try {
+      // The claim is guarded by the row revision from GET; a stale one is 412.
+      await api("POST", `/alerts/${a.id}/claim`, demo ? undefined : { body: { expected_revision: a.revision } });
+      setClaimed(true);
+      if (!demo) void refetch();
+      toast(tx("已认领，值班升级已停止", "Claimed — escalation stopped"), demo ? { undo: () => setClaimed(false) } : {});
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 412) {
+        void refetch();
+        return toast(tx("告警状态刚刚变化，已重新读取，请再试一次", "The alert just changed; it was reloaded — try again"), { tone: "danger" });
+      }
+      toast(e instanceof ApiError ? e.message : tx("认领失败，请稍后重试", "Couldn't claim it; try again later"), { tone: "danger" });
+    }
+  };
   return (
     <div className="alert-detail anim-fade" key={id}>
       <Row gap={8} wrap>
         <Sev p={a.severity} />
         <h2 style={{ fontSize: 16, fontWeight: 600 }}>{a.title}</h2>
-        <State tone="danger" pulse>
-          {tx("触发中", "Firing")}
+        <State tone={STATE[a.state][0]} pulse={a.state === "firing"}>
+          {STATE[a.state][1]}
         </State>
         <Spacer />
-        <Btn
-          kind={claimed ? "secondary" : "primary"}
-          icon="check"
-          onClick={async () => {
-            await api("POST", `/alerts/${a.id}/claim`);
-            setClaimed(true);
-            toast(tx("已认领，值班升级已停止", "Claimed — escalation stopped"), { undo: () => setClaimed(false) });
-          }}
-        >
-          {claimed ? tx("已认领", "Claimed") : tx("认领", "Claim")}
+        <Btn kind={isClaimed ? "secondary" : "primary"} icon="check" disabled={isClaimed && !demo} onClick={() => void claim()}>
+          {isClaimed ? tx("已认领", "Claimed") : tx("认领", "Claim")}
         </Btn>
-        <Btn icon="branch" to={`/canvas/${a.triage?.investigation_id ?? "INV-231"}`}>
-          {tx("打开调查", "Open investigation")}
+        <Btn icon="branch" to={investigation ? `/canvas/${investigation}` : demo ? "/canvas/INV-231" : "/canvases?new=investigation"}>
+          {investigation || demo ? tx("打开调查", "Open investigation") : tx("发起调查", "Investigate")}
         </Btn>
-        <Btn icon="clock" to="/silences?new=checkout-api">
-          {tx("静默 1 小时", "Silence 1 h")}
+        <Btn icon="clock" to={demo ? "/silences?new=checkout-api" : "/silences"}>
+          {demo ? tx("静默 1 小时", "Silence 1 h") : tx("静默", "Silence")}
         </Btn>
         <MenuButton
           items={[
-            { label: tx("创建事件", "Create incident"), icon: "alert", onSelect: () => nav("/incidents/INC-1042") },
+            { label: tx("创建事件", "Create incident"), icon: "alert", onSelect: () => nav(demo ? "/incidents/INC-1042" : `/incidents?new=incident&alerts=${encodeURIComponent(a.id)}`) },
             { label: tx("复制链接", "Copy link"), icon: "link", onSelect: () => copyText(`${location.origin}/inbox?alert=${id}`, tx("链接已复制", "Link copied")) },
-            { label: tx("在 Alertmanager 中打开", "Open in Alertmanager"), icon: "external", onSelect: () => openExternal("Alertmanager", `https://alertmanager.example.internal/#/alerts?filter=${encodeURIComponent(`{alert_id="${id}"}`)}`) },
+            ...(demo ? [{ label: tx("在 Alertmanager 中打开", "Open in Alertmanager"), icon: "external" as const, onSelect: () => openExternal("Alertmanager", `https://alertmanager.example.internal/#/alerts?filter=${encodeURIComponent(`{alert_id="${id}"}`)}`) }] : []),
           ]}
           trigger={({ onClick, ref }) => (
             <span ref={ref}>
@@ -68,8 +80,9 @@ export function AlertDetailView({ id }: { id: string }) {
         />
       </Row>
       <Muted>
-        {a.source} · {curEnv?.label ?? "—"} · {a.since} · {tx("规则「{r}」", "Rule “{r}”", { r: a.rule })}
+        {a.source ?? <UnknownValue reason="not_generated" label={tx("来源 —", "source —")} />} · {curEnv?.label ?? "—"} · {a.since} · {a.rule ? tx("规则「{r}」", "Rule “{r}”", { r: a.rule }) : <UnknownValue reason="not_generated" label={tx("规则 —", "rule —")} />}
       </Muted>
+      {!!a.unavailable?.length && <PartialBanner fields={[...new Set(a.unavailable.map((f) => ({ source: tx("来源", "source"), rule: tx("规则", "rule"), triage: tx("AI 初查", "AI triage"), series: tx("告警值曲线", "value chart"), labels: tx("标签", "labels"), runbook: "Runbook" })[f.split(".")[0]] ?? tx("分组与关联", "grouping")))]} />}
       {a.triage && (
         <div className="ai-triage">
           <Icon name="sparkles" size={16} color="var(--accent-text)" style={{ marginTop: 2 }} />
@@ -94,22 +107,29 @@ export function AlertDetailView({ id }: { id: string }) {
         </div>
       )}
       <div className="grid-2">
-        <Panel title={tx("告警值 · 5xx 比例", "Value · 5xx ratio")}>
-          <Lines series={[{ name: "5xx", values: a.series.values, color: "var(--c3)", fill: "var(--c3s)" }]} height={96} max={10} threshold={a.series.threshold} markers={a.series.release_at !== undefined ? [{ at: a.series.release_at, label: "v2.8.1", tone: "warn" }] : []} labels={a.series.labels} format={(v) => `${v}%`} grid={2} />
-          <Row gap={6} style={{ marginTop: 8 }}>
-            <Muted>{tx("阈值 1% · 持续 5 分钟触发", "Threshold 1% · fires after 5 min")}</Muted>
-            <Spacer />
-            <TextLink icon="external" onClick={() => openExternal("Grafana", "https://grafana.example.internal/d/checkout-api")}>
-              {tx("在 Grafana 中打开", "Open in Grafana")}
-            </TextLink>
-          </Row>
+        <Panel title={demo ? tx("告警值 · 5xx 比例", "Value · 5xx ratio") : tx("告警值", "Value")}>
+          {a.series ? (
+            <Lines series={[{ name: demo ? "5xx" : tx("值", "value"), values: a.series.values, color: "var(--c3)", fill: "var(--c3s)" }]} height={96} max={demo ? 10 : undefined} threshold={a.series.threshold} markers={a.series.release_at !== undefined ? [{ at: a.series.release_at, label: demo ? "v2.8.1" : tx("发布", "release"), tone: "warn" }] : []} labels={a.series.labels} format={demo ? (v) => `${v}%` : undefined} grid={2} />
+          ) : (
+            <Row gap={6} style={{ height: 60 }}>
+              <Muted>{tx("告警值曲线", "Value over time")}</Muted>
+              <UnknownValue reason="not_generated" />
+            </Row>
+          )}
+          {demo && (
+            <Row gap={6} style={{ marginTop: 8 }}>
+              <Muted>{tx("阈值 1% · 持续 5 分钟触发", "Threshold 1% · fires after 5 min")}</Muted>
+              <Spacer />
+              <TextLink icon="external" onClick={() => openExternal("Grafana", "https://grafana.example.internal/d/checkout-api")}>
+                {tx("在 Grafana 中打开", "Open in Grafana")}
+              </TextLink>
+            </Row>
+          )}
         </Panel>
         <Panel title={tx("标签与说明", "Labels & summary")}>
           <Col gap={8}>
             <Row gap={6} wrap>
-              {a.labels.map((x) => (
-                <LabelChip key={x.k} k={x.k} v={x.v} />
-              ))}
+              {a.labels ? a.labels.map((x) => <LabelChip key={x.k} k={x.k} v={x.v} />) : <UnknownValue reason="not_generated" label={tx("标签 —", "labels —")} />}
             </Row>
             <KV k={tx("摘要", "Summary")} kw={52}>
               {a.summary}
@@ -127,34 +147,45 @@ export function AlertDetailView({ id }: { id: string }) {
       <div className="grid-2">
         <Panel title={tx("通知记录", "Notifications")}>
           <ul className="notif-list">
-            {a.notifications.map((n) => (
-              <li key={n.time}>
-                <span className="tnum muted" style={{ width: 60, flex: "none" }}>
-                  {n.time}
-                </span>
-                {n.channel === "feishu" ? <Brand name="feishu" size={20} /> : <Icon name={n.channel === "sms" ? "message" : "rotate"} size={15} color="var(--muted)" />}
-                <span className="grow">{n.text}</span>
-                <Icon name={n.done ? "check" : "clock"} size={14} color={n.done ? "var(--ok)" : "var(--muted)"} />
-              </li>
-            ))}
+            {a.notifications.map((n, i) => {
+              // Real entries are local queue records: "sent" left this platform, it does not prove delivery.
+              const done = n.done ?? n.status === "sent";
+              const failed = n.status === "failed";
+              const statusText = n.status ? { pending: tx("排队中", "Queued"), sending: tx("发送中", "Sending"), retrying: tx("重试中", "Retrying"), failed: tx("发送失败", "Failed"), sent: tx("已发出", "Sent") }[n.status] : "";
+              return (
+                <li key={n.id ?? n.time ?? i}>
+                  <span className="tnum muted" style={{ width: 60, flex: "none" }}>
+                    {n.time ?? (n.created_at ? new Date(n.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "")}
+                  </span>
+                  {n.channel === "feishu" ? <Brand name="feishu" size={20} /> : <Icon name={n.channel === "sms" ? "message" : "rotate"} size={15} color="var(--muted)" />}
+                  <span className="grow">{n.text ?? `${n.channel} · ${statusText}${n.attempts && n.attempts > 1 ? tx(" · 第 {n} 次", " · attempt {n}", { n: n.attempts }) : ""}`}</span>
+                  <Icon name={failed ? "x" : done ? "check" : "clock"} size={14} color={failed ? "var(--danger)" : done ? "var(--ok)" : "var(--muted)"} />
+                </li>
+              );
+            })}
+            {!a.notifications.length && <li className="muted">{tx("还没有通知记录", "No notifications yet")}</li>}
           </ul>
         </Panel>
         <Panel title={tx("分组与关联", "Grouping & links")}>
           <Col gap={9}>
             <KV k={tx("分组", "Group")} kw={44}>
-              <TextLink to="/alerts">{a.grouping.group}</TextLink>
+              {a.grouping.group ? <TextLink to="/alerts">{a.grouping.group}</TextLink> : <UnknownValue reason="not_generated" />}
             </KV>
             <KV k={tx("抑制", "Inhibits")} kw={44}>
-              {a.grouping.inhibited}
+              {a.grouping.inhibited ?? <UnknownValue reason="not_generated" />}
             </KV>
             <KV k={tx("事件", "Incident")} kw={44}>
-              <TextLink to={`/incidents/${a.grouping.incident.id}`}>{a.grouping.incident.label}</TextLink>
+              {a.grouping.incident.id ? <TextLink to={`/incidents/${a.grouping.incident.id}`}>{a.grouping.incident.label ?? a.grouping.incident.id}</TextLink> : <Muted>{tx("未关联", "Not linked")}</Muted>}
             </KV>
             <KV k={tx("变更", "Change")} kw={44}>
-              <Row gap={6}>
-                <Brand name="gitlab" size={20} />
-                <TextLink to="/changes">{a.grouping.change.label}</TextLink>
-              </Row>
+              {a.grouping.change ? (
+                <Row gap={6}>
+                  <Brand name="gitlab" size={20} />
+                  <TextLink to="/changes">{a.grouping.change.label}</TextLink>
+                </Row>
+              ) : (
+                <UnknownValue reason="not_generated" />
+              )}
             </KV>
           </Col>
         </Panel>
@@ -171,7 +202,8 @@ export default function InboxPage() {
   const { data, isLoading } = useGet<{ items: InboxItem[]; counts: Record<string, number> }>("/inbox", { tab });
   const [read, setRead] = useState<Set<string>>(new Set());
   const items = useMemo(() => data?.items ?? [], [data]);
-  const selId = params.get("item") ?? "i1";
+  // Without an item in the URL, show the first item of the current list (never a fixture id).
+  const selId = params.get("item") ?? items[0]?.id ?? "";
   const sel = items.find((i) => i.id === selId);
   const select = (it: InboxItem) => {
     setRead((r) => new Set(r).add(it.id));

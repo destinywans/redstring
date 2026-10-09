@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
-import type { MappingCell, ServiceMapping } from "../../api/types";
+import { API_MODE, ApiError, api, useGet, useSend } from "../../api/client";
+import type { MappingCandidate, MappingCell, ServiceMapping } from "../../api/types";
 import { Badge, Brand, Btn, Card, Icon, Muted, Row, Skeleton, Tile, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
@@ -11,19 +11,47 @@ import "./integrations.css";
 export default function MappingPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
-  const { data } = useGet<ServiceMapping>("/service-mappings");
+  const demo = API_MODE === "mock";
+  const { data, refetch } = useGet<ServiceMapping>("/service-mappings");
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [rejected, setRejected] = useState<Set<string>>(new Set());
-  const accept = useSend<{ cells: string[] }, { accepted: number }>("POST", "/service-mappings/accept");
-  const discover = useSend<void, { suggestions: number }>("POST", "/service-mappings/discover");
+  const [busy, setBusy] = useState(false);
+  const discover = useSend<void, { suggestions: number; source_state?: "configured" | "not_configured" }>("POST", "/service-mappings/discover");
   const save = useSend<void>("PUT", "/service-mappings");
-  const pending = data ? data.rows.flatMap((r) => data.systems.filter((s) => r.cells[s.id]?.state === "suggested").map((s) => `${r.service}:${s.id}`)).filter((k) => !accepted.has(k) && !rejected.has(k)) : [];
-  const acceptAll = () => {
-    const keys = pending;
-    accept.mutate({ cells: keys });
-    setAccepted((s) => new Set([...s, ...keys]));
-    toast(tx("已接受 {n} 条映射建议", "Accepted {n} suggestions", { n: keys.length }), { undo: () => setAccepted((s) => new Set([...s].filter((k) => !keys.includes(k)))) });
+  // Real suggestions are reviewed GitLab candidates; only those can be accepted, and only the server's answer marks them accepted.
+  const candidateOf = (key: string): MappingCandidate | undefined => {
+    const [service, sys] = key.split(":");
+    return data?.rows.find((r) => r.service === service)?.cells[sys]?.candidate;
   };
+  const pending = data
+    ? data.rows
+        .flatMap((r) => data.systems.filter((s) => r.cells[s.id]?.state === "suggested" && (demo || r.cells[s.id]?.candidate)).map((s) => `${r.service}:${s.id}`))
+        .filter((k) => !accepted.has(k) && !rejected.has(k))
+    : [];
+  const acceptKeys = async (keys: string[]) => {
+    if (demo) {
+      void api("POST", "/service-mappings/accept", { body: { cells: keys } });
+      setAccepted((s) => new Set([...s, ...keys]));
+      return toast(tx("已接受 {n} 条映射建议", "Accepted {n} suggestions", { n: keys.length }), { undo: () => setAccepted((s) => new Set([...s].filter((k) => !keys.includes(k)))) });
+    }
+    const candidates = keys.map(candidateOf).filter((c): c is MappingCandidate => !!c);
+    if (!candidates.length) return;
+    setBusy(true);
+    try {
+      const r = await api<{ accepted: number }>("POST", "/service-mappings/accept", {
+        body: { candidates: candidates.map((c) => ({ id: c.id, version: c.version, service_id: c.service_id, environment_id: c.environment_id, system_id: c.system_id, binding_revision: c.binding_revision })) },
+      });
+      setAccepted((s) => new Set([...s, ...keys]));
+      void refetch();
+      toast(tx("已接受 {n} 条映射建议", "Accepted {n} suggestions", { n: r.accepted }));
+    } catch (e) {
+      void refetch();
+      toast(e instanceof ApiError && e.status === 409 ? tx("建议已过期或绑定已变化，已重新读取，请复核后再接受", "The suggestion expired or the binding changed; reloaded — review and accept again") : e instanceof ApiError ? e.message : tx("接受失败，请稍后重试", "Couldn't accept; try again later"), { tone: "danger" });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const acceptAll = () => void acceptKeys(pending);
   const cell = (service: string, sys: string, c?: MappingCell) => {
     const key = `${service}:${sys}`;
     if (!c || c.state === "missing" || rejected.has(key))
@@ -35,13 +63,16 @@ export default function MappingPage() {
     if (c.state === "suggested" && !accepted.has(key))
       return (
         <span className="map-sug">
-          <button type="button" title={tx("接受建议", "Accept suggestion")} onClick={() => { setAccepted((s) => new Set(s).add(key)); accept.mutate({ cells: [key] }); }}>
+          <button type="button" disabled={busy || (!demo && !c.candidate)} title={tx("接受建议", "Accept suggestion")} onClick={() => void acceptKeys([key])}>
             <Icon name="sparkles" size={11} />
-            <span className="ellipsis">{c.value}</span>
+            <span className="ellipsis">{c.value ?? c.candidate?.external_id}</span>
           </button>
-          <button type="button" className="x" aria-label={tx("拒绝建议", "Reject suggestion")} onClick={() => setRejected((s) => new Set(s).add(key))}>
-            <Icon name="x" size={11} />
-          </button>
+          {/* Dismissing is not stored anywhere yet, so real mode doesn't offer it. */}
+          {demo && (
+            <button type="button" className="x" aria-label={tx("拒绝建议", "Reject suggestion")} onClick={() => setRejected((s) => new Set(s).add(key))}>
+              <Icon name="x" size={11} />
+            </button>
+          )}
         </span>
       );
     return (
@@ -57,12 +88,28 @@ export default function MappingPage() {
       crumbs={[tx("集成中心", "Integrations"), tx("服务映射", "Service mapping")]}
       actions={
         <>
-          <Btn icon="sparkles" loading={discover.isPending} onClick={() => discover.mutate(undefined, { onSuccess: (r) => toast(tx("自动发现完成：{n} 条建议", "Discovery finished: {n} suggestions", { n: r.suggestions })) })}>
+          <Btn
+            icon="sparkles"
+            loading={discover.isPending}
+            onClick={() =>
+              discover.mutate(undefined, {
+                onSuccess: (r) => {
+                  if (!demo) void refetch();
+                  toast(r.source_state === "not_configured" ? tx("没有可用的代码来源：先在集成中心登记 GitLab 项目", "No code source yet: enroll a GitLab project in Integrations first") : tx("自动发现完成：{n} 条建议", "Discovery finished: {n} suggestions", { n: r.suggestions }));
+                },
+                onError: (e) => toast(e.message, { tone: "danger" }),
+              })
+            }
+          >
             {tx("自动发现", "Auto-discover")}
           </Btn>
-          <Btn kind="primary" icon="check" loading={save.isPending} onClick={() => save.mutate(undefined, { onSuccess: () => toast(tx("服务映射已保存", "Mapping saved")) })}>
-            {tx("保存", "Save")}
-          </Btn>
+          {/* Real saves replace a row's full binding set with its revision (PA-18); there is no cell editor yet, so
+              nothing on this page changes bindings except accepting candidates, which saves on its own. */}
+          {demo && (
+            <Btn kind="primary" icon="check" loading={save.isPending} onClick={() => save.mutate(undefined, { onSuccess: () => toast(tx("服务映射已保存", "Mapping saved")) })}>
+              {tx("保存", "Save")}
+            </Btn>
+          )}
         </>
       }
     >
@@ -76,8 +123,12 @@ export default function MappingPage() {
         {pending.length > 0 && (
           <div className="ai-banner anim-rise">
             <Icon name="sparkles" size={15} />
-            <span className="grow">{tx("根据标签、命名和部署记录自动发现了 {n} 条映射建议（虚线框），确认后生效。", "Found {n} mapping suggestions from labels, names and deploy records (dashed). They apply once confirmed.", { n: pending.length })}</span>
-            <Btn h={26} onClick={acceptAll}>
+            <span className="grow">
+              {demo
+                ? tx("根据标签、命名和部署记录自动发现了 {n} 条映射建议（虚线框），确认后生效。", "Found {n} mapping suggestions from labels, names and deploy records (dashed). They apply once confirmed.", { n: pending.length })
+                : tx("从已登记的 GitLab 项目发现了 {n} 条代码映射建议（虚线框），接受后才写入绑定。", "Found {n} code mapping suggestions from enrolled GitLab projects (dashed). Bindings change only when you accept.", { n: pending.length })}
+            </span>
+            <Btn h={26} loading={busy} onClick={acceptAll}>
               {tx("全部接受", "Accept all")}
             </Btn>
           </div>

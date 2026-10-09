@@ -19,6 +19,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3knowledge"
 	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
 	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
@@ -111,6 +112,7 @@ func TestFeishuAndUploadMainCreateSyncProjectionHTTP(t *testing.T) {
 	uploads.RegisterRevocation(api)
 	main := NewWithAllSourceBindings(db, policy, nil, nil, []FeishuBinding{feishuBinding})
 	main.Register(api)
+	(&v3knowledge.Service{DB: db, Knowledge: knowledge.New(db, nil), Policy: policy}).RegisterSearch(api)
 	if err = api.ConfigureV3Environment(httpapi.V3InstanceConfig{
 		Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"},
 	}, policy, st.Session, func(ctx context.Context, user core.User, module, action, environment string) error {
@@ -263,8 +265,44 @@ JOIN v3_external_source_syncs s ON s.read_id=d.read_id WHERE s.registration_id=$
 JOIN v3_external_source_syncs s ON s.read_id=d.read_id WHERE s.registration_id=$1`, ids["upload"]).Scan(&body, &revision); err != nil || body != "# Incident\nrestore service\n" || len(revision) != 64 {
 		t.Fatalf("upload persisted body=%q version=%q err=%v", body, revision, err)
 	}
+	// PA-66: the synced upload is keyword-searchable under the same ACL,
+	// and the response says which corpora were read.
+	search := func() (string, string) {
+		t.Helper()
+		w := request(http.MethodPost, "/api/v1/knowledge/search", []byte(`{"q":"restore service"}`), "application/json")
+		if w.Code != http.StatusOK {
+			t.Fatalf("search: %d %s", w.Code, w.Body.String())
+		}
+		var out struct {
+			Hits []struct {
+				Title string `json:"title"`
+			} `json:"hits"`
+			Corpora []struct {
+				Corpus, Keyword string
+			} `json:"corpora"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		titles, upload := []string{}, ""
+		for _, hit := range out.Hits {
+			titles = append(titles, hit.Title)
+		}
+		for _, corpus := range out.Corpora {
+			if corpus.Corpus == "upload_sources" {
+				upload = corpus.Keyword
+			}
+		}
+		return strings.Join(titles, ","), upload
+	}
+	if titles, corpus := search(); titles != "incident.md" || corpus != "searched" {
+		t.Fatalf("synced upload not searchable: hits=%q upload_sources=%q", titles, corpus)
+	}
 	if _, err := db.Exec(ctx, `UPDATE v3_uploads SET content='changed body',size_bytes=12 WHERE id=$1`, upload.ID); err != nil {
 		t.Fatal(err)
+	}
+	if titles, _ := search(); titles != "" {
+		t.Fatalf("changed upload still searchable: %q", titles)
 	}
 	changed := readList()
 	for _, item := range changed.Items {

@@ -227,8 +227,16 @@ S['V3KnowledgeSearchHit'] = obj({**fieldnames('title snippet'),
 v3_route('post','/knowledge/search','Search scoped knowledge with keyword/vector ranking',
     body=obj({'q':string(),'service':string(),'top_k':integer(minimum=1,maximum=20)},['q']),
     response=obj({'hits':arr(ref('V3KnowledgeSearchHit')),
-        'mode':string(enum=['hybrid','keyword','none']),'degraded':v3_bool()}),
+        'mode':string(enum=['hybrid','keyword','none']),'degraded':v3_bool(),
+        'corpora':arr(obj({'corpus':string(enum=['documents','public_web_sources','upload_sources','external_sources','git_markdown_sources']),
+            'keyword':string(enum=['searched','unavailable','not_indexed','not_searched']),
+            'vector':string(enum=['searched','unavailable','not_indexed','not_searched']),
+            'reason':string()},['corpus','keyword','vector']))},['hits','mode','degraded','corpora']),
     desc='Keyword and vector candidates use the same current explicit environment, active application mapping and V3 environment/knowledge grants. A document carrying team_id must match the application current owner team and have an additional team knowledge grant. Candidate document ID/version and current grants are rechecked before output; malformed or unknown scope and legacy source_registration_id documents are excluded pending trusted provenance. A separately stored, credential-free, single-page public HTTPS Markdown body can supply bounded keyword passages only when its latest read observation, content hash, revision, application/environment/team binding and current grants all match at candidate and final output checks. One 30-second budget covers the whole search, and more than 80 SQL-matched public Web sources across all visible application/environment scopes returns 413 public_web_source_scope_too_large. No public Web vector indexing, Agent tool, source page DTO or full source index is proven. When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.')
+P['/knowledge/search']['post']['description'] += (' Synced upload sources are keyword-searchable from their latest read under'
+    ' the same scope and grants as their evidence proof; they have no vector index (PA-66). Feishu and other bound external'
+    ' readers and Git Markdown sources are not searched yet. corpora lists, per corpus, whether keyword and vector search'
+    ' ran (searched), failed (unavailable), have no index (not_indexed) or are not read by this search (not_searched).')
 P['/knowledge/search']['post']['responses']['413'] = {
     'description':'Authorized candidate scope is too large or more than 80 public Web sources match across all visible scopes; narrow the search to one service',
     'content':{'application/json':{'schema':ref('Error')}}}

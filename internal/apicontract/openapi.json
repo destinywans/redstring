@@ -3846,7 +3846,7 @@
       "post": {
         "summary": "Search scoped knowledge with keyword/vector ranking",
         "operationId": "post_knowledge_search",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Keyword and vector candidates use the same current explicit environment, active application mapping and V3 environment/knowledge grants. A document carrying team_id must match the application current owner team and have an additional team knowledge grant. Candidate document ID/version and current grants are rechecked before output; malformed or unknown scope and legacy source_registration_id documents are excluded pending trusted provenance. A separately stored, credential-free, single-page public HTTPS Markdown body can supply bounded keyword passages only when its latest read observation, content hash, revision, application/environment/team binding and current grants all match at candidate and final output checks. One 30-second budget covers the whole search, and more than 80 SQL-matched public Web sources across all visible application/environment scopes returns 413 public_web_source_scope_too_large. No public Web vector indexing, Agent tool, source page DTO or full source index is proven. When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Keyword and vector candidates use the same current explicit environment, active application mapping and V3 environment/knowledge grants. A document carrying team_id must match the application current owner team and have an additional team knowledge grant. Candidate document ID/version and current grants are rechecked before output; malformed or unknown scope and legacy source_registration_id documents are excluded pending trusted provenance. A separately stored, credential-free, single-page public HTTPS Markdown body can supply bounded keyword passages only when its latest read observation, content hash, revision, application/environment/team binding and current grants all match at candidate and final output checks. One 30-second budget covers the whole search, and more than 80 SQL-matched public Web sources across all visible application/environment scopes returns 413 public_web_source_scope_too_large. No public Web vector indexing, Agent tool, source page DTO or full source index is proven. When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503. Synced upload sources are keyword-searchable from their latest read under the same scope and grants as their evidence proof; they have no vector index (PA-66). Feishu and other bound external readers and Git Markdown sources are not searched yet. corpora lists, per corpus, whether keyword and vector search ran (searched), failed (unavailable), have no index (not_indexed) or are not read by this search (not_searched).",
         "responses": {
           "200": {
             "description": "Success",
@@ -3871,9 +3871,60 @@
                     },
                     "degraded": {
                       "type": "boolean"
+                    },
+                    "corpora": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "corpus": {
+                            "type": "string",
+                            "enum": [
+                              "documents",
+                              "public_web_sources",
+                              "upload_sources",
+                              "external_sources",
+                              "git_markdown_sources"
+                            ]
+                          },
+                          "keyword": {
+                            "type": "string",
+                            "enum": [
+                              "searched",
+                              "unavailable",
+                              "not_indexed",
+                              "not_searched"
+                            ]
+                          },
+                          "vector": {
+                            "type": "string",
+                            "enum": [
+                              "searched",
+                              "unavailable",
+                              "not_indexed",
+                              "not_searched"
+                            ]
+                          },
+                          "reason": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "corpus",
+                          "keyword",
+                          "vector"
+                        ]
+                      }
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "required": [
+                    "hits",
+                    "mode",
+                    "degraded",
+                    "corpora"
+                  ]
                 }
               }
             }

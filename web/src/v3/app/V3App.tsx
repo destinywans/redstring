@@ -11,6 +11,7 @@ const p = (load: () => Promise<Record<string, unknown>>, name = "default") =>
   lazy(async () => ({ default: (await load())[name] as ComponentType }));
 
 const Home = p(() => import("../features/home/HomePage"));
+const Login = p(() => import("../features/auth/LoginPage"));
 const Preferences = p(() => import("../features/settings/PreferencesPage"));
 const Pending = p(() => import("../features/Pending"));
 const Conversations = p(() => import("../features/conversation/ConversationsPage"));
@@ -106,6 +107,7 @@ export default function V3App() {
   return (
     <Suspense fallback={<Loading />}>
       <Routes>
+        <Route path="login" element={<Login />} />
         <Route element={<Shell />}>
           <Route index element={<Home />} />
           <Route path="settings" element={<Navigate to="/settings/profile" replace />} />

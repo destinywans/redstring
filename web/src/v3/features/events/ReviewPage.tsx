@@ -8,19 +8,20 @@ import { Dialog, toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
+import { PasskeyApproval } from "./PasskeyApproval";
 import "./events.css";
 
 export default function ReviewPage() {
-  const { id = "PRP-88" } = useParams();
+  const { id = "" } = useParams();
   const { tx } = useI18n();
   const nav = useNavigate();
-  const { data: p } = useGet<Proposal>(`/proposals/${id}`);
+  const { data: p, refetch } = useGet<Proposal>(id ? `/proposals/${id}` : null);
+  const [approving, setApproving] = useState(false);
   const [checks, setChecks] = useState<Set<number>>(new Set());
   const [note, setNote] = useState("");
   const [reply, setReply] = useState("");
   const [thread, setThread] = useState<Proposal["discussion"]>([]);
   const [rejecting, setRejecting] = useState(false);
-  const [busy, setBusy] = useState(false);
   if (!p)
     return (
       <Page crumbs={[tx("事件收件箱", "Inbox"), "…"]}>
@@ -32,13 +33,7 @@ export default function ReviewPage() {
     );
   const risk = { low: ["ok", tx("低风险", "Low risk")], medium: ["warn", tx("中风险", "Medium risk")], high: ["danger", tx("高风险", "High risk")] } as const;
   const all = checks.size === p.checklist.length;
-  const approve = async () => {
-    setBusy(true);
-    const r = await api<{ execution_id: string }>("POST", `/proposals/${p.id}/approve`, { body: { note } });
-    setBusy(false);
-    toast(tx("已批准，执行器已排队 · 审计 #A-5521", "Approved — queued on the executor · audit #A-5521"));
-    nav(`/executions/${r.execution_id}`);
-  };
+  const approve = () => setApproving(true);
   return (
     <Page
       crumbs={[tx("事件收件箱", "Inbox"), p.title]}
@@ -48,8 +43,6 @@ export default function ReviewPage() {
           <Btn kind="ghost" icon="branch" to={`/canvas/${p.investigation_id}`}>
             {tx("在调查中查看", "View in investigation")}
           </Btn>
-          <IconBtn icon="up" label={tx("上一项", "Previous")} onClick={() => toast(tx("这是待你审批的第一项", "This is the first item awaiting your review"))} />
-          <IconBtn icon="down" label={tx("下一项", "Next")} onClick={() => toast(tx("没有更多待你审批的提案", "No more proposals awaiting your review"))} />
         </>
       }
     >
@@ -151,8 +144,8 @@ export default function ReviewPage() {
               <Btn kind="danger" h={32} style={{ flexGrow: 1 }} onClick={() => setRejecting(true)}>
                 {tx("拒绝", "Reject")}
               </Btn>
-              <Btn kind="primary" icon="check" h={32} style={{ flexGrow: 2 }} disabled={!all} loading={busy} onClick={approve} title={all ? undefined : tx("先完成核对清单", "Complete the checklist first")}>
-                {tx("批准并排队执行", "Approve & queue")}
+              <Btn kind="primary" icon="key" h={32} style={{ flexGrow: 2 }} disabled={!all} onClick={approve} title={all ? undefined : tx("先完成核对清单", "Complete the checklist first")}>
+                {tx("用通行密钥批准", "Approve with a passkey")}
               </Btn>
             </Row>
             <Row gap={8} align="flex-start">
@@ -164,10 +157,6 @@ export default function ReviewPage() {
             <Row gap={8}>
               <h3 style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>{tx("讨论", "Discussion")}</h3>
               <Spacer />
-              <Badge>
-                <Icon name="link" size={11} />
-                {tx("已同步飞书 #sre-oncall", "Synced to Feishu #sre-oncall")}
-              </Badge>
             </Row>
             <ul className="discussion">
               {[...p.discussion, ...thread].map((m, i) => (
@@ -211,10 +200,11 @@ export default function ReviewPage() {
             <Btn
               kind="danger"
               onClick={async () => {
-                await api("POST", `/proposals/${p.id}/reject`, { body: { note } });
+                const comment = note.trim().replace(/\s+/g, " ").slice(0, 1000);
+                await api("POST", `/proposals/${p.id}/reject`, { body: comment ? { comment } : {} });
                 setRejecting(false);
-                toast(tx("已拒绝，AI 会根据你的说明重新分析", "Rejected — the AI will re-analyse with your note"));
-                nav(`/canvas/${p.investigation_id}`);
+                toast(tx("已拒绝提案", "Proposal rejected"));
+                void refetch();
               }}
             >
               {tx("确认拒绝", "Reject")}
@@ -227,6 +217,7 @@ export default function ReviewPage() {
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} autoFocus />
         </Col>
       </Dialog>
+      <PasskeyApproval proposalId={p.id} comment={note} open={approving} onClose={() => setApproving(false)} onDone={() => void refetch()} />
     </Page>
   );
 }

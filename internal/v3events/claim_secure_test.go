@@ -217,6 +217,8 @@ func TestClaimConcurrentUsersAndRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		// The built-in viewer is the test's scoped role; drop the global defaults from migration 162 first.
+		`DELETE FROM v3_role_grants WHERE role_id='viewer' AND scope_kind='global' AND module<>'workspace'`,
 		`INSERT INTO teams(id,name) VALUES('team-a','Team A'),('team-b','Team B')`,
 		`UPDATE applications SET owner_team_id='team-a' WHERE id='app'`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES

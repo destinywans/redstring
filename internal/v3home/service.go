@@ -6,7 +6,6 @@ package v3home
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -188,7 +187,7 @@ func (s *Service) Get(w http.ResponseWriter, r *http.Request) {
 			"suggestions": "not_generated", "todo_actions": "not_connected",
 		},
 	}
-	if err = s.populate(ctx, tx, user, targets, scope.EnvironmentIDs, now, &out, duration); err != nil {
+	if err = s.populate(ctx, tx, user, targets, scope.EnvironmentIDs, now, textFor(r.Header.Get("Accept-Language")), &out, duration); err != nil {
 		readError(w, err)
 		return
 	}
@@ -312,19 +311,6 @@ func readError(w http.ResponseWriter, err error) {
 		httpapi.Error(w, 503, "home_timeout", "Home data timed out")
 	default:
 		httpapi.Error(w, 503, "home_unavailable", "Home data is unavailable")
-	}
-}
-
-func displaySummary(incidents, proposals int, eventsVisible, reviewsVisible bool) string {
-	switch {
-	case eventsVisible && reviewsVisible:
-		return fmt.Sprintf("可见记录中有 %d 个未解决事件、%d 个待复核提案；未接入的健康指标不计入。", incidents, proposals)
-	case eventsVisible:
-		return fmt.Sprintf("可见记录中有 %d 个未解决事件；当前范围没有可见提案。", incidents)
-	case reviewsVisible:
-		return fmt.Sprintf("可见记录中有 %d 个待复核提案；当前范围没有可见事件。", proposals)
-	default:
-		return "当前范围没有可见的事件或提案记录，状态未知。"
 	}
 }
 

@@ -31,6 +31,25 @@ function qs(query?: Query) {
   return s ? `?${s}` : "";
 }
 
+export const RETURN_TITLE_KEY = "aiops-v3-return-title";
+export const SIGNED_IN_KEY = "aiops-v3-signed-in";
+let redirecting = false;
+
+/** A 401 from any business call means the session is gone: go to /login and come back afterwards. */
+function toLogin() {
+  if (redirecting || location.pathname === "/login") return;
+  redirecting = true;
+  let hadSession = false;
+  try {
+    hadSession = localStorage.getItem(SIGNED_IN_KEY) === "1";
+    sessionStorage.setItem(RETURN_TITLE_KEY, document.title.replace(/ · Redstring$/, ""));
+  } catch {
+    /* convenience only */
+  }
+  const next = encodeURIComponent(location.pathname + location.search);
+  location.assign(`/login?next=${next}${hadSession ? "&expired=1" : ""}`);
+}
+
 export async function api<T>(
   method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
@@ -48,6 +67,7 @@ export async function api<T>(
     },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
+  if (res.status === 401 && !path.startsWith("/auth/")) toLogin();
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError(res.status, body?.error?.code ?? "request_failed", body?.error?.message ?? `HTTP ${res.status}`);

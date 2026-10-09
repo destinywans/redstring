@@ -90,6 +90,10 @@ func TestPrometheusRegistrationBindingVaultAndScopedQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// This test grants the built-in viewer narrow scopes itself; drop the global defaults from migration 162 first.
+	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND scope_kind='global' AND module<>'workspace'`); err != nil {
+		t.Fatal(err)
+	}
 	readerUser, _, err := st.Login(ctx, "reader@example.invalid", "isolated-password")
 	if err != nil {
 		t.Fatal(err)

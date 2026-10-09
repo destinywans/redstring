@@ -1,0 +1,62 @@
+.v3-login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 16px;
+  background: var(--side);
+}
+.v3-login-card {
+  width: 100%;
+  max-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.v3-login-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 600;
+  font-size: var(--fs-lg);
+  letter-spacing: -0.01em;
+}
+.v3-login h1 {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+.v3-login .v3-input {
+  height: 34px;
+}
+.v3-login .v3-input.invalid {
+  border-color: var(--danger);
+}
+.v3-login-note {
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: var(--fs-sub);
+}
+.v3-login-error {
+  margin: -6px 0 0;
+  color: var(--danger);
+  font-size: var(--fs-sub);
+}
+.v3-login-submit {
+  width: 100%;
+  justify-content: center;
+}
+.v3-login-instance {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-cap);
+  color: var(--muted);
+}
+.v3-login-instance .tag {
+  font-weight: 600;
+}
+.v3-login-instance .tag.prod {
+  color: var(--prod);
+}

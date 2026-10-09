@@ -9,6 +9,7 @@ import { useI18n } from "../../i18n";
 import "./agents.css";
 import { openForm } from "../../ui/demo";
 import { toast } from "../../ui/overlays";
+import { Unavailable } from "../../ui/unknown";
 
 export function useAgentLabels() {
   const { tx } = useI18n();
@@ -57,8 +58,9 @@ export default function LifecyclePage() {
                   <Muted>{tx("每个版本都要过评测门禁才能扩大灰度；改进阶段的反馈会变成新的评测用例。", "Every version must pass its eval gate before a wider rollout; feedback turns into new eval cases.")}</Muted>
                 </Row>
                 <div className="lc-stages stagger">
+                  {data && !data.stages && <Unavailable reason="not_generated" icon="layers" title={tx("还没有生命周期统计", "No lifecycle statistics yet")} desc={tx("登记 Agent、跑过评测和运行之后，这里显示各阶段的数量。", "Stage counts appear after agents are registered, evaluated and run.")} />}
                   {data
-                    ? data.stages.map((s, i) => (
+                    ? data.stages?.map((s, i) => (
                         <Fragment key={s.id}>
                           <div className={`lc-stage ${s.tone === "accent" ? "on" : ""}`}>
                             <Row gap={6}>
@@ -70,7 +72,7 @@ export default function LifecyclePage() {
                             <span className="tnum" style={{ fontSize: "var(--fs-body)", fontWeight: 600 }}>{s.value}</span>
                             <Muted size={11.5}>{s.sub}</Muted>
                           </div>
-                          {i < data.stages.length - 1 && <Icon name="right" size={14} color="var(--faint)" />}
+                          {i < (data.stages?.length ?? 0) - 1 && <Icon name="right" size={14} color="var(--faint)" />}
                         </Fragment>
                       ))
                     : <Skeleton h={80} />}
@@ -128,7 +130,8 @@ export default function LifecyclePage() {
             </Col>
           </Row>
           <ul className="lc-todos stagger">
-            {data?.todos.map((t) => (
+            {data && !data.todos && <Unavailable reason="not_generated" icon="shield" title={tx("暂无治理待办", "No governance to-dos")} desc={tx("有需要人工决定的 Agent 事项时会出现在这里。", "Agent decisions that need a human appear here.")} />}
+            {data?.todos?.map((t) => (
               <li key={t.title}>
                 <Row gap={8}>
                   <Icon name={t.icon as IconName} size={15} color={`var(--${t.tone})`} />

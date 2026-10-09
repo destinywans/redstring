@@ -9,7 +9,7 @@ import { AskAiCard, useAskAi, useAskOpenClass } from "./AskAi";
 import { DemoHost } from "../ui/demo";
 import { BrandMark } from "../ui/BrandMark";
 import { PageBoundary } from "../ui/PageBoundary";
-import { API_MODE, useGet } from "../api/client";
+import { API_MODE, SIGNED_IN_KEY, useGet } from "../api/client";
 import type { Me, WatchedService } from "../api/types";
 import { EnvSwitch, useInstanceLoader } from "./EnvSwitch";
 import { useEnv } from "./environment";
@@ -159,7 +159,15 @@ function AccountCard({ me }: { me?: Me }) {
   const nav = useNavigate();
   const signOut = () => {
     if (API_MODE === "mock") toast(tx("示意模式：不会真正退出登录", "Sample mode: you are not actually signed out"));
-    else void fetch("/api/v1/auth/logout", { method: "POST", credentials: "same-origin" }).finally(() => location.assign("/"));
+    else
+      void fetch("/api/v1/auth/logout", { method: "POST", credentials: "same-origin" }).finally(() => {
+        try {
+          localStorage.removeItem(SIGNED_IN_KEY);
+        } catch {
+          /* convenience only */
+        }
+        location.assign("/login");
+      });
   };
   return (
     <MenuButton

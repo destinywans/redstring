@@ -63,7 +63,7 @@ func TestTrendRangeUsesExactWindowAndTwentyFourBuckets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		trend, err := loadTrend(ctx, tx, []incident{{id: "visible", severity: "critical"}}, now, duration)
+		trend, err := loadTrend(ctx, tx, []incident{{id: "visible", severity: "critical"}}, now, text{}, duration)
 		_ = tx.Rollback(ctx)
 		if err != nil {
 			t.Fatal(duration, err)
@@ -86,7 +86,7 @@ func TestTrendRangeUsesExactWindowAndTwentyFourBuckets(t *testing.T) {
 func TestActivityRangeIncludesBoundaryAndExcludesFuture(t *testing.T) {
 	now := time.Date(2026, 10, 7, 4, 23, 37, 0, time.UTC)
 	out := Summary{Availability: map[string]string{}}
-	buildActivity([]incident{{id: "old", updated: now.Add(-time.Hour)}, {id: "boundary", updated: now.Add(-15 * time.Minute)}, {id: "future", updated: now.Add(time.Second)}}, []proposal{{id: "recent", created: now.Add(-time.Minute)}}, now, &out, 15*time.Minute)
+	buildActivity([]incident{{id: "old", updated: now.Add(-time.Hour)}, {id: "boundary", updated: now.Add(-15 * time.Minute)}, {id: "future", updated: now.Add(time.Second)}}, []proposal{{id: "recent", created: now.Add(-time.Minute)}}, now, text{}, &out, 15*time.Minute)
 	if len(out.Activity) != 2 || out.Activity[0].ID != "proposal:recent" || out.Activity[1].ID != "incident:boundary" {
 		t.Fatalf("range leaked records: %+v", out.Activity)
 	}

@@ -64,13 +64,16 @@ export type RecentItem = { id: string; kind: "investigation" | "conversation" | 
 /* ---------------- home ---------------- */
 export type HomeSummary = {
   greeting: { name: string; summary: string };
-  briefing: { summary: string; generated_at: string; citations: { n: number; label: string; href: string }[]; oncall: { name: string; until: string; next: string } };
+  /** null until generated; oncall inside is null without an on-call source. */
+  briefing: { summary: string; generated_at: string; citations: { n: number; label: string; href: string }[]; oncall: { name: string; until: string; next: string } | null } | null;
   suggestions: { id: string; text: string; tone?: Tone; icon: string }[];
   kpis: Kpi[];
   attention: { id: string; severity: Severity; service: string; env: EnvName; symptom: string; meta: string; ai: "done" | "running" | null; owner?: string; href: string }[];
   todos: { id: string; kind: "approval" | "report" | "runbook" | "access"; title: string; meta: string; action: string; href: string }[];
-  services: { id: string; name: string; tier: Tier; status: "ok" | "warn" | "danger"; budget_pct: number; p99: string; error_rate: string; series: number[] }[];
-  alert_trend: { labels: string[]; counts: [number, number, number, number][]; summary: string };
+  services: { id: string; name: string; tier: Tier | null; status: "ok" | "warn" | "danger" | null; budget_pct: number | null; p99: string | null; error_rate: string | null; series: number[] | null }[];
+  alert_trend: { labels: string[]; counts: [number, number, number, number][]; summary: string } | null;
+  /** Per-section evidence state from the server, e.g. { alert_trend: "no_authorized_target", oncall: "not_connected" }. */
+  availability?: Record<string, string>;
   activity: Activity[];
   recent: RecentItem[];
 };
@@ -333,7 +336,7 @@ export type Execution = {
 };
 
 /* ---------------- knowledge & memory ---------------- */
-export type RunbookSummary = { id: string; title: string; tags: string[]; scope: string; owner: string; version: string; status: "published" | "review" | "draft"; refs_30d: number; resolve_rate?: number; last_verified: string; stale: boolean };
+export type RunbookSummary = { id: string; title: string; tags: string[]; scope: string; owner: string; version: string; status: "published" | "review" | "draft"; refs_30d: number | null; resolve_rate?: number | null; last_verified: string | null; stale: boolean | null };
 export type RunbookSuggestion = { id: string; icon: string; tone: Tone; title: string; body: string; actions: { label: string; kind: "primary" | "secondary" | "ghost"; href?: string }[] };
 export type RunbookStep = { n: number; kind: "query" | "check" | "action" | "verify"; title: string; body?: string; connectors?: string[]; code?: string; readonly?: boolean; suggestion?: { source: string; minus: string; plus: string } };
 export type Runbook = {
@@ -355,9 +358,11 @@ export type Postmortem = { id: string; title: string; severity: Severity; date: 
 export type PostmortemSummary = {
   kpis: Kpi[];
   items: Postmortem[];
-  causes: { label: string; pct: number; color: string }[];
-  impact_by_service: { label: string; value: number }[];
-  followups: { text: string; owner: string; due: string; tone: Tone }[];
+  /** null = no trustworthy source yet (see unknown_fields); never an empty "all clear". */
+  causes: { label: string; pct: number; color: string }[] | null;
+  impact_by_service: { label: string; value: number }[] | null;
+  followups: { text: string; owner: string; due: string; tone: Tone }[] | null;
+  unknown_fields?: string[];
 };
 export type MemoryLayer = { id: "working" | "service" | "episodic" | "semantic"; name: string; count: string; desc: string };
 export type MemoryFact = { id: string; fact: string; source: string; confidence: "high" | "medium" | "low"; confirmed: string | null; recalls: number; expires: string };
@@ -448,15 +453,17 @@ export type Resilience = {
   hpa: { min: number; max: number; current: number; desired: number; replicas: number[]; desired_series: number[]; cpu: number[]; target: number; note: string };
   ai: string[];
 };
-export type TopologyNode = { id: string; name: string; brand?: string; sub: string; status: Health; group: string; x: number; y: number; impacted: boolean };
+/** Real topology carries no layout, health or impact yet: status is null (unknown) and the page lays nodes out itself. */
+export type TopologyNode = { id: string; name: string; brand?: string; sub: string; status: Health | null; group?: string; x: number; y: number; impacted?: boolean; kind?: string; cluster?: string; environment_ids?: string[] };
 export type Topology = {
   groups: { id: string; label: string; zone: string; x: number; y: number; w: number; h: number }[];
   nodes: TopologyNode[];
-  edges: { id: string; from: string; to: string; label?: string; tone: "ok" | "warn" | "danger"; fast?: boolean; width: number; path: string; lx: number; ly: number }[];
-  blast: string;
-  tree: { depth: number; kind: string; name: string; brand?: string; status: Health; replicas: string; cpu?: number; mem?: number; alerts?: number; open?: boolean; hit?: boolean }[];
-  sankey: { cols: { id: string; label: string; value: number; color: string }[][]; links: { from: string; to: string; value: number; color: string }[] };
-  detail: { id: string; name: string; meta: string; brand: string; conns: { used: number; max: number }; from_service: { used: number; max: number; service: string }; wait: number[]; health: { k: string; v: string }[]; owner: string; dependents: string; source: string };
+  edges: { id: string; from: string; to: string; label?: string; tone: "ok" | "warn" | "danger" | null; fast?: boolean; width: number; path?: string; lx?: number; ly?: number; kind?: string }[];
+  blast: string | null;
+  tree: { depth: number; kind: string; name: string; brand?: string; status: Health | null; replicas: string; cpu?: number; mem?: number; alerts?: number; open?: boolean; hit?: boolean }[];
+  sankey: null | { cols: { id: string; label: string; value: number; color: string }[][]; links: { from: string; to: string; value: number; color: string }[] };
+  detail: null | { id: string; name: string; meta: string; brand: string; conns: { used: number; max: number }; from_service: { used: number; max: number; service: string }; wait: number[]; health: { k: string; v: string }[]; owner: string; dependents: string; source: string };
+  unavailable_fields?: string[];
 };
 export type MetricsDashboard = {
   window: { labels: string[]; ticks: string[]; release_at: number; rollback_at: number; incident: [number, number]; incident_label: string };
@@ -591,9 +598,11 @@ export type WebhookView = {
 export type AgentLevel = "L0" | "L1" | "L2" | "L3";
 export type AgentSummary = { id: string; icon: string; name: string; desc: string; version: string; level: AgentLevel; score: number; runs_7d: string; success: string; avg_tokens: string; status: "stable" | "canary" | "paused" };
 export type Lifecycle = {
-  stages: { id: string; name: string; value: string; sub: string; tone: Tone }[];
+  /** null when no stage aggregate or to-do producer exists yet (see `missing`). */
+  stages: { id: string; name: string; value: string; sub: string; tone: Tone }[] | null;
   agents: AgentSummary[];
-  todos: { icon: string; tone: Tone; title: string; body: string; action: string; href: string }[];
+  todos: { icon: string; tone: Tone; title: string; body: string; action: string; href: string }[] | null;
+  missing?: string[];
 };
 export type AgentVersion = { version: string; status: "canary" | "stable" | "retired"; traffic: string; score: string; success: string; tokens: string; delta?: string; created: string };
 export type AgentDetail = AgentSummary & {
@@ -647,8 +656,9 @@ export type EvalCase = {
   baseline: { version: string; score: string; text: string };
   auto: { score: string; note: string; rules: string[] };
 };
-export type RunRow = { id: string; agent: string; version: string; trigger: string; scope: string; status: "success" | "failed" | "blocked"; steps: string; tokens: string; duration: string; feedback?: { icon: string; tone: Tone; text: string } };
-export type RunsView = { kpis: Kpi[]; trend: { ok: number[]; failed: number[]; blocked: number[] }; durations: number[]; items: RunRow[]; counts: Record<"all" | "failed" | "blocked" | "negative", number> };
+export type RunRow = { id: string; agent: string; version: string; trigger: string; scope: string; status: "success" | "failed" | "blocked"; steps: string | null; tokens: string | null; duration: string | null; feedback?: { icon: string; tone: Tone; text: string } };
+/** trend/durations/counts are null until a live run producer exists (see `missing`). */
+export type RunsView = { kpis: Kpi[]; trend: { ok: number[]; failed: number[]; blocked: number[] } | null; durations: number[] | null; items: RunRow[]; counts: Record<"all" | "failed" | "blocked" | "negative", number> | null; missing?: string[] };
 export type RunDetail = {
   id: string;
   chain: { label: string; value: string; icon: string; to?: string }[];

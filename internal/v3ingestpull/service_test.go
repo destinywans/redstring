@@ -121,6 +121,10 @@ func newPullFixture(t *testing.T, block bool) *pullFixture {
 	if _, err := fixture.store.CreateUser(ctx, core.User{Email: "viewer@example.invalid", Name: "Viewer", Role: "viewer"}, "isolated-password"); err != nil {
 		t.Fatal(err)
 	}
+	// This test grants the built-in viewer narrow scopes itself; drop the global defaults from migration 162 first.
+	if _, err := fixture.store.DB.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND scope_kind='global' AND module<>'workspace'`); err != nil {
+		t.Fatal(err)
+	}
 	_, fixture.viewerSID, err = fixture.store.Login(ctx, "viewer@example.invalid", "isolated-password")
 	if err != nil {
 		t.Fatal(err)

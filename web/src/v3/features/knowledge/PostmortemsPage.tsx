@@ -9,6 +9,7 @@ import { Donut, Treemap } from "../../charts";
 import { useI18n } from "../../i18n";
 import { PageHead } from "../conversation/ConversationsPage";
 import { ChipSelect, useFacet } from "../../ui/demo";
+import { Unavailable, UnknownValue } from "../../ui/unknown";
 
 export default function PostmortemsPage() {
   const { tx } = useI18n();
@@ -24,7 +25,7 @@ export default function PostmortemsPage() {
     <Page crumbs={[tx("知识与记忆", "Knowledge"), tx("复盘报告", "Postmortems")]} actions={<Btn kind="primary" icon="plus" to="/postmortems/new">{tx("新建复盘", "New postmortem")}</Btn>}>
       <div className="v3-content">
         <PageHead title={tx("复盘报告", "Postmortems")} desc={tx("AI 根据事件时间线和证据起草，负责人确认后发布；改进项会一直跟踪到完成。", "AI drafts from the incident timeline and evidence; the owner publishes; action items are tracked to completion.")} />
-        <KpiRow>{data?.kpis.map((k) => <Kpi key={k.id} label={k.label} value={k.value} unit={k.unit} sub={k.sub} tone={k.tone} values={k.series.length ? k.series : undefined} />)}</KpiRow>
+        <KpiRow>{data?.kpis.map((k) => <Kpi key={k.id} label={k.label} value={k.value} unit={k.unit} sub={k.sub} tone={k.tone} values={k.series?.length ? k.series : undefined} />)}</KpiRow>
         <Row gap={8}>
           <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: 57 }, { value: "draft", label: tx("AI 草稿", "AI drafts"), count: 2 }, { value: "published", label: tx("已发布", "Published"), count: 55 }]} />
           <SearchBox placeholder={tx("搜索报告", "Search reports")} value={q} onChange={setQ} width={220} />
@@ -52,10 +53,12 @@ export default function PostmortemsPage() {
           </Card>
           <Col gap={16} style={{ width: 360, flex: "none" }}>
             <Panel title={tx("根因分布 · 近 90 天", "Root causes · 90 days")}>
-              {data && (
+              {data && !data.causes && !data.impact_by_service && <Unavailable reason="not_generated" icon="trend" title={tx("暂无根因统计", "No root-cause statistics yet")} desc={tx("复盘里还没有可统计的根因分类和影响时长。", "Postmortems don't have countable cause categories or impact minutes yet.")} />}
+              {data && (data.causes || data.impact_by_service) && (
                 <Col gap={4}>
+                  {data.causes ? (
                   <Row gap={14}>
-                    <Donut parts={data.causes.map((c) => ({ value: c.pct, color: c.color, label: c.label }))} size={112} thick={16} center="57" sub={tx("起事件", "incidents")} />
+                    <Donut parts={data.causes.map((c) => ({ value: c.pct, color: c.color, label: c.label }))} size={112} thick={16} sub={tx("根因占比", "share of causes")} />
                     <Col gap={3} grow>
                       {data.causes.map((c) => (
                         <Row key={c.label} gap={6} style={{ fontSize: "var(--fs-sub)" }}>
@@ -66,15 +69,19 @@ export default function PostmortemsPage() {
                       ))}
                     </Col>
                   </Row>
+                  ) : (
+                    <Muted>{tx("根因分布：", "Root causes: ")}<UnknownValue reason="not_generated" /></Muted>
+                  )}
                   <Section title={tx("影响时长 · 按服务", "Impact minutes · by service")} style={{ marginTop: 10 }}>
-                    <Treemap items={data.impact_by_service} height={72} />
+                    {data.impact_by_service ? <Treemap items={data.impact_by_service} height={72} /> : <UnknownValue reason="not_generated" />}
                   </Section>
                 </Col>
               )}
             </Panel>
-            <Panel title={tx("需要跟进的改进项", "Follow-ups")} right={<Muted size={11.5}>{tx("最紧急的 {n} 项 · 共 25 项", "Most urgent {n} of 25", { n: data?.followups.length ?? 0 })}</Muted>}>
+            <Panel title={tx("需要跟进的改进项", "Follow-ups")} right={data?.followups ? <Muted size={11.5}>{tx("最紧急的 {n} 项", "Most urgent {n}", { n: data.followups.length })}</Muted> : undefined}>
+              {data && !data.followups && <Unavailable reason="not_generated" icon="check" title={tx("暂无改进项", "No follow-ups yet")} desc={tx("复盘发布后，这里列出还没完成的改进项。", "Open follow-ups appear here once postmortems are published.")} />}
               <ul>
-                {data?.followups.map((f, i) => (
+                {data?.followups?.map((f, i) => (
                   <li key={f.text} className="v3-row" style={{ gap: 8, padding: "7px 0", borderBottom: "1px solid var(--border)", fontSize: "var(--fs-sm)" }}>
                     <input type="checkbox" aria-label={f.text} checked={done.has(i)} onChange={() => setDone((s) => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; })} style={{ accentColor: "var(--accent)", margin: 0 }} />
                     <span className="ellipsis grow" style={{ textDecoration: done.has(i) ? "line-through" : undefined }}>{f.text}</span>

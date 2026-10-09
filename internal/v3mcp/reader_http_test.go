@@ -300,9 +300,10 @@ func TestMCPReadsAndBindingUseSingleConnectionWithoutPartialLists(t *testing.T) 
 	}
 	for _, path := range []string{"/api/v1/mcp-servers", "/api/v1/mcp-servers/mcp-1"} {
 		w := request(http.MethodGet, path)
+		// The binding itself may be enabled; untrusted discovery must not enable any tool or report health.
 		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"status":"pending"`) ||
 			!strings.Contains(w.Body.String(), `"complete_v3_dto":false`) ||
-			strings.Contains(w.Body.String(), `"enabled":true`) || strings.Contains(w.Body.String(), `"status":"ok"`) {
+			discoveredToolEnabled(t, w.Body.Bytes()) || strings.Contains(w.Body.String(), `"status":"ok"`) {
 			t.Fatalf("untrusted discovery promoted to health or Agent tool: %s %d %s", path, w.Code, w.Body.String())
 		}
 	}
@@ -452,4 +453,35 @@ func TestMCPReadsAndBindingUseSingleConnectionWithoutPartialLists(t *testing.T) 
 		!strings.Contains(w.Body.String(), `"code":"candidate_scan_limit"`) || strings.Contains(w.Body.String(), `"items"`) {
 		t.Fatalf("candidate overflow should not return a partial list: %d %s", w.Code, w.Body.String())
 	}
+}
+
+// discoveredToolEnabled reports whether any object under a "tools" key has enabled=true.
+func discoveredToolEnabled(t *testing.T, body []byte) bool {
+	t.Helper()
+	var v any
+	if err := json.Unmarshal(body, &v); err != nil {
+		t.Fatalf("decode %s: %v", body, err)
+	}
+	var walk func(any, bool) bool
+	walk = func(node any, underTools bool) bool {
+		switch x := node.(type) {
+		case map[string]any:
+			if underTools && x["enabled"] == true {
+				return true
+			}
+			for k, child := range x {
+				if walk(child, underTools || k == "tools") {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range x {
+				if walk(child, underTools) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return walk(v, false)
 }

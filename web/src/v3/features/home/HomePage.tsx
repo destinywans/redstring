@@ -12,13 +12,14 @@ import { useI18n } from "../../i18n";
 import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./home.css";
 import { ChipSelect, RangeChip, useFacet } from "../../ui/demo";
+import { Unavailable, UnknownValue } from "../../ui/unknown";
 
 const TODO_TONE = { approval: "accent", report: "info", runbook: "t1", access: "warn" } as const;
 const ACT_ICON: Record<string, IconName> = { ai: "sparkles", change: "branch", alert: "bell", runbook: "book", approval: "shield", system: "cpu" };
 const RECENT_ICON: Record<string, [IconName, Tone]> = { investigation: ["branch", "accent"], conversation: ["message", "neutral"], artifact: ["file", "info"] };
 
 /** Summary text with inline [n] citation markers rendered as links. */
-function Cited({ text, citations, onOpen }: { text: string; citations: HomeSummary["briefing"]["citations"]; onOpen: (href: string) => void }) {
+function Cited({ text, citations, onOpen }: { text: string; citations: NonNullable<HomeSummary["briefing"]>["citations"]; onOpen: (href: string) => void }) {
   return (
     <>
       {text.split(/(\[\d+\])/).map((seg, i) => {
@@ -41,7 +42,7 @@ function Briefing({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string)
         <span style={{ flexGrow: 1 }} />
         {b && <Muted size={11.5}>{tx("{t} 生成", "Generated {t}", { t: b.generated_at })}</Muted>}
       </div>
-      <p className="brief-text">{b ? <Cited text={b.summary} citations={b.citations} onOpen={onOpen} /> : <Skeleton h={48} />}</p>
+      <p className="brief-text">{b ? <Cited text={b.summary} citations={b.citations} onOpen={onOpen} /> : data ? <Muted>{tx("尚未生成。有新的告警、事件或变更后，AI 会在这里总结今天需要关注的事。", "Not generated yet. The AI summarises what needs attention once new alerts, incidents or changes arrive.")}</Muted> : <Skeleton h={48} />}</p>
       {b && (
         <Row gap={6} wrap>
           {b.citations.map((c) => (
@@ -52,7 +53,7 @@ function Briefing({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string)
           ))}
         </Row>
       )}
-      {b && (
+      {b?.oncall && (
         <div className="brief-oncall">
           <Avatar name={b.oncall.name} size={22} />
           <span className="grow">
@@ -82,10 +83,17 @@ function StatusRow({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string
           </b>
         </span>
       ))}
-      <span className="home-stat">
-        <Dot tone="ok" size={6} />
-        <span className="muted">{tx("值班 {n} · 至 {u}", "On call {n} · until {u}", { n: data.briefing.oncall.name, u: data.briefing.oncall.until })}</span>
-      </span>
+      {data.briefing?.oncall ? (
+        <span className="home-stat">
+          <Dot tone="ok" size={6} />
+          <span className="muted">{tx("值班 {n} · 至 {u}", "On call {n} · until {u}", { n: data.briefing.oncall.name, u: data.briefing.oncall.until })}</span>
+        </span>
+      ) : (
+        <span className="home-stat">
+          <span className="muted">{tx("值班", "On call")}</span>
+          <UnknownValue reason={data.availability?.oncall ?? "not_connected"} source={tx("值班系统", "On-call system")} />
+        </span>
+      )}
       <button ref={setAnchor} type="button" className="home-stat brief-btn" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <Icon name="sparkles" size={13} />
         {tx("AI 今日简报", "AI briefing")}
@@ -252,25 +260,29 @@ export default function HomePage() {
                   <tr key={s.id} className="clickable" style={{ height: 40 }} onClick={() => nav(`/services/${s.id}`)}>
                     <td>
                       <Row gap={8}>
-                        <Dot tone={s.status} size={7} pulse={s.status === "danger"} />
+                        {s.status ? <Dot tone={s.status} size={7} pulse={s.status === "danger"} /> : <UnknownValue reason="not_connected" source={tx("服务健康来源", "Service health source")} label={<span style={{ width: 7 }}>·</span>} />}
                         <span style={{ fontWeight: 500 }}>{s.name}</span>
-                        <Tier tier={s.tier} />
+                        {s.tier && <Tier tier={s.tier} />}
                       </Row>
                     </td>
                     <td>
-                      <Row gap={6}>
-                        <Bar pct={s.budget_pct} tone={s.budget_pct < 50 ? "warn" : "ok"} width={56} />
-                        <Muted size={11.5}>{s.budget_pct}%</Muted>
-                      </Row>
+                      {s.budget_pct == null ? (
+                        <UnknownValue reason="not_connected" source={tx("SLO 指标", "SLO metrics")} to="/integrations/mapping" />
+                      ) : (
+                        <Row gap={6}>
+                          <Bar pct={s.budget_pct} tone={s.budget_pct < 50 ? "warn" : "ok"} width={56} />
+                          <Muted size={11.5}>{s.budget_pct}%</Muted>
+                        </Row>
+                      )}
                     </td>
-                    <td className="tnum" style={{ color: s.status === "warn" && s.p99.endsWith(" s") ? "var(--warn)" : undefined }}>
-                      {s.p99}
+                    <td className="tnum" style={{ color: s.status === "warn" && s.p99?.endsWith(" s") ? "var(--warn)" : undefined }}>
+                      {s.p99 ?? <UnknownValue reason="not_connected" source={tx("延迟指标", "Latency metrics")} to="/integrations/mapping" />}
                     </td>
                     <td className="tnum" style={{ color: s.status === "danger" ? "var(--danger)" : s.status === "warn" && s.error_rate !== "0.0%" ? "var(--warn)" : undefined }}>
-                      {s.error_rate}
+                      {s.error_rate ?? <UnknownValue reason="not_connected" source={tx("错误率指标", "Error-rate metrics")} to="/integrations/mapping" />}
                     </td>
                     <td>
-                      <Sparkline values={s.series} width={56} height={18} color={s.status === "ok" ? "var(--accent)" : `var(--${s.status})`} />
+                      {s.series?.length ? <Sparkline values={s.series} width={56} height={18} color={!s.status || s.status === "ok" ? "var(--accent)" : `var(--${s.status})`} /> : <UnknownValue />}
                     </td>
                   </tr>
                 ))}
@@ -283,10 +295,13 @@ export default function HomePage() {
               right={<Legend items={[["P1", "var(--danger)"], ["P2", "var(--p2)"], ["P3", "var(--warn)"], ["P4", "var(--p4)"]]} />}
             />
             <div style={{ padding: "12px 16px 10px" }} className="v3-col">
-              {data && <StackedBars data={data.alert_trend.counts} colors={["var(--danger)", "var(--p2)", "var(--warn)", "var(--p4)"]} height={104} names={labels} labels={data.alert_trend.labels} />}
-              <Axis labels={[tx("昨天 15:00", "Yesterday 15:00"), "21:00", "03:00", "09:00", tx("现在", "Now")]} />
+              {data && !data.alert_trend && <Unavailable reason={data.availability?.alert_trend === "no_authorized_target" ? "no_authorized_target" : data.availability?.alert_trend === "not_connected" ? "not_connected" : "not_generated"} icon="bell" source={tx("告警来源", "Alert source")} title={data.availability?.alert_trend === "not_connected" ? tx("未接入告警来源", "Alert source not connected") : undefined} desc={data.availability?.alert_trend === "not_connected" ? tx("连接 Alertmanager 后，这里显示最近 24 小时的告警数量和级别分布。", "Connect Alertmanager to see the last 24 hours of alerts by severity.") : undefined} />}
+              {data?.alert_trend && <StackedBars data={data.alert_trend.counts} colors={["var(--danger)", "var(--p2)", "var(--warn)", "var(--p4)"]} height={104} names={labels} labels={data.alert_trend.labels} />}
+              {data?.alert_trend && data.alert_trend.labels.length > 0 && (
+                <Axis labels={[0, 0.25, 0.5, 0.75].map((f) => data.alert_trend!.labels[Math.floor(f * (data.alert_trend!.labels.length - 1))]).concat(tx("现在", "Now"))} />
+              )}
               <Row gap={6} style={{ marginTop: 6 }}>
-                <Muted size={11.5}>{data?.alert_trend.summary}</Muted>
+                <Muted size={11.5}>{data?.alert_trend?.summary}</Muted>
                 <span style={{ flexGrow: 1 }} />
                 <TextLink to="/alerts">{tx("告警", "Alerts")}</TextLink>
               </Row>

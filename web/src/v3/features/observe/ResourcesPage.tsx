@@ -12,6 +12,7 @@ import { ZoomControl, useViewport, type Bounds } from "../../ui/viewport";
 import "./observe.css";
 import { openExternal, ChipSelect, usePickLists } from "../../ui/demo";
 import { useNavigate } from "react-router-dom";
+import { Unavailable, UnknownValue } from "../../ui/unknown";
 
 const TONE_COLOR = { ok: "var(--c2)", warn: "var(--warn)", danger: "var(--danger)" };
 const NODE_W = 172;
@@ -44,6 +45,69 @@ function boundsOf(t: Topology): Bounds {
   return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
 }
 
+type RawTopology = Omit<Topology, "nodes" | "edges" | "groups" | "tree" | "sankey" | "blast" | "detail"> & {
+  nodes: (Omit<TopologyNode, "x" | "y" | "sub" | "status"> & Partial<Pick<TopologyNode, "x" | "y" | "sub" | "status">>)[];
+  edges: (Omit<Topology["edges"][number], "tone" | "width"> & Partial<Pick<Topology["edges"][number], "tone" | "width">>)[];
+  groups?: Topology["groups"];
+  tree?: Topology["tree"];
+  sankey?: Topology["sankey"];
+  blast?: Topology["blast"];
+  detail?: Topology["detail"];
+};
+
+// Columns for the client-side layout of the real CMDB graph (it carries no coordinates).
+const KIND_ORDER = ["cluster", "node", "namespace", "network", "deployment"];
+
+/**
+ * The real /topology returns nodes and relations only; layout, health, groups, the resource tree,
+ * the traffic Sankey, blast radius and the detail card are unavailable (unavailable_fields).
+ * Lay nodes out in columns by kind and derive the tree from `belongs_to` relations; never invent
+ * health or impact.
+ */
+function normalizeTopology(raw: RawTopology, kindLabel: (k?: string) => string): Topology {
+  const positioned = raw.nodes.every((n) => typeof n.x === "number" && typeof n.y === "number");
+  let nodes: TopologyNode[];
+  if (positioned) nodes = raw.nodes as TopologyNode[];
+  else {
+    const col = (k?: string) => (KIND_ORDER.indexOf(k ?? "") >= 0 ? KIND_ORDER.indexOf(k ?? "") : KIND_ORDER.length);
+    const byCol = new Map<number, RawTopology["nodes"]>();
+    for (const n of raw.nodes) byCol.set(col(n.kind), [...(byCol.get(col(n.kind)) ?? []), n]);
+    const cols = [...byCol.keys()].sort((a, b) => a - b);
+    nodes = cols.flatMap((c, ci) =>
+      (byCol.get(c) ?? [])
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((n, ri) => ({ ...n, x: 40 + ci * (NODE_W + 96), y: 40 + ri * (NODE_H + 18), sub: n.sub ?? kindLabel(n.kind), status: n.status ?? null })),
+    );
+  }
+  const edges = raw.edges.map((e) => ({ ...e, tone: e.tone ?? null, width: e.width ?? 1.4 }));
+  let tree = raw.tree;
+  if (!tree) {
+    const parentOf = new Map<string, string>();
+    for (const e of raw.edges) if (e.kind === "belongs_to" && !parentOf.has(e.from)) parentOf.set(e.from, e.to);
+    const children = new Map<string, TopologyNode[]>();
+    for (const n of nodes) {
+      const p = parentOf.get(n.id) ?? "";
+      children.set(p, [...(children.get(p) ?? []), n]);
+    }
+    const rows: Topology["tree"] = [];
+    const seen = new Set<string>();
+    const walk = (parent: string, depth: number) => {
+      for (const n of (children.get(parent) ?? []).slice().sort((a, b) => col2(a) - col2(b) || a.name.localeCompare(b.name))) {
+        if (seen.has(n.id)) continue;
+        seen.add(n.id);
+        const kids = children.get(n.id)?.length ?? 0;
+        rows.push({ depth, kind: kindLabel(n.kind), name: n.name, status: null, replicas: "", ...(kids ? { open: true } : {}) });
+        walk(n.id, depth + 1);
+      }
+    };
+    const col2 = (n: TopologyNode) => KIND_ORDER.indexOf(n.kind ?? "");
+    walk("", 0);
+    tree = rows;
+  }
+  return { ...raw, nodes, edges, groups: raw.groups ?? [], tree, sankey: raw.sankey ?? null, blast: raw.blast ?? null, detail: raw.detail ?? null };
+}
+
 /** Rows whose ancestors are all expanded; `toggled` flips each row's default open state. */
 function visibleRows(tree: Topology["tree"], toggled: Set<number>) {
   const out: { r: Topology["tree"][number]; idx: number }[] = [];
@@ -60,7 +124,11 @@ function visibleRows(tree: Topology["tree"], toggled: Set<number>) {
 
 export default function ResourcesPage() {
   const { tx } = useI18n();
-  const { data: t } = useGet<Topology>("/topology");
+  const { data: rawTopology } = useGet<RawTopology>("/topology");
+  const kindLabel = (k?: string) =>
+    ({ cluster: tx("集群", "Cluster"), node: tx("节点", "Node"), namespace: tx("命名空间", "Namespace"), network: tx("服务网络", "Service"), deployment: tx("工作负载", "Workload") })[k ?? ""] ?? (k || tx("资源", "Resource"));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const t = useMemo(() => (rawTopology ? normalizeTopology(rawTopology, kindLabel) : undefined), [rawTopology, tx]);
   const [view_, setViewMode] = useState<"topo" | "tree" | "sankey">("topo");
   const [blast, setBlast] = useState(true);
   const [sel, setSel] = useState<string | null>(null);
@@ -101,6 +169,8 @@ export default function ResourcesPage() {
   }, [sel, floating, floatCover]); // eslint-disable-line react-hooks/exhaustive-deps
   const [hover, setHover] = useState<string | null>(null);
   const [open, setOpen] = useState<Set<number>>(new Set());
+  const node = t && sel ? byId[sel] : undefined;
+  const d = t?.detail ?? null;
   const detail = t && sel ? (
     <DetailPanel
       pinned={pinned}
@@ -108,25 +178,36 @@ export default function ResourcesPage() {
       onClose={() => setSel(null)}
       label={tx("资源详情", "Resource details")}
       header={
+        d ? (
             <>
-              <Brand name={t.detail.brand} size={30} />
+              <Brand name={d!.brand} size={30} />
               <Col gap={0} grow>
-                <Strong size={14}>{sel === "orders-db" ? t.detail.name : sel}</Strong>
-                <Muted size={11.5}>{sel === "orders-db" ? t.detail.meta : t.nodes.find((n) => n.id === sel)?.sub}</Muted>
+                <Strong size={14}>{sel === "orders-db" ? d!.name : sel}</Strong>
+                <Muted size={11.5}>{sel === "orders-db" ? d!.meta : t.nodes.find((n) => n.id === sel)?.sub}</Muted>
               </Col>
             </>
+        ) : (
+          <>
+            <Tile icon="box" size={30} />
+            <Col gap={0} grow>
+              <Strong size={14}>{node?.name ?? sel}</Strong>
+              <Muted size={11.5}>{node?.sub}</Muted>
+            </Col>
+          </>
+        )
       }
     >
+      {d ? (
             <Col gap={16} style={{ padding: 16 }} className="anim-fade" key={sel}>
               <Row gap={12}>
-                <Gauge pct={t.detail.conns.used / t.detail.conns.max} size={138} tone="ok" label={`${Math.round((100 * t.detail.conns.used) / t.detail.conns.max)}%`} sub={tx("连接 {a} / {b}", "conns {a} / {b}", { a: t.detail.conns.used, b: t.detail.conns.max })} />
-                <Gauge pct={t.detail.from_service.used / t.detail.from_service.max} size={138} tone={t.detail.from_service.used >= t.detail.from_service.max * 0.9 ? "danger" : "ok"} label={`${Math.round((100 * t.detail.from_service.used) / t.detail.from_service.max)}%`} sub={`${t.detail.from_service.service} ${t.detail.from_service.used} / ${t.detail.from_service.max}`} />
+                <Gauge pct={d!.conns.used / d!.conns.max} size={138} tone="ok" label={`${Math.round((100 * d!.conns.used) / d!.conns.max)}%`} sub={tx("连接 {a} / {b}", "conns {a} / {b}", { a: d!.conns.used, b: d!.conns.max })} />
+                <Gauge pct={d!.from_service.used / d!.from_service.max} size={138} tone={d!.from_service.used >= d!.from_service.max * 0.9 ? "danger" : "ok"} label={`${Math.round((100 * d!.from_service.used) / d!.from_service.max)}%`} sub={`${d!.from_service.service} ${d!.from_service.used} / ${d!.from_service.max}`} />
               </Row>
-              <Section title={tx("连接等待 P95", "Connection wait P95")} right={<span className="mono" style={{ fontSize: "var(--fs-sub)" }}>{Math.round(t.detail.wait[t.detail.wait.length - 1])} ms</span>}>
-                <Lines series={[{ name: "P95", values: t.detail.wait, color: "var(--c3)", fill: "var(--c3s)" }]} height={52} max={Math.max(...t.detail.wait) * 1.25} grid={2} markers={[{ at: 16, label: tx("发布", "release"), tone: "warn" }]} format={(v) => `${Math.round(v)} ms`} />
+              <Section title={tx("连接等待 P95", "Connection wait P95")} right={<span className="mono" style={{ fontSize: "var(--fs-sub)" }}>{Math.round(d!.wait[d!.wait.length - 1])} ms</span>}>
+                <Lines series={[{ name: "P95", values: d!.wait, color: "var(--c3)", fill: "var(--c3s)" }]} height={52} max={Math.max(...d!.wait) * 1.25} grid={2} markers={[{ at: 16, label: tx("发布", "release"), tone: "warn" }]} format={(v) => `${Math.round(v)} ms`} />
               </Section>
               <Section title={tx("健康", "Health")}>
-                {t.detail.health.map((h) => (
+                {d!.health.map((h) => (
                   <KV key={h.k} k={h.k} kw={76}>
                     <span className="tnum">{h.v}</span>
                   </KV>
@@ -135,25 +216,43 @@ export default function ResourcesPage() {
               <Section title={tx("归属", "Ownership")}>
                 <KV k={tx("负责人", "Owner")} kw={76}>
                   <Row gap={6}>
-                    <Avatar name={t.detail.owner} size={20} />
-                    {t.detail.owner}
+                    <Avatar name={d!.owner} size={20} />
+                    {d!.owner}
                   </Row>
                 </KV>
-                <KV k={tx("被依赖", "Dependents")} kw={76}>{t.detail.dependents}</KV>
+                <KV k={tx("被依赖", "Dependents")} kw={76}>{d!.dependents}</KV>
                 <KV k={tx("来源", "Source")} kw={76}>
                   <Row gap={6}>
                     <Brand name="kubernetes" size={18} />
-                    <Muted size={11.5}>{t.detail.source}</Muted>
+                    <Muted size={11.5}>{d!.source}</Muted>
                   </Row>
                 </KV>
               </Section>
               <div className="v3-grid2">
                 <Btn icon="activity" to="/metrics">{tx("查看指标", "Metrics")}</Btn>
-                <Btn icon="pin" to="/canvas/INV-231">{tx("钉到调查", "Pin to investigation")}</Btn>
-                <Btn icon="external" onClick={() => openExternal("Grafana", `https://grafana.example.internal/d/k8s-workload?var-workload=${sel ?? ""}`)}>Grafana</Btn>
                 <Btn kind="soft" icon="sparkles" onClick={() => askAi(tx("{n} 现在健康吗？", "Is {n} healthy right now?", { n: sel ?? "" }))}>{tx("问 AI", "Ask AI")}</Btn>
               </div>
             </Col>
+      ) : (
+        <Col gap={16} style={{ padding: 16 }} className="anim-fade" key={sel}>
+          <Section title={tx("资源", "Resource")}>
+            <KV k={tx("类型", "Kind")} kw={76}>{node?.sub ?? "—"}</KV>
+            <KV k={tx("集群", "Cluster")} kw={76}>{node?.cluster ?? <UnknownValue />}</KV>
+            <KV k={tx("环境", "Environment")} kw={76}>{node?.environment_ids?.join(", ") || <UnknownValue />}</KV>
+            <KV k={tx("来源", "Source")} kw={76}>
+              <Row gap={6}>
+                <Brand name="kubernetes" size={18} />
+                <Muted size={11.5}>{tx("Kubernetes 资源同步", "Kubernetes inventory")}</Muted>
+              </Row>
+            </KV>
+          </Section>
+          <Unavailable reason="not_connected" icon="activity" title={tx("还没有这个资源的健康和容量数据", "No health or capacity data for this resource yet")} desc={tx("资源目录只同步了资源和关系。把服务映射到指标来源后，可以在指标页查看服务的健康情况。", "The inventory syncs resources and relations only. Map services to a metrics source to see their health on the Metrics page.")} to="/integrations/mapping" />
+          <div className="v3-grid2">
+            <Btn icon="activity" to="/metrics">{tx("查看指标", "Metrics")}</Btn>
+            <Btn kind="soft" icon="sparkles" onClick={() => askAi(tx("{n} 现在健康吗？", "Is {n} healthy right now?", { n: node?.name ?? sel ?? "" }))}>{tx("问 AI", "Ask AI")}</Btn>
+          </div>
+        </Col>
+      )}
     </DetailPanel>
   ) : null;
   return (
@@ -225,13 +324,13 @@ export default function ResourcesPage() {
                       key={e.id}
                       d={byId[e.from] && byId[e.to] ? route(byId[e.from], byId[e.to]).d : e.path}
                       className={e.fast ? "flow-fast" : "flow"}
-                      style={{ fill: "none", stroke: TONE_COLOR[e.tone], strokeWidth: e.width, strokeLinecap: "round", opacity: hover && e.from !== hover && e.to !== hover ? 0.25 : 1, transition: "opacity 150ms" }}
+                      style={{ fill: "none", stroke: e.tone ? TONE_COLOR[e.tone] : "var(--border-strong)", strokeWidth: e.width, strokeLinecap: "round", opacity: hover && e.from !== hover && e.to !== hover ? 0.25 : 1, transition: "opacity 150ms" }}
                     />
                   ))}
                 </svg>
                 {t.edges.map((e) =>
                   e.label ? (
-                    <span key={e.id} className="topo-elabel tnum" style={{ left: byId[e.from] && byId[e.to] ? route(byId[e.from], byId[e.to]).lx : e.lx, top: byId[e.from] && byId[e.to] ? route(byId[e.from], byId[e.to]).ly : e.ly, color: e.tone === "ok" ? "var(--muted)" : TONE_COLOR[e.tone] }}>
+                    <span key={e.id} className="topo-elabel tnum" style={{ left: byId[e.from] && byId[e.to] ? route(byId[e.from], byId[e.to]).lx : e.lx, top: byId[e.from] && byId[e.to] ? route(byId[e.from], byId[e.to]).ly : e.ly, color: e.tone == null ? "var(--muted)" : e.tone === "ok" ? "var(--muted)" : TONE_COLOR[e.tone] }}>
                       {e.label}
                     </span>
                   ) : null,
@@ -252,7 +351,7 @@ export default function ResourcesPage() {
                       <span className="ellipsis" style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>{n.name}</span>
                       <span className="ellipsis muted" style={{ fontSize: "var(--fs-cap)" }}>{n.sub}</span>
                     </Col>
-                    <Dot tone={n.status} size={8} pulse={n.status === "danger"} />
+                    {n.status && <Dot tone={n.status} size={8} pulse={n.status === "danger"} />}
                   </button>
                 ))}
               </div>
@@ -283,12 +382,12 @@ export default function ResourcesPage() {
                           <Muted size={11}>{r.kind}</Muted>
                         </span>
                         <span>
-                          <State tone={r.status}>{r.status === "danger" ? tx("异常", "Degraded") : r.status === "warn" ? tx("待定", "Warning") : tx("正常", "Healthy")}</State>
+                          {r.status ? <State tone={r.status}>{r.status === "danger" ? tx("异常", "Degraded") : r.status === "warn" ? tx("待定", "Warning") : tx("正常", "Healthy")}</State> : <UnknownValue reason="not_connected" source={tx("健康状态来源", "Health source")} />}
                         </span>
                         <span className="tnum">{r.replicas}</span>
                         <span className="v3-row" style={{ gap: 4 }}>{r.cpu !== undefined && <><Bar pct={r.cpu} tone={r.cpu > 80 ? "danger" : r.cpu > 65 ? "warn" : "ok"} width={70} /><Muted size={11.5}>{r.cpu}%</Muted></>}</span>
                         <span className="v3-row" style={{ gap: 4 }}>{r.mem !== undefined && <><Bar pct={r.mem} tone={r.mem > 75 ? "warn" : "ok"} width={70} /><Muted size={11.5}>{r.mem}%</Muted></>}</span>
-                        <span className="v3-row" style={{ gap: 4 }}>{r.alerts !== undefined && <span className={`v3-badge mono t-${r.alerts ? "danger" : "neutral"}`}>{r.alerts}</span>}<span className="hact" onClick={(ev) => ev.stopPropagation()}><MenuButton trigger={({ onClick, ref }) => <span ref={ref}><IconBtn icon="more" label={tx("更多操作", "More")} size={22} onClick={onClick} /></span>} items={[{ label: tx("查看指标", "Metrics"), icon: "activity", onSelect: () => nav(`/metrics?service=${r.name}`) }, { label: tx("问 AI", "Ask AI"), icon: "sparkles", onSelect: () => askAi(tx("{n} 现在健康吗？", "Is {n} healthy right now?", { n: r.name })) }, { label: tx("在 Grafana 中打开", "Open in Grafana"), icon: "external", onSelect: () => openExternal("Grafana", `https://grafana.example.internal/d/k8s-workload?var-workload=${r.name}`) }]} /></span></span>
+                        <span className="v3-row" style={{ gap: 4 }}>{r.alerts !== undefined && <span className={`v3-badge mono t-${r.alerts ? "danger" : "neutral"}`}>{r.alerts}</span>}<span className="hact" onClick={(ev) => ev.stopPropagation()}><MenuButton trigger={({ onClick, ref }) => <span ref={ref}><IconBtn icon="more" label={tx("更多操作", "More")} size={22} onClick={onClick} /></span>} items={[{ label: tx("查看指标", "Metrics"), icon: "activity", onSelect: () => nav(`/metrics?service=${r.name}`) }, { label: tx("问 AI", "Ask AI"), icon: "sparkles", onSelect: () => askAi(tx("{n} 现在健康吗？", "Is {n} healthy right now?", { n: r.name })) }]} /></span></span>
                       </div>
                     );
                   })}
@@ -296,20 +395,27 @@ export default function ResourcesPage() {
             )}
             {t && view_ === "sankey" && (
               <div className="anim-fade" style={{ padding: "24px 48px", display: "flex", flexDirection: "column", gap: 14, background: "var(--panel)", height: "100%" }}>
-                <Sankey cols={t.sankey.cols} links={t.sankey.links} height={520} />
-                <Muted size={11.5}>{tx("线宽 = 请求量；红色为异常流量。checkout-api 流向 inventory-service 的调用中 68% 是重试，31% 以超时结束。", "Width = volume; red is unhealthy. Of checkout-api's calls to inventory-service, 68% are retries and 31% end in timeouts.")}</Muted>
+                {t.sankey ? (
+                  <>
+                    <Sankey cols={t.sankey.cols} links={t.sankey.links} height={520} />
+                    <Muted size={11.5}>{tx("线宽 = 请求量；红色为异常流量。", "Width = volume; red is unhealthy.")}</Muted>
+                  </>
+                ) : (
+                  <Unavailable reason="not_connected" icon="trend" title={tx("还没有服务间流量数据", "No service-to-service traffic yet")} desc={tx("流量图需要按服务统计的调用量。接入链路（Tempo）并绑定到服务后，这里显示服务之间的请求流向。", "This view needs per-service call volumes. Connect traces (Tempo) and map them to services to see request flows here.")} />
+                )}
               </div>
             )}
           </div>
           {t && view_ === "topo" && (
             <>
               <ZoomControl k={view.k} onZoom={(f) => zoom(f)} onReset={() => zoom(1 / view.k)} onFit={fit} />
-              <div className={cx("blast-chip", blast && "show")}>
-                <Icon name="alert" size={14} color="var(--danger)" />
-                <b>{tx("影响范围", "Blast radius")}</b>
-                {t.blast}
-                <TextLink to="/canvas/INV-231">{tx("加入调查", "Add to investigation")}</TextLink>
-              </div>
+              {t.blast && (
+                <div className={cx("blast-chip", blast && "show")}>
+                  <Icon name="alert" size={14} color="var(--danger)" />
+                  <b>{tx("影响范围", "Blast radius")}</b>
+                  {t.blast}
+                </div>
+              )}
               <div className="topo-legend">
                 <Row gap={6}>
                   <svg width="28" height="6" aria-hidden="true">

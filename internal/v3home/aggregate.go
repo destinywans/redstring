@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,7 +25,7 @@ type proposal struct {
 	created               time.Time
 }
 
-func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targets []target, envs []string, now time.Time, out *Summary, ranges ...time.Duration) error {
+func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targets []target, envs []string, now time.Time, t text, out *Summary, ranges ...time.Duration) error {
 	duration := 24 * time.Hour
 	if len(ranges) > 0 {
 		duration = ranges[0]
@@ -81,32 +80,32 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 		// P-level mapping. Null remains unknown to the frontend adapter.
 		out.Attention = append(out.Attention, Attention{ID: row.id, Severity: frontendSeverity(row.severity),
 			Service: serviceName(targets, row.appID, row.env), Env: row.env,
-			Symptom: cleanTitle(row.title), Meta: incidentMeta(row), AI: nil,
+			Symptom: cleanTitle(row.title), Meta: t.incidentMeta(row), AI: nil,
 			Owner: row.owner, Href: "/alerts/" + row.id})
 	}
 	pending := len(proposals)
-	out.Greeting.Summary = displaySummary(len(active), pending, eventViews > 0, proposalViews > 0)
+	out.Greeting.Summary = t.summary(len(active), pending, eventViews > 0, proposalViews > 0)
 	if eventViews > 0 {
-		out.KPIs = append(out.KPIs, KPI{ID: "incidents", Label: "可见未解决事件", Value: strconv.Itoa(len(active)), Series: []float64{}})
+		out.KPIs = append(out.KPIs, KPI{ID: "incidents", Label: t.pick("可见未解决事件", "Visible open incidents"), Value: strconv.Itoa(len(active)), Series: []float64{}})
 		out.Availability["incidents"] = "persisted_scoped"
 	} else {
 		out.Availability["incidents"] = "no_authorized_target"
 	}
 	if proposalViews > 0 {
-		out.KPIs = append(out.KPIs, KPI{ID: "reviews", Label: "可见待复核提案", Value: strconv.Itoa(pending), Series: []float64{}})
+		out.KPIs = append(out.KPIs, KPI{ID: "reviews", Label: t.pick("可见待复核提案", "Visible proposals awaiting review"), Value: strconv.Itoa(pending), Series: []float64{}})
 		out.Availability["proposals"] = "persisted_scoped"
 	} else {
 		out.Availability["proposals"] = "no_authorized_target"
 	}
 	if serviceViews > 0 {
-		out.KPIs = append(out.KPIs, KPI{ID: "registered_services", Label: "可见服务登记", Value: strconv.Itoa(len(out.Services)), Series: []float64{}})
+		out.KPIs = append(out.KPIs, KPI{ID: "registered_services", Label: t.pick("可见服务登记", "Visible registered services"), Value: strconv.Itoa(len(out.Services)), Series: []float64{}})
 		out.Availability["services"] = "registered_without_health"
 	} else {
 		out.Availability["services"] = "no_authorized_target"
 	}
-	buildActivity(incidents, proposals, now, out, duration)
+	buildActivity(incidents, proposals, now, t, out, duration)
 	if eventViews > 0 {
-		trend, err := loadTrend(ctx, tx, incidents, now, duration)
+		trend, err := loadTrend(ctx, tx, incidents, now, t, duration)
 		if err != nil {
 			return err
 		}
@@ -152,7 +151,7 @@ func frontendSeverity(value string) *string {
 
 // Arrival counts describe durable ingress only, never live Alertmanager state.
 // The service intentionally says so even when the local count is zero.
-func loadTrend(ctx context.Context, tx pgx.Tx, incidents []incident, now time.Time, ranges ...time.Duration) (AlertTrend, error) {
+func loadTrend(ctx context.Context, tx pgx.Tx, incidents []incident, now time.Time, t text, ranges ...time.Duration) (AlertTrend, error) {
 	duration := 24 * time.Hour
 	if len(ranges) > 0 {
 		duration = ranges[0]
@@ -208,7 +207,7 @@ func loadTrend(ctx context.Context, tx pgx.Tx, incidents []incident, now time.Ti
 			total += count
 		}
 	}
-	out.Summary = fmt.Sprintf("近 %s 已入库告警接收记录 %d 条；不代表外部来源完整覆盖", duration.String(), total)
+	out.Summary = t.trendSummary(duration, total)
 	return out, nil
 }
 
@@ -219,13 +218,6 @@ func serviceName(targets []target, app, env string) string {
 		}
 	}
 	return app
-}
-
-func incidentMeta(row incident) string {
-	if row.alertStatus == "firing" {
-		return "已入库告警 · " + row.starts.UTC().Format(time.RFC3339)
-	}
-	return "已入库事件 · " + row.updated.UTC().Format(time.RFC3339)
 }
 
 func loadIncidents(ctx context.Context, tx pgx.Tx, row target) ([]incident, error) {
@@ -291,7 +283,7 @@ func loadProposals(ctx context.Context, tx pgx.Tx, row target) ([]proposal, erro
 	return out, nil
 }
 
-func buildActivity(incidents []incident, proposals []proposal, now time.Time, out *Summary, ranges ...time.Duration) {
+func buildActivity(incidents []incident, proposals []proposal, now time.Time, t text, out *Summary, ranges ...time.Duration) {
 	duration := 24 * time.Hour
 	if len(ranges) > 0 {
 		duration = ranges[0]
@@ -307,14 +299,14 @@ func buildActivity(incidents []incident, proposals []proposal, now time.Time, ou
 			continue
 		}
 		items = append(items, at{v.updated, Activity{ID: "incident:" + v.id, Time: v.updated.UTC().Format(time.RFC3339), Kind: "alert", Tone: "warn",
-			Text: fmt.Sprintf("事件记录更新：%s", cleanTitle(v.title)), Href: "/alerts/" + v.id}})
+			Text: t.pick("事件记录更新：", "Incident updated: ") + cleanTitle(v.title), Href: "/alerts/" + v.id}})
 	}
 	for _, v := range proposals {
 		if v.created.Before(cutoff) || v.created.After(now) {
 			continue
 		}
 		items = append(items, at{v.created, Activity{ID: "proposal:" + v.id, Time: v.created.UTC().Format(time.RFC3339), Kind: "approval", Tone: "info",
-			Text: fmt.Sprintf("提案待复核：%s", cleanTitle(v.title)), Href: "/review/" + v.id}})
+			Text: t.pick("提案待复核：", "Proposal awaiting review: ") + cleanTitle(v.title), Href: "/review/" + v.id}})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].when.After(items[j].when) })
 	for _, v := range items {

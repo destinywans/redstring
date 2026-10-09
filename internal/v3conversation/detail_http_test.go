@@ -230,7 +230,7 @@ func TestRunTurnPersistsReportedUsageForConversationDetail(t *testing.T) {
 			return nil
 		},
 	})
-	svc.runTurn("c", "r", inference.Model{ID: "model-1", Name: "Test model", InputBudget: 8192}, "", "test-session")
+	svc.runTurn("c", "r", inference.Model{ID: "model-1", Name: "Test model", InputBudget: 8192}, "", "test-session", false)
 	var raw []byte
 	if err := db.QueryRow(context.Background(), `SELECT run FROM v3_conversation_messages WHERE id='a'`).Scan(&raw); err != nil {
 		t.Fatal(err)

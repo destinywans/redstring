@@ -85,8 +85,10 @@ func (s *Service) readOwnedDetail(ctx context.Context, sessionToken string, user
 	if messageCount > maxDetailMessages || historyBytes > maxDetailBytes {
 		return Conversation{}, errConversationHistoryLimit
 	}
-	rows, err := tx.Query(ctx, `SELECT id,role,author,parts,attachments,run,state,created_at
-		FROM v3_conversation_messages WHERE conversation_id=$1 ORDER BY sort_order LIMIT $2`, id, maxDetailMessages)
+	rows, err := tx.Query(ctx, `SELECT m.id,m.role,m.author,m.parts,m.attachments,m.run,m.state,m.created_at,COALESCE(r.finish_reason,'')
+		FROM v3_conversation_messages m
+		LEFT JOIN v3_conversation_replies r ON r.assistant_message_id=m.id AND r.conversation_id=m.conversation_id AND r.state='completed'
+		WHERE m.conversation_id=$1 ORDER BY m.sort_order LIMIT $2`, id, maxDetailMessages)
 	if err != nil {
 		return Conversation{}, err
 	}
@@ -95,7 +97,7 @@ func (s *Service) readOwnedDetail(ctx context.Context, sessionToken string, user
 		var m Message
 		var parts, attachments, run []byte
 		var state string
-		if err = rows.Scan(&m.ID, &m.Role, &m.Author, &parts, &attachments, &run, &state, &m.CreatedAt); err != nil {
+		if err = rows.Scan(&m.ID, &m.Role, &m.Author, &parts, &attachments, &run, &state, &m.CreatedAt, &m.FinishReason); err != nil {
 			break
 		}
 		if err = json.Unmarshal(parts, &m.Parts); err != nil {

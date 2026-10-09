@@ -162,6 +162,9 @@ type Message struct {
 	Attachments []json.RawMessage `json:"attachments,omitempty"`
 	Streaming   bool              `json:"streaming,omitempty"`
 	State       string            `json:"state,omitempty"`
+	// FinishReason is max_output_tokens for an assistant reply cut at the
+	// model's output limit (PA-46); its answer is kept and can be continued.
+	FinishReason string `json:"finish_reason,omitempty"`
 }
 
 type Conversation struct {
@@ -556,7 +559,7 @@ func (s *Service) appendEvent(ctx context.Context, conv, reply, claim string, pa
 	return err
 }
 
-func (s *Service) finish(ctx context.Context, conv, reply, claim, assistant string, parts []json.RawMessage, run any, runErr error) error {
+func (s *Service) finish(ctx context.Context, conv, reply, claim, assistant string, parts []json.RawMessage, run any, runErr error, finishReason string) error {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -573,7 +576,7 @@ func (s *Service) finish(ctx context.Context, conv, reply, claim, assistant stri
 		}
 		runErr, run = ErrForbidden, nil
 	}
-	if err := s.finishLocked(ctx, tx, conv, reply, assistant, parts, run, runErr); err != nil {
+	if err := s.finishLocked(ctx, tx, conv, reply, assistant, parts, run, runErr, finishReason); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -653,7 +656,7 @@ func lockReply(ctx context.Context, tx pgx.Tx, conv, reply, claim string, expire
 	return err
 }
 
-func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assistant string, parts []json.RawMessage, run any, runErr error) error {
+func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assistant string, parts []json.RawMessage, run any, runErr error, finishReason string) error {
 	var err error
 	state := "completed"
 	event := map[string]any{"type": "message.completed", "message_id": assistant}
@@ -661,6 +664,11 @@ func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assi
 		event["run"] = run
 	}
 	errText := ""
+	if runErr != nil {
+		finishReason = ""
+	} else if finishReason != "" {
+		event["finish_reason"] = finishReason
+	}
 	if runErr != nil {
 		state, errText = "failed", runErr.Error()
 		if errors.Is(runErr, ErrForbidden) {
@@ -708,8 +716,8 @@ func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assi
 		return err
 	}
 	var updated string
-	err = tx.QueryRow(ctx, `UPDATE v3_conversation_replies SET state=$1,error=$2,finished_at=clock_timestamp(),lease_expires_at=NULL
-		WHERE id=$3 AND conversation_id=$4 AND state IN ('queued','running') RETURNING id`, state, errText, reply, conv).Scan(&updated)
+	err = tx.QueryRow(ctx, `UPDATE v3_conversation_replies SET state=$1,error=$2,finish_reason=$5,finished_at=clock_timestamp(),lease_expires_at=NULL
+		WHERE id=$3 AND conversation_id=$4 AND state IN ('queued','running') RETURNING id`, state, errText, reply, conv, finishReason).Scan(&updated)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrBusy
 	}
@@ -741,7 +749,18 @@ func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assi
 	return nil
 }
 
-func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, sessionToken string) {
+// truncatedPart tells the reader that the answer stopped at the output
+// limit, in the language of the request that started the turn.
+func truncatedPart(english bool) map[string]any {
+	if english {
+		return map[string]any{"type": "status", "text": "Reply truncated at the output limit",
+			"detail": "The model reached its maximum output length. Send \"continue\" to have it carry on from here."}
+	}
+	return map[string]any{"type": "status", "text": "回答达到输出长度上限，已截断",
+		"detail": "模型输出达到长度上限。发送“继续”可让它从这里接着回答。"}
+}
+
+func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, sessionToken string, english bool) {
 	// A lost UPDATE response can mean the claim committed even though the caller
 	// saw an error. Reuse one claim ID until the database recovers so retrying
 	// cannot start a second model run or strand the reply in queued state.
@@ -937,6 +956,12 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		return
 	}
 	answer, runErr := s.runtime.Run(ctx, inference.Request{RunID: reply, AttemptID: reply, BranchID: conv, EnvironmentID: env, ModelID: model.ID, Reasoning: reasoning, Messages: msgs, Tools: tools}, emit)
+	// PA-46: an answer cut at the output limit is kept and completes; the
+	// user can ask the model to continue from it.
+	finishReason := ""
+	if errors.Is(runErr, inference.ErrOutputTruncated) && answer != "" {
+		runErr, finishReason = nil, "max_output_tokens"
+	}
 	if runErr != nil {
 		parts[0] = textPart(streamed.String())
 		s.failTurn(conv, reply, claimID, assistant, parts, runErr)
@@ -984,6 +1009,14 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		}
 		parts = append(parts, marshal(part))
 	}
+	if finishReason != "" {
+		part := truncatedPart(english)
+		if err := s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": part}); err != nil {
+			s.failTurn(conv, reply, claimID, assistant, parts, err)
+			return
+		}
+		parts = append(parts, marshal(part))
+	}
 	// Message.run is optional in the V3 contract. Omitting it preserves the
 	// complete numeric shape when some providers do not report token usage.
 	var run any
@@ -1003,7 +1036,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		}
 		run = reported
 	}
-	if err := s.finish(ctx, conv, reply, claimID, assistant, parts, run, nil); err != nil {
+	if err := s.finish(ctx, conv, reply, claimID, assistant, parts, run, nil, finishReason); err != nil {
 		s.failTurn(conv, reply, claimID, assistant, parts, err)
 	}
 }
@@ -1024,7 +1057,7 @@ func (s *Service) failTurn(conv, reply, claim, assistant string, parts []json.Ra
 			return
 		}
 		ctx, cancel := context.WithTimeout(s.opts.Shutdown, 10*time.Second)
-		err := s.finish(ctx, conv, reply, claim, assistant, parts, nil, cause)
+		err := s.finish(ctx, conv, reply, claim, assistant, parts, nil, cause, "")
 		cancel()
 		if err == nil || errors.Is(err, ErrBusy) {
 			return
@@ -1152,7 +1185,7 @@ func (s *Service) recoverOne(ctx context.Context, conv, reply string) error {
 		}
 		cause = errors.New("reply interrupted after lease expiry")
 	}
-	if err = s.finishLocked(ctx, tx, conv, reply, assistant, parts, nil, cause); err != nil {
+	if err = s.finishLocked(ctx, tx, conv, reply, assistant, parts, nil, cause, ""); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -1244,4 +1277,9 @@ func contextMessagesQuery(ctx context.Context, db contextMessageQueryer, conv st
 		msgs = append(msgs, inference.Message{Role: role, Content: content})
 	}
 	return msgs, rows.Err()
+}
+
+// englishRequest reports an English Accept-Language; Chinese otherwise.
+func englishRequest(r *http.Request) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Accept-Language"))), "en")
 }

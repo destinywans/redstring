@@ -149,7 +149,7 @@ func TestBoundConversationQueuedRunUsesPersistedEnvironmentAndRejectsLostPair(t 
 					return nil
 				},
 			})
-			service.runTurn("c", "r", inference.Model{ID: tc.model}, "", "test-session")
+			service.runTurn("c", "r", inference.Model{ID: tc.model}, "", "test-session", false)
 			var state string
 			if err := db.QueryRow(context.Background(), `SELECT state FROM v3_conversation_replies WHERE id='r'`).Scan(&state); err != nil {
 				t.Fatal(err)

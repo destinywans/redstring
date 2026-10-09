@@ -126,7 +126,7 @@ func TestToolAuditPrecedesReadAndPersistsOutcome(t *testing.T) {
 			}}}, nil
 		},
 	})
-	svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model", Tools: true}, "", "test-session")
+	svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model", Tools: true}, "", "test-session", false)
 	if runtime.calls != 1 || checks < 3 {
 		t.Fatalf("model calls=%d authorization checks=%d", runtime.calls, checks)
 	}
@@ -220,7 +220,7 @@ func TestEvidenceReceiptRejectsFailedReadAndDuplicateEvent(t *testing.T) {
 					}}}, nil
 				},
 			})
-			svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model", Tools: true}, "", "test-session")
+			svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model", Tools: true}, "", "test-session", false)
 			var count int
 			if err := db.QueryRow(context.Background(), `SELECT count(*) FROM management_audit WHERE action='v3.conversation.evidence'`).Scan(&count); err != nil {
 				t.Fatal(err)
@@ -306,7 +306,7 @@ func TestToolCardUsesProviderUsageAndReadDuration(t *testing.T) {
 			}}}, nil
 		},
 	})
-	svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model", Tools: true}, "", "test-session")
+	svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model", Tools: true}, "", "test-session", false)
 	var rawRun, rawParts []byte
 	if err := db.QueryRow(context.Background(), `SELECT run,parts FROM v3_conversation_messages WHERE id='a'`).Scan(&rawRun, &rawParts); err != nil {
 		t.Fatal(err)

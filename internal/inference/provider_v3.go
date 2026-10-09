@@ -222,9 +222,12 @@ func parseResponses(r io.Reader, yield func(*model.LLMResponse, error) bool) err
 		Arguments   string             `json:"arguments"`
 		Name        string             `json:"name"`
 		Response    struct {
-			Status string               `json:"status"`
-			Output []responseOutputItem `json:"output"`
-			Usage  struct {
+			Status            string               `json:"status"`
+			Output            []responseOutputItem `json:"output"`
+			IncompleteDetails *struct {
+				Reason string `json:"reason"`
+			} `json:"incomplete_details"`
+			Usage struct {
 				Input  int32 `json:"input_tokens"`
 				Output int32 `json:"output_tokens"`
 			} `json:"usage"`
@@ -233,7 +236,7 @@ func parseResponses(r io.Reader, yield func(*model.LLMResponse, error) bool) err
 	items := map[int]responseOutputItem{}
 	texts := map[int]string{}
 	arguments := map[int]string{}
-	completed := false
+	completed, truncated := false, false
 	var usage *genai.GenerateContentResponseUsageMetadata
 	err := frames(r, func(b []byte) (bool, error) {
 		if string(b) == "[DONE]" {
@@ -276,7 +279,19 @@ func parseResponses(r io.Reader, yield func(*model.LLMResponse, error) bool) err
 			usage = &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: u.Input, CandidatesTokenCount: u.Output, TotalTokenCount: u.Input + u.Output}
 			completed = true
 			return false, nil
-		case "response.failed", "response.incomplete", "error", "response.refusal.delta":
+		case "response.incomplete":
+			// PA-46: an answer cut at the output limit is kept as truncated.
+			if e.Response.IncompleteDetails == nil || e.Response.IncompleteDetails.Reason != "max_output_tokens" {
+				return false, fmt.Errorf("Responses stream ended with %s", e.Type)
+			}
+			for i, item := range e.Response.Output {
+				items[i] = item
+			}
+			u := e.Response.Usage
+			usage = &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: u.Input, CandidatesTokenCount: u.Output, TotalTokenCount: u.Input + u.Output}
+			completed, truncated = true, true
+			return false, nil
+		case "response.failed", "error", "response.refusal.delta":
 			return false, fmt.Errorf("Responses stream ended with %s", e.Type)
 		}
 		return true, nil
@@ -328,6 +343,9 @@ func parseResponses(r io.Reader, yield func(*model.LLMResponse, error) bool) err
 			return fmt.Errorf("unsupported Responses output item %q", item.Type)
 		}
 	}
+	if truncated {
+		return yieldTruncated(parts, usage, yield)
+	}
 	if !yield(finalResponse(parts, usage), nil) {
 		return errConsumerStopped
 	}
@@ -340,7 +358,7 @@ func parseOllama(r io.Reader, callNumber int, yield func(*model.LLMResponse, err
 	var text strings.Builder
 	parts := []*genai.Part{}
 	var usage *genai.GenerateContentResponseUsageMetadata
-	done := false
+	done, truncated := false, false
 	for s.Scan() {
 		var chunk struct {
 			Error   string `json:"error"`
@@ -378,9 +396,10 @@ func parseOllama(r io.Reader, callNumber int, yield func(*model.LLMResponse, err
 			parts = append(parts, &genai.Part{FunctionCall: &genai.FunctionCall{ID: id, Name: c.Function.Name, Args: c.Function.Arguments}})
 		}
 		if chunk.Done {
-			if chunk.DoneReason != "" && chunk.DoneReason != "stop" && chunk.DoneReason != "tool_calls" {
+			if chunk.DoneReason != "" && chunk.DoneReason != "stop" && chunk.DoneReason != "tool_calls" && chunk.DoneReason != "length" {
 				return fmt.Errorf("Ollama response incomplete: %s", chunk.DoneReason)
 			}
+			truncated = chunk.DoneReason == "length"
 			usage = &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: chunk.Prompt, CandidatesTokenCount: chunk.Output, TotalTokenCount: chunk.Prompt + chunk.Output}
 			done = true
 			break
@@ -394,6 +413,9 @@ func parseOllama(r io.Reader, callNumber int, yield func(*model.LLMResponse, err
 	}
 	if text.Len() > 0 {
 		parts = append([]*genai.Part{{Text: text.String()}}, parts...)
+	}
+	if truncated {
+		return yieldTruncated(parts, usage, yield)
 	}
 	if !yield(finalResponse(parts, usage), nil) {
 		return errConsumerStopped

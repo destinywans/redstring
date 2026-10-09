@@ -259,7 +259,7 @@ func isolatedConversationDBWithConns(t *testing.T, maxConns int32) *pgxpool.Pool
 		CREATE TABLE v3_conversations (id text PRIMARY KEY, owner_id text NOT NULL, environment_id text NOT NULL, active_reply_id text, updated_at timestamptz, metrics_source_required boolean NOT NULL DEFAULT false);
 		CREATE SEQUENCE v3_conversation_message_order_seq;
 		CREATE TABLE v3_conversation_messages (id text PRIMARY KEY, conversation_id text NOT NULL, role text NOT NULL, author text NOT NULL, parts jsonb NOT NULL, attachments jsonb NOT NULL DEFAULT '[]', attachment_context text NOT NULL DEFAULT '', run jsonb, state text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(), sort_order bigint NOT NULL DEFAULT nextval('v3_conversation_message_order_seq'), UNIQUE(conversation_id,sort_order));
-		CREATE TABLE v3_conversation_replies (id text PRIMARY KEY, conversation_id text NOT NULL, assistant_message_id text NOT NULL, initiating_session_hash text NOT NULL DEFAULT '', worker_claim_id text NOT NULL DEFAULT '', lease_expires_at timestamptz, state text NOT NULL, error text NOT NULL DEFAULT '', finished_at timestamptz);
+		CREATE TABLE v3_conversation_replies (id text PRIMARY KEY, conversation_id text NOT NULL, assistant_message_id text NOT NULL, initiating_session_hash text NOT NULL DEFAULT '', worker_claim_id text NOT NULL DEFAULT '', lease_expires_at timestamptz, state text NOT NULL, error text NOT NULL DEFAULT '', finish_reason text NOT NULL DEFAULT '', finished_at timestamptz);
 		CREATE TABLE v3_metrics_questions (owner_id text NOT NULL,request_id text NOT NULL,conversation_id text NOT NULL UNIQUE,initial_reply_id text NOT NULL,environment_id text NOT NULL,application_id text NOT NULL,view_id text NOT NULL,range_id text NOT NULL,payload_hash text NOT NULL,binding_id text NOT NULL,connector_id text NOT NULL,resource_id text NOT NULL,query_id text NOT NULL,source_fingerprint text NOT NULL,window_start timestamptz NOT NULL,window_end timestamptz NOT NULL,evidence_sha256 text NOT NULL,PRIMARY KEY(owner_id,request_id));
 		CREATE TABLE v3_conversation_events (seq bigserial PRIMARY KEY, conversation_id text NOT NULL, reply_id text NOT NULL, payload jsonb NOT NULL);
 		CREATE TABLE sessions (token_hash text PRIMARY KEY, user_id text NOT NULL, expires_at timestamptz NOT NULL);
@@ -304,7 +304,7 @@ func TestBackgroundTurnRejectsRevokedOwnerBeforeModel(t *testing.T) {
 					return errors.New(name)
 				}
 			}
-			New(db, runtime, opts).runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session")
+			New(db, runtime, opts).runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session", false)
 			if runtime.calls != 0 {
 				t.Fatalf("model called after %s", name)
 			}
@@ -335,7 +335,7 @@ func TestBackgroundTurnRevocationBeforeCompletionDiscardsOutput(t *testing.T) {
 		}
 		return nil
 	}})
-	svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session")
+	svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session", false)
 	if runtime.calls != 1 || checks != 3 {
 		t.Fatalf("model calls=%d auth checks=%d", runtime.calls, checks)
 	}
@@ -400,7 +400,7 @@ func TestFinishRechecksSessionAndGrantInTerminalTransaction(t *testing.T) {
 			if tc.providerError {
 				modelErr = errors.New("provider failed after partial output")
 			}
-			if err := svc.finish(ctx, "c", "r", "r", "a", []json.RawMessage{textPart("private answer")}, map[string]any{"id": "r", "tokens": 2}, modelErr); err != nil {
+			if err := svc.finish(ctx, "c", "r", "r", "a", []json.RawMessage{textPart("private answer")}, map[string]any{"id": "r", "tokens": 2}, modelErr, ""); err != nil {
 				t.Fatal(err)
 			}
 			if tc.revokeSession && checks != 0 || !tc.revokeSession && checks != 1 {
@@ -463,7 +463,9 @@ func TestTerminalGrantLockSerializesRevocation(t *testing.T) {
 		return nil
 	}})
 	done := make(chan error, 1)
-	go func() { done <- svc.finish(ctx, "c", "r", "r", "a", []json.RawMessage{textPart("answer")}, nil, nil) }()
+	go func() {
+		done <- svc.finish(ctx, "c", "r", "r", "a", []json.RawMessage{textPart("answer")}, nil, nil, "")
+	}()
 	select {
 	case <-checked:
 	case err := <-done:
@@ -605,7 +607,9 @@ func TestTerminalLockFollowsRoleWriterOrder(t *testing.T) {
 		return nil
 	}})
 	done := make(chan error, 1)
-	go func() { done <- svc.finish(ctx, "c", "r", "r", "a", []json.RawMessage{textPart("answer")}, nil, nil) }()
+	go func() {
+		done <- svc.finish(ctx, "c", "r", "r", "a", []json.RawMessage{textPart("answer")}, nil, nil, "")
+	}()
 	select {
 	case <-checked:
 		// The terminal transaction reached its policy read despite a role
@@ -663,7 +667,7 @@ func TestFinalOnlyModelDoesNotEmitSuffixAfterRevocation(t *testing.T) {
 			return nil
 		},
 	})
-	svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session")
+	svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session", false)
 	var state, parts string
 	if err := db.QueryRow(context.Background(), `SELECT state,parts::text FROM v3_conversation_messages WHERE id='a'`).Scan(&state, &parts); err != nil {
 		t.Fatal(err)
@@ -754,7 +758,7 @@ func TestLiveLeaseIsNotRecoveredAndExpiredLeaseFencesWorker(t *testing.T) {
 	if err := svc.appendEvent(ctx, "c", "r", "r", map[string]any{"type": "text.delta", "delta": "stale"}); !errors.Is(err, ErrBusy) {
 		t.Fatalf("expired worker event: %v", err)
 	}
-	if err := svc.finish(ctx, "c", "r", "r", "a", nil, nil, nil); !errors.Is(err, ErrBusy) {
+	if err := svc.finish(ctx, "c", "r", "r", "a", nil, nil, nil, ""); !errors.Is(err, ErrBusy) {
 		t.Fatalf("expired worker completion: %v", err)
 	}
 	if err := svc.RecoverInterrupted(ctx); err != nil {

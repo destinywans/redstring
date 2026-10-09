@@ -119,6 +119,12 @@ type Evidence struct {
 	// TargetID is a non-secret identifier resolved after a successful read.
 	TargetID string `json:"target_id,omitempty"`
 }
+
+// ErrOutputTruncated is returned with the answer when the model stopped at
+// the output token limit (PA-46). The answer is everything the model wrote;
+// callers that can show a truncated reply keep it, others treat it as failed.
+var ErrOutputTruncated = errors.New("model output reached the output token limit")
+
 type Event struct {
 	Type       string          `json:"type"`
 	Delta      string          `json:"delta,omitempty"`
@@ -625,7 +631,7 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 	// Each non-partial model event repeats that round's accumulated text; only
 	// its unstreamed suffix may be appended (including final-only responses).
 	var answer, roundText strings.Builder
-	finalAnswer := false
+	finalAnswer, truncated := false, false
 	for ev, runErr := range run.Run(ctx, "worker", sid, contentFromMessage(req.Messages[len(req.Messages)-1], genai.RoleUser), agent.RunConfig{StreamingMode: agent.StreamingModeSSE}) {
 		if runErr != nil {
 			mu.Lock()
@@ -671,6 +677,7 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 			}
 			roundText.Reset()
 			finalAnswer = !hasCall && text.Len() > 0
+			truncated = finalAnswer && ev.FinishReason == genai.FinishReasonMaxTokens
 		}
 	}
 	mu.Lock()
@@ -684,6 +691,9 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 	}
 	if !finalAnswer {
 		return "", errors.New("model returned no final answer")
+	}
+	if truncated {
+		return answer.String(), ErrOutputTruncated
 	}
 	return answer.String(), nil
 }

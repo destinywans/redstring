@@ -156,7 +156,8 @@ export type Conversation = {
   artifacts: Artifact[];
   side: {
     connectors: { name: string; calls: number }[];
-    context: { used: number; budget: number; parts: { label: string; tokens: number; color: string }[] };
+    /** used / budget are null when the model reported no input usage or has no configured input budget. */
+    context: { used: number | null; budget: number | null; parts: { label: string; tokens: number; color: string }[] };
     recalled: { kind: "runbook" | "postmortem"; title: string; score: number }[];
   };
 };

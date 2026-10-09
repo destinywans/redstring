@@ -9,6 +9,7 @@ import type { Artifact, Conversation, Message, ModelChoice, Part, StreamEvent, U
 import { AiAvatar, Avatar, Badge, Brand, Btn, Col, Divider, Dot, Env, Icon, Muted, Row, Segmented, Skeleton, Spacer, Strong, Tile, TextLink, Mono, cx } from "../../ui/core";
 import { BrandMark } from "../../ui/BrandMark";
 import { toast } from "../../ui/overlays";
+import { UnknownValue } from "../../ui/unknown";
 import { Composer } from "../../ui/Composer";
 import { useModelCatalog, describeChoice } from "../../ui/ModelPicker";
 import { PartView, type PartActions } from "./Parts";
@@ -101,16 +102,31 @@ function TurnDivider({ run }: { run: NonNullable<Message["run"]> }) {
   );
 }
 
+const fmtTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
+
+/**
+ * Where "open as canvas" goes: the linked investigation, or (real mode) a new investigation canvas scoped to the
+ * conversation's service. Only sample data falls back to the sample investigation.
+ */
+const canvasHref = (conv?: Conversation) =>
+  conv?.investigation_id
+    ? `/canvas/${conv.investigation_id}`
+    : API_MODE === "mock"
+      ? "/canvas/INV-231"
+      : `/canvases?new=investigation${conv?.scope.service ? `&service=${encodeURIComponent(conv.scope.service)}` : ""}`;
+
 function SidePanel({ conv }: { conv: Conversation }) {
   const { tx } = useI18n();
   const s = conv.side;
-  const pct = Math.round((100 * s.context.used) / s.context.budget);
+  const { used, budget } = s.context;
+  const pct = used !== null && budget ? Math.round((100 * used) / budget) : null;
   return (
     <aside className="conv-side">
       <Row gap={8}>
         <Strong size={13}>{tx("本次对话", "This conversation")}</Strong>
         <Spacer />
-        <TextLink to="/agents/runs/run_7f3a">{tx("Agent 透视", "Agent view")}</TextLink>
+        {/* Chat turns don't record agent runs yet, so only the sample data has a run to open. */}
+        {API_MODE === "mock" && <TextLink to="/agents/runs/run_7f3a">{tx("Agent 透视", "Agent view")}</TextLink>}
       </Row>
       <Col gap={6}>
         <Muted size={11.5}>{tx("作用域", "Scope")}</Muted>
@@ -134,7 +150,7 @@ function SidePanel({ conv }: { conv: Conversation }) {
         <Muted size={11.5}>{tx("上下文", "Context")}</Muted>
         <div className="ctx-bar">
           {s.context.parts.map((p) => (
-            <span key={p.label} title={`${p.label} · ${(p.tokens / 1000).toFixed(1)}k`} style={{ width: `${(100 * p.tokens) / s.context.budget}%`, background: p.color }} />
+            <span key={p.label} title={`${p.label} · ${fmtTokens(p.tokens)}`} style={{ width: budget ? `${(100 * p.tokens) / budget}%` : 0, background: p.color }} />
           ))}
         </div>
         <Row gap={10} wrap style={{ fontSize: "var(--fs-cap)" }}>
@@ -146,7 +162,8 @@ function SidePanel({ conv }: { conv: Conversation }) {
           ))}
         </Row>
         <Muted>
-          {(s.context.used / 1000).toFixed(1)}k / {s.context.budget / 1000}k tokens · {pct}%
+          {used !== null ? fmtTokens(used) : <UnknownValue reason="not_generated" label={tx("已用 —", "used —")} />} / {budget ? fmtTokens(budget) : <UnknownValue reason="not_configured" label={tx("预算 —", "budget —")} />} tokens
+          {pct !== null && ` · ${pct}%`}
         </Muted>
       </Col>
       <Col gap={6}>
@@ -162,15 +179,20 @@ function SidePanel({ conv }: { conv: Conversation }) {
       <Divider />
       <Col gap={8}>
         <Muted size={11.5}>{tx("下一步", "Next")}</Muted>
-        <Btn icon="branch" to={`/canvas/${conv.investigation_id ?? "INV-231"}`} style={{ justifyContent: "flex-start" }}>
+        <Btn icon="branch" to={canvasHref(conv)} style={{ justifyContent: "flex-start" }}>
           {tx("转为画布", "Open as canvas")}
         </Btn>
-        <Btn icon="book" style={{ justifyContent: "flex-start" }} onClick={() => toast(tx("已保存为 Runbook 草稿", "Saved as a runbook draft"))}>
-          {tx("保存为 Runbook 草稿", "Save as runbook draft")}
-        </Btn>
-        <Btn icon="clock" style={{ justifyContent: "flex-start" }} onClick={() => toast(tx("已创建定时复查：每天 09:00", "Scheduled a daily check at 09:00"))}>
-          {tx("每天 09:00 复查一次", "Re-check daily at 09:00")}
-        </Btn>
+        {/* No backend writes a runbook draft from a chat or schedules a re-check yet: sample data only. */}
+        {API_MODE === "mock" && (
+          <>
+            <Btn icon="book" style={{ justifyContent: "flex-start" }} onClick={() => toast(tx("已保存为 Runbook 草稿", "Saved as a runbook draft"))}>
+              {tx("保存为 Runbook 草稿", "Save as runbook draft")}
+            </Btn>
+            <Btn icon="clock" style={{ justifyContent: "flex-start" }} onClick={() => toast(tx("已创建定时复查：每天 09:00", "Scheduled a daily check at 09:00"))}>
+              {tx("每天 09:00 复查一次", "Re-check daily at 09:00")}
+            </Btn>
+          </>
+        )}
       </Col>
     </aside>
   );
@@ -215,7 +237,8 @@ export default function ConversationPage() {
             setSending(false);
             setTurn(null);
             stop.current = null;
-            qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === "/conversations" });
+            // Refresh the list and this conversation (side panel: connectors, context meter).
+            qc.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/conversations") });
           }
         },
         { choice: c, attachments: files },
@@ -251,17 +274,23 @@ export default function ConversationPage() {
     openArtifact: (a) => {
       const match = conv?.artifacts.find((x) => x.kind === a.kind);
       if (match) openArtifact(match.id);
-      else toast(tx("已在产物面板中生成：{t}", "Created in the artifact panel: {t}", { t: a.title ?? "" }));
+      else if (API_MODE === "mock") toast(tx("已在产物面板中生成：{t}", "Created in the artifact panel: {t}", { t: a.title ?? "" }));
+      else toast(tx("这条结果还没有保存为产物", "This result hasn't been saved as an artifact"));
     },
     onStep: (action, label) => {
-      if (action === "proposal") nav("/review/PRP-88");
-      else if (action === "canvas") nav(`/canvas/${conv?.investigation_id ?? "INV-231"}`);
+      if (action === "proposal") {
+        // Open the proposal this conversation actually produced; the sample data has its own.
+        const proposal = [...messages].reverse().flatMap((m) => m.parts).find((p): p is Extract<Part, { type: "proposal" }> => p.type === "proposal");
+        if (proposal) nav(`/review/${proposal.id}`);
+        else if (API_MODE === "mock") nav("/review/PRP-88");
+        else toast(tx("这次对话还没有生成提案", "This conversation hasn't produced a proposal yet"));
+      } else if (action === "canvas") nav(canvasHref(conv));
       else if (action === "ask") void send(label);
       else toast(label);
     },
   };
 
-  if (error) return <Page crumbs={[tx("对话与画布", "Conversations & canvases")]}>{String(error)}</Page>;
+  if (error) return <Page crumbs={[tx("对话与画布", "Conversations & canvases")]} error={error} errorSource={tx("对话", "conversation")}>{null}</Page>;
   return (
     <Page
       flush
@@ -271,7 +300,7 @@ export default function ConversationPage() {
           <Segmented
             label={tx("视图", "View")}
             value="chat"
-            onChange={(v) => v === "canvas" && nav(`/canvas/${conv?.investigation_id ?? "INV-231"}`)}
+            onChange={(v) => v === "canvas" && nav(canvasHref(conv))}
             options={[
               { value: "chat", label: tx("对话", "Chat"), icon: "message" },
               { value: "canvas", label: tx("画布", "Canvas"), icon: "branch" },

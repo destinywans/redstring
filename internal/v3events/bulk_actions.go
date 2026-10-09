@@ -308,7 +308,8 @@ func investigateBulkGroup(ctx context.Context, tx pgx.Tx, user core.User,
 	}
 	newInvestigation := linked == ""
 	if newInvestigation {
-		linked = store.ID()
+		// The same INV- prefix as investigations created on the canvas (PA-48).
+		linked = "INV-" + store.ID()
 		root := store.ID()
 		if _, err := tx.Exec(ctx, `INSERT INTO investigations
 		 (id,application_id,environment_id,title,created_by) VALUES($1,$2,$3,$4,$5)`,

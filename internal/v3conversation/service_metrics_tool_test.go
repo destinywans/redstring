@@ -75,6 +75,7 @@ func TestServiceMetricsToolFailsClosedAndRedactsProviderConfiguration(t *testing
 	for _, input := range []string{
 		`{"service":"checkout","query_id":"request_rate","url":"http://evil"}`,
 		`{"service":"checkout","query_id":"up"}`,
+		`{"service":"checkout","query_id":"rate(http_requests_total[5m])"}`,
 		`{"service":"other","query_id":"request_rate"}`,
 		`{"service":"checkout","query_id":"request_rate"} {}`,
 	} {

@@ -54,8 +54,9 @@ func (f v3ReadTools) ForTurn(_ context.Context, ownerID, applicationID, environm
 	}
 	tools := []inference.EvidenceTool{{
 		Name:        "read_service_profile",
-		Description: "Read one authorized service's registered profile by exact service key in this turn's environment. An investigation only permits its own application. Registered configuration is not live health evidence.",
+		Description: "Read one authorized service's registered profile by exact service key (or JSON {\"service\":\"key\"}) in this turn's environment. An investigation only permits its own application. Registered configuration is not live health evidence.",
 		Read: func(ctx context.Context, key string) (inference.Evidence, error) {
+			key = v3ServiceKeyInput(key)
 			user, err := f.CurrentUser(ctx, ownerID)
 			if err != nil {
 				return inference.Evidence{}, errV3EvidenceUnavailable
@@ -135,6 +136,25 @@ func (f v3ReadTools) ForTurn(_ context.Context, ownerID, applicationID, environm
 
 // Service IDs encode both persistent application ID and environment; they are
 // not application IDs and must never be passed directly to knowledge search.
+// v3ServiceKeyInput accepts the bare key the profile tool documents, or the
+// {"service":"key"} object models often send because sibling tools take JSON.
+// Anything else is passed through unchanged and fails the exact-key lookup.
+func v3ServiceKeyInput(input string) string {
+	input = strings.TrimSpace(input)
+	if !strings.HasPrefix(input, "{") {
+		return strings.Trim(input, "\"")
+	}
+	var request struct {
+		Service string `json:"service"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(input))
+	decoder.DisallowUnknownFields()
+	if len(input) > 512 || decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF {
+		return input
+	}
+	return request.Service
+}
+
 func v3EvidenceApplication(serviceID, environmentID string) (string, error) {
 	raw, err := base64.RawURLEncoding.DecodeString(serviceID)
 	if err != nil || base64.RawURLEncoding.EncodeToString(raw) != serviceID {

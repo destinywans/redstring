@@ -98,3 +98,17 @@ func TestV3ChatKnowledgeResolvesAuthorizedApplicationBeforeReading(t *testing.T)
 		t.Fatalf("bound investigation knowledge failed: %v", err)
 	}
 }
+
+func TestV3ServiceKeyInputAcceptsBareKeyOrServiceObject(t *testing.T) {
+	for input, want := range map[string]string{
+		"checkout-api":                     "checkout-api",
+		` "checkout-api" `:                 "checkout-api",
+		`{"service":"checkout-api"}`:       "checkout-api",
+		`{"service":"checkout-api","x":1}`: `{"service":"checkout-api","x":1}`,
+		`{"service":"a"} {}`:               `{"service":"a"} {}`,
+	} {
+		if got := v3ServiceKeyInput(input); got != want {
+			t.Fatalf("v3ServiceKeyInput(%q) = %q, want %q", input, got, want)
+		}
+	}
+}

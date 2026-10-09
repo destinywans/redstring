@@ -69,12 +69,16 @@ func NewServiceMetricsTool(opts ServiceMetricsToolOptions) (inference.EvidenceTo
 	}
 	return inference.EvidenceTool{
 		Name:        "read_service_metrics",
-		Description: "Read actual Prometheus samples for one registered service in this conversation's environment. Set the query string to JSON such as {\"service\":\"exact-service-key\",\"query_id\":\"request_rate\"} (or http_p95_seconds). Only these two registered query IDs are allowed; no PromQL, URL or time range. Empty results are not health evidence.",
+		Description: "Read actual Prometheus samples for one registered service in this conversation's environment. Set the query string to JSON such as {\"service\":\"exact-service-key\",\"query_id\":\"error_rate\"}. Allowed query IDs: request_rate, error_rate (5xx share of requests), http_p95_seconds, instances_up. Each is an operator-reviewed expression; a missing one is reported unavailable. No PromQL, URL or time range. Empty results are not health evidence.",
 		Read: func(ctx context.Context, input string) (inference.Evidence, error) {
 			return readServiceMetrics(ctx, opts, input)
 		},
 	}, true
 }
+
+// serviceMetricQueries are the standard RED/availability query IDs an operator may define
+// per service in the telemetry configuration; the expressions themselves stay server-side.
+var serviceMetricQueries = map[string]bool{"request_rate": true, "error_rate": true, "http_p95_seconds": true, "instances_up": true}
 
 func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, input string) (inference.Evidence, error) {
 	const unavailable = "service metrics unavailable"
@@ -86,7 +90,7 @@ func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, inp
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF ||
 		!metricServiceKey.MatchString(request.Service) ||
-		(request.QueryID != "request_rate" && request.QueryID != "http_p95_seconds") {
+		!serviceMetricQueries[request.QueryID] {
 		return inference.Evidence{}, errors.New(unavailable)
 	}
 	user, err := opts.CurrentUser(ctx, opts.OwnerID)

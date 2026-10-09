@@ -323,6 +323,49 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	assert(request(api, "POST", otherAppID, "/comments", "dev", teamReviewerToken, `{"text":"Team review"}`, "team-comment"), 201, "")
 	assert(request(api, "POST", otherAppID, "/reject", "dev", teamReviewerToken, `{"comment":"Team declined"}`, ""), 200, "")
 
+	// PA-57: a human holding the approve grant for the proposal's scope may
+	// reject without proposals.manage, with the same audit row. An approve
+	// grant for another application, or held by a machine, is not enough.
+	t.Run("approver-rejects", func(t *testing.T) {
+		if _, err := db.Exec(ctx, `INSERT INTO rbac_roles(id,name) VALUES('proposal-approver','Proposal Approver'),('other-approver','Other Approver');
+ INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id,assurance) VALUES
+ ('proposal-approver','proposals','approve','application','app-1','passkey'),
+ ('other-approver','proposals','approve','application','app-2','passkey')`); err != nil {
+			t.Fatal(err)
+		}
+		tokens := map[string]string{}
+		ids := map[string]string{}
+		for _, who := range []struct{ name, role string }{{"approver", "proposal-approver"}, {"other-approver", "other-approver"}, {"machine-approver", "proposal-approver"}} {
+			user, err := st.CreateUser(ctx, core.User{Email: who.name + "@example.invalid", Name: who.name, Role: "viewer"}, "isolated-"+who.name+"-password")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,$2)`, user.ID, who.role); err != nil {
+				t.Fatal(err)
+			}
+			if who.name == "machine-approver" {
+				if _, err := db.Exec(ctx, `UPDATE users SET v3_identity_kind='machine' WHERE id=$1`, user.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ids[who.name], tokens[who.name] = user.ID, login(who.name+"@example.invalid", "isolated-"+who.name+"-password")
+		}
+		id := create("inv-1", "app-1", "dev")
+		assert(request(api, "POST", id, "/reject", "dev", tokens["other-approver"], `{"comment":"Not mine"}`, ""), 403, "forbidden")
+		assert(request(api, "POST", id, "/reject", "dev", tokens["machine-approver"], `{"comment":"Machine"}`, ""), 403, "forbidden")
+		rejected := request(api, "POST", id, "/reject", "dev", tokens["approver"], `{"comment":"Unsafe window"}`, "")
+		assert(rejected, 200, "")
+		var out Proposal
+		if err := json.Unmarshal(rejected.Body.Bytes(), &out); err != nil || out.Status != "rejected" {
+			t.Fatalf("approver rejection: %s (%v)", rejected.Body.String(), err)
+		}
+		var actor, rejectedBy string
+		if err := db.QueryRow(ctx, `SELECT a.actor_id,p.rejected_by FROM management_audit a JOIN v3_proposals p ON p.id=a.target
+ WHERE a.action='v3.proposal.rejected' AND a.target=$1`, id).Scan(&actor, &rejectedBy); err != nil || actor != ids["approver"] || rejectedBy != ids["approver"] {
+			t.Fatalf("approver rejection audit: actor=%s rejected_by=%s err=%v", actor, rejectedBy, err)
+		}
+	})
+
 	// The request and a permission/owner mutation each win once. Confirm the
 	// loser waits on a specific row lock before allowing the winner to commit.
 	for _, operation := range []struct {

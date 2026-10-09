@@ -27,7 +27,7 @@ v3_route('post','/proposals/{id}/comments','Append an audited proposal comment',
 P['/proposals/{id}/comments']['post']['responses']['200'] = P['/proposals/{id}/comments']['post']['responses']['201']
 v3_route('post','/proposals/{id}/reject','Reject a pending proposal without executing it',
     body=obj({'comment':string(),'note':string()}),response=ref('V3Proposal'),
-    desc='Serializes state changes, audits rejection, and returns the persisted review record.')
+    desc='Requires a human reviewer with proposals.manage for the proposal, or the passkey proposals.approve grant that covers its environment, application or owner team (PA-57). Serializes state changes, audits rejection, and returns the persisted review record.')
 S['V3ProposalApprovalChallenge'] = obj({
     'challenge_id':string(),'options':{'type':'object'},
     'expires_at':string(format='date-time'),'proposal_id':string(),

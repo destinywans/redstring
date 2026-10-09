@@ -22,6 +22,10 @@ export default function ChangesPage() {
   const run = params.get("run_id");
   const selected = API_MODE === "mock" || (!!service && !!run);
   const { data, error } = useGet<ChangesView>(selected ? "/changes" : null, API_MODE === "mock" ? undefined : { service_id: service ?? "", run_id: run ?? "" });
+  // Hooks stay above the early return: a 503 arriving after the first render must not change the hook order.
+  const [off, setOff] = useState<Set<string>>(new Set(["harbor"]));
+  const [open, setOpen] = useState<string | null>(null);
+  const [status, setStatus] = useState<Pipeline["status"] | "all">("all");
   if (!selected || (error instanceof ApiError && error.status === 503))
     return (
       <Page crumbs={[tx("资源与观测", "Resources"), tx("变更与发布", "Changes & releases")]}>
@@ -36,9 +40,6 @@ export default function ChangesPage() {
         />
       </Page>
     );
-  const [off, setOff] = useState<Set<string>>(new Set(["harbor"]));
-  const [open, setOpen] = useState<string | null>(null);
-  const [status, setStatus] = useState<Pipeline["status"] | "all">("all");
   const statusLabel = (s: Pipeline["status"]) => ({ success: tx("成功", "Success"), failed: tx("失败", "Failed"), running: tx("运行中", "Running"), canceled: tx("已取消", "Canceled") })[s];
   const pipes = (data?.pipelines ?? []).filter((p) => !off.has(p.brand) && (status === "all" || p.status === status));
   const d = data?.detail;

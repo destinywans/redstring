@@ -18,6 +18,11 @@ export default function EvalsPage() {
   // There is no experiment list yet (PA-20): real mode opens one experiment by ?id=.
   const expId = API_MODE === "mock" ? "exp-v12-v13" : params.get("id");
   const { data: e } = useGet<EvalExperiment>(expId ? `/evals/${expId}` : null);
+  // Hooks stay above the early return below: opening a new experiment must not change the hook order.
+  const [tab, setTab] = useState("exp");
+  const [selPick, setSel] = useState(API_MODE === "mock" ? "INV-187" : "");
+  const sel = selPick || e?.cases[0]?.id || "";
+  const rerun = useSend<void, { id: string }>("POST", "/evals");
   const create = useSend<{ agent_id: string; title: string; baseline_version: string; candidate_version: string }, { id: string; status: string; execution_available: boolean }>("POST", "/evals");
   const newExperiment = async () => {
     const v = await openForm({
@@ -48,9 +53,6 @@ export default function EvalsPage() {
         />
       </Page>
     );
-  const [tab, setTab] = useState("exp");
-  const [sel, setSel] = useState("INV-187");
-  const rerun = useSend<void, { id: string }>("POST", "/evals");
   const Res = ({ ok }: { ok: boolean }) => <Icon name={ok ? "check" : "x"} size={14} color={ok ? "var(--ok)" : "var(--danger)"} />;
   return (
     <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("评测", "Evaluations")]} actions={

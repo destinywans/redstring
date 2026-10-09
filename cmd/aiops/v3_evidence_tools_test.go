@@ -6,8 +6,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
 )
 
@@ -110,5 +112,60 @@ func TestV3ServiceKeyInputAcceptsBareKeyOrServiceObject(t *testing.T) {
 		if got := v3ServiceKeyInput(input); got != want {
 			t.Fatalf("v3ServiceKeyInput(%q) = %q, want %q", input, got, want)
 		}
+	}
+}
+
+// PA-50: chat offers list_services first, and the shared tools tell an
+// unknown key, a catalog failure and an unconfigured knowledge index apart.
+func TestV3ReadToolsExplainFailures(t *testing.T) {
+	pool, err := pgxpool.New(t.Context(), "postgres://unused.invalid/none") // never connected by these reads
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	catalogDown := false
+	f := v3ReadTools{
+		DB:          pool,
+		Models:      map[string]bool{"approved": true},
+		CurrentUser: func(_ context.Context, id string) (core.User, error) { return core.User{ID: id}, nil },
+		LookupService: func(_ context.Context, _ core.User, env, key string) (v3catalog.ServiceEvidence, error) {
+			if catalogDown {
+				return v3catalog.ServiceEvidence{}, errors.New("database unavailable")
+			}
+			if key != "orders" {
+				return v3catalog.ServiceEvidence{}, store.ErrNotFound
+			}
+			return v3catalog.ServiceEvidence{ID: base64.RawURLEncoding.EncodeToString([]byte("app-orders\x00" + env)), Key: key, Environment: env}, nil
+		},
+		ListServices: func(context.Context, core.User, string, int) ([]v3catalog.ServiceEvidence, bool, error) {
+			return nil, false, nil
+		},
+		KnowledgeTool: func(string, string, string) (inference.EvidenceTool, bool) { return inference.EvidenceTool{}, false },
+	}
+	tools, err := f.ForTurn(t.Context(), "user", "", "dev", "approved")
+	if err != nil || len(tools) != 3 || tools[0].Name != "list_services" || tools[1].Name != "read_service_profile" {
+		t.Fatalf("chat tools: %v %v", tools, err)
+	}
+	profile, knowledge := tools[1], tools[2]
+	if _, err := profile.Read(t.Context(), "payments"); inference.ToolErrorCode(err) != inference.ToolUnknownService {
+		t.Fatalf("unknown key: %v", err)
+	}
+	if _, err := knowledge.Read(t.Context(), `{"service":"payments","query":"timeout"}`); inference.ToolErrorCode(err) != inference.ToolUnknownService {
+		t.Fatalf("knowledge unknown key: %v", err)
+	}
+	if _, err := knowledge.Read(t.Context(), `{"service":"orders","query":"timeout"}`); inference.ToolErrorCode(err) != inference.ToolNotConfigured {
+		t.Fatalf("knowledge without an index: %v", err)
+	}
+	if _, err := knowledge.Read(t.Context(), "timeout"); inference.ToolErrorCode(err) != inference.ToolInvalidInput {
+		t.Fatalf("knowledge input: %v", err)
+	}
+	catalogDown = true
+	if _, err := profile.Read(t.Context(), "orders"); inference.ToolErrorCode(err) != inference.ToolSourceUnavailable {
+		t.Fatalf("catalog failure: %v", err)
+	}
+	// An investigation reads one service: no list tool there.
+	f.DB = nil
+	if tools, err = f.ForTurn(t.Context(), "user", "app-orders", "dev", "approved"); err != nil || tools[0].Name == "list_services" {
+		t.Fatalf("investigation tools: %v %v", tools, err)
 	}
 }

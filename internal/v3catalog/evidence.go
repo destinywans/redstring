@@ -94,3 +94,63 @@ func (s *Service) authorizeServiceEvidence(ctx context.Context, user core.User, 
 	}
 	return err
 }
+
+// ListServiceEvidence lists the services the caller may view in exactly one
+// environment, by key, with the same authorization as LookupServiceEvidence
+// (PA-50: the model needs the exact keys it may read). At most limit services
+// are returned; truncated reports that more are visible. Hidden services are
+// skipped without a trace.
+func (s *Service) ListServiceEvidence(ctx context.Context, user core.User, environmentID string, limit int) ([]ServiceEvidence, bool, error) {
+	if s == nil || s.Store == nil || s.Store.DB == nil || s.Access == nil {
+		return nil, false, errors.New("service catalog unavailable")
+	}
+	if user.ID == "" || user.Disabled || environmentID == "" || environmentID == "all" || !s.instanceEnvironment(environmentID) || limit < 1 {
+		return []ServiceEvidence{}, false, nil
+	}
+	const scanLimit = 2000
+	rows, err := s.Store.DB.Query(ctx, `SELECT a.id,a.key,a.name,a.description,ve.environment_id,
+ COALESCE(a.owner_team_id,''),COALESCE(t.name,''),COALESCE(ep.tier,''),COALESCE(ep.owner_label,'')
+ FROM applications a
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$1
+ JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
+ LEFT JOIN teams t ON t.id=a.owner_team_id
+ LEFT JOIN v3_service_environment_profiles ep ON ep.application_id=a.id AND ep.environment_id=ve.environment_id
+ WHERE NOT a.archived AND a.key<>'' ORDER BY a.key LIMIT $2`, environmentID, scanLimit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	var candidates []serviceEvidenceRow
+	for rows.Next() {
+		var row serviceEvidenceRow
+		if err = rows.Scan(&row.appID, &row.key, &row.name, &row.description, &row.environment,
+			&row.teamID, &row.team, &row.tier, &row.owner); err != nil {
+			break
+		}
+		candidates = append(candidates, row)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return nil, false, err
+	}
+	if len(candidates) > scanLimit {
+		return nil, false, errors.New("too many services to list")
+	}
+	out := make([]ServiceEvidence, 0, min(limit, len(candidates)))
+	for _, row := range candidates {
+		err := s.authorizeServiceEvidence(ctx, user, row)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		if len(out) == limit {
+			return out, true, nil
+		}
+		out = append(out, row.evidence())
+	}
+	return out, false, nil
+}

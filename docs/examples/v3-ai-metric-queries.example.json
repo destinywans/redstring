@@ -1,0 +1,19 @@
+{
+  "prometheus": { "url": "https://prometheus.example.invalid" },
+  "applications": {
+    "example-checkout": {
+      "prometheus_queries": {
+        "request_rate": "sum(rate(http_requests_total{application=\"checkout\",environment=\"prod\"}[5m]))",
+        "error_rate": "sum(rate(http_requests_total{application=\"checkout\",environment=\"prod\",status=~\"5..\"}[5m])) / sum(rate(http_requests_total{application=\"checkout\",environment=\"prod\"}[5m]))",
+        "http_p95_seconds": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{application=\"checkout\",environment=\"prod\"}[5m])))",
+        "instances_up": "sum(up{job=\"example-apps\",application=\"checkout\",environment=\"prod\"})",
+        "node_cpu_busy_ratio": "max by (node) (example:node_cpu_busy:ratio1m * on (cluster, node) (max by (cluster, node) (up{job=\"example-apps\",application=\"checkout\",environment=\"prod\"} == 1)))",
+        "node_memory_available_ratio": "min by (node) (example:node_memory_available:ratio * on (cluster, node) (max by (cluster, node) (up{job=\"example-apps\",application=\"checkout\",environment=\"prod\"} == 1)))",
+        "pod_restarts": "sum by (pod, container) (increase(kube_pod_container_status_restarts_total{namespace=\"example\",pod=~\"checkout-.*\"}[15m]))",
+        "pod_terminated_reason": "max by (pod, container, reason) (kube_pod_container_status_last_terminated_reason{namespace=\"example\",pod=~\"checkout-.*\"})",
+        "consumer_lag": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=\"checkout-consumer\"})",
+        "messages_consumed_rate": "sum by (consumergroup, topic) (rate(kafka_consumergroup_current_offset{consumergroup=\"checkout-consumer\"}[5m]))"
+      }
+    }
+  }
+}

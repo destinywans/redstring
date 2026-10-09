@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -45,7 +46,7 @@ func (s *Service) NotificationRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	env := scope.EnvironmentIDs[0]
-	if status, err := s.routeTestManager(r.Context(), httpapi.CurrentUser(r), env); err != nil {
+	if status, err := s.routeTreeReader(r.Context(), httpapi.CurrentUser(r), env); err != nil {
 		httpapi.Error(w, status, routeTestErrorCode(status), "Routing access is unavailable or denied")
 		return
 	}
@@ -109,6 +110,20 @@ func (s *Service) NotificationRoutes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// routeTreeReader authorizes reading the sanitized tree: alert_rules.view is
+// enough, as the route is marked (PA-56). Testing and drafting routes still
+// need manage through routeTestManager.
+func (s *Service) routeTreeReader(ctx context.Context, user core.User, env string) (int, error) {
+	err := s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "alert_rules", Action: "view", EnvironmentID: env})
+	if errors.Is(err, store.ErrForbidden) {
+		return http.StatusForbidden, err
+	}
+	if err != nil {
+		return http.StatusServiceUnavailable, err
+	}
+	return http.StatusOK, nil
+}
+
 func routeTreeFinalAuthority(r *http.Request, db *pgxpool.Pool, access routeTxAccess, env string) error {
 	ctx := r.Context()
 	tx, err := db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
@@ -127,10 +142,8 @@ func routeTreeFinalAuthority(r *http.Request, db *pgxpool.Pool, access routeTxAc
 	if _, err := tx.Exec(ctx, `LOCK TABLE rbac_user_roles,rbac_department_roles,rbac_roles,v3_role_grants IN SHARE MODE`); err != nil {
 		return err
 	}
-	for _, action := range []string{"view", "manage"} {
-		if err := access.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "alert_rules", Action: action, EnvironmentID: env}); err != nil {
-			return err
-		}
+	if err := access.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "alert_rules", Action: "view", EnvironmentID: env}); err != nil {
+		return err
 	}
 	var unexpired bool
 	err = tx.QueryRow(ctx, `SELECT expires_at>clock_timestamp() FROM sessions WHERE token_hash=$1 AND user_id=$2`,

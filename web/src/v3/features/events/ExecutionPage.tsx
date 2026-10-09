@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
-import type { Execution } from "../../api/types";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
+import type { Execution, ExecutionDetail } from "../../api/types";
+import { PartialBanner, Unavailable, UnknownValue } from "../../ui/unknown";
 import { Badge, Btn, Card, CardHead, Col, Icon, Mono, Muted, Row, Sev, Skeleton, Spacer, Textarea, Tile, type IconName } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
@@ -12,6 +13,185 @@ import "./events.css";
 import { downloadFile } from "../../ui/demo";
 
 export default function ExecutionPage() {
+  return API_MODE === "mock" ? <SampleExecutionPage /> : <RealExecutionPage />;
+}
+
+const fmtTime = (t: string | null) => (t ? new Date(t).toLocaleString() : "—");
+
+/** Real execution record: persisted events, recovery summary and closed report; nothing is filled in from samples. */
+function RealExecutionPage() {
+  const { id = "" } = useParams();
+  const { tx } = useI18n();
+  const { data: e, error, refetch } = useGet<ExecutionDetail>(id ? `/executions/${id}` : null);
+  const [publishing, setPublishing] = useState(false);
+  if (!e)
+    return (
+      <Page crumbs={[tx("事件收件箱", "Inbox"), tx("执行与报告", "Execution & report")]} error={error} errorSource={tx("执行记录", "execution records")}>
+        <div className="v3-content">
+          <Skeleton h={300} />
+        </div>
+      </Page>
+    );
+  const STATUS = {
+    queued: ["neutral", tx("排队中", "Queued")],
+    executing: ["accent", tx("执行中", "Executing")],
+    verifying: ["accent", tx("验证中", "Verifying")],
+    succeeded: ["ok", tx("已完成", "Succeeded")],
+    failed: ["danger", tx("失败", "Failed")],
+    needs_attention: ["warn", tx("需要人工处理", "Needs attention")],
+  } as const;
+  const DECISION = { pending: ["neutral", tx("待批准", "Pending")], approved: ["ok", tx("已批准", "Approved")], rejected: ["danger", tx("已驳回", "Rejected")], revoked: ["warn", tx("已撤回", "Revoked")] } as const;
+  const o = e.observation;
+  const r = e.report;
+  const canPublish = !!r && !r.published && e.status === "succeeded" && o?.recovered === true;
+  const publish = async () => {
+    setPublishing(true);
+    try {
+      await api("POST", `/executions/${e.id}/report/publish`);
+      void refetch();
+      toast(tx("报告已发布", "Report published"));
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : tx("发布失败，请稍后重试", "Couldn't publish; try again later"), { tone: "danger" });
+    } finally {
+      setPublishing(false);
+    }
+  };
+  return (
+    <Page
+      crumbs={[tx("事件收件箱", "Inbox"), { label: tx("调查", "Investigation"), to: `/canvas/${e.investigation_id}` }, tx("执行与报告", "Execution & report")]}
+      actions={
+        <>
+          <Badge tone={STATUS[e.status][0]}>{STATUS[e.status][1]}</Badge>
+          {o?.recovered === true && (
+            <Badge tone="ok">
+              <Icon name="check" size={11} />
+              {tx("已验证恢复", "Recovery verified")}
+            </Badge>
+          )}
+          <Btn kind="ghost" icon="shield" to="/settings/audit">
+            {tx("审计记录", "Audit trail")}
+          </Btn>
+        </>
+      }
+    >
+      {e.missing.length > 0 && (
+        <div style={{ padding: "12px 24px 0" }}>
+          <PartialBanner fields={e.missing} />
+        </div>
+      )}
+      <div className="exec-layout">
+        <Col gap={16} style={{ width: 480, flex: "none" }}>
+          <Card className="anim-rise">
+            <CardHead title={tx("执行记录", "Execution")} right={<Mono>{e.id}</Mono>} />
+            <Col gap={10} style={{ padding: "12px 16px" }}>
+              <Row gap={8}>
+                <Muted>{tx("批准", "Approval")}</Muted>
+                <Badge tone={DECISION[e.approval.decision][0]}>{DECISION[e.approval.decision][1]}</Badge>
+                {e.approval.approved_by && <Muted>{e.approval.approved_by}</Muted>}
+                {!e.approval.digest_match && <Badge tone="danger">{tx("动作摘要不一致", "Action digest mismatch")}</Badge>}
+                <Spacer />
+                <Muted size={11.5}>{tx("第 {n} 次尝试", "Attempt {n}", { n: e.attempt })}</Muted>
+              </Row>
+              {e.error && <div className="danger-note"><Icon name="alert" size={13} />{e.error}</div>}
+            </Col>
+            <ol className="exec-steps">
+              {e.steps.map((s, i) => (
+                <li key={s.seq}>
+                  <span className="tnum muted" style={{ width: 58, flex: "none", fontSize: "var(--fs-sub)", paddingTop: 2 }}>
+                    {new Date(s.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                  </span>
+                  <span className="rail">
+                    <Tile icon="check" size={22} />
+                    {i < e.steps.length - 1 && <span className="line" />}
+                  </span>
+                  <Col gap={0} style={{ paddingBottom: 12 }}>
+                    <span className="mono" style={{ fontSize: "var(--fs-sm)" }}>{s.type}</span>
+                  </Col>
+                </li>
+              ))}
+            </ol>
+            {!e.steps.length && <Muted size={11.5} style={{ padding: "0 16px 12px", display: "block" }}>{tx("还没有执行事件", "No execution events yet")}</Muted>}
+            {e.steps_truncated && <Muted size={11.5} style={{ padding: "0 16px 12px", display: "block" }}>{tx("只显示前 100 条事件", "Showing the first 100 events")}</Muted>}
+          </Card>
+          <Card className="anim-rise">
+            <CardHead title={tx("恢复观测", "Recovery check")} />
+            {!o ? (
+              <Unavailable reason="not_generated" title={tx("还没有恢复观测", "No recovery check yet")} desc={tx("执行完成后会记录恢复验证的结果。", "The recovery check is recorded after the execution finishes.")} icon="activity" />
+            ) : (
+              <Col gap={8} style={{ padding: "12px 16px" }}>
+                <Row gap={8}>
+                  <Muted>{tx("结果", "Result")}</Muted>
+                  <Spacer />
+                  {o.recovered === null ? <UnknownValue reason="unavailable" /> : o.recovered ? <Badge tone="ok">{tx("已恢复", "Recovered")}</Badge> : <Badge tone="danger">{tx("未恢复", "Not recovered")}</Badge>}
+                </Row>
+                <Row gap={8}>
+                  <Muted>{tx("观测窗口", "Window")}</Muted>
+                  <Spacer />
+                  <Muted>{fmtTime(o.started_at)} – {fmtTime(o.finished_at)}</Muted>
+                </Row>
+                <Row gap={8}>
+                  <Muted>{tx("样本 / 请求", "Samples / requests")}</Muted>
+                  <Spacer />
+                  <Mono color="var(--text)">{o.samples ?? "—"} / {o.requests ?? "—"}</Mono>
+                </Row>
+                {o.reason && <Muted size={11.5}>{o.reason}</Muted>}
+              </Col>
+            )}
+          </Card>
+        </Col>
+        <Card className="report-card anim-rise">
+          <header className="report-head">
+            <Icon name="file" size={15} color="var(--muted)" />
+            <h2>{tx("故障报告", "Incident report")}</h2>
+            {r?.published ? (
+              <Badge tone="ok">
+                <Icon name="check" size={11} />
+                {tx("已发布", "Published")}
+              </Badge>
+            ) : r ? (
+              <Badge tone="accent">{tx("待发布", "Not published")}</Badge>
+            ) : null}
+            <Spacer />
+            {r && (
+              <Btn
+                kind="ghost"
+                icon="download"
+                onClick={() => {
+                  downloadFile(`${e.id}-report.md`, [`# ${r.title}`, "", r.summary, ""].join("\n"), "text/markdown");
+                  toast(tx("已导出 Markdown", "Exported Markdown"));
+                }}
+              >
+                {tx("导出 Markdown", "Export Markdown")}
+              </Btn>
+            )}
+            {r && !r.published && (
+              <Btn kind="primary" icon="check" disabled={!canPublish} loading={publishing} onClick={() => void publish()}>
+                {tx("确认发布", "Publish")}
+              </Btn>
+            )}
+          </header>
+          {!r ? (
+            <Unavailable reason="not_generated" title={tx("报告尚未生成", "No report yet")} desc={tx("调查关闭后会生成故障报告，再在这里确认发布。", "A report is created when the investigation closes; publish it here.")} icon="file" />
+          ) : (
+            <article className="report-doc">
+              <h1>{r.title}</h1>
+              <Muted>
+                {tx("{c} 关闭于 {t} · 批准人 {a}", "Closed by {c} at {t} · approved by {a}", { c: r.closed_by, t: fmtTime(r.closed_at), a: r.approved_by })}
+                {r.published && r.published_at && tx(" · {p} 发布于 {t}", " · published by {p} at {t}", { p: r.published_by ?? "—", t: fmtTime(r.published_at) })}
+              </Muted>
+              <h3>{tx("概要", "Summary")}</h3>
+              <Markdown text={r.summary} />
+              {!canPublish && !r.published && <Muted size={11.5}>{tx("执行成功且恢复验证通过后才能发布。", "Publishing needs a succeeded execution with a verified recovery.")}</Muted>}
+            </article>
+          )}
+        </Card>
+      </div>
+    </Page>
+  );
+}
+
+/** The sample execution report: every field is filled sample data (mock mode only). */
+function SampleExecutionPage() {
   const { id = "EXE-51" } = useParams();
   const { tx } = useI18n();
   const { data: e } = useGet<Execution>(`/executions/${id}`);

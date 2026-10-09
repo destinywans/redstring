@@ -370,6 +370,32 @@ export type Execution = {
   report: { title: string; severity: Severity; meta: string; summary: string; impact: string; timeline: { time: string; text: string }[]; actions: { text: string; owner: string; due: string; done: boolean }[]; refs: string };
 };
 
+/**
+ * GET /executions/{id} in real mode (V3ExecutionDetail). Steps are persisted events; the observation is a recovery
+ * summary without a series; the report is the closed report without severity/impact/timeline/actions (null).
+ */
+export type ExecutionDetail = {
+  id: string;
+  plan_id: string;
+  investigation_id: string;
+  application_id: string;
+  environment_id: string;
+  proposal_id: null;
+  status: "queued" | "executing" | "verifying" | "succeeded" | "failed" | "needs_attention";
+  status_source: string;
+  attempt: number;
+  error: string;
+  created_at: string;
+  updated_at: string;
+  approval: { decision: "pending" | "approved" | "rejected" | "revoked"; approved_by: string | null; digest_match: boolean };
+  steps: { seq: number; type: string; time: string }[];
+  steps_truncated: boolean;
+  observation: { recovered: boolean | null; started_at: string | null; finished_at: string | null; samples: number | null; requests: number | null; reason: string | null } | null;
+  report: { title: string; summary: string; closed_by: string; approved_by: string; closed_at: string; published: boolean; published_by: string | null; published_at: string | null } | null;
+  partial: boolean;
+  missing: string[];
+};
+
 /* ---------------- knowledge & memory ---------------- */
 export type RunbookSummary = { id: string; title: string; tags: string[]; scope: string; owner: string; version: string; status: "published" | "review" | "draft"; refs_30d: number | null; resolve_rate?: number | null; last_verified: string | null; stale: boolean | null };
 export type RunbookSuggestion = { id: string; icon: string; tone: Tone; title: string; body: string; actions: { label: string; kind: "primary" | "secondary" | "ghost"; href?: string }[] };

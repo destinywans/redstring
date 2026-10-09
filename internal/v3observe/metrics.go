@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,29 +18,17 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/wans/aiops-canvas/internal/v3metricpanels"
 )
 
 // A reviewed dashboard expression returns one matrix with these exact panel
 // labels. It must isolate the bound application, environment and resource.
 // The handler validates the result shape; the operator reviews PromQL scope.
-const dashboardPoints = 36
-const dashboardSamples = dashboardPoints + 1 // inclusive baseline + 36 bin ends
-const dashboardStep = 100
+const dashboardPoints = v3metricpanels.Points
+const dashboardStep = v3metricpanels.Step
 
-var dashboardHeatBuckets = []string{">2 s", "1 s", "500 ms", "250 ms", "100 ms", "50 ms", "25 ms", "<10 ms"}
+var dashboardHeatBuckets = v3metricpanels.HeatBuckets
 
-var dashboardPanels = map[string]bool{
-	"requests_2xx": true, "requests_4xx": true, "requests_5xx": true,
-	"requests_other": true, "requests_total": true,
-	"latency_p50_ms": true, "latency_p95_ms": true, "latency_p99_ms": true,
-	"connection_wait_p95_ms": true, "cpu_saturation_pct": true,
-	"slo_budget_remaining_pct": true, "slo_month_availability_pct": true,
-	"slo_burn_1h": true, "slo_burn_6h": true, "slo_burn_3d": true,
-	"latency_heat": true, "endpoint_p99_ms": true, "instance_wait_p95_ms": true,
-}
-
-// Marker fields are null when the platform recorded no such event in the
-// window; unavailable then says "not_generated" rather than inventing a bin.
 type dashboardWindow struct {
 	Labels        []string `json:"labels"`
 	Ticks         []string `json:"ticks"`
@@ -206,104 +193,6 @@ func (s *Service) loadDashboardMarkers(ctx context.Context, app, env string, win
 	return m, nil
 }
 
-func dashboardSeries(result v3integrations.PrometheusMetricEvidence, window connectors.TimeWindow) (map[string][]float64, map[string]map[string][]float64, bool) {
-	if result.Empty || result.CapturedAt.IsZero() || result.ApplicationID == "" || result.EnvironmentID == "" ||
-		result.BindingID == "" || result.ConnectorID == "" || result.ResourceID == "" || result.QueryID != "dashboard" || len(result.Series) > 64 {
-		return nil, nil, false
-	}
-	plain := map[string][]float64{}
-	grouped := map[string]map[string][]float64{}
-	for _, line := range result.Series {
-		panel := line.Labels["panel"]
-		if !dashboardPanels[panel] || len(line.Labels) > 3 || len(line.Samples) != dashboardSamples {
-			return nil, nil, false
-		}
-		var group string
-		switch panel {
-		case "latency_heat":
-			if len(line.Labels) != 2 {
-				return nil, nil, false
-			}
-			group = line.Labels["bucket"]
-			found := false
-			for _, bucket := range dashboardHeatBuckets {
-				found = found || group == bucket
-			}
-			if !found {
-				return nil, nil, false
-			}
-		case "endpoint_p99_ms":
-			if len(line.Labels) != 2 {
-				return nil, nil, false
-			}
-			group = line.Labels["endpoint"]
-		case "instance_wait_p95_ms":
-			if len(line.Labels) != 2 {
-				return nil, nil, false
-			}
-			group = line.Labels["instance"]
-		default:
-			if len(line.Labels) != 1 {
-				return nil, nil, false
-			}
-		}
-		if (panel == "latency_heat" || panel == "endpoint_p99_ms" || panel == "instance_wait_p95_ms") && group == "" {
-			return nil, nil, false
-		}
-		if group != "" && (len(group) > 100 || strings.TrimSpace(group) != group || strings.ContainsAny(group, "\r\n\x00")) {
-			return nil, nil, false
-		}
-		values := make([]float64, dashboardPoints)
-		for i, sample := range line.Samples {
-			expected := float64(window.Start.Unix() + int64(i*dashboardStep))
-			value, err := strconv.ParseFloat(sample.Value, 64)
-			if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 ||
-				math.IsNaN(sample.Timestamp) || math.IsInf(sample.Timestamp, 0) || math.Abs(sample.Timestamp-expected) > 0.5 {
-				return nil, nil, false
-			}
-			if strings.HasSuffix(panel, "_pct") && value > 100 {
-				return nil, nil, false
-			}
-			if panel == "latency_heat" && value > 1 {
-				return nil, nil, false
-			}
-			// The first sample proves full-hour coverage. Each visible point is
-			// the right edge of one 100-second bin, not a truncated response.
-			if i > 0 {
-				values[i-1] = value
-			}
-		}
-		if group == "" {
-			if _, exists := plain[panel]; exists {
-				return nil, nil, false
-			}
-			plain[panel] = values
-		} else {
-			if grouped[panel] == nil {
-				grouped[panel] = map[string][]float64{}
-			}
-			if _, exists := grouped[panel][group]; exists {
-				return nil, nil, false
-			}
-			grouped[panel][group] = values
-		}
-	}
-	for panel := range dashboardPanels {
-		if panel == "latency_heat" || panel == "endpoint_p99_ms" || panel == "instance_wait_p95_ms" {
-			continue
-		}
-		if len(plain[panel]) != dashboardPoints {
-			return nil, nil, false
-		}
-	}
-	if len(grouped["latency_heat"]) != len(dashboardHeatBuckets) ||
-		len(grouped["endpoint_p99_ms"]) == 0 || len(grouped["endpoint_p99_ms"]) > 12 ||
-		len(grouped["instance_wait_p95_ms"]) == 0 || len(grouped["instance_wait_p95_ms"]) > 12 {
-		return nil, nil, false
-	}
-	return plain, grouped, true
-}
-
 func dashboardTone(value float64) string {
 	if value >= 10 {
 		return "danger"
@@ -373,104 +262,126 @@ func (out *metricsDashboard) metricsUnavailable(reason string) {
 	}
 }
 
-// applyMetrics fills the metric blocks from one reviewed result. Any panel
-// that contradicts the others leaves every metric block unknown. The SLO block
-// additionally needs a valid target and coherent budget and burn panels.
+// applyMetrics fills the metric blocks from one reviewed result. The query
+// may return any subset of panels (PA-41): a block whose panels are absent
+// stays null with not_configured, and a list keeps only present entries.
+// Present panels that contradict each other leave every metric block
+// unknown; a budget or burn that contradicts the requests hides only the SLO.
 func (out *metricsDashboard) applyMetrics(result v3integrations.PrometheusMetricEvidence, window connectors.TimeWindow, sloTarget *float64) bool {
-	plain, grouped, ok := dashboardSeries(result, window)
-	if !ok {
+	if result.Empty || result.CapturedAt.IsZero() || result.ApplicationID == "" || result.EnvironmentID == "" ||
+		result.BindingID == "" || result.ConnectorID == "" || result.ResourceID == "" || result.QueryID != "dashboard" {
 		return false
 	}
-	requests := &dashboardRequests{OK: plain["requests_2xx"], Client: plain["requests_4xx"], Server: plain["requests_5xx"]}
-	latency := &dashboardLatency{P50: plain["latency_p50_ms"], P95: plain["latency_p95_ms"], P99: plain["latency_p99_ms"],
-		Buckets: append([]string(nil), dashboardHeatBuckets...), Heat: make([][]float64, 0, len(dashboardHeatBuckets))}
-	for _, bucket := range dashboardHeatBuckets {
-		latency.Heat = append(latency.Heat, grouped["latency_heat"][bucket])
-	}
-	rate, errorsPct := make([]float64, dashboardPoints), make([]float64, dashboardPoints)
-	for i := range rate {
-		if latency.P50[i] > latency.P95[i] || latency.P95[i] > latency.P99[i] {
-			return false
-		}
-		if plain["requests_other"][i] != 0 {
-			return false
-		}
-		rate[i] = requests.OK[i] + requests.Client[i] + requests.Server[i]
-		if math.IsNaN(rate[i]) || math.IsInf(rate[i], 0) {
-			return false
-		}
-		if math.Abs(rate[i]-plain["requests_total"][i]) > 0.001 {
-			return false
-		}
-		if rate[i] <= 0 {
-			return false
-		}
-		errorsPct[i] = requests.Server[i] * 100 / rate[i]
-		if math.IsNaN(errorsPct[i]) || math.IsInf(errorsPct[i], 0) {
-			return false
-		}
-	}
-	var totalRequests, serverErrors float64
-	for i := range rate {
-		totalRequests += rate[i]
-		serverErrors += requests.Server[i]
-	}
-	if totalRequests <= 0 || math.IsNaN(totalRequests) || math.IsInf(totalRequests, 0) || math.IsNaN(serverErrors) || math.IsInf(serverErrors, 0) {
+	p, ok := v3metricpanels.Parse(result.Series, window)
+	if !ok || !p.LatencyOrdered() {
 		return false
 	}
-	last := dashboardPoints - 1
-	out.KPIs = []dashboardKPI{
-		{ID: "rps", Label: "Requests", Value: fmt.Sprintf("%.2f", rate[last]), Unit: "/s", Sub: "Observed request rate", Series: rate},
-		{ID: "err", Label: "5xx ratio", Value: fmt.Sprintf("%.2f", errorsPct[last]), Unit: "%", Sub: "Observed server errors", Series: errorsPct},
-		{ID: "p99", Label: "P99 latency", Value: fmt.Sprintf("%.1f", latency.P99[last]), Unit: "ms", Sub: "Observed latency", Series: latency.P99},
-		{ID: "wait", Label: "Connection wait P95", Value: fmt.Sprintf("%.1f", plain["connection_wait_p95_ms"][last]), Unit: "ms", Sub: "Observed wait", Series: plain["connection_wait_p95_ms"]},
-		{ID: "cpu", Label: "CPU saturation", Value: fmt.Sprintf("%.1f", plain["cpu_saturation_pct"][last]), Unit: "%", Sub: "Observed saturation", Series: plain["cpu_saturation_pct"]},
+	rate, errorsPct, requests, consistent := p.Requests()
+	if !consistent {
+		return false
 	}
-	out.Requests, out.Latency = requests, latency
-	out.Endpoints, out.Instances = []dashboardRank{}, []dashboardInstance{}
-	for label, values := range grouped["endpoint_p99_ms"] {
-		out.Endpoints = append(out.Endpoints, dashboardRank{Label: label, Value: values[last]})
-	}
-	sort.Slice(out.Endpoints, func(i, j int) bool {
-		if out.Endpoints[i].Value == out.Endpoints[j].Value {
-			return out.Endpoints[i].Label < out.Endpoints[j].Label
-		}
-		return out.Endpoints[i].Value > out.Endpoints[j].Value
-	})
-	for label, values := range grouped["instance_wait_p95_ms"] {
-		out.Instances = append(out.Instances, dashboardInstance{Label: label, Values: values})
-	}
-	sort.Slice(out.Instances, func(i, j int) bool { return out.Instances[i].Label < out.Instances[j].Label })
-	for _, field := range []string{"kpis", "requests", "latency", "endpoints", "instances"} {
+	for _, field := range []string{"kpis", "requests", "latency", "endpoints", "instances", "slo"} {
 		delete(out.Unavailable, field)
 	}
-	out.SLO, out.Unavailable["slo"] = nil, "not_configured"
+	missing := func(field string) { out.Unavailable[field] = "not_configured" }
+	last := dashboardPoints - 1
+	out.KPIs = []dashboardKPI{}
+	kpi := func(id, label, unit, sub, format string, series []float64) {
+		out.KPIs = append(out.KPIs, dashboardKPI{ID: id, Label: label, Value: fmt.Sprintf(format, series[last]), Unit: unit, Sub: sub, Series: series})
+	}
+	if requests {
+		out.Requests = &dashboardRequests{OK: p.Plain[v3metricpanels.Requests2xx], Client: p.Plain[v3metricpanels.Requests4xx], Server: p.Plain[v3metricpanels.Requests5xx]}
+		kpi("rps", "Requests", "/s", "Observed request rate", "%.2f", rate)
+		kpi("err", "5xx ratio", "%", "Observed server errors", "%.2f", errorsPct)
+	} else {
+		out.Requests = nil
+		missing("requests")
+		missing("kpis.rps")
+		missing("kpis.err")
+	}
+	for _, k := range []struct{ id, panel, label, unit, sub, format string }{
+		{"p99", v3metricpanels.LatencyP99, "P99 latency", "ms", "Observed latency", "%.1f"},
+		{"wait", v3metricpanels.ConnectionWaitP95, "Connection wait P95", "ms", "Observed wait", "%.1f"},
+		{"cpu", v3metricpanels.CPUSaturation, "CPU saturation", "%", "Observed saturation", "%.1f"},
+	} {
+		if series, ok := p.Plain[k.panel]; ok {
+			kpi(k.id, k.label, k.unit, k.sub, k.format, series)
+		} else {
+			missing("kpis." + k.id)
+		}
+	}
+	if len(out.KPIs) == 0 {
+		out.KPIs = nil
+		missing("kpis")
+	}
+	if p.Has(v3metricpanels.LatencyP50, v3metricpanels.LatencyP95, v3metricpanels.LatencyP99) {
+		out.Latency = &dashboardLatency{P50: p.Plain[v3metricpanels.LatencyP50], P95: p.Plain[v3metricpanels.LatencyP95], P99: p.Plain[v3metricpanels.LatencyP99]}
+		if heat := p.Group(v3metricpanels.LatencyHeat); heat != nil {
+			out.Latency.Buckets = append([]string(nil), dashboardHeatBuckets...)
+			for _, bucket := range dashboardHeatBuckets {
+				out.Latency.Heat = append(out.Latency.Heat, heat[bucket])
+			}
+		} else {
+			missing("latency.heat")
+			missing("latency.buckets")
+		}
+	} else {
+		out.Latency = nil
+		missing("latency")
+	}
+	if endpoints := p.Group(v3metricpanels.EndpointP99); endpoints != nil {
+		out.Endpoints = []dashboardRank{}
+		for label, values := range endpoints {
+			out.Endpoints = append(out.Endpoints, dashboardRank{Label: label, Value: values[last]})
+		}
+		sort.Slice(out.Endpoints, func(i, j int) bool {
+			if out.Endpoints[i].Value == out.Endpoints[j].Value {
+				return out.Endpoints[i].Label < out.Endpoints[j].Label
+			}
+			return out.Endpoints[i].Value > out.Endpoints[j].Value
+		})
+	} else {
+		out.Endpoints = nil
+		missing("endpoints")
+	}
+	if instances := p.Group(v3metricpanels.InstanceWaitP95); instances != nil {
+		out.Instances = []dashboardInstance{}
+		for label, values := range instances {
+			out.Instances = append(out.Instances, dashboardInstance{Label: label, Values: values})
+		}
+		sort.Slice(out.Instances, func(i, j int) bool { return out.Instances[i].Label < out.Instances[j].Label })
+	} else {
+		out.Instances = nil
+		missing("instances")
+	}
+	out.SLO = nil
 	if sloTarget == nil || *sloTarget <= 0 || *sloTarget >= 100 {
+		missing("slo")
 		return true
 	}
 	target := *sloTarget
-	out.Unavailable["slo"] = "unavailable"
-	availability := plain["slo_month_availability_pct"][last]
-	// The catalog's monthly availability and budget panels must represent the
-	// same request-based SLO. Refuse contradictory evidence instead of showing
-	// unrelated percentages as one coherent budget.
-	remaining := math.Max(0, math.Min(100, (availability-target)/(100-target)*100))
-	if math.Abs(remaining-plain["slo_budget_remaining_pct"][last]) > 0.1 {
-		return true
+	slo := p.SLO(target)
+	switch {
+	case !slo.Consistent:
+		// Budget or burn panels contradict the request evidence.
+		out.Unavailable["slo"] = "unavailable"
+	case slo.Availability == nil:
+		missing("slo")
+	default:
+		availability := *slo.Availability
+		out.SLO = &dashboardSLO{Remaining: *slo.BudgetLeft, Availability: fmt.Sprintf("%.3f%%", availability),
+			Delta: fmt.Sprintf("%+.3f%%", availability-target), Note: "Observed error budget burn rates", Burn: []dashboardBurn{}}
+		for _, burn := range []struct {
+			window, key string
+			value       *float64
+		}{{"1 h", "1h", slo.Burn1h}, {"6 h", "6h", slo.Burn6h}, {"3 d", "3d", slo.Burn3d}} {
+			if burn.value == nil {
+				missing("slo.burn." + burn.key)
+				continue
+			}
+			out.SLO.Burn = append(out.SLO.Burn, dashboardBurnValue(burn.window, *burn.value))
+		}
 	}
-	// Request-rate bins cover the same hour as the displayed 1 h burn. Its
-	// reviewed PromQL must use the same 5xx-based availability definition.
-	derivedBurn := serverErrors / totalRequests / (1 - target/100)
-	if math.IsNaN(derivedBurn) || math.IsInf(derivedBurn, 0) {
-		return true
-	}
-	if math.Abs(derivedBurn-plain["slo_burn_1h"][last]) > math.Max(0.05, derivedBurn*0.05) {
-		return true
-	}
-	out.SLO = &dashboardSLO{Remaining: remaining, Availability: fmt.Sprintf("%.3f%%", availability),
-		Delta: fmt.Sprintf("%+.3f%%", availability-target), Note: "Observed error budget burn rates",
-		Burn: []dashboardBurn{dashboardBurnValue("1 h", plain["slo_burn_1h"][last]), dashboardBurnValue("6 h", plain["slo_burn_6h"][last]), dashboardBurnValue("3 d", plain["slo_burn_3d"][last])}}
-	delete(out.Unavailable, "slo")
 	return true
 }
 

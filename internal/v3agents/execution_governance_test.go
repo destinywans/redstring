@@ -69,6 +69,15 @@ func TestExecutionConfigurationAndRouting(t *testing.T) {
 	if validExecutionEvidence("read_service_profile", "app", "dev", inference.Evidence{Kind: "service_profile", Source: "service_catalog", TargetID: base64.RawURLEncoding.EncodeToString([]byte("other\x00dev")), Content: "private"}) {
 		t.Fatal("cross-app evidence admitted")
 	}
+	target := base64.RawURLEncoding.EncodeToString([]byte("app\x00dev"))
+	for source, want := range map[string]bool{"loki": true, "elasticsearch": true, "https://es.internal": false} {
+		if validExecutionEvidence("read_service_logs", "app", "dev", inference.Evidence{Kind: "logs", Source: source, TargetID: target, Content: "masked"}) != want {
+			t.Fatalf("log evidence source %q admitted=%v", source, !want)
+		}
+	}
+	if validExecutionEvidence("read_service_metrics", "app", "dev", inference.Evidence{Kind: "metrics", Source: "elasticsearch", TargetID: target, Content: "{}"}) {
+		t.Fatal("elasticsearch accepted for metrics")
+	}
 }
 
 type governedTestRunner struct {

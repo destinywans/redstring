@@ -60,7 +60,7 @@ func TestServiceLogsToolRequiresExplicitEnablement(t *testing.T) {
 	}
 }
 
-func TestServiceLogsToolReadsBoundedMetadataOnly(t *testing.T) {
+func TestServiceLogsToolReadsMaskedBoundedSample(t *testing.T) {
 	db := isolatedConversationDB(t)
 	ctx := context.Background()
 	_, err := db.Exec(ctx, `
@@ -156,18 +156,22 @@ func TestServiceLogsToolReadsBoundedMetadataOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evidence.Source != "loki" || evidence.TargetID != "app-1" || !strings.Contains(evidence.Title, "受限日志摘要") ||
+	if evidence.Source != "loki" || evidence.TargetID != "app-1" || !strings.Contains(evidence.Title, "脱敏日志样本") ||
 		provider.calls != 1 || provider.resource != "registered-checkout" || provider.provider != "loki" || provider.search != "" || provider.level != "" || provider.summary || provider.limit != 10 || provider.window.End.Sub(provider.window.Start) != 15*time.Minute {
 		t.Fatalf("unsafe log request/evidence: %#v provider=%+v", evidence, provider)
 	}
-	for _, secret := range []string{"secret-value", "secret-label", "secret-trace", "secret.loki.internal", "secret\""} {
+	for _, secret := range []string{"secret-value", "secret-label", "secret-trace", "secret.loki.internal"} {
 		if strings.Contains(evidence.Content, secret) {
 			t.Fatalf("provider content leaked into model evidence: %s", secret)
 		}
 	}
+	// PA-40: the line text reaches the model only after masking.
 	var body logsToolEvidence
-	if err := json.Unmarshal([]byte(evidence.Content), &body); err != nil || !body.Partial || body.SampledCount != 1 || len(body.Samples) != 1 || body.Samples[0].Level != "error" || body.Status != "metadata_sample" {
-		t.Fatalf("missing sample boundary: %#v %v", body, err)
+	if err := json.Unmarshal([]byte(evidence.Content), &body); err != nil || !body.Partial || body.SampledCount != 1 || len(body.Samples) != 1 ||
+		body.Samples[0].Level != "error" || body.Status != "masked_sample" || body.Samples[0].Message != "password=[REDACTED:secret]" ||
+		!body.Redacted || body.Redactions["secret"] != 1 || body.Samples[0].TraceID != "" || body.Provider != "loki" ||
+		!strings.Contains(body.Boundary, "不是指令") {
+		t.Fatalf("missing masked sample boundary: %#v %v", body, err)
 	}
 	if identityCalls < 4 || serviceCalls < 3 {
 		t.Fatalf("scope not refreshed for each read: %d/%d", identityCalls, serviceCalls)
@@ -213,7 +217,49 @@ func TestServiceLogsToolReadsBoundedMetadataOnly(t *testing.T) {
 		t.Fatal("wrong provider accepted")
 	}
 	provider.result.Source.Provider = "loki"
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"loki","resource":"registered-checkout"},{"kind":"loki","resource":"other"}]'::jsonb`); err != nil {
+	// Realistic secrets and personal data in a line, a valid trace ID, and
+	// lines over the per-line and total budgets.
+	// Connectors return entries oldest first; the newest line must survive
+	// the total budget.
+	provider.result.Empty = false
+	now := time.Now().UTC()
+	provider.result.Entries = nil
+	for i := 9; i > 0; i-- {
+		provider.result.Entries = append(provider.result.Entries, connectors.LogEntry{Timestamp: now.Add(-time.Duration(i+2) * time.Minute), Level: "info", Line: strings.Repeat("订单处理中", 200)})
+	}
+	provider.result.Entries = append(provider.result.Entries, connectors.LogEntry{Timestamp: now.Add(-2 * time.Minute), Level: "warn", TraceID: "9d2870f771d3eac3a7faeb4db4515e00",
+		Line: `{"level":"warn","msg":"login retry","user":"alice@example.com","hdr":"Authorization: Bearer abcdefghijklmnop1234","peer":"10.1.2.3","order_id":"a9750af711c67497"}` + "\x1b[31m"})
+	masked, err := tool.Read(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = logsToolEvidence{}
+	if err := json.Unmarshal([]byte(masked.Content), &body); err != nil || len(masked.Content) > logsToolMaxContent {
+		t.Fatalf("budget: %d %v", len(masked.Content), err)
+	}
+	first := body.Samples[0]
+	for _, leaked := range []string{"alice@example.com", "abcdefghijklmnop1234", "10.1.2.3", "\x1b"} {
+		if strings.Contains(masked.Content, leaked) {
+			t.Fatalf("unmasked %q reached evidence: %s", leaked, first.Message)
+		}
+	}
+	if first.TraceID != "9d2870f771d3eac3a7faeb4db4515e00" || !strings.Contains(first.Message, "a9750af711c67497") ||
+		!body.Samples[1].Timestamp.Equal(now.Add(-3*time.Minute)) ||
+		body.Redactions["email"] != 1 || body.Redactions["token"] != 1 || body.Redactions["ip"] != 1 || body.SampledCount != 10 ||
+		len(body.Samples) >= 10 || !body.Truncated || !body.Samples[1].Truncated || len([]rune(body.Samples[1].Message)) != logsToolMaxLine {
+		t.Fatalf("masked sample: first=%+v samples=%d truncated=%v redactions=%v", first, len(body.Samples), body.Truncated, body.Redactions)
+	}
+	// An Elasticsearch binding is read through its own provider.
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"checkout-es"}]'::jsonb`); err != nil {
+		t.Fatal(err)
+	}
+	provider.result.Source.Provider, provider.result.Source.ApplicationID = "elasticsearch", "checkout-es"
+	es, err := tool.Read(ctx, input)
+	if err != nil || es.Source != "elasticsearch" || provider.provider != "elasticsearch" || provider.resource != "checkout-es" ||
+		!strings.Contains(es.Content, `"provider":"elasticsearch"`) {
+		t.Fatalf("Elasticsearch binding: %v %+v", err, provider)
+	}
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"loki","resource":"registered-checkout"},{"kind":"elasticsearch","resource":"checkout-es"}]'::jsonb`); err != nil {
 		t.Fatal(err)
 	}
 	prior := provider.calls

@@ -135,3 +135,19 @@ func TestInvestigationEvidenceBoundedAndContextCancellation(t *testing.T) {
 		t.Fatalf("cancelled collection accepted: %v", err)
 	}
 }
+
+// PA-40: masked log samples come from the service's single Loki or
+// Elasticsearch binding; any other source is still rejected.
+func TestInvestigationLogEvidenceSources(t *testing.T) {
+	target := base64.RawURLEncoding.EncodeToString([]byte("app\x00test"))
+	for source, want := range map[string]bool{"loki": true, "elasticsearch": true, "prometheus": false, "https://es.internal": false} {
+		e := inference.Evidence{Kind: "logs", Title: "脱敏日志样本: checkout", Content: `{"status":"masked_sample"}`, Source: source, TargetID: target}
+		if validInvestigationEvidence("read_service_logs", "app", "test", e) != want {
+			t.Fatalf("source %q admitted=%v", source, !want)
+		}
+	}
+	e := inference.Evidence{Kind: "metrics", Title: "m", Content: "{}", Source: "elasticsearch", TargetID: target}
+	if validInvestigationEvidence("read_service_metrics", "app", "test", e) {
+		t.Fatal("elasticsearch accepted for metrics")
+	}
+}

@@ -5,14 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/wans/aiops-canvas/internal/v3metricpanels"
 )
 
 // MetricReader resolves an authorized, exact service/environment Prometheus
@@ -43,46 +42,33 @@ type KPI struct {
 	Series []float64 `json:"series"`
 }
 
+// Metrics is the projection of one reviewed dashboard result. A partial
+// panel set is accepted (PA-41): each field that needs an absent panel is left
+// empty and named in Missing with not_configured. Status and SLO use only the
+// panels they need; nothing absent is replaced with zero.
 type Metrics struct {
-	// Status is the observed SLO burn signal, not a Kubernetes readiness claim.
+	// Status is the observed SLO burn signal, not a Kubernetes readiness
+	// claim. Empty when the 1 h burn or the monthly availability is absent.
 	Status       string
-	Availability string
+	Availability *string
 	Target       string
-	BudgetLeft   float64
-	Burn         []Burn
-	Signals      []KPI
-	CapturedAt   time.Time
-	BindingID    string
-	ConnectorID  string
-	ResourceID   string
+	BudgetLeft   *float64
+	// Burn and Signals contain only the windows and signals that are present.
+	Burn        []Burn
+	Signals     []KPI
+	Missing     map[string]string
+	CapturedAt  time.Time
+	BindingID   string
+	ConnectorID string
+	ResourceID  string
 }
 
-const metricStep = 100
-const metricPoints = 36
-
-// These are the scalar panels needed for both the service card and details.
-// The dashboard query may additionally return its reviewed grouped panels.
-var serviceMetricPanels = map[string]bool{
-	"requests_2xx": true, "requests_4xx": true, "requests_5xx": true,
-	"requests_other": true, "requests_total": true,
-	"latency_p50_ms": true, "latency_p95_ms": true, "latency_p99_ms": true,
-	"connection_wait_p95_ms": true, "cpu_saturation_pct": true,
-	"slo_budget_remaining_pct": true, "slo_month_availability_pct": true,
-	"slo_burn_1h": true, "slo_burn_6h": true, "slo_burn_3d": true,
-}
-
-var serviceGroupedPanels = map[string]string{
-	"latency_heat": "bucket", "endpoint_p99_ms": "endpoint", "instance_wait_p95_ms": "instance",
-}
-
-var serviceHeatBuckets = map[string]bool{
-	">2 s": true, "1 s": true, "500 ms": true, "250 ms": true,
-	"100 ms": true, "50 ms": true, "25 ms": true, "<10 ms": true,
-}
+const metricStep = v3metricpanels.Step
 
 // ReadMetrics does not supply placeholder health or SLO values. A result
 // captured before the window end fails as metric_result_stale; any other
-// incomplete, cross-scope or contradictory result as metric_result_incomplete.
+// malformed, cross-scope or contradictory result as metric_result_incomplete.
+// Absent panels are not an error; they are reported in Metrics.Missing.
 func ReadMetrics(ctx context.Context, reader MetricReader, scope httpapi.V3EnvironmentScope, user core.User,
 	serviceKey, appID, env string, target float64, now time.Time) (Metrics, error) {
 	var zero Metrics
@@ -105,7 +91,7 @@ func ReadMetrics(ctx context.Context, reader MetricReader, scope httpapi.V3Envir
 	if evidence.CapturedAt.Before(end) {
 		return zero, &MetricError{Code: "metric_result_stale"}
 	}
-	panels, ok := serviceMetricSeries(evidence, window)
+	panels, ok := v3metricpanels.Parse(evidence.Series, window)
 	if !ok {
 		return zero, &MetricError{Code: "metric_result_incomplete"}
 	}
@@ -119,115 +105,67 @@ func ReadMetrics(ctx context.Context, reader MetricReader, scope httpapi.V3Envir
 	return projected, nil
 }
 
-func serviceMetricSeries(evidence v3integrations.PrometheusMetricEvidence, window connectors.TimeWindow) (map[string][]float64, bool) {
-	if len(evidence.Series) < len(serviceMetricPanels) || len(evidence.Series) > 64 {
-		return nil, false
+func projectServiceMetrics(p v3metricpanels.Set, target float64, captured time.Time) (Metrics, error) {
+	out := Metrics{Target: fmt.Sprintf("%g%%", target), CapturedAt: captured, Missing: map[string]string{}}
+	rate, errorsPct, requests, consistent := p.Requests()
+	slo := p.SLO(target)
+	// Present panels must agree with each other; a contradiction makes the
+	// whole result untrustworthy rather than partially shown.
+	if !consistent || !slo.Consistent || !p.LatencyOrdered() {
+		return Metrics{}, &MetricError{Code: "metric_result_incomplete"}
 	}
-	panels := make(map[string][]float64, len(serviceMetricPanels))
-	groups := map[string]map[string]bool{}
-	for _, line := range evidence.Series {
-		panel := line.Labels["panel"]
-		groupKey, grouped := serviceGroupedPanels[panel]
-		if !serviceMetricPanels[panel] && !grouped {
-			return nil, false
+	if slo.Availability != nil {
+		availability := fmt.Sprintf("%.3f%%", *slo.Availability)
+		out.Availability = &availability
+	} else {
+		out.Missing["slo.availability"] = reasonNotConfigured
+	}
+	if slo.BudgetLeft != nil {
+		out.BudgetLeft = slo.BudgetLeft
+	} else {
+		out.Missing["slo.budget_left"] = reasonNotConfigured
+	}
+	for _, burn := range []struct {
+		window, key string
+		value       *float64
+	}{{"1 h", "1h", slo.Burn1h}, {"6 h", "6h", slo.Burn6h}, {"3 d", "3d", slo.Burn3d}} {
+		if burn.value == nil {
+			out.Missing["slo.burn."+burn.key] = reasonNotConfigured
+			continue
 		}
-		if len(line.Samples) != metricPoints+1 || (!grouped && len(line.Labels) != 1) ||
-			(grouped && len(line.Labels) != 2) {
-			return nil, false
+		out.Burn = append(out.Burn, serviceBurn(burn.window, *burn.value))
+	}
+	if slo.Burn1h != nil && slo.BudgetLeft != nil {
+		oneHour, budget := *slo.Burn1h, *slo.BudgetLeft
+		out.Status = "ok"
+		if oneHour >= 10 || budget == 0 {
+			out.Status = "danger"
+		} else if oneHour >= 1 || budget < 50 {
+			out.Status = "warn"
 		}
-		if grouped {
-			group := line.Labels[groupKey]
-			if group == "" || len(group) > 100 || strings.TrimSpace(group) != group ||
-				strings.ContainsAny(group, "\r\n\x00") || groups[panel][group] ||
-				(panel == "latency_heat" && !serviceHeatBuckets[group]) {
-				return nil, false
-			}
-			if groups[panel] == nil {
-				groups[panel] = map[string]bool{}
-			}
-			groups[panel][group] = true
-		} else if _, exists := panels[panel]; exists {
-			return nil, false
+	} else {
+		out.Missing["status"] = reasonNotConfigured
+	}
+	last := v3metricpanels.Points - 1
+	signal := func(id, label, unit, sub, format string, series []float64) {
+		out.Signals = append(out.Signals, KPI{ID: id, Label: label, Value: fmt.Sprintf(format, series[last]), Unit: unit, Sub: sub, Series: series})
+	}
+	if requests {
+		signal("rps", "Requests", "/s", "Observed request rate", "%.2f", rate)
+		signal("err", "5xx ratio", "%", "Observed server errors", "%.2f", errorsPct)
+	} else {
+		out.Missing["signals.rps"], out.Missing["signals.err"] = reasonNotConfigured, reasonNotConfigured
+	}
+	for _, s := range []struct{ id, panel, label, unit, sub, format string }{
+		{"p99", v3metricpanels.LatencyP99, "P99 latency", "ms", "Observed latency", "%.1f"},
+		{"wait", v3metricpanels.ConnectionWaitP95, "Connection wait P95", "ms", "Observed wait", "%.1f"},
+		{"cpu", v3metricpanels.CPUSaturation, "CPU saturation", "%", "Observed saturation", "%.1f"},
+	} {
+		if series, ok := p.Plain[s.panel]; ok {
+			signal(s.id, s.label, s.unit, s.sub, s.format, series)
+		} else {
+			out.Missing["signals."+s.id] = reasonNotConfigured
 		}
-		values := make([]float64, metricPoints)
-		for i, sample := range line.Samples {
-			v, err := strconv.ParseFloat(sample.Value, 64)
-			expected := float64(window.Start.Unix() + int64(i*metricStep))
-			if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 ||
-				math.IsNaN(sample.Timestamp) || math.IsInf(sample.Timestamp, 0) ||
-				math.Abs(sample.Timestamp-expected) > 0.5 ||
-				(panel == "cpu_saturation_pct" && v > 100) ||
-				(panel == "slo_month_availability_pct" && v > 100) ||
-				(panel == "slo_budget_remaining_pct" && v > 100) ||
-				(panel == "latency_heat" && v > 1) {
-				return nil, false
-			}
-			if i > 0 {
-				values[i-1] = v
-			}
-		}
-		if !grouped {
-			panels[panel] = values
-		}
-	}
-	if len(panels) != len(serviceMetricPanels) {
-		return nil, false
-	}
-	if len(groups["latency_heat"]) != len(serviceHeatBuckets) ||
-		len(groups["endpoint_p99_ms"]) < 1 || len(groups["endpoint_p99_ms"]) > 12 ||
-		len(groups["instance_wait_p95_ms"]) < 1 || len(groups["instance_wait_p95_ms"]) > 12 {
-		return nil, false
-	}
-	return panels, true
-}
-
-func projectServiceMetrics(p map[string][]float64, target float64, captured time.Time) (Metrics, error) {
-	var out Metrics
-	rate := make([]float64, metricPoints)
-	errorsPct := make([]float64, metricPoints)
-	var requestSum, errorSum float64
-	for i := range rate {
-		if p["latency_p50_ms"][i] > p["latency_p95_ms"][i] ||
-			p["latency_p95_ms"][i] > p["latency_p99_ms"][i] || p["requests_other"][i] != 0 {
-			return out, &MetricError{Code: "metric_result_incomplete"}
-		}
-		rate[i] = p["requests_2xx"][i] + p["requests_4xx"][i] + p["requests_5xx"][i]
-		if rate[i] <= 0 || math.IsInf(rate[i], 0) || math.Abs(rate[i]-p["requests_total"][i]) > 0.001 {
-			return out, &MetricError{Code: "metric_result_incomplete"}
-		}
-		errorsPct[i] = 100 * p["requests_5xx"][i] / rate[i]
-		requestSum += rate[i]
-		errorSum += p["requests_5xx"][i]
-	}
-	last := metricPoints - 1
-	availability := p["slo_month_availability_pct"][last]
-	budget := math.Max(0, math.Min(100, (availability-target)/(100-target)*100))
-	derivedBurn := errorSum / requestSum / (1 - target/100)
-	if math.IsNaN(derivedBurn) || math.IsInf(derivedBurn, 0) ||
-		math.Abs(budget-p["slo_budget_remaining_pct"][last]) > 0.1 ||
-		math.Abs(derivedBurn-p["slo_burn_1h"][last]) > math.Max(0.05, derivedBurn*0.05) {
-		return out, &MetricError{Code: "metric_result_incomplete"}
-	}
-	oneHour := p["slo_burn_1h"][last]
-	status := "ok"
-	if oneHour >= 10 || budget == 0 {
-		status = "danger"
-	} else if oneHour >= 1 || budget < 50 {
-		status = "warn"
-	}
-	out = Metrics{Status: status, Availability: fmt.Sprintf("%.3f%%", availability),
-		Target: fmt.Sprintf("%g%%", target), BudgetLeft: budget, CapturedAt: captured}
-	out.Burn = []Burn{
-		serviceBurn("1 h", oneHour),
-		serviceBurn("6 h", p["slo_burn_6h"][last]),
-		serviceBurn("3 d", p["slo_burn_3d"][last]),
-	}
-	out.Signals = []KPI{
-		{ID: "rps", Label: "Requests", Value: fmt.Sprintf("%.2f", rate[last]), Unit: "/s", Sub: "Observed request rate", Series: rate},
-		{ID: "err", Label: "5xx ratio", Value: fmt.Sprintf("%.2f", errorsPct[last]), Unit: "%", Sub: "Observed server errors", Series: errorsPct},
-		{ID: "p99", Label: "P99 latency", Value: fmt.Sprintf("%.1f", p["latency_p99_ms"][last]), Unit: "ms", Sub: "Observed latency", Series: p["latency_p99_ms"]},
-		{ID: "wait", Label: "Connection wait P95", Value: fmt.Sprintf("%.1f", p["connection_wait_p95_ms"][last]), Unit: "ms", Sub: "Observed wait", Series: p["connection_wait_p95_ms"]},
-		{ID: "cpu", Label: "CPU saturation", Value: fmt.Sprintf("%.1f", p["cpu_saturation_pct"][last]), Unit: "%", Sub: "Observed saturation", Series: p["cpu_saturation_pct"]},
 	}
 	return out, nil
 }

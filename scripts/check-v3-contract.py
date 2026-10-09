@@ -5,7 +5,9 @@ Each table row in the contract holds one method and one path. The SSE stream is
 simulated directly by the frontend and has no mock-route declaration even when
 its backend route is implemented.
 Rows in the "v1.1 页面交互接口" section (status `v1.1·已实现` / `v1.1·待实现`) are
-counted separately and need no mock yet; they must not repeat a v1 row.
+counted separately and need no mock yet; they must not repeat a v1 row. The mock may
+also cover v1.1 rows and the auxiliary endpoints listed in v3-backend-aux.md (pages
+such as /invite use them); any other mock route still fails the check.
 Exit code 1 when the two sides differ.
 """
 import pathlib
@@ -14,6 +16,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOC = ROOT / "docs/api/v3-contract.md"
+AUX = ROOT / "docs/api/v3-backend-aux.md"
 MOCK = ROOT / "web/src/v3/mock"
 
 ROW = re.compile(r"^\| (GET|POST|PUT|PATCH|DELETE) \| `([^`]+)` \|(.*)$")
@@ -60,6 +63,15 @@ def doc_routes() -> tuple[set[str], dict[str, str], list[str]]:
     return routes, v11, problems
 
 
+def aux_routes() -> set[str]:
+    out = set()
+    for line in AUX.read_text().splitlines():
+        m = ROW.match(line)
+        if m:
+            out.add(f"{m.group(1)} {norm(m.group(2).removeprefix('/api/v1'))}")
+    return out
+
+
 def mock_routes() -> set[str]:
     out = set()
     for f in MOCK.rglob("*.ts"):
@@ -71,14 +83,17 @@ def mock_routes() -> set[str]:
 def main() -> int:
     doc, v11, problems = doc_routes()
     mock = mock_routes()
+    allowed_extra = set(v11) | aux_routes()
+    extra = mock - doc
     for p in problems:
         print(p)
-    for r in sorted(mock - doc):
+    for r in sorted(extra - allowed_extra):
         print(f"in mock, missing from contract: {r}")
     for r in sorted(doc - mock):
         print(f"in contract, missing from mock: {r}")
-    ok = not problems and doc == mock
-    print(f"{'OK' if ok else 'MISMATCH'}: {len(doc)} contract rows, {len(mock)} mock routes")
+    ok = not problems and not (extra - allowed_extra) and not (doc - mock)
+    print(f"{'OK' if ok else 'MISMATCH'}: {len(doc)} contract rows, {len(mock & doc)} mocked"
+          f" (+{len(extra & allowed_extra)} v1.1/aux mocks)")
     done = sum(1 for v in v11.values() if v == "已实现")
     print(f"v1.1: {len(v11)} rows outside the mock check ({done} implemented, {len(v11) - done} planned)")
     return 0 if ok else 1

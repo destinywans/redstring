@@ -196,9 +196,29 @@ v3_route('get','/postmortems/draft','Read an evidence-only postmortem starting p
         ['incident','sections','timeline','actions','source_revision','draft_mode',
          'complete_v3_dto','partial','missing']),
     desc='Partial evidence-only operation in one authorized repeatable snapshot. Legacy ops incidents require their investigation report and exact investigation.closed event; a human case requires its persisted resolved status event and may have no investigation. source_revision is the exact source token required for case create; ops also returns the existing source_close_event_seq. Source changes return 409 on save and require re-preview. NoCanvas cases have no fabricated report/timeline or outage duration; impact, root cause and recommendations remain blank or unknown. More than 200 real timeline rows returns 413.')
+P['/postmortems/draft']['get']['responses']['409'] = {
+    'description':'postmortem_exists: the incident already has a postmortem the caller may see; postmortem_id names it (PA-65)',
+    'content':{'application/json':{'schema':obj({'error':obj({'code':string(enum=['postmortem_exists']),'message':string()},['code','message']),
+        'postmortem_id':string()},['error','postmortem_id'])}}}
 P['/postmortems/draft']['get']['responses']['413'] = {
     'description':'Incident evidence timeline exceeds 200 events',
     'content':{'application/json':{'schema':ref('Error')}}}
+S['V3PostmortemDetail'] = obj({'id':string(),'incident_id':string(),
+    'status':string(enum=['draft','review','published']),'revision':integer(minimum=1),
+    'source_revision':string(pattern='^(ops|case):[1-9][0-9]*$'),
+    'sections':arr(ref('V3PostmortemSectionInput')),'actions':arr(ref('V3PostmortemActionInput')),
+    'authored_by_me':v3_bool(),'created_at':string(format='date-time'),'updated_at':string(format='date-time')},
+    ['id','incident_id','status','revision','source_revision','sections','actions','authored_by_me','created_at','updated_at'])
+v3_route('get','/postmortems/{id}','Read one saved postmortem with its content',
+    response=ref('V3PostmortemDetail'),
+    desc='Requires events:view and knowledge:view on the source application or its owner team; a draft or review is visible to its author and knowledge managers only, otherwise 404. Returns the revision as a quoted ETag for PATCH (PA-65).')
+v3_route('patch','/postmortems/{id}','Edit a draft postmortem or submit it for review',
+    body=obj({'sections':arr(ref('V3PostmortemSectionInput')),'actions':arr(ref('V3PostmortemActionInput')),
+        'status':string(enum=['draft','review'])}),
+    response=ref('V3PostmortemDetail'),
+    desc='Requires one selected environment, current events:view plus knowledge:manage on the source, and If-Match with the ETag from GET (428 without it, 412 postmortem_revision_conflict when stale). Only a draft can change (409 invalid_state); omitted fields keep their saved value. status review submits it: every section must have text (422) and the incident must still be resolved by the recorded source event (409 postmortem_source_changed). The edit and an audit row (postmortem.updated or postmortem.submitted) commit together and the response carries the new ETag. Publication remains a second reviewer\'s POST /postmortems/{id}/publish (PA-65).')
+P['/postmortems/{id}']['patch'].setdefault('parameters', []).append(
+    {'name':'If-Match','in':'header','required':True,'schema':string(description='Quoted revision ETag from GET /postmortems/{id}')})
 v3_route('post','/postmortems/{id}/publish','Publish a reviewed postmortem',
     response=obj({'id':string(),'status':string(enum=['published'])},['id','status']),
     desc='Auxiliary human review operation requiring scoped knowledge.manage. The author cannot publish their own report. The saved exact legacy investigation close source or human case resolved status event and current source revision are rechecked under authorization before publication; drift returns 409 and requires refresh. This records review and audit locally without external publication.')

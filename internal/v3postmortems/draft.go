@@ -39,7 +39,20 @@ func (s *Service) Draft(w http.ResponseWriter, r *http.Request) {
  FROM source s WHERE s.incident_id=$1 AND s.status='resolved' AND s.eligible AND s.resolved_at IS NOT NULL
  AND NOT EXISTS(SELECT 1 FROM v3_postmortems pm WHERE pm.incident_id=s.incident_id)`, id).
 		Scan(&kind, &app, &team, &env, &title, &rawSeverity, &summary, &started, &closed, &investigation, &closeSeq, &statusEventID)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && !inScope(scope, env) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		// PA-65: point to the postmortem already saved for this incident.
+		existing, existingErr := s.visibleExistingPostmortem(ctx, tx, r, scope, id)
+		switch {
+		case existingErr == nil:
+			postmortemExists(w, existing)
+		case errors.Is(existingErr, pgx.ErrNoRows), errors.Is(existingErr, store.ErrForbidden):
+			httpapi.Error(w, 404, "not_found", "Incident is not eligible for a postmortem draft")
+		default:
+			httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem evidence is unavailable")
+		}
+		return
+	}
+	if err == nil && !inScope(scope, env) {
 		httpapi.Error(w, 404, "not_found", "Incident is not eligible for a postmortem draft")
 		return
 	}

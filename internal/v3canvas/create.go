@@ -83,6 +83,20 @@ func (s *Service) prepareCreation(ctx context.Context, tx pgx.Tx, token string, 
 			service = mappedService{environmentRow: row, team: team}
 		}
 	}
+	if in.Kind == "investigation" && service.environmentRow == "" {
+		// The application is not active here, so the policy cannot match an
+		// application grant. An environment-wide grantee learns the input is
+		// invalid (PA-35); anyone else keeps the same 403 as for a hidden
+		// service, so the response is no existence oracle.
+		err = policy.AuthorizeWithTx(ctx, tx, user, decision)
+		if errors.Is(err, store.ErrForbidden) {
+			return mappedService{}, &creationFailure{403, "forbidden", "Canvas change permission is required"}
+		}
+		if err != nil {
+			return mappedService{}, creationUnavailable()
+		}
+		return mappedService{}, &creationFailure{422, "invalid_service", "Service is not active in the selected environment"}
+	}
 	if in.Kind == "investigation" {
 		decision.ApplicationID = in.Services[0]
 		err = policy.AuthorizeWithTx(ctx, tx, user, decision)

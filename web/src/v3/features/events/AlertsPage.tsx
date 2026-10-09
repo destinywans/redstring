@@ -3,7 +3,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { useQueryClient } from "@tanstack/react-query";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import type { AlertGroup, AlertGroupPolicy } from "../../api/types";
+import type { AlertGroup, AlertGroupPolicy, ServiceCatalog } from "../../api/types";
+import { serviceParts } from "../../api/ids";
+import { UnknownValue } from "../../ui/unknown";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, IconBtn, Kbd, LabelChip, Muted, Pills, Row, SearchBox, Section, Sev, Skeleton, Spacer, State, Strong, Tile, Toggle, Bar, cx, type Tone } from "../../ui/core";
 import { toast, Tooltip } from "../../ui/overlays";
 import { DataTable } from "../../ui/data";
@@ -25,7 +27,7 @@ export default function AlertsPage() {
   const [state, setState] = useState<"firing" | "pending" | "silenced" | "resolved">("firing");
   const [q, setQ] = useState("");
   const [showInhibited, setShowInhibited] = useState(true);
-  const { data, isLoading } = useGet<{ items: AlertGroup[]; counts: Record<string, number> }>("/alert-groups", { state, q, show_inhibited: showInhibited });
+  const { data, isLoading } = useGet<{ items: AlertGroup[]; counts: Record<string, number | null> }>("/alert-groups", { state, q, show_inhibited: showInhibited });
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [focus, setFocus] = useState("");
@@ -34,6 +36,15 @@ export default function AlertsPage() {
     if (focus) setOpen((o) => (o.size ? o : new Set([focus])));
   }, [focus]);
   const policy = useGet<AlertGroupPolicy>(focus ? `/alert-groups/${focus}/policy` : null);
+  // Real groups name the application ID; show the catalog service (name, peek ID) for the same application and environment.
+  const { data: catalog } = useGet<ServiceCatalog>(API_MODE === "mock" ? null : "/services", undefined, { staleTime: 5 * 60_000 });
+  const svcOf = (g: AlertGroup) => {
+    const hit = catalog?.items.find((x) => {
+      const parts = serviceParts(x.id);
+      return parts?.application === g.service && (!g.environment_id || parts.environment === g.environment_id);
+    });
+    return hit ? { id: hit.id, name: hit.name } : { id: g.service, name: g.service };
+  };
   const STATE: Record<AlertGroup["state"], [Tone, string]> = {
     firing: ["danger", tx("触发中", "Firing")],
     pending: ["warn", tx("待定", "Pending")],
@@ -113,9 +124,9 @@ export default function AlertsPage() {
                 value={state}
                 onChange={setState}
                 options={[
-                  { value: "firing", label: tx("触发中", "Firing"), count: data?.counts.firing },
-                  { value: "pending", label: tx("待定", "Pending"), count: data?.counts.pending },
-                  { value: "silenced", label: tx("已静默", "Silenced"), count: data?.counts.silenced },
+                  { value: "firing", label: tx("触发中", "Firing"), count: data?.counts.firing ?? undefined },
+                  { value: "pending", label: tx("待定", "Pending"), count: data?.counts.pending ?? undefined },
+                  { value: "silenced", label: tx("已静默", "Silenced"), count: data?.counts.silenced ?? undefined },
                   { value: "resolved", label: tx("已恢复", "Resolved") },
                 ]}
               />
@@ -156,10 +167,10 @@ export default function AlertsPage() {
                       <input type="checkbox" aria-label={tx("选择", "Select")} checked={checked.has(g.id)} onChange={() => setChecked((c) => toggle(c, g.id))} onClick={(e) => e.stopPropagation()} />
                       <IconBtn icon={expanded ? "down" : "right"} label={expanded ? tx("收起", "Collapse") : tx("展开", "Expand")} size={22} onClick={() => setOpen((o) => toggle(o, g.id))} />
                       <Sev p={g.severity} />
-                      <ServicePeekLink id={g.service}>
-                        <LabelChip k="service" v={g.service} />
+                      <ServicePeekLink id={svcOf(g).id}>
+                        <LabelChip k="service" v={svcOf(g).name} />
                       </ServicePeekLink>
-                      {g.labels.filter((l) => l.k !== "service").map((l) => (
+                      {g.labels.filter((l) => l.k !== "service" && l.k !== "application_id").map((l) => (
                         <LabelChip key={l.k} k={l.k} v={l.v} />
                       ))}
                       <Badge>{tx("{n} 条", "{n}", { n: g.count })}</Badge>
@@ -172,7 +183,7 @@ export default function AlertsPage() {
                         </Badge>
                       ))}
                       <Spacer />
-                      <span className="since muted" style={{ fontSize: "var(--fs-sub)" }}>{g.since}</span>
+                      <span className="since muted" style={{ fontSize: "var(--fs-sub)" }}>{/^\d{4}-\d{2}-\d{2}T/.test(g.since) ? new Date(g.since).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : g.since}</span>
                       <Row gap={4}>
                         {g.notify.channel && <Brand name={g.notify.channel} size={20} />}
                         <Muted size={11.5}>{g.notify.text}</Muted>
@@ -305,6 +316,7 @@ export default function AlertsPage() {
                 ))}
               </Section>
               <Section title={tx("通知时间线", "Notification timeline")}>
+                {!policy.data.timeline.length && <Muted size={11.5}>{tx("平台还没有发出过这一组的通知；外部通知记录暂缺。", "The platform hasn't sent notifications for this group; external notification history isn't available.")}</Muted>}
                 {policy.data.timeline.map((n) => (
                   <Row key={n.time} gap={8}>
                     <Muted size={11.5}>{n.time}</Muted>
@@ -312,16 +324,20 @@ export default function AlertsPage() {
                     <span className="grow" style={{ fontSize: "var(--fs-sub)" }}>
                       {n.text}
                     </span>
-                    <Icon name={n.done ? "check" : "clock"} size={13} color={n.done ? "var(--ok)" : "var(--muted)"} />
+                    {n.done === undefined || n.done === null ? <UnknownValue reason="unavailable" /> : <Icon name={n.done ? "check" : "clock"} size={13} color={n.done ? "var(--ok)" : "var(--muted)"} />}
                   </Row>
                 ))}
               </Section>
               <Section title={tx("抑制与延迟", "Inhibition & delay")}>
-                {policy.data.inhibition.map((t) => (
-                  <p key={t} style={{ fontSize: "var(--fs-sub)" }}>
-                    {t}
-                  </p>
-                ))}
+                {policy.data.inhibition === null ? (
+                  <Muted size={11.5}>{tx("抑制状态", "Inhibition")} <UnknownValue reason="unavailable" source="Alertmanager" /></Muted>
+                ) : (
+                  policy.data.inhibition.map((t) => (
+                    <p key={t} style={{ fontSize: "var(--fs-sub)" }}>
+                      {t}
+                    </p>
+                  ))
+                )}
                 <Btn kind="ghost" to="/silences" iconRight="right" style={{ alignSelf: "flex-start" }}>
                   {tx("抑制规则", "Inhibition rules")}
                 </Btn>

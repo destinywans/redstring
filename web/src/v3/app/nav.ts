@@ -1,5 +1,6 @@
 import type { IconName } from "../ui/core";
 import { l, type L } from "../i18n";
+import { API_MODE } from "../api/client";
 
 export type NavChild = { id: string; label: L; to: string; match?: string[] };
 export type NavItem = { id: string; label: L; icon: IconName; to: string; count?: number; children: NavChild[] };
@@ -22,7 +23,8 @@ export const NAV: NavItem[] = [
     label: l("事件与告警", "Events & alerts"),
     icon: "bell",
     to: "/inbox",
-    count: 4,
+    // The sample badge only; real mode has no unread count source for the sidebar yet.
+    count: API_MODE === "mock" ? 4 : undefined,
     children: [
       { id: "inbox", label: l("收件箱", "Inbox"), to: "/inbox" },
       { id: "incidents", label: l("事件", "Incidents"), to: "/incidents" },

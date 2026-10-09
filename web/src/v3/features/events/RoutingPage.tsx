@@ -1,14 +1,15 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Page } from "../../app/Shell";
-import { API_MODE, api, useGet } from "../../api/client";
-import type { RouteNode } from "../../api/types";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
+import { toast } from "../../ui/overlays";
+import type { RouteNode, RouteNodeRead } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, Input, LabelChip, Muted, Row, Section, Skeleton, Spacer, Strong, Tabs, Tile, Toggle, cx } from "../../ui/core";
 import { useI18n } from "../../i18n";
 import { useCreateParam } from "../../ui/forms";
 import { NewRouteDrawer } from "./CreateDrawers";
 import "./events.css";
 import { AddChip, SampleOnly } from "../../ui/demo";
-import { Unavailable } from "../../ui/unknown";
+import { PartialBanner, Unavailable, UnknownValue } from "../../ui/unknown";
 
 const CH_ICON: Record<string, string> = { feishu: "feishu", dingtalk: "dingtalk", slack: "slack" };
 
@@ -21,6 +22,21 @@ function Receiver({ r }: { r: RouteNode["receivers"][number] }) {
   );
 }
 
+/** Real nodes carry redacted matcher values and opaque receiver refs; map them onto the page's node shape. */
+function normalizeRoute(n: RouteNode | RouteNodeRead): RouteNode {
+  if ("receivers" in n) return n;
+  return {
+    id: n.id,
+    title: n.title,
+    matchers: n.matchers.map((m) => ({ k: m.k, op: m.op, v: m.value_redacted ? "•••" : m.value ?? "", redacted: m.value_redacted })),
+    receivers: n.receiver_refs.map((r) => ({ channel: "", target: r })),
+    timing: [n.group_wait, n.group_interval, n.repeat_interval],
+    hits: null,
+    continue: n.continue,
+    children: (n.children ?? []).map(normalizeRoute),
+  };
+}
+
 function Tree({ n, sel, onSel, depth = 0 }: { n: RouteNode; sel: string; onSel: (n: RouteNode) => void; depth?: number }) {
   const { tx } = useI18n();
   return (
@@ -30,11 +46,11 @@ function Tree({ n, sel, onSel, depth = 0 }: { n: RouteNode; sel: string; onSel: 
           <b style={{ fontSize: "var(--fs-sm)" }}>{n.title}</b>
           {n.continue && <Badge tone="accent">{tx("继续匹配", "Continue")}</Badge>}
           <Spacer />
-          <Muted size={11.5}>{tx("近 24h 命中 {n}", "{n} hits / 24h", { n: n.hits })}</Muted>
+          {n.hits === null ? <Muted size={11.5}>{tx("近 24h 命中", "Hits / 24h")} <UnknownValue reason="not_generated" /></Muted> : <Muted size={11.5}>{tx("近 24h 命中 {n}", "{n} hits / 24h", { n: n.hits })}</Muted>}
         </Row>
         <Row gap={5} wrap>
-          {n.matchers.map((m) => (
-            <LabelChip key={m.k + m.v} k={m.k} v={m.v} />
+          {n.matchers.map((m, i) => (
+            <LabelChip key={m.k + m.v + i} k={m.op && m.op !== "=" ? `${m.k} ${m.op}` : m.k} v={m.v} />
           ))}
         </Row>
         <Row gap={5}>
@@ -62,12 +78,35 @@ export default function RoutingPage() {
   const [creating, setCreating] = useCreateParam("route");
   const [tab, setTab] = useState("tree");
   // root is null (root_unavailable: not_configured) when no route branch matches this environment exactly.
-  const { data, error } = useGet<{ root: RouteNode | null; root_unavailable?: "not_configured" | null; config_revision?: string | null }>("/notification-routes");
+  const { data, error } = useGet<{ root: RouteNode | RouteNodeRead | null; root_unavailable?: "not_configured" | null; config_revision?: string | null; partial?: boolean; unavailable?: string[] }>("/notification-routes");
+  const root = useMemo(() => (data?.root ? normalizeRoute(data.root) : null), [data]);
   const [sel, setSel] = useState<RouteNode | null>(null);
   const [labels, setLabels] = useState(API_MODE === "mock" ? "service=checkout-api, env=prod, team=trade, severity=P1" : "");
-  const [result, setResult] = useState<{ path: string[]; receivers: string } | null>(null);
-  const cur = sel ?? data?.root?.children[0]?.children[0];
-  const test = async () => setResult(await api("POST", "/notification-routes/test", { body: { labels } }));
+  const [result, setResult] = useState<{ path: string[]; receivers: string } | { paths: { node_ids: string[]; receiver_refs: string[] }[] } | null>(null);
+  const cur = sel ?? root?.children[0]?.children[0] ?? root?.children[0] ?? root ?? undefined;
+  const titleOf = (id: string) => {
+    const walk = (n: RouteNode): string | null => (n.id === id ? n.title : n.children.map(walk).find(Boolean) ?? null);
+    return (root && walk(root)) ?? id;
+  };
+  const test = async () => {
+    if (API_MODE === "mock") return setResult(await api("POST", "/notification-routes/test", { body: { labels } }));
+    // The real test takes a label object ("k=v, k2=v2" here) and needs an application label.
+    const obj = Object.fromEntries(
+      labels
+        .split(/[,\n]/)
+        .map((x) => x.trim())
+        .filter(Boolean)
+        .map((x) => [x.slice(0, x.indexOf("=")).trim(), x.slice(x.indexOf("=") + 1).trim()])
+        .filter(([k]) => k),
+    );
+    if (!obj.application) return toast(tx("测试需要 application=应用名 这个标签", "The test needs an application=<name> label"), { tone: "danger" });
+    try {
+      setResult(await api("POST", "/notification-routes/test", { body: { labels: obj } }));
+    } catch (e) {
+      setResult(null);
+      toast(e instanceof ApiError ? e.message : tx("测试失败，请稍后重试", "The test failed; try again later"), { tone: "danger" });
+    }
+  };
   return (
     <Page flush error={!data ? error : undefined} errorSource="Alertmanager" crumbs={[tx("事件与告警", "Events"), tx("通知与路由", "Routing")]} actions={<Btn kind="primary" icon="plus" onClick={() => setCreating(true)}>{tx("新建路由", "New route")}</Btn>}>
       <NewRouteDrawer open={creating} onClose={() => setCreating(false)} />
@@ -76,15 +115,22 @@ export default function RoutingPage() {
         <div className="main">
           <div className="v3-content">
             {tab !== "tree" ? (
-              <RoutingTab tab={tab} root={data?.root ?? undefined} />
+              <RoutingTab tab={tab} root={root ?? undefined} />
             ) : !data ? (
               <Skeleton h={400} />
-            ) : !data.root ? (
+            ) : !root ? (
               <Card>
                 <Unavailable reason={data.root_unavailable ?? "not_configured"} source={tx("这个环境的通知路由", "routing for this environment")} title={tx("这个环境还没有通知路由", "No routing for this environment")} desc={tx("Alertmanager 的路由树里没有只匹配这个环境的分支，所以这里不显示也不能编辑。", "Alertmanager's routing tree has no branch that matches exactly this environment, so nothing is shown or editable here.")} icon="bell" />
               </Card>
             ) : (
-              <Tree n={data.root} sel={cur?.id ?? ""} onSel={setSel} />
+              <>
+                {data.partial && !!data.unavailable?.length && (
+                  <PartialBanner fields={[]}>
+                    {tx("路由树只显示结构：匹配值和接收方名称已隐藏，命中次数、值班和升级暂缺。", "Only the tree's structure is shown: matcher values and receiver names are hidden; hits, on-call and escalation are missing.")}
+                  </PartialBanner>
+                )}
+                <Tree n={root} sel={cur?.id ?? ""} onSel={setSel} />
+              </>
             )}
             <Card style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
               <Row gap={8}>
@@ -93,12 +139,32 @@ export default function RoutingPage() {
                 <Muted size={11.5}>{tx("输入一组标签，看会命中哪条路由", "Enter labels to see which route matches")}</Muted>
               </Row>
               <form className="v3-row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); void test(); }}>
-                <Input mono value={labels} onChange={(e) => setLabels(e.target.value)} width="min(560px, 100%)" aria-label={tx("标签", "Labels")} />
-                <Btn h={32} type="submit" onClick={test}>
+                <Input mono value={labels} onChange={(e) => setLabels(e.target.value)} width="min(560px, 100%)" aria-label={tx("标签", "Labels")} placeholder="application=checkout-api, severity=P1" />
+                <Btn h={32} type="submit">
                   {tx("测试", "Test")}
                 </Btn>
               </form>
-              {result && (
+              {result && "paths" in result && (
+                <Col gap={4} className="anim-rise">
+                  {result.paths.length ? (
+                    result.paths.map((leaf, j) => (
+                      <Row key={j} gap={6} wrap>
+                        <Icon name="check" size={14} color="var(--ok)" />
+                        {leaf.node_ids.map((id, i) => (
+                          <Row key={id} gap={6}>
+                            {i > 0 && <Icon name="right" size={12} color="var(--faint)" />}
+                            <Badge tone={i === leaf.node_ids.length - 1 ? "accent" : "neutral"}>{titleOf(id)}</Badge>
+                          </Row>
+                        ))}
+                        <Muted size={11.5}>→ {leaf.receiver_refs.join(", ")}</Muted>
+                      </Row>
+                    ))
+                  ) : (
+                    <Muted size={11.5}>{tx("没有命中任何路由", "No route matched")}</Muted>
+                  )}
+                </Col>
+              )}
+              {result && "path" in result && (
                 <Row gap={6} wrap className="anim-rise">
                   <Icon name="check" size={14} color="var(--ok)" />
                   {result.path.map((p, i) => (

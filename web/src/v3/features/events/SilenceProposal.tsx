@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, useGet } from "../../api/client";
-import type { InvestigationRecord, ServiceCatalog } from "../../api/types";
+import type { CanvasSummary, ServiceCatalog } from "../../api/types";
 import { Badge, Btn, Col, Icon, IconBtn, Input, Muted, Row, Section, Segmented, Spacer, Textarea, Tile } from "../../ui/core";
 import { Dialog, Drawer, toast } from "../../ui/overlays";
 import { ChipSelect } from "../../ui/demo";
@@ -11,9 +11,13 @@ import { useI18n } from "../../i18n";
 import { serviceApplicationId } from "../../api/ids";
 
 
-/** Open investigations (status not closed) with the application key the alert labels use (the service name). */
+/**
+ * Open investigations with the application key the alert labels use (the service name). GET /investigations isn't
+ * implemented in V3, so they come from the investigation canvases (GET /canvases?filter=investigation), whose
+ * services are application IDs.
+ */
 export function useOpenInvestigations(enabled: boolean) {
-  const inv = useGet<{ items: InvestigationRecord[] }>(enabled ? "/investigations" : null, undefined, { staleTime: 15_000 });
+  const inv = useGet<{ items: CanvasSummary[] }>(enabled ? "/canvases" : null, { filter: "investigation" }, { staleTime: 15_000 });
   const svc = useGet<ServiceCatalog>(enabled ? "/services" : null, undefined, { staleTime: 5 * 60_000 });
   const items = useMemo(() => {
     const appKey = new Map<string, string>();
@@ -21,7 +25,12 @@ export function useOpenInvestigations(enabled: boolean) {
       const app = serviceApplicationId(s.id);
       if (app) appKey.set(app, s.name);
     }
-    return (inv.data?.items ?? []).filter((i) => i.status !== "closed").map((i) => ({ ...i, appKey: i.application_id ? appKey.get(i.application_id) ?? null : null }));
+    return (inv.data?.items ?? [])
+      .filter((c) => c.kind === "investigation" && !!c.investigation_id && !["done", "resolved", "closed"].includes(c.status))
+      .map((c) => {
+        const app = c.services[0];
+        return { id: c.investigation_id!, title: c.title, application_id: app, appKey: app ? appKey.get(app) ?? null : null };
+      });
   }, [inv.data, svc.data]);
   return { items, loading: inv.isLoading, error: inv.error };
 }
@@ -161,8 +170,8 @@ export function SilenceProposalDrawer({ open, onClose, onSubmitted }: { open: bo
             )}
             <Row gap={6}>
               <Icon name="lock" size={12} color="var(--faint)" />
-              <Badge mono>environment</Badge>
-              <Muted size={11.5}>{tx("服务端按当前环境补上", "Added by the server for this environment")}</Muted>
+              {/* The server adds its own configured environment label; the page doesn't guess its name. */}
+              <Muted size={11.5}>{tx("环境匹配条件由服务端按当前环境补上", "The server adds the environment matcher for this environment")}</Muted>
             </Row>
             {extra.map((m, i) => (
               <Row key={i} gap={6}>

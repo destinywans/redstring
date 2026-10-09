@@ -212,9 +212,6 @@ export type WritebackPreview = {
   budget: { before: number; after: number; limit: number };
 };
 
-/** GET /investigations item (persisted investigation); open means status is not "closed". */
-export type InvestigationRecord = { id: string; application_id?: string; environment_id?: string; title?: string; status?: string; created_at?: string; updated_at?: string };
-
 /* ---------------- investigation templates ---------------- */
 export type InvestigationTemplate = {
   id: string;
@@ -331,15 +328,30 @@ export type AlertRule = AlertRuleSummary & {
   ai_triage: { enabled: boolean; template: string };
   last_eval: string;
 };
+/** Page shape of a route node (sample data uses it directly; the real tree is normalized into it). hits null = unknown. */
 export type RouteNode = {
   id: string;
   title: string;
-  matchers: { k: string; v: string }[];
+  matchers: { k: string; v: string; op?: string; redacted?: boolean }[];
   receivers: { channel: string; target: string }[];
   timing: [string, string, string];
-  hits: number;
+  hits: number | null;
   continue?: boolean;
   children: RouteNode[];
+};
+/** GET /notification-routes node: matcher values and receiver names are redacted to opaque refs. */
+export type RouteNodeRead = {
+  id: string;
+  title: string;
+  matchers: { k: string; op: string; value_redacted: boolean; value?: string }[];
+  receiver_refs: string[];
+  group_by: string[];
+  group_wait: string;
+  group_interval: string;
+  repeat_interval: string;
+  continue: boolean;
+  conditional: boolean;
+  children?: RouteNodeRead[];
 };
 /** starts_at / ends_at are RFC 3339 (render the window from them); remaining.pct is the remaining share. */
 export type Silence = { id: string; matchers: { k: string; v: string }[]; state: "active" | "planned" | "expired"; window: string; starts_at?: string; ends_at?: string; remaining?: { pct: number; text: string }; affects: number; creator: string; reason: string };

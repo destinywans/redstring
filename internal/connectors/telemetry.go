@@ -215,28 +215,8 @@ func NewTelemetry(config TelemetryConfig) (*Telemetry, error) {
 		if strings.TrimSpace(app) == "" {
 			return nil, errors.New("empty telemetry application ID")
 		}
-		for id, q := range a.PrometheusQueries {
-			if strings.TrimSpace(id) == "" || strings.TrimSpace(q) == "" || len(q) > 16384 {
-				return nil, fmt.Errorf("invalid registered Prometheus query for %s", app)
-			}
-		}
-		for key, value := range a.LokiLabels {
-			if !telemetryLabelName.MatchString(key) || value == "" || len(value) > 1024 {
-				return nil, fmt.Errorf("invalid Loki scope for %s", app)
-			}
-		}
-		if a.LokiPatternField != "" && a.LokiPatternField != "message_template" ||
-			a.LokiCompleteLookbackSeconds < 0 || a.LokiCompleteLookbackSeconds > 366*86400 ||
-			a.LokiPatternField != "" && a.LokiCompleteLookbackSeconds == 0 {
-			return nil, fmt.Errorf("invalid registered Loki pattern source for %s", app)
-		}
-		if len(a.TempoSafeOperations) > 100 {
-			return nil, fmt.Errorf("too many reviewed Tempo operations for %s", app)
-		}
-		for _, operation := range a.TempoSafeOperations {
-			if !safeTraceOperationConfig.MatchString(operation) || strings.Contains(operation, "//") {
-				return nil, fmt.Errorf("invalid reviewed Tempo operation for %s", app)
-			}
+		if e = validateApplicationScope(app, a); e != nil {
+			return nil, e
 		}
 	}
 	t := &Telemetry{config: c, now: time.Now}
@@ -272,6 +252,53 @@ func NewTelemetry(config TelemetryConfig) (*Telemetry, error) {
 	}
 	return t, nil
 }
+
+// validateApplicationScope checks one registered resource's scope fields.
+// The V3 source catalog (PA-19) applies the same rules to its scopes.
+func validateApplicationScope(app string, a ApplicationTelemetry) error {
+	for id, q := range a.PrometheusQueries {
+		if strings.TrimSpace(id) == "" || strings.TrimSpace(q) == "" || len(q) > 16384 {
+			return fmt.Errorf("invalid registered Prometheus query for %s", app)
+		}
+	}
+	for key, value := range a.LokiLabels {
+		if !telemetryLabelName.MatchString(key) || value == "" || len(value) > 1024 {
+			return fmt.Errorf("invalid Loki scope for %s", app)
+		}
+	}
+	if a.LokiPatternField != "" && a.LokiPatternField != "message_template" ||
+		a.LokiCompleteLookbackSeconds < 0 || a.LokiCompleteLookbackSeconds > 366*86400 ||
+		a.LokiPatternField != "" && a.LokiCompleteLookbackSeconds == 0 {
+		return fmt.Errorf("invalid registered Loki pattern source for %s", app)
+	}
+	if len(a.TempoSafeOperations) > 100 {
+		return fmt.Errorf("too many reviewed Tempo operations for %s", app)
+	}
+	for _, operation := range a.TempoSafeOperations {
+		if !safeTraceOperationConfig.MatchString(operation) || strings.Contains(operation, "//") {
+			return fmt.Errorf("invalid reviewed Tempo operation for %s", app)
+		}
+	}
+	return validateExtendedTelemetry(TelemetryConfig{Applications: map[string]ApplicationTelemetry{app: a}})
+}
+
+// ValidateApplicationScope applies the registration rules of one resource.
+func ValidateApplicationScope(a ApplicationTelemetry) error {
+	return validateApplicationScope("scope", a)
+}
+
+// Registration returns a deep copy of the loaded registration, including the
+// defaulted limits. It holds credential file paths but never their contents.
+func (t *Telemetry) Registration() TelemetryConfig {
+	var c TelemetryConfig
+	if t == nil {
+		return c
+	}
+	b, _ := json.Marshal(t.config)
+	_ = json.Unmarshal(b, &c)
+	return c
+}
+
 func newTelemetryClient(c TelemetryEndpoint, timeout int) (*telemetryClient, error) {
 	u, e := url.Parse(c.URL)
 	if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(c.AllowHTTP && u.Scheme == "http")) {

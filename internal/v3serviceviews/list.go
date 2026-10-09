@@ -92,7 +92,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		return false
 	})
 	w.Header().Set("Cache-Control", "no-store")
-	httpapi.WriteJSON(w, 200, buildCatalog(items, f, now))
+	httpapi.WriteJSON(w, 200, buildCatalog(items, f, now, textFor(r.Header.Get("Accept-Language"))))
 }
 
 // nullsLast orders known values by less and puts unknown values after them.
@@ -141,7 +141,7 @@ func (t tally) kpi(id, label, tone string, total int) catalogKPI {
 	return out
 }
 
-func buildCatalog(items []summary, f filters, now time.Time) catalog {
+func buildCatalog(items []summary, f filters, now time.Time, t text) catalog {
 	out := catalog{Items: items, KPIs: []catalogKPI{}, Facets: []facet{}}
 	var degraded, alerting, lowBudget, weekly tally
 	counts := map[string]map[string]int{"team": {}, "tier": {}, "status": {}, "env": {}}
@@ -161,14 +161,14 @@ func buildCatalog(items []summary, f filters, now time.Time) catalog {
 	}
 	n := strconv.Itoa(len(items))
 	out.KPIs = []catalogKPI{
-		{ID: "n", Label: "Services", Value: &n, Series: []float64{}},
-		degraded.kpi("bad", "Degraded", "danger", len(items)),
-		alerting.kpi("warn", "Alerting", "warn", len(items)),
-		lowBudget.kpi("budget", "Budget < 50%", "warn", len(items)),
-		weekly.kpi("rel", "Releases this week", "", len(items)),
+		{ID: "n", Label: t.kpi("n"), Value: &n, Series: []float64{}},
+		degraded.kpi("bad", t.kpi("bad"), "danger", len(items)),
+		alerting.kpi("warn", t.kpi("warn"), "warn", len(items)),
+		lowBudget.kpi("budget", t.kpi("budget"), "warn", len(items)),
+		weekly.kpi("rel", t.kpi("rel"), "", len(items)),
 	}
-	for _, spec := range []struct{ key, title, selected string }{{"team", "Team", f.team}, {"tier", "Tier", f.tier}, {"status", "Status", f.status}, {"env", "Environment", ""}} {
-		group := facet{Key: spec.key, Title: spec.title, Items: []facetItem{}}
+	for _, spec := range []struct{ key, selected string }{{"team", f.team}, {"tier", f.tier}, {"status", f.status}, {"env", ""}} {
+		group := facet{Key: spec.key, Title: t.facet(spec.key), Items: []facetItem{}}
 		labels := make([]string, 0, len(counts[spec.key]))
 		for label := range counts[spec.key] {
 			labels = append(labels, label)

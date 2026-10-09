@@ -1,0 +1,261 @@
+{
+  "version": 1,
+  "tier": "production",
+  "environments": [
+    "prod"
+  ],
+  "digest": "69dc44419dd4c453365517118ab782dfe40fd74aa2a2545faba4c5495ad93859",
+  "summary": {
+    "bindings": 13,
+    "imported": 5,
+    "deferred": 2,
+    "conflicts": 6,
+    "connectors_created": 2,
+    "targets_created": 3,
+    "catalog_entries_added": 6
+  },
+  "connectors": [
+    {
+      "action": "create",
+      "id": "cc5a57c2efcab631ac3fe1c0674fbb45",
+      "environment_id": "prod",
+      "provider": "loki",
+      "name": "Loki",
+      "category": "observe",
+      "endpoint": "http://127.0.0.1:13100",
+      "auth_method": "none",
+      "tools": [
+        "search_logs"
+      ]
+    },
+    {
+      "action": "reuse",
+      "id": "c9ea436d7e4f3b8be53212ce3e197292",
+      "environment_id": "prod",
+      "provider": "prometheus",
+      "endpoint": "http://127.0.0.1:19090",
+      "auth_method": "none"
+    },
+    {
+      "action": "create",
+      "id": "7399f2e9b432e4ca50760a2dd61646fb",
+      "environment_id": "prod",
+      "provider": "tempo",
+      "name": "Tempo",
+      "category": "observe",
+      "endpoint": "http://127.0.0.1:13200",
+      "auth_method": "none",
+      "tools": [
+        "query_traces"
+      ]
+    }
+  ],
+  "targets": [
+    {
+      "action": "create",
+      "id": "1af5df4ac1ce1b5ea76d1c7f961c88cf",
+      "application_id": "app-lab-checkout",
+      "environment_id": "prod",
+      "connector_id": "cc5a57c2efcab631ac3fe1c0674fbb45",
+      "target_kind": "log_stream",
+      "external_id": "lab-checkout",
+      "legacy_resource": "lab-checkout"
+    },
+    {
+      "action": "reuse",
+      "id": "target-checkout-metrics",
+      "application_id": "app-lab-checkout",
+      "environment_id": "prod",
+      "connector_id": "c9ea436d7e4f3b8be53212ce3e197292",
+      "target_kind": "metric_resource",
+      "external_id": "lab-checkout-api",
+      "legacy_resource": "lab-checkout"
+    },
+    {
+      "action": "create",
+      "id": "1d8efc88fcb770e1dfefd0d1eb611157",
+      "application_id": "app-lab-checkout",
+      "environment_id": "prod",
+      "connector_id": "7399f2e9b432e4ca50760a2dd61646fb",
+      "target_kind": "trace_service",
+      "external_id": "lab-checkout",
+      "legacy_resource": "lab-checkout"
+    },
+    {
+      "action": "reuse",
+      "id": "target-order-metrics",
+      "application_id": "app-lab-order",
+      "environment_id": "prod",
+      "connector_id": "c9ea436d7e4f3b8be53212ce3e197292",
+      "target_kind": "metric_resource",
+      "external_id": "lab-order-api",
+      "legacy_resource": "lab-order"
+    },
+    {
+      "action": "create",
+      "id": "53375b51343f200ea251682c61a1b7f9",
+      "application_id": "app-lab-order",
+      "environment_id": "prod",
+      "connector_id": "7399f2e9b432e4ca50760a2dd61646fb",
+      "target_kind": "trace_service",
+      "external_id": "lab-order",
+      "legacy_resource": "lab-order"
+    }
+  ],
+  "credential_bindings": [],
+  "catalog": {
+    "queries": [
+      {
+        "connector_id": "c9ea436d7e4f3b8be53212ce3e197292",
+        "application_id": "app-lab-checkout",
+        "environment_id": "prod",
+        "resource_id": "lab-checkout-api",
+        "query_id": "dashboard",
+        "expression": "label_replace(sum(rate(lab_http_requests_total{application=\"app-lab-checkout\"}[100s])),\"panel\",\"requests_total\",\"\",\"\")"
+      },
+      {
+        "connector_id": "c9ea436d7e4f3b8be53212ce3e197292",
+        "application_id": "app-lab-checkout",
+        "environment_id": "prod",
+        "resource_id": "lab-checkout-api",
+        "query_id": "error_ratio",
+        "expression": "sum(rate(lab_http_requests_total{application=\"checkout\",status=~\"5..\"}[5m])) / sum(rate(lab_http_requests_total{application=\"checkout\"}[5m]))"
+      },
+      {
+        "connector_id": "c9ea436d7e4f3b8be53212ce3e197292",
+        "application_id": "app-lab-checkout",
+        "environment_id": "prod",
+        "resource_id": "lab-checkout-api",
+        "query_id": "request_rate",
+        "expression": "sum(rate(lab_http_requests_total{application=\"checkout\"}[5m]))"
+      },
+      {
+        "connector_id": "c9ea436d7e4f3b8be53212ce3e197292",
+        "application_id": "app-lab-order",
+        "environment_id": "prod",
+        "resource_id": "lab-order-api",
+        "query_id": "dashboard",
+        "expression": "label_replace(sum(rate(lab_http_requests_total{application=\"app-lab-order\"}[100s])),\"panel\",\"requests_total\",\"\",\"\")"
+      },
+      {
+        "connector_id": "c9ea436d7e4f3b8be53212ce3e197292",
+        "application_id": "app-lab-order",
+        "environment_id": "prod",
+        "resource_id": "lab-order-api",
+        "query_id": "request_rate",
+        "expression": "sum(rate(lab_http_requests_total{application=\"order\"}[5m]))"
+      }
+    ],
+    "scopes": [
+      {
+        "connector_id": "7399f2e9b432e4ca50760a2dd61646fb",
+        "application_id": "app-lab-checkout",
+        "environment_id": "prod",
+        "resource_id": "lab-checkout",
+        "provider": "tempo",
+        "tempo_service": "checkout",
+        "tempo_attributes": {
+          "deployment.environment": "lab"
+        }
+      },
+      {
+        "connector_id": "cc5a57c2efcab631ac3fe1c0674fbb45",
+        "application_id": "app-lab-checkout",
+        "environment_id": "prod",
+        "resource_id": "lab-checkout",
+        "provider": "loki",
+        "loki_labels": {
+          "app": "checkout",
+          "namespace": "lab"
+        }
+      },
+      {
+        "connector_id": "7399f2e9b432e4ca50760a2dd61646fb",
+        "application_id": "app-lab-order",
+        "environment_id": "prod",
+        "resource_id": "lab-order",
+        "provider": "tempo",
+        "tempo_service": "order",
+        "tempo_attributes": {
+          "deployment.environment": "lab"
+        }
+      }
+    ]
+  },
+  "deferred": [
+    {
+      "application_id": "app-lab-checkout",
+      "environment_id": "prod",
+      "kind": "kubernetes",
+      "resource": "deployment",
+      "reasons": [
+        "kubernetes_deferred_to_p3"
+      ]
+    },
+    {
+      "application_id": "app-lab-search",
+      "environment_id": "prod",
+      "kind": "gitlab",
+      "resource": "group/search",
+      "reasons": [
+        "not_telemetry"
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "application_id": "app-lab-order",
+      "environment_id": "prod",
+      "kind": "elasticsearch",
+      "resource": "lab-order",
+      "reasons": [
+        "surface_ambiguous"
+      ]
+    },
+    {
+      "application_id": "app-lab-order",
+      "environment_id": "prod",
+      "kind": "loki",
+      "resource": "lab-order",
+      "reasons": [
+        "surface_ambiguous"
+      ]
+    },
+    {
+      "application_id": "app-lab-payments",
+      "environment_id": "prod",
+      "kind": "loki",
+      "resource": "lab-unregistered",
+      "reasons": [
+        "resource_not_registered"
+      ]
+    },
+    {
+      "application_id": "app-lab-payments",
+      "environment_id": "prod",
+      "kind": "prometheus",
+      "resource": "lab-payments",
+      "reasons": [
+        "query_invalid:dashboard"
+      ]
+    },
+    {
+      "application_id": "app-lab-payments",
+      "environment_id": "prod",
+      "kind": "tempo",
+      "resource": "lab-order",
+      "reasons": [
+        "target_owned_by_other_service"
+      ]
+    },
+    {
+      "application_id": "app-lab-search",
+      "environment_id": "prod",
+      "kind": "elasticsearch",
+      "resource": "lab-search",
+      "reasons": [
+        "auth_method_unsupported"
+      ]
+    }
+  ]
+}

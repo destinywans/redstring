@@ -301,7 +301,7 @@ func TestCatalogKPIsCountKnownValuesOnly(t *testing.T) {
 	}
 	blank := summary{Env: "test", Unavailable: map[string]string{"status": reasonUnavailable, "alerts": reasonNotConfigured,
 		"slo.budget_left": reasonUnavailable, "release": reasonNotConnected, "team": reasonNotConfigured}}
-	c := buildCatalog([]summary{known(&danger, &one, &low), known(&ok, &zero, &high), blank, blank}, filters{}, now)
+	c := buildCatalog([]summary{known(&danger, &one, &low), known(&ok, &zero, &high), blank, blank}, filters{}, now, english)
 	for _, k := range []struct {
 		id, value string
 		unknown   int
@@ -310,14 +310,14 @@ func TestCatalogKPIsCountKnownValuesOnly(t *testing.T) {
 			t.Fatalf("KPI %s=%+v want %s/%d", k.id, got, k.value, k.unknown)
 		}
 	}
-	c = buildCatalog([]summary{blank, blank}, filters{}, now)
+	c = buildCatalog([]summary{blank, blank}, filters{}, now, english)
 	if got := kpiOf(c, "bad"); got.Value != nil || got.Reason != reasonUnavailable || got.Unknown != 2 {
 		t.Fatalf("all-unknown KPI: %+v", got)
 	}
 	if got := kpiOf(c, "rel"); got.Value != nil || got.Reason != reasonNotConnected {
 		t.Fatalf("all-unknown release KPI: %+v", got)
 	}
-	if c = buildCatalog(nil, filters{}, now); kpiValue(c, "bad") != "0" || kpiOf(c, "bad").Unknown != 0 {
+	if c = buildCatalog(nil, filters{}, now, english); kpiValue(c, "bad") != "0" || kpiOf(c, "bad").Unknown != 0 {
 		t.Fatalf("an empty catalog has no unknown inputs: %+v", c.KPIs)
 	}
 	ordered := []*int{nil, &one, &zero}

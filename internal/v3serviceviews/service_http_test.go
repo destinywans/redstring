@@ -302,6 +302,32 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 		str(d.Status) != "danger" || str(d.SLO.Target) != "99.9%" || d.SLO.BudgetLeft == nil || len(d.Unavailable) != 0 {
 		t.Fatalf("incorrect detail relationships: %+v", d)
 	}
+	// PA-24: labels and notes follow Accept-Language (Chinese unless "en").
+	if d.SLO.Note != "观测到的月度可用率与错误预算消耗" || d.Signals[0].Label != "请求量" || !strings.HasPrefix(d.Changes[0].Title, "部署 ") ||
+		!strings.HasPrefix(d.AI.Text, "调查记录（截至 ") || d.Deps.Downstream[0].Meta != "CMDB 依赖关系" {
+		t.Fatalf("detail is not in Chinese: note=%q signal=%q change=%q ai=%q dep=%q", d.SLO.Note, d.Signals[0].Label, d.Changes[0].Title, d.AI.Text, d.Deps.Downstream[0].Meta)
+	}
+	inEnglish := func(path string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1"+path, nil)
+		r.Header.Set("X-AIOps-Environment", "test")
+		r.Header.Set("Accept-Language", "en-US,en;q=0.9")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	en := getDetail(t, inEnglish, "checkout-app")
+	if en.SLO.Note != "Observed monthly availability and error-budget burn" || en.Signals[0].Label != "Requests" || en.Signals[0].Sub != "Observed request rate" ||
+		!strings.HasPrefix(en.Changes[0].Title, "Deployment ") || !strings.HasPrefix(en.AI.Text, "Investigation note as of ") ||
+		en.Changes[0].Title[len("Deployment "):] != d.Changes[0].Title[len("部署 "):] {
+		t.Fatalf("detail is not in English: %+v", en)
+	}
+	var zhList, enList catalog
+	if json.Unmarshal(get("/services").Body.Bytes(), &zhList) != nil || json.Unmarshal(inEnglish("/services").Body.Bytes(), &enList) != nil ||
+		kpiOf(zhList, "n").Label != "服务" || kpiOf(zhList, "budget").Label != "错误预算 < 50%" || kpiOf(enList, "rel").Label != "Releases this week" ||
+		zhList.Facets[0].Title != "团队" || enList.Facets[0].Title != "Team" {
+		t.Fatalf("catalog labels: zh=%+v %+v en=%+v %+v", zhList.KPIs, zhList.Facets, enList.KPIs, enList.Facets)
+	}
 	if _, err = st.DB.Exec(t.Context(), `INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,alert_status,starts_at)
  VALUES('other-checkout','other-source','checkout-app','checkout-test','other-checkout','Duplicate','critical','firing',$1),
  ('other-payments','other-source','payments-app','payments-test','other-payments','Foreign critical','critical','firing',$1)`, now.Add(-30*time.Minute)); err != nil {
@@ -361,7 +387,7 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
  VALUES('checkout-payments-second','res-checkout','res-payments','depends_on','declared','manual-second')`); err != nil {
 		t.Fatal(err)
 	}
-	if w = get("/services/" + encodeID("checkout-app", "test")); w.Code != 200 || strings.Count(w.Body.String(), `"CMDB depends_on"`) != 1 {
+	if w = get("/services/" + encodeID("checkout-app", "test")); w.Code != 200 || strings.Count(w.Body.String(), `"CMDB 依赖关系"`) != 1 {
 		t.Fatalf("duplicate resource edge inflated service dependency: status=%d body=%s", w.Code, w.Body.String())
 	}
 	if _, err = st.DB.Exec(t.Context(), `INSERT INTO cmdb_resource_applications(resource_id,application_id,environment_id)

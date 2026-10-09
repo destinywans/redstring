@@ -13,6 +13,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 type logToolAccess func(rbac.V3Decision) error
@@ -81,8 +82,9 @@ func TestServiceLogsToolReadsMaskedBoundedSample(t *testing.T) {
 		Source:  connectors.TelemetrySource{Provider: "loki", ApplicationID: "registered-checkout", Query: `{app="secret"}`, URL: "https://secret.loki.internal", CapturedAt: time.Now().UTC()},
 		Entries: []connectors.LogEntry{{Timestamp: time.Now().UTC().Add(-time.Minute), Level: "error", Line: "password=secret-value", Labels: map[string]string{"token": "secret-label"}, TraceID: "secret-trace"}},
 	}}
+	compared := &recordedUses{}
 	tool, ok := NewServiceLogsTool(ServiceLogsToolOptions{
-		Enabled: true, DB: db, OwnerID: "owner", EnvironmentID: "test", Telemetry: provider,
+		Enabled: true, DB: db, OwnerID: "owner", EnvironmentID: "test", Telemetry: provider, SourceCompare: compared,
 		Access: logToolAccess(func(decision rbac.V3Decision) error {
 			accessDecisions = append(accessDecisions, decision)
 			if decision.Module != "logs" || decision.Action != "view" || decision.EnvironmentID != "test" {
@@ -258,6 +260,9 @@ func TestServiceLogsToolReadsMaskedBoundedSample(t *testing.T) {
 	if err != nil || es.Source != "elasticsearch" || provider.provider != "elasticsearch" || provider.resource != "checkout-es" ||
 		!strings.Contains(es.Content, `"provider":"elasticsearch"`) {
 		t.Fatalf("Elasticsearch binding: %v %+v", err, provider)
+	}
+	if use := compared.last(); use != (v3telemetry.Use{ApplicationID: "app-1", EnvironmentID: "test", Provider: "elasticsearch", Resource: "checkout-es"}) {
+		t.Fatalf("compare mode was not told the legacy binding: %+v", use)
 	}
 	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"loki","resource":"registered-checkout"},{"kind":"elasticsearch","resource":"checkout-es"}]'::jsonb`); err != nil {
 		t.Fatal(err)

@@ -47,9 +47,7 @@ func LoadPrometheusQueryCatalog(path string) (map[PrometheusQueryKey]string, err
 	for _, query := range config.Queries {
 		key := PrometheusQueryKey{ConnectorID: query.ConnectorID, ApplicationID: query.ApplicationID,
 			EnvironmentID: query.EnvironmentID, ResourceID: query.ResourceID, QueryID: query.QueryID}
-		if key.ConnectorID == "" || key.ApplicationID == "" || key.EnvironmentID == "" ||
-			!prometheusResourceID.MatchString(key.ResourceID) || !prometheusQueryID.MatchString(key.QueryID) ||
-			strings.TrimSpace(query.Expression) != query.Expression || query.Expression == "" || len(query.Expression) > 2048 {
+		if !PrometheusQueryValid(key, query.Expression) {
 			return nil, metricReadError("invalid_catalog")
 		}
 		if _, exists := catalog[key]; exists {
@@ -58,4 +56,40 @@ func LoadPrometheusQueryCatalog(path string) (map[PrometheusQueryKey]string, err
 		catalog[key] = query.Expression
 	}
 	return catalog, nil
+}
+
+// MaxPrometheusExpression bounds one reviewed expression. The reader sends it
+// in a GET query string, so a longer limit also needs a POST request.
+const MaxPrometheusExpression = 2048
+
+// PrometheusQueryValid is the catalog rule for one reviewed expression.
+func PrometheusQueryValid(key PrometheusQueryKey, expression string) bool {
+	return key.ConnectorID != "" && key.ApplicationID != "" && key.EnvironmentID != "" &&
+		prometheusResourceID.MatchString(key.ResourceID) && prometheusQueryID.MatchString(key.QueryID) &&
+		strings.TrimSpace(expression) == expression && expression != "" && len(expression) <= MaxPrometheusExpression
+}
+
+// ResourceIDValid reports whether id is a valid opaque catalog resource key.
+func ResourceIDValid(id string) bool { return prometheusResourceID.MatchString(id) }
+
+// ValidEndpoint is the registry's endpoint rule: HTTPS, or HTTP on loopback.
+func ValidEndpoint(raw string) bool {
+	_, err := validEndpoint(raw)
+	return err == nil
+}
+
+// ProviderInfo describes a registrable provider without its probe.
+type ProviderInfo struct {
+	Name, Category string
+	Methods, Tools []string
+}
+
+// Provider returns the registry descriptor of a supported provider.
+func Provider(provider string) (ProviderInfo, bool) {
+	d, ok := descriptors[provider]
+	if !ok {
+		return ProviderInfo{}, false
+	}
+	return ProviderInfo{Name: d.Name, Category: d.Category,
+		Methods: append([]string(nil), d.Methods...), Tools: append([]string(nil), d.Tools...)}, true
 }

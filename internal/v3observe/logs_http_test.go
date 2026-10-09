@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 func TestLogsRegisteredRouteUsesScopedElasticsearchAndRealCounts(t *testing.T) {
@@ -231,7 +233,10 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	New(st, policy, telemetry).Register(api)
+	compared := &recordedUses{}
+	observe := New(st, policy, telemetry)
+	observe.SourceCompare = compared
+	observe.Register(api)
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{
 		Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"},
 	}, policy, st.Session, nil); err != nil {
@@ -438,4 +443,31 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	if lokiCalls.Load() != lokiBefore {
 		t.Fatal("Loki queried after logs grant was revoked")
 	}
+	// PA-19 compare mode heard each authorized legacy read.
+	if !compared.saw(v3telemetry.Use{ApplicationID: "app", EnvironmentID: "dev", Provider: "elasticsearch", Resource: "registered-app"}) {
+		t.Fatalf("compare mode uses: %+v", compared.uses)
+	}
+}
+
+// recordedUses collects PA-19 compare-mode notifications.
+type recordedUses struct {
+	mu   sync.Mutex
+	uses []v3telemetry.Use
+}
+
+func (r *recordedUses) ObserveLegacy(u v3telemetry.Use) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.uses = append(r.uses, u)
+}
+
+func (r *recordedUses) saw(u v3telemetry.Use) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, seen := range r.uses {
+		if seen == u {
+			return true
+		}
+	}
+	return false
 }

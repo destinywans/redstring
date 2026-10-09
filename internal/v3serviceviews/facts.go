@@ -3,7 +3,6 @@ package v3serviceviews
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -12,11 +11,12 @@ import (
 )
 
 type change struct {
-	Brand string    `json:"brand"`
-	Title string    `json:"title"`
-	Meta  string    `json:"meta"`
-	Tag   string    `json:"tag,omitempty"`
-	At    time.Time `json:"-"`
+	Brand    string    `json:"brand"`
+	Title    string    `json:"title"`
+	Meta     string    `json:"meta"`
+	Tag      string    `json:"tag,omitempty"`
+	At       time.Time `json:"-"`
+	revision string
 }
 
 // A successful local deployment is the only current source for the page's
@@ -36,7 +36,7 @@ const changeSQL = `SELECT p.snapshot->>'target_kind',
 
 // changes returns verified successful deployments, newest first. A record
 // that cannot be represented makes the list unknown rather than shorter.
-func (s *Service) changes(ctx context.Context, row serviceRow) ([]change, error) {
+func (s *Service) changes(ctx context.Context, row serviceRow, t text) ([]change, error) {
 	rows, err := s.Store.DB.Query(ctx, changeSQL, row.AppID, row.Env)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func (s *Service) changes(ctx context.Context, row serviceRow) ([]change, error)
 		if len(revision) > 16 {
 			revision = revision[:16]
 		}
-		out = append(out, change{Brand: kind, Title: "Deployment " + revision, Meta: at.UTC().Format(time.RFC3339) + " · succeeded", At: at})
+		out = append(out, change{Brand: kind, Title: t.deployment(revision), Meta: t.deploymentMeta(at), At: at, revision: revision})
 	}
 	return out, rows.Err()
 }
@@ -64,7 +64,7 @@ func (s *Service) changes(ctx context.Context, row serviceRow) ([]change, error)
 // unknown, not "never released": a service may be delivered outside this
 // platform (not_connected) or not have finished a planned delivery yet.
 func (s *Service) release(ctx context.Context, row serviceRow) (*release, error) {
-	changes, err := s.changes(ctx, row)
+	changes, err := s.changes(ctx, row, english)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func (s *Service) release(ctx context.Context, row serviceRow) (*release, error)
 		return nil, unknown(reasonNotConnected)
 	}
 	c := changes[0]
-	return &release{Brand: c.Brand, Version: strings.TrimPrefix(c.Title, "Deployment "), When: c.At.UTC().Format(time.RFC3339), At: c.At}, nil
+	return &release{Brand: c.Brand, Version: c.revision, When: c.At.UTC().Format(time.RFC3339), At: c.At}, nil
 }
 
 // observation is the live health evidence for one service. A nil value is

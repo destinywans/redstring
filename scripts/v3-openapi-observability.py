@@ -145,7 +145,8 @@ S['V3ExternalTargetInput'] = obj({'connector_id':string(),
 v3_route('get','/services/{id}/external-targets','List explicitly bound external service targets',
     response=obj({'items':arr(ref('V3ExternalTarget'))},['items']),
     desc='Requires services.view for the persisted application or team and connectors.view for its environment. '
-         'At most 100 targets per service and environment; older application binding JSON is not inferred or copied. No endpoint or credentials are returned.')
+         'At most 100 targets per service and environment; older application binding JSON is not inferred at read time. '
+         'The PA-19 operator import may add reviewed log_stream, log_index, trace_service and metric_resource targets, which are listed too. No endpoint or credentials are returned.')
 v3_route('post','/services/{id}/external-targets','Bind an exact external target to a service',
     body=ref('V3ExternalTargetInput'),response=ref('V3ExternalTarget'),status=201,
     desc='Requires services.change for the persisted application or team and connectors.manage for its environment. '

@@ -56,7 +56,7 @@ TOTP 辅助接口由迁移 `122_v3_mfa_totp.sql` 保存密文种子与哈希恢�
 
 Passkey 七条辅助路由须显式设置 `AIOPS_V3_PASSKEY_ENABLED=true`，使用实例受信 RP 域名和精确 HTTPS Origin；代理终止 TLS 时还需同一允许源与 Secure cookie，不信任请求中的转发协议头。当前主程序不启用包内的非生产 localhost HTTP 测试例外。本人会话、人类身份、单一环境授权在事务内复核；写请求需要同源浏览器信号，登记/删除需要近十分钟登录。挑战绑定账户、会话、实例、环境和 RP，五分钟到期，完成尝试即消费。迁移 `123_v3_passkey_foundation.sql` 保存公开凭据材料及计数/备份状态；账户断言不能作为提案的 `assurance=passkey`，提案摘要绑定、证明消费与批准仍未接通。
 
-指标样本辅助接口只读取迁移 `060_v3_prometheus_metric_targets.sql` 允许的显式 V3 Prometheus `metric_resource` 目标，不使用旧 CMDB 遥测绑定。部署方用 `AIOPS_V3_PROMETHEUS_QUERIES_CONFIG` 指向私有 JSON：`{"queries":[{"connector_id":"...","application_id":"...","environment_id":"...","resource_id":"...","query_id":"request_rate","expression":"..."}]}`。每个查询须由操作者审查表达式本身确实限定至该应用、环境与资源；目录键相等不能证明 PromQL 的数据范围。文件缺省时辅助接口返回 503，显式文件无效则 V3 启动失败。查询前后复核当前服务、授权和绑定；真实只读 Prometheus 返回异常、截断、多条序列或结果无从证明完整时明确报错，不把无样本等同健康。未连接真实生产 Prometheus，也未执行现有业务库迁移。
+指标样本辅助接口只读取迁移 `060_v3_prometheus_metric_targets.sql` 允许的显式 V3 Prometheus `metric_resource` 目标，不使用旧 CMDB 遥测绑定。部署方用 `AIOPS_V3_PROMETHEUS_QUERIES_CONFIG`（或其超集 `AIOPS_V3_SOURCE_CATALOG`，见 [遥测来源统一登记](v3-telemetry-registry.md)）指向私有 JSON：`{"queries":[{"connector_id":"...","application_id":"...","environment_id":"...","resource_id":"...","query_id":"request_rate","expression":"..."}]}`。每个查询须由操作者审查表达式本身确实限定至该应用、环境与资源；目录键相等不能证明 PromQL 的数据范围。文件缺省时辅助接口返回 503，显式文件无效则 V3 启动失败。查询前后复核当前服务、授权和绑定；真实只读 Prometheus 返回异常、截断、多条序列或结果无从证明完整时明确报错，不把无样本等同健康。未连接真实生产 Prometheus，也未执行现有业务库迁移。
 
 `POST /metrics/ask` 复用该受审查来源的一条有限指标快照，交给持久对话与模型回复；其增量请求、重试、撤权和前端缺口见 [指标提问后端契约](v3-metrics-ask.md)。
 

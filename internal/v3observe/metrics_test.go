@@ -595,3 +595,32 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 		t.Fatalf("expected controlled upstream calls, got %d", calls.Load())
 	}
 }
+
+// PA-24: KPI names, the SLO note and the incident label follow
+// Accept-Language; English only for "en".
+func TestDashboardLocalizesLabels(t *testing.T) {
+	end := time.Now().UTC().Truncate(100 * time.Second)
+	window := testDashboardWindow(end)
+	marker := dashboardMarkers{incidentStart: at(end.Add(-25 * time.Minute)), incidentEnd: at(end.Add(-5 * time.Minute))}
+	target := 99.9
+	build := func(lang string) metricsDashboard {
+		out := newDashboard(window, marker)
+		if !out.applyMetrics(testDashboardEvidence(window), window, &target) {
+			t.Fatal("fixture rejected")
+		}
+		out.localize(dashboardTextFor(lang))
+		return out
+	}
+	zh, en := build("zh-CN,zh;q=0.9"), build("en-US")
+	stamp := end.Add(-25*time.Minute).UTC().Format("15:04") + "–" + end.Add(-5*time.Minute).UTC().Format("15:04") + " UTC"
+	if zh.KPIs[0].Label != "请求量" || zh.KPIs[0].Sub != "观测到的请求速率" || zh.SLO.Note != "观测到的错误预算消耗速率" ||
+		*zh.Window.IncidentLabel != "事件 · "+stamp {
+		t.Fatalf("Chinese dashboard: %+v %q %q", zh.KPIs[0], zh.SLO.Note, *zh.Window.IncidentLabel)
+	}
+	if en.KPIs[0].Label != "Requests" || en.SLO.Note != "Observed error budget burn rates" || *en.Window.IncidentLabel != "Incident · "+stamp {
+		t.Fatalf("English dashboard: %+v %q %q", en.KPIs[0], en.SLO.Note, *en.Window.IncidentLabel)
+	}
+	if build("").SLO.Note != zh.SLO.Note {
+		t.Fatal("no Accept-Language must default to Chinese")
+	}
+}

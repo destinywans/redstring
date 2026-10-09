@@ -100,6 +100,8 @@ type metricsDashboard struct {
 	Endpoints   []dashboardRank     `json:"endpoints"`
 	Instances   []dashboardInstance `json:"instances"`
 	Unavailable map[string]string   `json:"unavailable"`
+	// The incident span relabels the incident in the request language.
+	incidentStart, incidentEnd *time.Time
 }
 
 // A nil marker means the platform has no record of that event in the window.
@@ -246,8 +248,9 @@ func newDashboard(window connectors.TimeWindow, marker dashboardMarkers, markerR
 				incident[1]++
 			}
 		}
-		label := fmt.Sprintf("Incident · %s–%s UTC", marker.incidentStart.UTC().Format("15:04"), marker.incidentEnd.UTC().Format("15:04"))
+		label := dashboardText{en: true}.incident(*marker.incidentStart, *marker.incidentEnd)
 		out.Window.Incident, out.Window.IncidentLabel = &incident, &label
+		out.incidentStart, out.incidentEnd = marker.incidentStart, marker.incidentEnd
 	} else {
 		out.Unavailable["window.incident"], out.Unavailable["window.incident_label"] = absent, absent
 	}
@@ -678,5 +681,6 @@ func (s *Service) metricDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	dashboard.localize(dashboardTextFor(r.Header.Get("Accept-Language")))
 	httpapi.WriteJSON(w, 200, dashboard)
 }

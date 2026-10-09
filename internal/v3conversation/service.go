@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3knowledgesources"
@@ -312,6 +313,11 @@ func (s *Service) authorizeActiveTurn(ctx context.Context, owner, env, sessionTo
 		return ErrForbidden
 	}
 	current, err := s.opts.RefreshSession(ctx, sessionToken)
+	if err != nil && !httpapi.SessionMissing(err) {
+		// The session store could not be read: unavailable, not a revoked
+		// session (PA-59).
+		return err
+	}
 	if err != nil || current.ID != owner || current.Disabled {
 		return ErrForbidden
 	}

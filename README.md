@@ -7,7 +7,7 @@
 
 原名 AIOps Canvas，2026-10-09 起更名为 Redstring；代码中的模块名、命令和接口路径保持不变。标志与使用规范见 [docs/brand](docs/brand/README.md)。
 
-[GitHub 仓库](https://github.com/destinywans/aiops-canvas) · [Linear 项目](https://linear.app/wansss/project/aiops-canvas-3c9fce50a53b)
+[GitHub 仓库](https://github.com/destinywans/redstring) · [Linear 项目](https://linear.app/wansss/project/redstring-3c9fce50a53b) · [在线演示](https://redstring.wans.run/)（示例数据） · [产品页](https://wans.run/redstring/)
 
 可自托管的 AI 运维画布：围绕发布异常，把分支调查、证据、Runbook、人工批准与恢复验证放进同一个 Web 工作区。MVP 聚焦可复现的 SRE 闭环，便于展示工程实现、撰写博客与项目介绍；CI/CD 和完整运维平台留待后续迭代。
 

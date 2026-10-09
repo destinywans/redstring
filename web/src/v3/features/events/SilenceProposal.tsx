@@ -57,7 +57,12 @@ export function InvestigationPicker({ value, onChange, items }: { value: string;
   return (
     <div className="inv-picker">
       <ChipSelect
-        label=""
+        label={<span className="inv-label inv-placeholder">{tx("选择调查", "Choose an investigation")}</span>}
+        ariaLabel={(() => {
+          // Investigation IDs don't always carry an INV- prefix (e.g. ones started from an alert group).
+          const cur = items.find((i) => i.id === value);
+          return cur ? tx("关联的调查：{t}", "Investigation: {t}", { t: `${cur.id} · ${cur.title ?? ""}` }) : tx("关联的调查：未选择", "Investigation: none chosen");
+        })()}
         showLabel={false}
         value={value || undefined}
         onChange={(v) => onChange(v as string)}

@@ -92,6 +92,7 @@ export function ChipSelect({
   icon,
   allLabel,
   showLabel = true,
+  ariaLabel,
 }: {
   label: ReactNode;
   options: (ChipOption | string)[];
@@ -104,6 +105,8 @@ export function ChipSelect({
   allLabel?: ReactNode;
   /** When false, a selected value replaces the label instead of following it (e.g. time ranges). */
   showLabel?: boolean;
+  /** Accessible name for the trigger when the visible text alone doesn't say what is being chosen. */
+  ariaLabel?: string;
 }) {
   const [own, setOwn] = useState<string | string[]>(defaultValue ?? (multi ? [] : ""));
   const cur = value ?? own;
@@ -127,7 +130,7 @@ export function ChipSelect({
   };
   return (
     <span ref={setAnchor} className="demo-chip">
-      <Chip icon={icon} caret active={selected.length > 0 && !!allLabel} onClick={() => setOpen((o) => !o)}>
+      <Chip icon={icon} caret active={selected.length > 0 && !!allLabel} onClick={() => setOpen((o) => !o)} ariaLabel={ariaLabel} expanded={open}>
         {shown.length === 0 ? (
           label
         ) : showLabel ? (

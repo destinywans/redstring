@@ -263,9 +263,9 @@ export function IconBtn({ icon, label, size = 28, color, onClick, to, active, st
     </button>
   );
 }
-export function Chip({ children, icon, caret, active, onClick, style }: { children: ReactNode; icon?: IconName; caret?: boolean; active?: boolean; onClick?: () => void; style?: CSSProperties }) {
+export function Chip({ children, icon, caret, active, onClick, style, ariaLabel, expanded }: { children: ReactNode; icon?: IconName; caret?: boolean; active?: boolean; onClick?: () => void; style?: CSSProperties; ariaLabel?: string; expanded?: boolean }) {
   return (
-    <button type="button" className={cx("v3-chip", active && "active")} onClick={onClick} style={style}>
+    <button type="button" className={cx("v3-chip", active && "active")} onClick={onClick} style={style} aria-label={ariaLabel} aria-haspopup={caret ? "listbox" : undefined} aria-expanded={caret ? !!expanded : undefined}>
       {icon && <Icon name={icon} size={13} />}
       {children}
       {caret && <Icon name="down" size={12} />}

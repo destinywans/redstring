@@ -528,3 +528,6 @@
 .demo-menu .inv-label {
   max-width: 340px;
 }
+.inv-picker .inv-placeholder {
+  color: var(--muted);
+}

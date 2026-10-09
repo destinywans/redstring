@@ -29,9 +29,12 @@ type completeReader struct {
 	calls []string
 }
 
+// tokenRevokingReader withdraws the alert source after skip metric reads, so
+// services projected earlier have already relied on it.
 type tokenRevokingReader struct {
 	*completeReader
 	tokenPath string
+	skip      int
 	revoked   bool
 }
 
@@ -39,8 +42,12 @@ func (r *tokenRevokingReader) QueryService(ctx context.Context, scope httpapi.V3
 	service, env, query string, window connectors.TimeWindow) (v3integrations.PrometheusMetricEvidence, error) {
 	evidence, err := r.completeReader.QueryService(ctx, scope, user, service, env, query, window)
 	if err == nil && !r.revoked {
-		r.revoked = true
-		err = os.Remove(r.tokenPath)
+		if r.skip > 0 {
+			r.skip--
+		} else {
+			r.revoked = true
+			err = os.Remove(r.tokenPath)
+		}
 	}
 	return evidence, err
 }
@@ -255,8 +262,9 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	if err = json.Unmarshal(w.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Items) != 2 || list.KPIs[0].Value != "2" || list.KPIs[1].Value != "1" || list.KPIs[2].Value != "1" ||
-		len(list.Facets) != 4 || list.Items[0].Release.Version == "" || list.Items[0].Connectors[0] != "prometheus" {
+	if len(list.Items) != 2 || kpiValue(list, "n") != "2" || kpiValue(list, "bad") != "1" || kpiValue(list, "warn") != "1" ||
+		len(list.Facets) != 4 || list.Items[0].Release == nil || list.Items[0].Release.Version == "" ||
+		list.Items[0].Connectors[0] != "prometheus" || len(list.Items[0].Unavailable) != 0 {
 		t.Fatalf("incorrect source projection: %+v", list)
 	}
 	if w = get("/services?tab=watched&sort=name"); w.Code != 200 || !strings.Contains(w.Body.String(), `"items":[]`) {
@@ -274,7 +282,7 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	if err = json.Unmarshal(w.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Items) != 1 || list.Items[0].Name != "Payments" || list.KPIs[0].Value != "1" {
+	if len(list.Items) != 1 || list.Items[0].Name != "Payments" || kpiValue(list, "n") != "1" {
 		t.Fatalf("incorrect filters: %+v", list)
 	}
 	if w = get("/services?team=Operations&q=check"); w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"Checkout"`) {
@@ -288,9 +296,10 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	if err = json.Unmarshal(w.Body.Bytes(), &d); err != nil {
 		t.Fatal(err)
 	}
-	if d.AI.Investigation != "INV-checkout" || !strings.Contains(d.AI.Text, "Observed elevated") ||
-		len(d.Deps.Downstream) != 1 || d.Deps.Downstream[0].Name != "Payments" || d.Deps.Downstream[0].Status != "ok" ||
-		len(d.Changes) != 1 || d.Tabs["deps"] != 1 || d.Tabs["incidents"] != 1 || len(d.Signals) != 5 {
+	if d.AI == nil || d.AI.Investigation != "INV-checkout" || !strings.Contains(d.AI.Text, "Observed elevated") ||
+		d.Deps == nil || len(d.Deps.Downstream) != 1 || d.Deps.Downstream[0].Name != "Payments" || str(d.Deps.Downstream[0].Status) != "ok" ||
+		len(d.Changes) != 1 || num(d.Tabs["deps"]) != 1 || num(d.Tabs["incidents"]) != 1 || len(d.Signals) != 5 ||
+		str(d.Status) != "danger" || str(d.SLO.Target) != "99.9%" || d.SLO.BudgetLeft == nil || len(d.Unavailable) != 0 {
 		t.Fatalf("incorrect detail relationships: %+v", d)
 	}
 	if _, err = st.DB.Exec(t.Context(), `INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,alert_status,starts_at)
@@ -304,30 +313,46 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	if err = json.Unmarshal(w.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Items) != 2 || list.Items[0].Alerts != 1 || list.Items[1].Alerts != 0 || list.Items[1].Status != "ok" || list.KPIs[1].Value != "1" {
+	if len(list.Items) != 2 || num(list.Items[0].Alerts) != 1 || num(list.Items[1].Alerts) != 0 || str(list.Items[1].Status) != "ok" || kpiValue(list, "bad") != "1" {
 		t.Fatalf("unbound alert source changed count or status: %+v", list)
 	}
-	svc.MetricReader = &tokenRevokingReader{completeReader: reader, tokenPath: tokenPath}
-	if w = get("/services"); w.Code != 503 {
+	svc.MetricReader = &tokenRevokingReader{completeReader: reader, tokenPath: tokenPath, skip: 1}
+	if w = get("/services"); w.Code != 503 || !strings.Contains(w.Body.String(), "service_source_changed") {
 		t.Fatalf("source revoked after metric read exposed catalog: status=%d body=%s", w.Code, w.Body.String())
 	}
 	if err := os.WriteFile(tokenPath, []byte("fixture-alertmanager-token-at-least-24"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	svc.MetricReader = reader
+	// Without a coverage assertion a zero count could hide alerts, so alert
+	// counts and any status they could raise are unknown, not zero or ok.
 	svc.AlertCovered = nil
-	if w = get("/services"); w.Code != 503 {
-		t.Fatalf("missing coverage binding exposed catalog: status=%d body=%s", w.Code, w.Body.String())
+	if w = get("/services"); w.Code != 200 {
+		t.Fatalf("missing coverage binding failed the catalog: status=%d body=%s", w.Code, w.Body.String())
+	}
+	if err = json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range list.Items {
+		if item.Alerts != nil || item.Status != nil || item.Unavailable["alerts"] != reasonNotConfigured ||
+			item.Unavailable["status"] != reasonNotConfigured || item.SLO.BudgetLeft == nil {
+			t.Fatalf("missing coverage was not an explicit unknown: %+v", item)
+		}
+	}
+	if kpiValue(list, "bad") != "null" || kpiOf(list, "bad").Reason != reasonNotConfigured || kpiOf(list, "bad").Unknown != 2 ||
+		kpiValue(list, "warn") != "null" || kpiOf(list, "budget").Value == nil || kpiOf(list, "budget").Unknown != 0 {
+		t.Fatalf("KPIs counted unknown alerts: %+v", list.KPIs)
 	}
 	svc.AlertCovered = covered
 	if err := os.Remove(tokenPath); err != nil {
 		t.Fatal(err)
 	}
-	if w = get("/services"); w.Code != 503 {
-		t.Fatalf("withdrawn alert source exposed catalog: status=%d body=%s", w.Code, w.Body.String())
+	if w = get("/services"); w.Code != 200 || strings.Contains(w.Body.String(), `"alerts":0`) || strings.Contains(w.Body.String(), `"status":"ok"`) {
+		t.Fatalf("withdrawn alert source was not an explicit unknown: status=%d body=%s", w.Code, w.Body.String())
 	}
-	if w = get("/services/" + encodeID("checkout-app", "test")); w.Code != 503 {
-		t.Fatalf("withdrawn alert source exposed detail: status=%d body=%s", w.Code, w.Body.String())
+	if w = get("/services/" + encodeID("checkout-app", "test")); w.Code != 200 || !strings.Contains(w.Body.String(), `"status":null`) ||
+		!strings.Contains(w.Body.String(), `"tabs":{"changes":1,"deps":1,"incidents":2}`) {
+		t.Fatalf("withdrawn alert source was not an explicit unknown in detail: status=%d body=%s", w.Code, w.Body.String())
 	}
 	if err := os.WriteFile(tokenPath, []byte("fixture-alertmanager-token-at-least-24"), 0600); err != nil {
 		t.Fatal(err)
@@ -343,8 +368,9 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
  VALUES('res-payments','checkout-app','checkout-test')`); err != nil {
 		t.Fatal(err)
 	}
-	if w = get("/services/" + encodeID("checkout-app", "test")); w.Code != 503 {
-		t.Fatalf("shared resource was attributed to one service: status=%d body=%s", w.Code, w.Body.String())
+	if d = getDetail(t, get, "checkout-app"); d.Deps != nil || d.Unavailable["deps"] != reasonUnavailable ||
+		d.Tabs["deps"] != nil || d.Unavailable["tabs.deps"] != reasonUnavailable || d.AI == nil {
+		t.Fatalf("shared resource was attributed to one service: %+v", d)
 	}
 	if _, err = st.DB.Exec(t.Context(), `DELETE FROM cmdb_resource_applications WHERE resource_id='res-payments' AND application_id='checkout-app'`); err != nil {
 		t.Fatal(err)
@@ -356,8 +382,18 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
  WHERE branch_id='branch-checkout'`, now.Add(-2*time.Hour).Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
-	if w = get("/services/" + encodeID("checkout-app", "test")); w.Code != 503 {
-		t.Fatalf("stale AI text was shown as current: status=%d body=%s", w.Code, w.Body.String())
+	// A message older than the latest run is not that run's reply.
+	if d = getDetail(t, get, "checkout-app"); d.AI != nil || d.Unavailable["ai"] != reasonNotGenerated || d.Deps == nil {
+		t.Fatalf("reply older than its run was shown as current: %+v", d)
+	}
+	if _, err = st.DB.Exec(t.Context(), `UPDATE runs SET created_at=$1 WHERE id='run-checkout'`, now.Add(-3*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if d = getDetail(t, get, "checkout-app"); d.AI != nil || d.Unavailable["ai"] != reasonStale || d.Deps == nil {
+		t.Fatalf("stale AI text was shown as current: %+v", d)
+	}
+	if _, err = st.DB.Exec(t.Context(), `UPDATE runs SET created_at=$1 WHERE id='run-checkout'`, now.Add(-10*time.Minute)); err != nil {
+		t.Fatal(err)
 	}
 	if _, err = st.DB.Exec(t.Context(), `UPDATE context_revisions
  SET messages=jsonb_set(jsonb_set(messages,'{0,created_at}',to_jsonb($1::text)),
@@ -365,8 +401,8 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 		now.Add(-5*time.Minute).Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
-	if w = get("/services/" + encodeID("checkout-app", "test")); w.Code != 503 {
-		t.Fatalf("reply from another run was shown as current: status=%d body=%s", w.Code, w.Body.String())
+	if d = getDetail(t, get, "checkout-app"); d.AI != nil || d.Unavailable["ai"] != reasonNotGenerated {
+		t.Fatalf("reply from another run was shown as current: %+v", d)
 	}
 	if w = get("/services/invalid*"); w.Code != 404 {
 		t.Fatalf("invalid identity status=%d", w.Code)
@@ -377,9 +413,55 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	if _, err = st.DB.Exec(t.Context(), `DELETE FROM deployment_events WHERE execution_id='exec-checkout'`); err != nil {
 		t.Fatal(err)
 	}
-	if w = get("/services"); w.Code != 503 || !strings.Contains(w.Body.String(), "service_view_incomplete") {
-		t.Fatalf("missing release was hidden: status=%d body=%s", w.Code, w.Body.String())
+	if w = get("/services?sort=name"); w.Code != 200 {
+		t.Fatalf("missing release failed the catalog: status=%d body=%s", w.Code, w.Body.String())
 	}
+	if err = json.Unmarshal(w.Body.Bytes(), &list); err != nil {
+		t.Fatal(err)
+	}
+	// A planned delivery without a successful deployment is not generated yet.
+	if list.Items[0].Name != "Checkout" || list.Items[0].Release != nil || list.Items[0].Unavailable["release"] != reasonNotGenerated ||
+		list.Items[1].Release == nil || kpiValue(list, "rel") != "1" || kpiOf(list, "rel").Unknown != 1 {
+		t.Fatalf("missing release was not an explicit unknown: %+v", list)
+	}
+}
+
+func str(v *string) string {
+	if v == nil {
+		return "null"
+	}
+	return *v
+}
+
+func num(v *int) int {
+	if v == nil {
+		return -1
+	}
+	return *v
+}
+
+func kpiOf(c catalog, id string) catalogKPI {
+	for _, k := range c.KPIs {
+		if k.ID == id {
+			return k
+		}
+	}
+	return catalogKPI{}
+}
+
+func kpiValue(c catalog, id string) string { return str(kpiOf(c, id).Value) }
+
+func getDetail(t *testing.T, get func(string) *httptest.ResponseRecorder, app string) detail {
+	t.Helper()
+	w := get("/services/" + encodeID(app, "test"))
+	if w.Code != 200 {
+		t.Fatalf("detail status=%d body=%s", w.Code, w.Body.String())
+	}
+	var d detail
+	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
+		t.Fatal(err)
+	}
+	return d
 }
 
 func configuredAlertCoverage(t *testing.T, st *store.Store) (AlertCovered, string) {
@@ -639,7 +721,11 @@ func TestServiceViewsEventGrantAndOwnershipRecheck(t *testing.T) {
 		api.ServeHTTP(w, r)
 		return w
 	}
-	if w := get(); w.Code != 503 || len(reader.calls) != 0 || strings.Contains(w.Body.String(), "alert-checkout") {
+	// Without events.view the alert count and any status it could raise are
+	// unknown; the metric-only SLO values remain under the connectors grant.
+	if w := get(); w.Code != 200 || strings.Contains(w.Body.String(), "alert-checkout") ||
+		!strings.Contains(w.Body.String(), `"alerts":null`) || !strings.Contains(w.Body.String(), `"status":null`) ||
+		!strings.Contains(w.Body.String(), `"alerts":"no_authorized_target"`) || strings.Contains(w.Body.String(), `"slo.budget_left"`) {
 		t.Fatalf("events-only data leaked: status=%d body=%s reads=%d", w.Code, w.Body.String(), len(reader.calls))
 	}
 	if _, err = st.DB.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
@@ -668,7 +754,7 @@ func TestServiceViewsEventGrantAndOwnershipRecheck(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mutating := &sourceMutationReader{completeReader: completeReader{now: now}, db: st.DB, query: tc.mutate}
 			svc.MetricReader = mutating
-			if w := get(); w.Code != 503 || !mutating.changed || mutating.err != nil {
+			if w := get(); w.Code != 503 || !strings.Contains(w.Body.String(), "service_source_changed") || !mutating.changed || mutating.err != nil {
 				t.Fatalf("metric source changed during read: status=%d body=%s changeErr=%v", w.Code, w.Body.String(), mutating.err)
 			}
 			if _, err := st.DB.Exec(ctx, tc.restore); err != nil {

@@ -11,10 +11,13 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3interactionaudit"
 )
 
+// sloSettings is null target/window with revision 0 until the first save;
+// the configured target is never guessed from defaults.
 type sloSettings struct {
-	Target   string `json:"target"`
-	Window   string `json:"window"`
-	Revision int64  `json:"revision"`
+	Target      *string           `json:"target"`
+	Window      *string           `json:"window"`
+	Revision    int64             `json:"revision"`
+	Unavailable map[string]string `json:"unavailable"`
 }
 type sloPut struct {
 	ExpectedRevision *int64 `json:"expected_revision"`
@@ -117,7 +120,7 @@ func (s *Service) slo(w http.ResponseWriter, r *http.Request) {
 		writeWatchError(w, err)
 		return
 	}
-	out := sloSettings{}
+	out := sloSettings{Unavailable: map[string]string{}}
 	if write {
 		// The application/environment key serializes first creation as well as CAS.
 		if _, err = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(hashtextextended($1,16001))`, app+":"+env); err != nil {
@@ -137,19 +140,20 @@ func (s *Service) slo(w http.ResponseWriter, r *http.Request) {
 			httpapi.Error(w, 409, "slo_revision_changed", "Reload SLO settings before editing")
 			return
 		}
-		out = sloSettings{in.Target, in.Window, current + 1}
-		_, err = tx.Exec(r.Context(), `INSERT INTO v3_service_slo_settings(application_id,environment_id,target,slo_window,revision,updated_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(application_id,environment_id) DO UPDATE SET target=EXCLUDED.target,slo_window=EXCLUDED.slo_window,revision=EXCLUDED.revision,updated_by=EXCLUDED.updated_by,updated_at=now()`, app, env, out.Target, out.Window, out.Revision, user.ID)
+		out.Target, out.Window, out.Revision = &in.Target, &in.Window, current+1
+		_, err = tx.Exec(r.Context(), `INSERT INTO v3_service_slo_settings(application_id,environment_id,target,slo_window,revision,updated_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(application_id,environment_id) DO UPDATE SET target=EXCLUDED.target,slo_window=EXCLUDED.slo_window,revision=EXCLUDED.revision,updated_by=EXCLUDED.updated_by,updated_at=now()`, app, env, in.Target, in.Window, out.Revision, user.ID)
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `INSERT INTO v3_service_environment_profiles(application_id,environment_id,slo_target_percent) VALUES($1,$2,$3::numeric) ON CONFLICT(application_id,environment_id) DO UPDATE SET slo_target_percent=EXCLUDED.slo_target_percent,updated_at=now()`, app, env, out.Target)
+			_, err = tx.Exec(r.Context(), `INSERT INTO v3_service_environment_profiles(application_id,environment_id,slo_target_percent) VALUES($1,$2,$3::numeric) ON CONFLICT(application_id,environment_id) DO UPDATE SET slo_target_percent=EXCLUDED.slo_target_percent,updated_at=now()`, app, env, in.Target)
 		}
 		if err == nil {
-			_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes) VALUES($1,$2,'v3.service.slo.updated',$2,'success',jsonb_build_object('environment_id',$3::text,'revision',$4::bigint,'target',$5::text,'window',$6::text))`, user.ID, app, env, out.Revision, out.Target, out.Window)
+			_, err = tx.Exec(r.Context(), `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes) VALUES($1,$2,'v3.service.slo.updated',$2,'success',jsonb_build_object('environment_id',$3::text,'revision',$4::bigint,'target',$5::text,'window',$6::text))`, user.ID, app, env, out.Revision, in.Target, in.Window)
 		}
 	} else {
 		err = tx.QueryRow(r.Context(), `SELECT target,slo_window,revision FROM v3_service_slo_settings WHERE application_id=$1 AND environment_id=$2 FOR SHARE`, app, env).Scan(&out.Target, &out.Window, &out.Revision)
 		if errors.Is(err, pgx.ErrNoRows) {
-			httpapi.Error(w, 503, "slo_not_configured", "SLO policy is not configured; initialize with expected_revision 0")
-			return
+			// Never saved: initialize with expected_revision 0.
+			out.Target, out.Window, out.Revision, err = nil, nil, 0, nil
+			out.Unavailable["target"], out.Unavailable["window"] = reasonNotConfigured, reasonNotConfigured
 		}
 	}
 	if err == nil {

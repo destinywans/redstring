@@ -151,8 +151,12 @@ func TestReadMetricsRejectsIncompleteOrContradictoryEvidence(t *testing.T) {
 			reader := &metricsReaderStub{evidence: evidence}
 			_, err := ReadMetrics(t.Context(), reader, httpapi.V3EnvironmentScope{}, core.User{}, "checkout", "app", "dev", 99.9, now)
 			var metricErr *MetricError
-			if !errors.As(err, &metricErr) || metricErr.Code != "metric_result_incomplete" {
-				t.Fatalf("expected typed incomplete error, got %v", err)
+			want := "metric_result_incomplete"
+			if name == "stale" {
+				want = "metric_result_stale"
+			}
+			if !errors.As(err, &metricErr) || metricErr.Code != want {
+				t.Fatalf("expected typed %s error, got %v", want, err)
 			}
 		})
 	}

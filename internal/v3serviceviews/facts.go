@@ -3,7 +3,6 @@ package v3serviceviews
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -35,6 +34,8 @@ const changeSQL = `SELECT p.snapshot->>'target_kind',
  WHERE p.application_id=$1 AND e.key=$2 AND de.type='succeeded'
  ORDER BY de.created_at DESC,de.sequence DESC LIMIT 11`
 
+// changes returns verified successful deployments, newest first. A record
+// that cannot be represented makes the list unknown rather than shorter.
 func (s *Service) changes(ctx context.Context, row serviceRow) ([]change, error) {
 	rows, err := s.Store.DB.Query(ctx, changeSQL, row.AppID, row.Env)
 	if err != nil {
@@ -49,7 +50,7 @@ func (s *Service) changes(ctx context.Context, row serviceRow) ([]change, error)
 			return nil, err
 		}
 		if revision == "" || (kind != "gitops" && kind != "vm") {
-			return nil, errIncomplete
+			return nil, unknown(reasonUnavailable)
 		}
 		if len(revision) > 16 {
 			revision = revision[:16]
@@ -59,42 +60,166 @@ func (s *Service) changes(ctx context.Context, row serviceRow) ([]change, error)
 	return out, rows.Err()
 }
 
-func (s *Service) release(ctx context.Context, row serviceRow) (release, error) {
+// release is the latest verified deployment. Without one the release is
+// unknown, not "never released": a service may be delivered outside this
+// platform (not_connected) or not have finished a planned delivery yet.
+func (s *Service) release(ctx context.Context, row serviceRow) (*release, error) {
 	changes, err := s.changes(ctx, row)
 	if err != nil {
-		return release{}, err
+		return nil, err
 	}
 	if len(changes) == 0 {
-		return release{}, errIncomplete
+		var planned bool
+		err = s.Store.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM deployment_plans p
+ JOIN application_environments e ON e.id=p.environment_id AND e.application_id=p.application_id AND NOT e.archived
+ WHERE p.application_id=$1 AND e.key=$2)`, row.AppID, row.Env).Scan(&planned)
+		if err != nil {
+			return nil, err
+		}
+		if planned {
+			return nil, unknown(reasonNotGenerated)
+		}
+		return nil, unknown(reasonNotConnected)
 	}
 	c := changes[0]
-	return release{Brand: c.Brand, Version: strings.TrimPrefix(c.Title, "Deployment "), When: c.At.UTC().Format(time.RFC3339), At: c.At}, nil
+	return &release{Brand: c.Brand, Version: strings.TrimPrefix(c.Title, "Deployment "), When: c.At.UTC().Format(time.RFC3339), At: c.At}, nil
 }
 
-func (s *Service) alerts(ctx context.Context, row serviceRow) (int, bool, error) {
+// observation is the live health evidence for one service. A nil value is
+// unknown, with its reason; used lists exactly the sources the known values
+// relied on.
+type observation struct {
+	metrics       *Metrics
+	metricsReason string
+	alerts        *int
+	critical      bool
+	alertsReason  string
+	status        *string
+	statusReason  string
+	used          evidence
+}
+
+// observe reads the metric and alert evidence independently: one missing
+// source leaves the other's values intact. An error is a request failure
+// (storage, policy, cancellation or a source changing during the read).
+func (s *Service) observe(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow, now time.Time) (observation, error) {
+	var out observation
+	metrics, used, err := s.readMetrics(ctx, scope, user, row, now)
+	if reason, ok := unknownReason(err); ok {
+		out.metricsReason = reason
+	} else if err != nil {
+		return out, err
+	} else {
+		out.metrics, out.used = &metrics, used
+	}
 	// The event module has a separate ACL. An alert count or critical-derived
 	// health signal would disclose incident state to services-only readers.
-	// Callers authorize before invoking this query and recheck before reply.
-	if s.AlertCovered == nil {
-		return 0, false, errIncomplete
+	allowed, err := s.canView(ctx, user, row, "events")
+	if err != nil {
+		return out, err
 	}
-	sourceID := s.AlertCovered(ctx, row.AppID, row.Env)
-	if sourceID == "" {
-		return 0, false, errIncomplete
+	sourceID := ""
+	switch {
+	case !allowed:
+		out.alertsReason = reasonNoAuthorized
+	case s.AlertCovered == nil:
+		out.alertsReason = reasonNotConfigured
+	default:
+		// Without an operator completeness assertion a zero count could hide
+		// alerts sent elsewhere, so the count is unknown rather than zero.
+		if sourceID = s.AlertCovered(ctx, row.AppID, row.Env); sourceID == "" {
+			out.alertsReason = reasonNotConfigured
+		}
 	}
-	var total, critical int
-	err := s.Store.DB.QueryRow(ctx, `SELECT count(*)::int,
+	if sourceID != "" {
+		var total, critical int
+		err = s.Store.DB.QueryRow(ctx, `SELECT count(*)::int,
  count(*) FILTER (WHERE severity IN ('critical','fatal'))::int
  FROM ops_incidents i
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
  WHERE i.application_id=$1 AND e.key=$2 AND i.source_id=$3
  AND i.alert_status='firing' AND NOT i.suspected`, row.AppID, row.Env, sourceID).Scan(&total, &critical)
-	return total, critical > 0, err
+		if err != nil {
+			return out, err
+		}
+		out.alerts, out.critical, out.used.alertSource = &total, critical > 0, sourceID
+	}
+	// Status is the measured burn signal raised by firing alerts. A critical
+	// alert or a danger burn decides it alone; anything milder needs both
+	// inputs, because the unknown one could still raise it.
+	status := ""
+	switch {
+	case out.metrics != nil && out.alerts != nil:
+		status = out.metrics.Status
+		if out.critical {
+			status = "danger"
+		} else if *out.alerts > 0 && status == "ok" {
+			status = "warn"
+		}
+	case out.alerts != nil && out.critical, out.metrics != nil && out.metrics.Status == "danger":
+		status = "danger"
+	case out.metrics == nil:
+		out.statusReason = out.metricsReason
+	default:
+		out.statusReason = out.alertsReason
+	}
+	if status != "" {
+		out.status = &status
+	}
+	return out, nil
+}
+
+// readMetrics performs one sealed live Prometheus read. The seal is taken
+// before and after the read; a change between them fails the request.
+func (s *Service) readMetrics(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow, now time.Time) (Metrics, evidence, error) {
+	var zero Metrics
+	// Exposing connector provider names requires its own current grant. The
+	// metric reader enforces a separate bound-source connector grant too.
+	allowed, err := s.canView(ctx, user, row, "connectors")
+	if err != nil {
+		return zero, evidence{}, err
+	}
+	if !allowed {
+		return zero, evidence{}, unknown(reasonNoAuthorized)
+	}
+	if s.MetricReader == nil {
+		return zero, evidence{}, unknown(reasonNotConnected)
+	}
+	before, err := s.sourceSeal(ctx, row)
+	if err != nil {
+		return zero, evidence{}, err
+	}
+	target, ok := sloTarget(row)
+	if !ok {
+		return zero, evidence{}, unknown(reasonNotConfigured)
+	}
+	metricScope := scope
+	metricScope.All = false
+	metricScope.EnvironmentIDs = []string{row.Env}
+	metrics, err := ReadMetrics(ctx, s.MetricReader, metricScope, user, row.Key, row.AppID, row.Env, target, now)
+	if err != nil {
+		reason, fatal := metricReason(ctx, err)
+		if fatal != nil {
+			return zero, evidence{}, fatal
+		}
+		return zero, evidence{}, unknown(reason)
+	}
+	if metrics.BindingID != before.BindingID || metrics.ConnectorID != before.ConnectorID || metrics.ResourceID != before.ResourceID {
+		return zero, evidence{}, errSourceChanged
+	}
+	after, err := s.sourceSeal(ctx, row)
+	if _, isUnknown := unknownReason(err); isUnknown || (err == nil && after != before) {
+		return zero, evidence{}, errSourceChanged
+	}
+	if err != nil {
+		return zero, evidence{}, err
+	}
+	return metrics, evidence{metrics: true, seal: before}, nil
 }
 
 func (s *Service) connectors(ctx context.Context, row serviceRow, metrics Metrics) ([]string, error) {
-	// The frozen page labels these Connected. Only the exact Prometheus target
-	// that completed this request's live query is known to be connected here.
+	// The page labels these Connected. Only the exact Prometheus target that
+	// completed this request's live query is known to be connected here.
 	// Other configured targets are deliberately omitted until an equivalent
 	// source read can prove their current reachability.
 	var provider string
@@ -106,7 +231,7 @@ func (s *Service) connectors(ctx context.Context, row serviceRow, metrics Metric
  AND t.target_kind='metric_resource' AND c.provider='prometheus' AND c.enabled`,
 		metrics.BindingID, metrics.ConnectorID, row.AppID, row.Env, metrics.ResourceID).Scan(&provider)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, errIncomplete
+		return nil, errSourceChanged // the target just read is gone
 	}
 	if err != nil {
 		return nil, err
@@ -115,67 +240,44 @@ func (s *Service) connectors(ctx context.Context, row serviceRow, metrics Metric
 }
 
 func (s *Service) project(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow, now time.Time) (summary, error) {
-	var out summary
-	target, ok := validRow(row)
-	if !ok || s.MetricReader == nil {
-		return out, errIncomplete
+	out := summary{ID: encodeID(row.AppID, row.Env), Name: row.Name, Desc: row.Description,
+		Unavailable: map[string]string{}, Env: row.Env, row: row}
+	out.Tier, out.Team, out.Oncall = identity(row, out.Unavailable)
+	if target, ok := sloTarget(row); ok {
+		value := formatTarget(target)
+		out.SLO.Target = &value
+	} else {
+		out.Unavailable["slo.target"] = reasonNotConfigured
 	}
-	// Exposing connector provider names requires its own current grant. The
-	// metric reader enforces a separate bound-source connector grant too.
-	allowed, err := s.canView(ctx, user, row, "connectors")
+	obs, err := s.observe(ctx, scope, user, row, now)
 	if err != nil {
 		return out, err
 	}
-	if !allowed {
-		return out, errIncomplete
+	out.obs = obs
+	out.Status, out.Alerts = obs.status, obs.alerts
+	if obs.status == nil {
+		out.Unavailable["status"] = obs.statusReason
 	}
-	allowed, err = s.canView(ctx, user, row, "events")
-	if err != nil {
-		return out, err
+	if obs.alerts == nil {
+		out.Unavailable["alerts"] = obs.alertsReason
 	}
-	if !allowed {
-		return out, errIncomplete
-	}
-	before, err := s.sourceSeal(ctx, row)
-	if err != nil {
-		return out, err
-	}
-	metricScope := scope
-	metricScope.All = false
-	metricScope.EnvironmentIDs = []string{row.Env}
-	metrics, err := ReadMetrics(ctx, s.MetricReader, metricScope, user, row.Key, row.AppID, row.Env, target, now)
-	if err != nil {
-		return out, fmt.Errorf("%w: metrics: %v", errIncomplete, err)
-	}
-	if metrics.BindingID != before.BindingID || metrics.ConnectorID != before.ConnectorID || metrics.ResourceID != before.ResourceID {
-		return out, errIncomplete
-	}
-	after, err := s.sourceSeal(ctx, row)
-	if err != nil || after != before {
-		return out, errIncomplete
-	}
-	alerts, critical, err := s.alerts(ctx, row)
-	if err != nil {
-		return out, err
+	if obs.metrics != nil {
+		budget := obs.metrics.BudgetLeft
+		out.SLO.BudgetLeft = &budget
+		if out.Connectors, err = s.connectors(ctx, row, *obs.metrics); err != nil {
+			return out, err
+		}
+	} else {
+		out.Unavailable["slo.budget_left"] = obs.metricsReason
+		out.Unavailable["connectors"] = obs.metricsReason
 	}
 	rel, err := s.release(ctx, row)
-	if err != nil {
+	if reason, ok := unknownReason(err); ok {
+		out.Unavailable["release"] = reason
+	} else if err != nil {
 		return out, err
+	} else {
+		out.Release = rel
 	}
-	connected, err := s.connectors(ctx, row, metrics)
-	if err != nil {
-		return out, err
-	}
-	status := metrics.Status
-	if critical {
-		status = "danger"
-	} else if alerts > 0 && status == "ok" {
-		status = "warn"
-	}
-	out = summary{ID: encodeID(row.AppID, row.Env), Name: row.Name, Desc: row.Description, Tier: row.Tier,
-		Team: row.Team, Oncall: row.Oncall, Status: status, Release: rel, Alerts: alerts, Connectors: connected,
-		Env: row.Env, metrics: metrics, seal: before}
-	out.SLO.Target = metrics.Target
-	out.SLO.BudgetLeft = metrics.BudgetLeft
 	return out, nil
 }

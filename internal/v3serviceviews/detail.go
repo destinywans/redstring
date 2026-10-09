@@ -23,38 +23,41 @@ type aiNarrative struct {
 	Meta          string `json:"meta"`
 }
 type dependency struct {
-	Brand  string `json:"brand,omitempty"`
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Meta   string `json:"meta"`
-	row    serviceRow
-	seal   metricSourceSeal
+	Brand       string            `json:"brand,omitempty"`
+	Name        string            `json:"name"`
+	Status      *string           `json:"status"`
+	Meta        string            `json:"meta"`
+	Unavailable map[string]string `json:"unavailable"`
+	row         serviceRow
+	used        evidence
 }
 type dependencySides struct {
 	Upstream   []dependency `json:"upstream"`
 	Downstream []dependency `json:"downstream"`
 }
+type detailSLO struct {
+	Availability *string  `json:"availability"`
+	Target       *string  `json:"target"`
+	BudgetLeft   *float64 `json:"budget_left"`
+	Burn         []Burn   `json:"burn"`
+	Note         string   `json:"note"`
+}
 type detail struct {
-	ID        string      `json:"id"`
-	Name      string      `json:"name"`
-	Tier      string      `json:"tier"`
-	Team      string      `json:"team"`
-	Env       string      `json:"env"`
-	Status    string      `json:"status"`
-	Desc      string      `json:"desc"`
-	Deeplinks []link      `json:"deeplinks"`
-	AI        aiNarrative `json:"ai"`
-	Signals   []KPI       `json:"signals"`
-	SLO       struct {
-		Availability string  `json:"availability"`
-		Target       string  `json:"target"`
-		BudgetLeft   float64 `json:"budget_left"`
-		Burn         []Burn  `json:"burn"`
-		Note         string  `json:"note"`
-	} `json:"slo"`
-	Changes []change        `json:"changes"`
-	Deps    dependencySides `json:"deps"`
-	Tabs    map[string]int  `json:"tabs"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Tier        *string           `json:"tier"`
+	Team        *string           `json:"team"`
+	Env         string            `json:"env"`
+	Status      *string           `json:"status"`
+	Desc        string            `json:"desc"`
+	Deeplinks   []link            `json:"deeplinks"`
+	AI          *aiNarrative      `json:"ai"`
+	Signals     []KPI             `json:"signals"`
+	SLO         detailSLO         `json:"slo"`
+	Changes     []change          `json:"changes"`
+	Deps        *dependencySides  `json:"deps"`
+	Tabs        map[string]*int   `json:"tabs"`
+	Unavailable map[string]string `json:"unavailable"`
 }
 
 func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
@@ -97,25 +100,66 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		writeReadError(w, err)
 		return
 	}
-	ai, err := s.narrative(ctx, user, row)
+	out := detail{ID: item.ID, Name: item.Name, Tier: item.Tier, Team: item.Team, Env: item.Env, Status: item.Status,
+		Desc: item.Desc, Deeplinks: []link{}, Tabs: map[string]*int{}, Unavailable: map[string]string{}}
+	for _, field := range []string{"tier", "team", "status"} {
+		if reason, missing := item.Unavailable[field]; missing {
+			out.Unavailable[field] = reason
+		}
+	}
+	used := item.obs.used
+	unknownAs := func(field string, err error) bool {
+		reason, isUnknown := unknownReason(err)
+		if isUnknown {
+			out.Unavailable[field] = reason
+		}
+		return isUnknown
+	}
+	ai, aiErr := s.narrative(ctx, user, row)
+	if !unknownAs("ai", aiErr) {
+		if aiErr != nil {
+			writeReadError(w, aiErr)
+			return
+		}
+		out.AI, used.canvas = &ai, true
+	}
+	changes, changesErr := s.changes(ctx, row)
+	if !unknownAs("changes", changesErr) {
+		if changesErr != nil {
+			writeReadError(w, changesErr)
+			return
+		}
+		if len(changes) > 10 {
+			changes = changes[:10]
+		}
+		out.Changes = changes
+	}
+	deps, depChecks, depsErr := s.dependencies(ctx, scope, user, row)
+	if unknownAs("deps", depsErr) {
+		out.Unavailable["tabs.deps"] = out.Unavailable["deps"]
+	} else {
+		if depsErr != nil {
+			writeReadError(w, depsErr)
+			return
+		}
+		n := len(deps.Upstream) + len(deps.Downstream)
+		out.Deps, out.Tabs["deps"], used.resources = &deps, &n, true
+	}
+	// Incident records are event data: the tab count needs its own grant.
+	eventsAllowed, err := s.canView(ctx, user, row, "events")
 	if err != nil {
 		writeReadError(w, err)
 		return
 	}
-	changes, err := s.changes(ctx, row)
-	if err != nil {
-		writeReadError(w, err)
-		return
-	}
-	deps, dependencyRows, err := s.dependencies(ctx, scope, user, row)
-	if err != nil {
-		writeReadError(w, err)
-		return
-	}
-	incidentCount, err := s.incidentCount(ctx, row)
-	if err != nil {
-		writeReadError(w, err)
-		return
+	if eventsAllowed {
+		incidentCount, e := s.incidentCount(ctx, row)
+		if e != nil {
+			writeReadError(w, e)
+			return
+		}
+		out.Tabs["incidents"], used.events = &incidentCount, true
+	} else {
+		out.Unavailable["tabs.incidents"] = reasonNoAuthorized
 	}
 	var changeCount int
 	err = s.Store.DB.QueryRow(ctx, `SELECT count(*)::int FROM deployment_events de
@@ -127,58 +171,44 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		writeReadError(w, err)
 		return
 	}
+	out.Tabs["changes"] = &changeCount
 	if ctx.Err() != nil {
 		writeReadError(w, ctx.Err())
 		return
 	}
-	if err = s.finalCheck(ctx, r, rows, true, true); err != nil {
+	if err = s.finalCheck(ctx, r, append([]checked{{row: row, used: used}}, depChecks...)); err != nil {
 		writeReadError(w, err)
 		return
 	}
-	if err = s.finalCheck(ctx, r, dependencyRows, false, true); err != nil {
-		writeReadError(w, err)
-		return
+	out.SLO.Target = item.SLO.Target
+	out.SLO.Note = "Observed monthly availability and error-budget burn"
+	if reason, missing := item.Unavailable["slo.target"]; missing {
+		out.Unavailable["slo.target"] = reason
 	}
-	seal, err := s.sourceSeal(ctx, row)
-	if err != nil || seal != item.seal {
-		writeReadError(w, errIncomplete)
-		return
-	}
-	for _, side := range [][]dependency{deps.Upstream, deps.Downstream} {
-		for _, dep := range side {
-			current, e := s.sourceSeal(ctx, dep.row)
-			if e != nil || current != dep.seal {
-				writeReadError(w, errIncomplete)
-				return
-			}
+	if m := item.obs.metrics; m != nil {
+		availability, budget := m.Availability, m.BudgetLeft
+		out.SLO.Availability, out.SLO.BudgetLeft, out.SLO.Burn, out.Signals = &availability, &budget, m.Burn, m.Signals
+	} else {
+		for _, field := range []string{"signals", "slo.availability", "slo.budget_left", "slo.burn"} {
+			out.Unavailable[field] = item.obs.metricsReason
 		}
 	}
-	out := detail{ID: item.ID, Name: item.Name, Tier: item.Tier, Team: item.Team, Env: item.Env, Status: item.Status, Desc: item.Desc,
-		Deeplinks: []link{}, AI: ai, Signals: item.metrics.Signals, Changes: changes, Deps: deps,
-		Tabs: map[string]int{"changes": changeCount, "deps": len(deps.Upstream) + len(deps.Downstream), "incidents": incidentCount}}
-	if len(out.Changes) > 10 {
-		out.Changes = out.Changes[:10]
-	}
-	out.SLO.Availability = item.metrics.Availability
-	out.SLO.Target = item.metrics.Target
-	out.SLO.BudgetLeft = item.metrics.BudgetLeft
-	out.SLO.Burn = item.metrics.Burn
-	out.SLO.Note = "Observed monthly availability and error-budget burn"
 	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, 200, out)
 }
 
-// The AI panel has no honest empty-state field in the frozen DTO. It is shown
-// only when a real, currently authorized investigation has a persisted model
-// reply. The exact reply is labeled with its model and time, not summarized by
-// this read path. The linked investigation belongs to this app/environment.
+// The AI panel shows only a real, currently authorized investigation's
+// persisted model reply from the last hour. The exact reply is labeled with
+// its model and time, not summarized by this read path. The linked
+// investigation belongs to this app/environment. An older reply is stale; no
+// qualifying reply is not_generated.
 func (s *Service) narrative(ctx context.Context, user core.User, row serviceRow) (aiNarrative, error) {
 	allowed, err := s.canView(ctx, user, row, "canvas")
 	if err != nil {
 		return aiNarrative{}, err
 	}
 	if !allowed {
-		return aiNarrative{}, errIncomplete
+		return aiNarrative{}, unknown(reasonNoAuthorized)
 	}
 	var inv, content, model string
 	var at time.Time
@@ -195,19 +225,22 @@ func (s *Service) narrative(ctx context.Context, user core.User, row serviceRow)
  WHERE i.application_id=$1 AND e.key=$2 AND i.status='open'
  AND latest_run.status='completed'
  AND m.value->>'run_id'=latest_run.id
- AND NULLIF(m.value->>'created_at','')::timestamptz BETWEEN $3 AND $4
+ AND NULLIF(m.value->>'created_at','')::timestamptz<=$3
  AND latest_run.created_at<=NULLIF(m.value->>'created_at','')::timestamptz
  AND NULLIF(m.value->>'created_at','')::timestamptz<=cr.created_at
  AND latest_run.model_id=m.value->>'model_id'
  AND m.value->>'role'='assistant'
  AND length(btrim(COALESCE(m.value->>'content',''))) BETWEEN 1 AND 2000
  AND COALESCE(m.value->>'model_id','')<>''
- ORDER BY NULLIF(m.value->>'created_at','')::timestamptz DESC,m.ord DESC LIMIT 1`, row.AppID, row.Env, now.Add(-time.Hour), now).Scan(&inv, &content, &model, &at)
+ ORDER BY NULLIF(m.value->>'created_at','')::timestamptz DESC,m.ord DESC LIMIT 1`, row.AppID, row.Env, now).Scan(&inv, &content, &model, &at)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return aiNarrative{}, errIncomplete
+		return aiNarrative{}, unknown(reasonNotGenerated)
 	}
 	if err != nil {
 		return aiNarrative{}, err
+	}
+	if at.Before(now.Add(-time.Hour)) {
+		return aiNarrative{}, unknown(reasonStale)
 	}
 	out := aiNarrative{Text: "Investigation note as of " + at.UTC().Format(time.RFC3339) + ": " + content,
 		Investigation: inv, Meta: "Model " + model + " · " + at.UTC().Format(time.RFC3339)}
@@ -236,46 +269,20 @@ func (s *Service) incidentCount(ctx context.Context, row serviceRow) (int, error
 	return n, err
 }
 
+// statusOnly keeps the watched-services contract: a status only when both
+// its metric and alert inputs are known, otherwise errIncomplete. Watched
+// services reports a source change during the read as unavailable too.
 func statusOnly(ctx context.Context, s *Service, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow, now time.Time) (string, metricSourceSeal, error) {
 	var zero metricSourceSeal
-	target, ok := validRow(row)
-	if !ok {
+	obs, err := s.observe(ctx, scope, user, row, now)
+	if errors.Is(err, errSourceChanged) {
 		return "", zero, errIncomplete
 	}
-	allowed, err := s.canView(ctx, user, row, "events")
 	if err != nil {
 		return "", zero, err
 	}
-	if !allowed {
+	if obs.metrics == nil || obs.alerts == nil || obs.status == nil {
 		return "", zero, errIncomplete
 	}
-	before, err := s.sourceSeal(ctx, row)
-	if err != nil {
-		return "", zero, err
-	}
-	metricScope := scope
-	metricScope.All = false
-	metricScope.EnvironmentIDs = []string{row.Env}
-	m, err := ReadMetrics(ctx, s.MetricReader, metricScope, user, row.Key, row.AppID, row.Env, target, now)
-	if err != nil {
-		return "", zero, errIncomplete
-	}
-	if m.BindingID != before.BindingID || m.ConnectorID != before.ConnectorID || m.ResourceID != before.ResourceID {
-		return "", zero, errIncomplete
-	}
-	after, err := s.sourceSeal(ctx, row)
-	if err != nil || after != before {
-		return "", zero, errIncomplete
-	}
-	alerts, critical, err := s.alerts(ctx, row)
-	if err != nil {
-		return "", zero, err
-	}
-	if critical {
-		return "danger", before, nil
-	}
-	if alerts > 0 && m.Status == "ok" {
-		return "warn", before, nil
-	}
-	return m.Status, before, nil
+	return *obs.status, obs.used.seal, nil
 }

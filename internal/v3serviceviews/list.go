@@ -11,9 +11,21 @@ import (
 )
 
 type catalog struct {
-	KPIs   []KPI     `json:"kpis"`
-	Items  []summary `json:"items"`
-	Facets []facet   `json:"facets"`
+	KPIs   []catalogKPI `json:"kpis"`
+	Items  []summary    `json:"items"`
+	Facets []facet      `json:"facets"`
+}
+
+// catalogKPI counts only services whose input is known. Unknown is the number
+// of services left out; a KPI with no known input is null with a reason.
+type catalogKPI struct {
+	ID      string    `json:"id"`
+	Label   string    `json:"label"`
+	Value   *string   `json:"value"`
+	Tone    string    `json:"tone,omitempty"`
+	Series  []float64 `json:"series"`
+	Unknown int       `json:"unknown"`
+	Reason  string    `json:"reason,omitempty"`
 }
 
 func nowOf(s *Service) time.Time {
@@ -43,13 +55,16 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	}
 	now := nowOf(s)
 	items := make([]summary, 0, len(rows))
+	read := make([]checked, 0, len(rows))
 	for _, row := range rows {
 		item, e := s.project(ctx, scope, user, row, now)
 		if e != nil {
 			writeReadError(w, e)
 			return
 		}
-		if f.status == "" || item.Status == f.status {
+		read = append(read, checked{row: row, used: item.obs.used})
+		// An unknown status matches no status filter.
+		if f.status == "" || (item.Status != nil && *item.Status == f.status) {
 			items = append(items, item)
 		}
 	}
@@ -57,33 +72,22 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 		writeReadError(w, ctx.Err())
 		return
 	}
-	if err = s.finalCheck(ctx, r, rows, false, false); err != nil {
+	if err = s.finalCheck(ctx, r, read); err != nil {
 		writeReadError(w, err)
 		return
 	}
-	byID := make(map[string]serviceRow, len(rows))
-	for _, row := range rows {
-		byID[encodeID(row.AppID, row.Env)] = row
-	}
-	for _, item := range items {
-		seal, e := s.sourceSeal(ctx, byID[item.ID])
-		if e != nil || seal != item.seal {
-			writeReadError(w, errIncomplete)
-			return
-		}
-	}
+	statusRank := map[string]int{"danger": 0, "warn": 1, "ok": 2}
 	sort.SliceStable(items, func(i, j int) bool {
 		a, b := items[i], items[j]
 		switch f.sort {
 		case "name":
 			return a.Name < b.Name
 		case "budget":
-			return a.SLO.BudgetLeft < b.SLO.BudgetLeft
+			return nullsLast(a.SLO.BudgetLeft, b.SLO.BudgetLeft, func(x, y float64) bool { return x < y })
 		case "alerts":
-			return a.Alerts > b.Alerts
+			return nullsLast(a.Alerts, b.Alerts, func(x, y int) bool { return x > y })
 		case "status":
-			rank := map[string]int{"danger": 0, "warn": 1, "ok": 2}
-			return rank[a.Status] < rank[b.Status]
+			return nullsLast(a.Status, b.Status, func(x, y string) bool { return statusRank[x] < statusRank[y] })
 		}
 		return false
 	})
@@ -91,34 +95,77 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, buildCatalog(items, f, now))
 }
 
+// nullsLast orders known values by less and puts unknown values after them.
+func nullsLast[T any](a, b *T, less func(T, T) bool) bool {
+	if a == nil || b == nil {
+		return a != nil
+	}
+	return less(*a, *b)
+}
+
+// tally counts one KPI over the services whose input is known.
+type tally struct {
+	count, unknown int
+	reasons        map[string]int
+}
+
+func (t *tally) add(known, hit bool, reason string) {
+	switch {
+	case !known:
+		t.unknown++
+		if t.reasons == nil {
+			t.reasons = map[string]int{}
+		}
+		t.reasons[reason]++
+	case hit:
+		t.count++
+	}
+}
+
+func (t tally) kpi(id, label, tone string, total int) catalogKPI {
+	out := catalogKPI{ID: id, Label: label, Tone: tone, Series: []float64{}, Unknown: t.unknown}
+	if total > 0 && t.unknown == total {
+		// The most common reason explains the gap; ties follow the vocabulary order.
+		for _, reason := range reasonOrder {
+			if t.reasons[reason] > t.reasons[out.Reason] {
+				out.Reason = reason
+			}
+		}
+		if out.Reason == "" {
+			out.Reason = reasonUnavailable
+		}
+		return out
+	}
+	value := strconv.Itoa(t.count)
+	out.Value = &value
+	return out
+}
+
 func buildCatalog(items []summary, f filters, now time.Time) catalog {
-	out := catalog{Items: items, KPIs: []KPI{}, Facets: []facet{}}
-	degraded, alerting, lowBudget, weekly := 0, 0, 0, 0
+	out := catalog{Items: items, KPIs: []catalogKPI{}, Facets: []facet{}}
+	var degraded, alerting, lowBudget, weekly tally
 	counts := map[string]map[string]int{"team": {}, "tier": {}, "status": {}, "env": {}}
 	for _, item := range items {
-		if item.Status == "danger" {
-			degraded++
+		u := item.Unavailable
+		degraded.add(item.Status != nil, item.Status != nil && *item.Status == "danger", u["status"])
+		alerting.add(item.Alerts != nil, item.Alerts != nil && *item.Alerts > 0, u["alerts"])
+		lowBudget.add(item.SLO.BudgetLeft != nil, item.SLO.BudgetLeft != nil && *item.SLO.BudgetLeft < 50, u["slo.budget_left"])
+		weekly.add(item.Release != nil, item.Release != nil && !item.Release.At.Before(now.Add(-7*24*time.Hour)), u["release"])
+		// Facets count known values only; an unknown is not its own bucket.
+		for key, value := range map[string]*string{"team": item.Team, "tier": item.Tier, "status": item.Status} {
+			if value != nil {
+				counts[key][*value]++
+			}
 		}
-		if item.Alerts > 0 {
-			alerting++
-		}
-		if item.SLO.BudgetLeft < 50 {
-			lowBudget++
-		}
-		if !item.Release.At.IsZero() && !item.Release.At.Before(now.Add(-7*24*time.Hour)) {
-			weekly++
-		}
-		counts["team"][item.Team]++
-		counts["tier"][item.Tier]++
-		counts["status"][item.Status]++
 		counts["env"][item.Env]++
 	}
-	out.KPIs = []KPI{
-		{ID: "n", Label: "Services", Value: strconv.Itoa(len(items)), Series: []float64{}},
-		{ID: "bad", Label: "Degraded", Value: strconv.Itoa(degraded), Tone: "danger", Series: []float64{}},
-		{ID: "warn", Label: "Alerting", Value: strconv.Itoa(alerting), Tone: "warn", Series: []float64{}},
-		{ID: "budget", Label: "Budget < 50%", Value: strconv.Itoa(lowBudget), Tone: "warn", Series: []float64{}},
-		{ID: "rel", Label: "Releases this week", Value: strconv.Itoa(weekly), Series: []float64{}},
+	n := strconv.Itoa(len(items))
+	out.KPIs = []catalogKPI{
+		{ID: "n", Label: "Services", Value: &n, Series: []float64{}},
+		degraded.kpi("bad", "Degraded", "danger", len(items)),
+		alerting.kpi("warn", "Alerting", "warn", len(items)),
+		lowBudget.kpi("budget", "Budget < 50%", "warn", len(items)),
+		weekly.kpi("rel", "Releases this week", "", len(items)),
 	}
 	for _, spec := range []struct{ key, title, selected string }{{"team", "Team", f.team}, {"tier", "Tier", f.tier}, {"status", "Status", f.status}, {"env", "Environment", ""}} {
 		group := facet{Key: spec.key, Title: spec.title, Items: []facetItem{}}

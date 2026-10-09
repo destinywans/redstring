@@ -10,16 +10,18 @@ type relationRow struct{ id, kind, mineResource, otherResource, direction string
 
 // Only explicit, non-mock depends_on edges between registered service
 // resources have a direction and service-level status suitable for this DTO.
-// Other visible relation kinds fail closed instead of disappearing as zero
-// dependencies. This keeps the displayed count equal to the displayed edges.
-func (s *Service) dependencies(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow) (dependencySides, []serviceRow, error) {
+// Any other visible relation, shared resource or dependency the reader cannot
+// see makes the whole dependency list unknown instead of silently shorter.
+// This keeps the displayed count equal to the real edges. A dependency's own
+// status may still be unknown; its unavailable map says why.
+func (s *Service) dependencies(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow) (dependencySides, []checked, error) {
 	out := dependencySides{Upstream: []dependency{}, Downstream: []dependency{}}
 	visible, err := s.canView(ctx, user, row, "resources")
 	if err != nil {
 		return out, nil, err
 	}
 	if !visible {
-		return out, nil, errIncomplete
+		return out, nil, unknown(reasonNoAuthorized)
 	}
 	rows, err := s.Store.DB.Query(ctx, `WITH mine AS (
  SELECT DISTINCT cra.resource_id FROM cmdb_resource_applications cra
@@ -55,16 +57,13 @@ func (s *Service) dependencies(ctx context.Context, scope httpapi.V3EnvironmentS
 	if len(relations) > 100 {
 		return out, nil, errLimit
 	}
-	otherRows := []serviceRow{}
-	seen := map[string]bool{}
+	checks := []checked{}
+	seen := map[string]int{}
 	seenEdges := map[string]bool{}
-	statusCache := map[string]struct {
-		status string
-		seal   metricSourceSeal
-	}{}
+	statusCache := map[string]observation{}
 	for _, rel := range relations {
 		if rel.kind != "depends_on" {
-			return out, nil, errIncomplete
+			return out, nil, unknown(reasonUnavailable)
 		}
 		mineApp, err := s.resourceOwner(ctx, rel.mineResource, row.Env)
 		if err != nil {
@@ -75,7 +74,7 @@ func (s *Service) dependencies(ctx context.Context, scope httpapi.V3EnvironmentS
 			return out, nil, err
 		}
 		if mineApp != row.AppID || otherApp == row.AppID {
-			return out, nil, errIncomplete
+			return out, nil, unknown(reasonUnavailable)
 		}
 		edgeKey := rel.direction + "\x00" + otherApp
 		if seenEdges[edgeKey] {
@@ -86,7 +85,7 @@ func (s *Service) dependencies(ctx context.Context, scope httpapi.V3EnvironmentS
 			return out, nil, e
 		}
 		if len(matched) != 1 {
-			return out, nil, errIncomplete
+			return out, nil, unknown(reasonUnavailable)
 		}
 		other := matched[0]
 		resourceAllowed, e := s.canView(ctx, user, other, "resources")
@@ -94,29 +93,37 @@ func (s *Service) dependencies(ctx context.Context, scope httpapi.V3EnvironmentS
 			return out, nil, e
 		}
 		if !resourceAllowed {
-			return out, nil, errIncomplete
+			return out, nil, unknown(reasonUnavailable)
 		}
-		current := statusCache[otherApp]
-		if current.status == "" {
-			current.status, current.seal, e = statusOnly(ctx, s, scope, user, other, nowOf(s))
-			if e != nil {
+		obs, cached := statusCache[otherApp]
+		if !cached {
+			if obs, e = s.observe(ctx, scope, user, other, nowOf(s)); e != nil {
 				return out, nil, e
 			}
-			statusCache[otherApp] = current
+			statusCache[otherApp] = obs
 		}
-		item := dependency{Name: other.Name, Status: current.status, Meta: "CMDB depends_on", row: other, seal: current.seal}
+		item := dependency{Name: other.Name, Status: obs.status, Meta: "CMDB depends_on", Unavailable: map[string]string{}, row: other}
+		if obs.status == nil {
+			item.Unavailable["status"] = obs.statusReason
+		} else {
+			item.used = obs.used
+		}
 		if rel.direction == "downstream" {
 			out.Downstream = append(out.Downstream, item)
 		} else {
 			out.Upstream = append(out.Upstream, item)
 		}
-		if !seen[other.AppID] {
-			otherRows = append(otherRows, other)
-			seen[other.AppID] = true
+		if i, ok := seen[other.AppID]; ok {
+			checks[i].used.merge(item.used)
+		} else {
+			used := item.used
+			used.resources = true
+			seen[other.AppID] = len(checks)
+			checks = append(checks, checked{row: other, used: used})
 		}
 		seenEdges[edgeKey] = true
 	}
-	return out, otherRows, nil
+	return out, checks, nil
 }
 
 func (s *Service) resourceOwner(ctx context.Context, resourceID, env string) (string, error) {
@@ -129,7 +136,7 @@ func (s *Service) resourceOwner(ctx context.Context, resourceID, env string) (st
 		return "", err
 	}
 	if len(owners) != 1 {
-		return "", errIncomplete
+		return "", unknown(reasonUnavailable) // shared or unattributed resource
 	}
 	return owners[0], nil
 }

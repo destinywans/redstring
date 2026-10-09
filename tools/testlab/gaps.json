@@ -191,7 +191,7 @@
   {
     "id": 18,
     "name": "服务健康/指标 AI 提问",
-    "remaining": "完整服务目录对缺档案/面板/健康来源可能503；指标提问真实Prometheus+模型+SSE、多实例/新旧版本混跑未验。",
+    "remaining": "服务目录缺档案/面板/健康来源时已改为200部分结果（null+原因，PA-05），完整来源的真实联调未验；指标提问真实Prometheus+模型+SSE、多实例/新旧版本混跑未验。",
     "required": "精确dashboard/覆盖声明；所有对话读写/SSE/worker先升级再开放metrics_source_required。",
     "source": "docs/api/v3-service-views.md；v3-metrics-ask.md:15-25",
     "status": "queued",

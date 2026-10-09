@@ -2,6 +2,7 @@ package v3serviceviews
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -79,8 +80,9 @@ var serviceHeatBuckets = map[string]bool{
 	"100 ms": true, "50 ms": true, "25 ms": true, "<10 ms": true,
 }
 
-// ReadMetrics does not supply placeholder health or SLO values. Any incomplete,
-// stale, cross-scope or contradictory result fails as metric_result_incomplete.
+// ReadMetrics does not supply placeholder health or SLO values. A result
+// captured before the window end fails as metric_result_stale; any other
+// incomplete, cross-scope or contradictory result as metric_result_incomplete.
 func ReadMetrics(ctx context.Context, reader MetricReader, scope httpapi.V3EnvironmentScope, user core.User,
 	serviceKey, appID, env string, target float64, now time.Time) (Metrics, error) {
 	var zero Metrics
@@ -96,9 +98,12 @@ func ReadMetrics(ctx context.Context, reader MetricReader, scope httpapi.V3Envir
 	}
 	if evidence.Empty || evidence.ApplicationID != appID || evidence.EnvironmentID != env ||
 		evidence.QueryID != "dashboard" || evidence.BindingID == "" || evidence.ConnectorID == "" ||
-		evidence.ResourceID == "" || evidence.CapturedAt.IsZero() || evidence.CapturedAt.Before(end) ||
+		evidence.ResourceID == "" || evidence.CapturedAt.IsZero() ||
 		evidence.CapturedAt.After(now.Add(15*time.Second)) {
 		return zero, &MetricError{Code: "metric_result_incomplete"}
+	}
+	if evidence.CapturedAt.Before(end) {
+		return zero, &MetricError{Code: "metric_result_stale"}
 	}
 	panels, ok := serviceMetricSeries(evidence, window)
 	if !ok {
@@ -225,6 +230,40 @@ func projectServiceMetrics(p map[string][]float64, target float64, captured time
 		{ID: "cpu", Label: "CPU saturation", Value: fmt.Sprintf("%.1f", p["cpu_saturation_pct"][last]), Unit: "%", Sub: "Observed saturation", Series: p["cpu_saturation_pct"]},
 	}
 	return out, nil
+}
+
+// metricReason maps a failed metric read to the reason its fields are null.
+// A source that changed during the read cannot be reported per field; a
+// cancelled request is not a source failure. Everything else is the metric
+// source's own failure and leaves the rest of the reply intact.
+func metricReason(ctx context.Context, err error) (string, error) {
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+	var readErr *v3integrations.PrometheusReadError
+	if errors.As(err, &readErr) {
+		switch readErr.Code {
+		case "source_changed":
+			return "", errSourceChanged
+		case "source_not_found":
+			return reasonNotConnected, nil
+		case "query_unregistered":
+			return reasonNotConfigured, nil
+		case "forbidden":
+			return reasonNoAuthorized, nil
+		}
+		return reasonUnavailable, nil
+	}
+	var metricErr *MetricError
+	if errors.As(err, &metricErr) {
+		switch metricErr.Code {
+		case "slo_unavailable":
+			return reasonNotConfigured, nil
+		case "metric_result_stale":
+			return reasonStale, nil
+		}
+	}
+	return reasonUnavailable, nil
 }
 
 func serviceBurn(window string, value float64) Burn {

@@ -226,8 +226,8 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/services` | `q`, `tier`, `team`, `status` | `ServiceCatalog`；仅完整来源、当前有权服务，缺项返回 503 | implemented |
-| GET | `/services/{id}` | | `ServiceDetail`；按持久服务身份汇集指标、告警、发布、依赖与当前调查 | implemented |
+| GET | `/services` | `q`, `tier`, `team`, `status` | `ServiceCatalog`；当前有权服务，缺证据的字段为 `null` 并在逐项 `unavailable` 中给出原因；KPI 只统计已知值 | implemented |
+| GET | `/services/{id}` | | `ServiceDetail`；按持久服务身份汇集指标、告警、发布、依赖与当前调查，缺项同样为 `null` + 原因 | implemented |
 | GET | `/services/{id}/resilience` | | `Resilience`；仅在固定 HTTPS 五类完整来源配置且证据有效时返回 200，否则 503 | implemented |
 | POST | `/services/{id}/resilience/proposals` | `{ kind, params: { investigation_id, reason, desired } }` | 201 `{ proposal_id }`；仅保存人工审阅提案，不创建可执行动作或合并请求 | implemented |
 | GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | 无 `topology_v1` 目录项时为授权 CMDB 部分响应；配置经审查的精确来源后可返回完整 `Topology`，来源不全返回 503 | implemented |
@@ -244,7 +244,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 `GET /changes` 仅投影已持久化且成功的原生 Argo Workflows 运行、经运行/制品/计划摘要核对的 GitOps 发布事件和精确来源的事故；`detail.diff/risk/alert` 来自有版本约束的人类审阅记录，不从流水线或时间相邻关系推断因果。`POST /changes/{run_id}/review` 辅助路由要求当前人类会话、`services.change` 及运行/发布/事故版本，写入不可修改的 `change.review.accepted` 审计；同一用户同参数重复提交不重复写入。GET 的 24 小时或 7 天告警带另要求服务端绑定的来源与运维确认的 `complete_from` 覆盖整个窗口，只读取该 `source_id` 的事故；缺少配置、历史不够、来源变更或审阅证据不全均返回 503。`complete_from` 是运维对持续投递和保留历史的声明，代码验证范围与当前绑定，不自动发现外部中断。冻结前端仍不发送 `service_id/run_id`，选中运行也不刷新详情；本批只按后端标准计入，真实来源与页面验收另做。接线和审阅请求详见[变更视图契约](v3-change-view.md)及[告警覆盖声明](../examples/v3-service-alert-coverage.md)。
 
-服务目录和详情使用未归档应用/环境及服务配置、经审查的精确 Prometheus 看板、同环境持久发布与调查证据构造完整 DTO。告警数和据此提升的状态只计入服务端完整覆盖声明指定的 Alertmanager 来源；声明需匹配实际运维入口的精确来源/标签及有效应用环境，缺少声明、来源、权限、值班、SLO、发布或 AI 调查等必填证据时整体返回 503，不把未知填成零或健康。读取来源后复核原 Cookie 会话、应用/团队归属、授权、指标目标与覆盖绑定。完整覆盖是运维对上游路由的显式声明，代码不证明外部持续投递；接入与撤销步骤见[服务告警覆盖绑定](../examples/v3-service-alert-coverage.md)。详情的复合服务 ID 尚不能直接作为指标、日志、链路页的 `service` 参数，冻结页面跳转及真实外部来源联调另行验收。
+服务目录和详情使用未归档应用/环境及服务配置、经审查的精确 Prometheus 看板、同环境持久发布与调查证据构造 DTO。告警数和据此提升的状态只计入服务端完整覆盖声明指定的 Alertmanager 来源；声明需匹配实际运维入口的精确来源/标签及有效应用环境。缺少声明、指标绑定、权限、值班、SLO 目标、发布或 AI 调查等证据时，该字段为 `null`，字段路径和原因（`not_connected`、`not_configured`、`no_authorized_target`、`not_generated`、`unavailable`、`stale`）写入该项的 `unavailable`，不把未知填成零、健康、空列表或“未值班”（2026-10-09 生产验收 PA-05 修订：原先任一服务缺证据就整体 503，新登记服务必然触发）。KPI 和 facet 只统计已知值，KPI 另给出被排除的 `unknown` 数，全部未知时 `value` 为 `null` 并带 `reason`；`status` 筛选只匹配已知状态，排序把未知放在最后。读取来源后复核原 Cookie 会话、应用/团队归属，以及已展示值所依赖的授权、指标目标与覆盖绑定；读取期间来源变化或被撤销返回 `503 service_source_changed`，数据库或策略不可用返回 `503 service_view_unavailable`。字段明细见[服务目录与详情](v3-service-views.md)。完整覆盖是运维对上游路由的显式声明，代码不证明外部持续投递；接入与撤销步骤见[服务告警覆盖绑定](../examples/v3-service-alert-coverage.md)。详情的复合服务 ID 尚不能直接作为指标、日志、链路页的 `service` 参数，冻结页面跳转及真实外部来源联调另行验收。
 
 资源发现现在返回 `resource_id`、Kubernetes `uid`、环境与集群；单集群条件在 2000 个候选扫描上限之前执行，整次请求共用 20 秒预算。选定集群之外的可信同名资源，以及同环境、同命名空间中陈旧、缺失或已关联的原始同名身份，均会阻止当前只按名称登记的候选进入结果；`ambiguous_workloads` 只给出数量，不泄露阻挡对象。`registered` 是授权环境内的登记数，不是所示集群的登记数。负责人和等级只作来源提示，`replicas` 可为空，`matched`/`missing` 尚无可信线索。注册时按当前环境、采集新鲜度、存在状态、UID、命名空间、是否已关联及 `resources.view` 重新核对。旧客户端只传名称时仅可匹配唯一工作负载；同名、过期或已关联身份返回 409，不会静默关联。当前前端未传 `cluster`/`resource_id`，并固定展示负责人、SLO、P99 与系统映射，发现到注册交互尚未接通。服务列表和系统映射超过 1000 条可见记录会返回 `422 result_limit`，不会返回不完整总数。拓扑仅显示五分钟内成功采集且环境吻合的现存节点，关联应用不会替资源借用其团队授权。
 
@@ -495,7 +495,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | PATCH | `/memory/facts/{id}` | `{ expected_revision, fact }` | 事实，状态回到“待确认” | 记忆 › 编辑 | v1.1·已实现 |
 | GET | `/memory/policy` | | `{ ttl_days: 30\|90\|180, proposers: human\|human_ai, revision }` | 记忆 › 记忆策略 | v1.1·已实现 |
 | PUT | `/memory/policy` | `{ expected_revision, ttl_days, proposers }` | 同上 | 记忆 › 修改策略 | v1.1·已实现 |
-| GET | `/services/{id}/slo` | | `{ target: "99.5"\|"99.9"\|"99.95"\|"99.99", window: 7d\|30d, revision }` | 指标 › SLO 设置 | v1.1·已实现 |
+| GET | `/services/{id}/slo` | | `{ target: "99.5"\|"99.9"\|"99.95"\|"99.99"\|null, window: 7d\|30d\|null, revision, unavailable }`；首次保存前 target/window 为 `null`（`not_configured`），revision 为 0 | 指标 › SLO 设置 | v1.1·已实现 |
 | PUT | `/services/{id}/slo` | `{ expected_revision, target, window }` | 同上 | 指标 › SLO 设置 | v1.1·已实现 |
 | GET | `/trace-views` | `scope: app\|agent` | `{ items: [{ id, name, query, owner }] }`（团队共享） | 链路 › 保存的视图 | v1.1·已实现 |
 | POST | `/trace-views` | `{ scope, name, query }` | `{ id }` | 链路 › 保存视图 | v1.1·已实现 |

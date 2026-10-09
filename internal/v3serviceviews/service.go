@@ -1,12 +1,15 @@
-// Package v3serviceviews projects the frozen V3 service pages from registered
-// applications and current, scoped operational evidence. It fails closed when
-// a required value is not evidenced; configured metadata is not live health.
+// Package v3serviceviews projects the V3 service pages from registered
+// applications and current, scoped operational evidence. A value without
+// trustworthy evidence is null with a reason in the item's unavailable map;
+// it never becomes zero, healthy or "not on call". Configured metadata is not
+// live health.
 package v3serviceviews
 
 import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -56,6 +59,39 @@ type serviceRow struct {
 	AppID, Key, Name, Description, Env, TeamID, Team, Tier, Oncall, Target string
 }
 
+// Reasons for a null field. The vocabulary is shared with GET /home and /me.
+const (
+	reasonNotConnected  = "not_connected"
+	reasonNotConfigured = "not_configured"
+	reasonNoAuthorized  = "no_authorized_target"
+	reasonNotGenerated  = "not_generated"
+	reasonUnavailable   = "unavailable"
+	reasonStale         = "stale"
+)
+
+var reasonOrder = []string{reasonNotConnected, reasonNotConfigured, reasonNoAuthorized,
+	reasonNotGenerated, reasonUnavailable, reasonStale}
+
+// unknownError marks evidence that is absent or untrustworthy for one group
+// of fields. Handlers report it as null plus reason instead of failing the
+// request. It matches errIncomplete so the watched-services status keeps its
+// unavailable semantics.
+type unknownError struct{ reason string }
+
+func (e *unknownError) Error() string        { return "service evidence unknown: " + e.reason }
+func (e *unknownError) Is(target error) bool { return target == errIncomplete }
+
+func unknown(reason string) error { return &unknownError{reason: reason} }
+
+// unknownReason separates a field-level unknown from a request failure.
+func unknownReason(err error) (string, bool) {
+	var u *unknownError
+	if errors.As(err, &u) {
+		return u.reason, true
+	}
+	return "", false
+}
+
 type release struct {
 	Brand   string    `json:"brand"`
 	Version string    `json:"version"`
@@ -63,24 +99,57 @@ type release struct {
 	At      time.Time `json:"-"`
 }
 
+type sloSummary struct {
+	Target     *string  `json:"target"`
+	BudgetLeft *float64 `json:"budget_left"`
+}
+
 type summary struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Desc   string `json:"desc"`
-	Tier   string `json:"tier"`
-	Team   string `json:"team"`
-	Oncall string `json:"oncall"`
-	Status string `json:"status"`
-	SLO    struct {
-		Target     string  `json:"target"`
-		BudgetLeft float64 `json:"budget_left"`
-	} `json:"slo"`
-	Release    release  `json:"release"`
-	Alerts     int      `json:"alerts"`
-	Connectors []string `json:"connectors"`
-	Env        string   `json:"-"`
-	metrics    Metrics
-	seal       metricSourceSeal
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Desc        string            `json:"desc"`
+	Tier        *string           `json:"tier"`
+	Team        *string           `json:"team"`
+	Oncall      *string           `json:"oncall"`
+	Status      *string           `json:"status"`
+	SLO         sloSummary        `json:"slo"`
+	Release     *release          `json:"release"`
+	Alerts      *int              `json:"alerts"`
+	Connectors  []string          `json:"connectors"`
+	Unavailable map[string]string `json:"unavailable"`
+	Env         string            `json:"-"`
+	obs         observation
+	row         serviceRow
+}
+
+// evidence lists the separately authorized sources a reply relies on. The
+// final recheck repeats exactly these grants and source checks, so a shown
+// value cannot outlive its grant, alert source or metric configuration. An
+// unknown field relied on nothing and needs no recheck.
+type evidence struct {
+	metrics     bool // connectors.view and the sealed Prometheus target
+	seal        metricSourceSeal
+	alertSource string // events.view and this reviewed alert source
+	events      bool   // events.view for incident records
+	resources   bool
+	canvas      bool
+}
+
+func (e *evidence) merge(o evidence) {
+	if o.metrics {
+		e.metrics, e.seal = true, o.seal
+	}
+	if o.alertSource != "" {
+		e.alertSource = o.alertSource
+	}
+	e.events = e.events || o.events
+	e.resources = e.resources || o.resources
+	e.canvas = e.canvas || o.canvas
+}
+
+type checked struct {
+	row  serviceRow
+	used evidence
 }
 
 type facetItem struct {
@@ -95,7 +164,13 @@ type facet struct {
 }
 
 var errLimit = errors.New("authorized service view exceeds limit")
+
+// errIncomplete is the watched-services "status unavailable" signal.
 var errIncomplete = errors.New("required service evidence is unavailable")
+
+// errSourceChanged means evidence already read changed or was withdrawn
+// before the reply. That reply cannot be served; a retry reads afresh.
+var errSourceChanged = errors.New("service evidence source changed during the read")
 
 func encodeID(app, env string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(app + "\x00" + env))
@@ -146,7 +221,7 @@ func parseFilters(raw string) (filters, bool) {
 		}
 	}
 	out = filters{q: q.Get("q"), tier: q.Get("tier"), team: q.Get("team"), status: q.Get("status"), tab: q.Get("tab"), sort: q.Get("sort")}
-	if out.tier != "" && out.tier != "T0" && out.tier != "T1" && out.tier != "T2" {
+	if out.tier != "" && !validTier(out.tier) {
 		return out, false
 	}
 	if out.status != "" && out.status != "ok" && out.status != "warn" && out.status != "danger" {
@@ -245,17 +320,47 @@ func (s *Service) rows(ctx context.Context, user core.User, envs []string, app, 
 	}
 }
 
-func validRow(row serviceRow) (float64, bool) {
-	if row.AppID == "" || row.Key == "" || row.Name == "" || row.Team == "" || row.Oncall == "" ||
-		(row.Tier != "T0" && row.Tier != "T1" && row.Tier != "T2") ||
-		(row.Env != "prod" && row.Env != "staging" && row.Env != "test") {
-		return 0, false
+// Registration allows T3 (migration 042), so the contract does too.
+func validTier(tier string) bool {
+	return tier == "T0" || tier == "T1" || tier == "T2" || tier == "T3"
+}
+
+// identity projects configured metadata. Missing configuration is null with
+// not_configured; an unexpected stored value is not guessed.
+func identity(row serviceRow, unavailable map[string]string) (tier, team, oncall *string) {
+	switch {
+	case row.Tier == "":
+		unavailable["tier"] = reasonNotConfigured
+	case !validTier(row.Tier):
+		unavailable["tier"] = reasonUnavailable
+	default:
+		tier = &row.Tier
 	}
+	if row.Team == "" {
+		unavailable["team"] = reasonNotConfigured
+	} else {
+		team = &row.Team
+	}
+	if row.Oncall == "" {
+		unavailable["oncall"] = reasonNotConfigured
+	} else {
+		oncall = &row.Oncall
+	}
+	return tier, team, oncall
+}
+
+// sloTarget is the configured request-based target; it is not a measurement.
+func sloTarget(row serviceRow) (float64, bool) {
 	n, err := strconv.ParseFloat(row.Target, 64)
 	return n, err == nil && n > 0 && n < 100
 }
 
-func (s *Service) finalCheck(ctx context.Context, r *http.Request, rows []serviceRow, requireCanvas, requireResources bool) error {
+func formatTarget(target float64) string { return fmt.Sprintf("%g%%", target) }
+
+// finalCheck runs after every remote and local read. It reconfirms the
+// session, each shown service's identity and ownership, and exactly the
+// grants and sources its shown values relied on.
+func (s *Service) finalCheck(ctx context.Context, r *http.Request, items []checked) error {
 	cookie, err := r.Cookie("aiops_session")
 	if err != nil || cookie.Value == "" {
 		return store.ErrForbidden
@@ -264,9 +369,10 @@ func (s *Service) finalCheck(ctx context.Context, r *http.Request, rows []servic
 	if err != nil || current.ID != httpapi.CurrentUser(r).ID {
 		return store.ErrForbidden
 	}
-	for _, row := range rows {
-		if s.AlertCovered == nil || s.AlertCovered(ctx, row.AppID, row.Env) == "" {
-			return errIncomplete
+	for _, item := range items {
+		row, used := item.row, item.used
+		if used.alertSource != "" && (s.AlertCovered == nil || s.AlertCovered(ctx, row.AppID, row.Env) != used.alertSource) {
+			return errSourceChanged
 		}
 		// Team-scoped policy accepts a caller-supplied team ID. Resolve the
 		// persisted owner again after remote reads so a reassigned application
@@ -278,9 +384,18 @@ func (s *Service) finalCheck(ctx context.Context, r *http.Request, rows []servic
 		if len(currentRows) != 1 || currentRows[0] != row {
 			return store.ErrForbidden
 		}
-		modules := []string{"services", "connectors", "events"}
-		if requireResources {
+		modules := []string{"services"}
+		if used.metrics {
+			modules = append(modules, "connectors")
+		}
+		if used.alertSource != "" || used.events {
+			modules = append(modules, "events")
+		}
+		if used.resources {
 			modules = append(modules, "resources")
+		}
+		if used.canvas {
+			modules = append(modules, "canvas")
 		}
 		for _, module := range modules {
 			allowed, e := s.canView(ctx, current, row, module)
@@ -291,13 +406,13 @@ func (s *Service) finalCheck(ctx context.Context, r *http.Request, rows []servic
 				return store.ErrForbidden
 			}
 		}
-		if requireCanvas {
-			allowed, e := s.canView(ctx, current, row, "canvas")
+		if used.metrics {
+			seal, e := s.sourceSeal(ctx, row)
+			if _, isUnknown := unknownReason(e); isUnknown || (e == nil && seal != used.seal) {
+				return errSourceChanged
+			}
 			if e != nil {
 				return e
-			}
-			if !allowed {
-				return store.ErrForbidden
 			}
 		}
 	}
@@ -308,8 +423,8 @@ func writeReadError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errLimit):
 		httpapi.Error(w, 422, "result_limit", "Narrow the service filter")
-	case errors.Is(err, errIncomplete):
-		httpapi.Error(w, 503, "service_view_incomplete", "Required service evidence is unavailable")
+	case errors.Is(err, errSourceChanged):
+		httpapi.Error(w, 503, "service_source_changed", "Service evidence changed during the read; retry")
 	case errors.Is(err, store.ErrForbidden):
 		httpapi.Error(w, 403, "forbidden", "Service view is outside your authorized scope")
 	case errors.Is(err, pgx.ErrNoRows):

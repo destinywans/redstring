@@ -51,11 +51,16 @@ func TestPageSLOAndTeamTraceViews(t *testing.T) {
 		}
 	}
 	path := "/services/" + encodeID("checkout-app", "test") + "/slo"
-	check(req("GET", path, "test", ""), 503)
+	w := req("GET", path, "test", "")
+	check(w, 200)
+	if !strings.Contains(w.Body.String(), `"target":null`) || !strings.Contains(w.Body.String(), `"revision":0`) ||
+		!strings.Contains(w.Body.String(), `"window":"not_configured"`) {
+		t.Fatal(w.Body.String())
+	}
 	check(req("PUT", path, "all", `{"expected_revision":0,"target":"99.9","window":"30d"}`), 409)
 	check(req("PUT", path, "test", `{"expected_revision":0,"target":"99.95","window":"7d"}`), 200)
 	check(req("PUT", path, "test", `{"expected_revision":0,"target":"99.9","window":"30d"}`), 409)
-	w := req("GET", path, "test", "")
+	w = req("GET", path, "test", "")
 	check(w, 200)
 	if !strings.Contains(w.Body.String(), `"window":"7d"`) || !strings.Contains(w.Body.String(), `"revision":1`) {
 		t.Fatal(w.Body.String())

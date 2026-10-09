@@ -9,6 +9,7 @@ import (
 
 // metricSourceSeal captures the exact persisted source configuration that
 // backs a live metric read. Callers compare seals before and after the read.
+// A missing or unusable binding is an unknownError with its reason.
 // CredentialRef is an opaque Vault reference; never include a seal in errors.
 type metricSourceSeal struct {
 	BindingID     string
@@ -67,15 +68,18 @@ func sourceSealFrom(ctx context.Context, q sealQuerier, row serviceRow, lock boo
 	if err = rows.Err(); err != nil {
 		return zero, err
 	}
-	if count != 1 || !seal.Enabled || seal.BindingID == "" || seal.ConnectorID == "" || seal.ResourceID == "" {
-		return zero, errIncomplete
+	switch {
+	case count == 0 || (count == 1 && !seal.Enabled):
+		return zero, unknown(reasonNotConnected)
+	case count != 1 || seal.BindingID == "" || seal.ConnectorID == "" || seal.ResourceID == "":
+		return zero, unknown(reasonUnavailable) // ambiguous or malformed binding
 	}
 	var configured []struct {
 		Name    string `json:"name"`
 		Enabled bool   `json:"enabled"`
 	}
 	if err = json.Unmarshal(tools, &configured); err != nil {
-		return zero, errIncomplete
+		return zero, unknown(reasonUnavailable)
 	}
 	active := false
 	for _, tool := range configured {
@@ -85,7 +89,7 @@ func sourceSealFrom(ctx context.Context, q sealQuerier, row serviceRow, lock boo
 		}
 	}
 	if !active {
-		return zero, errIncomplete
+		return zero, unknown(reasonNotConfigured)
 	}
 	seal.Tools = string(tools)
 	return seal, nil

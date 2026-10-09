@@ -1,50 +1,73 @@
-# Read-only service pages. An incomplete required field fails the whole request;
-# configured metadata alone never becomes a healthy status or SLO measurement.
+# Read-only service pages. A value without trustworthy evidence is null and its
+# field path appears in the item's `unavailable` map with a reason; it is never
+# zero, healthy, "not on call" or "never released". Configured metadata alone
+# never becomes a healthy status or SLO measurement.
+v3_svc_null = lambda schema: {'anyOf':[schema,{'type':'null'}]}
+S['V3UnknownReason'] = string(enum=['not_connected','not_configured','no_authorized_target',
+    'not_generated','unavailable','stale'])
+v3_svc_unavailable = lambda: {'type':'object','additionalProperties':ref('V3UnknownReason'),
+    'description':'Field path (dot-separated) of each null value -> reason. Empty when every value is known.'}
+v3_svc_tier = string(enum=['T0','T1','T2','T3'])
+v3_svc_health = string(enum=['ok','warn','danger'])
 S['V3ServiceKpi'] = obj({'id':string(),'label':string(),'value':string(),
     'unit':string(),'sub':string(),'tone':string(enum=['neutral','accent','ok','warn','danger','info']),
     'series':arr({'type':'number'})},['id','label','value','series'])
+S['V3ServiceCatalogKpi'] = obj({'id':string(),'label':string(),
+    'value':v3_svc_null(string()),
+    'tone':string(enum=['neutral','accent','ok','warn','danger','info']),
+    'series':arr({'type':'number'}),
+    'unknown':integer(minimum=0,description='Services left out of value because this input is unknown'),
+    'reason':ref('V3UnknownReason')},['id','label','value','series','unknown'])
+S['V3ServiceCatalogKpi']['description'] = ('Counts only services whose input is known. When every service '
+    'in the result has an unknown input, value is null and reason gives the most common reason.')
 S['V3ServiceBurn'] = obj({'window':string(),'value':string(),
     'tone':string(enum=['ok','warn','danger']),'pct':integer(minimum=0,maximum=100)},
     ['window','value','tone','pct'])
-S['V3ServiceSummary'] = obj({**fieldnames('id name desc team oncall'),
-    'tier':string(enum=['T0','T1','T2']),'status':string(enum=['ok','warn','danger']),
-    'slo':obj({'target':string(),'budget_left':{'type':'number','minimum':0,'maximum':100}},['target','budget_left']),
-    'release':obj(fieldnames('brand version when'),['brand','version','when']),
-    'alerts':integer(minimum=0),'connectors':arr(string())},
-    ['id','name','desc','tier','team','oncall','status','slo','release','alerts','connectors'])
+S['V3ServiceSummary'] = obj({**fieldnames('id name desc'),
+    'tier':v3_svc_null(v3_svc_tier),'team':v3_svc_null(string()),'oncall':v3_svc_null(string()),
+    'status':v3_svc_null(v3_svc_health),
+    'slo':obj({'target':v3_svc_null(string()),
+        'budget_left':v3_svc_null({'type':'number','minimum':0,'maximum':100})},['target','budget_left']),
+    'release':v3_svc_null(obj(fieldnames('brand version when'),['brand','version','when'])),
+    'alerts':v3_svc_null(integer(minimum=0)),'connectors':v3_svc_null(arr(string())),
+    'unavailable':v3_svc_unavailable()},
+    ['id','name','desc','tier','team','oncall','status','slo','release','alerts','connectors','unavailable'])
 S['V3ServiceFacet'] = obj({'key':string(),'title':string(),
     'items':arr(obj({'label':string(),'count':integer(minimum=0),'on':v3_bool()},['label','count','on']))},
     ['key','title','items'])
-S['V3ServiceCatalog'] = obj({'kpis':arr(ref('V3ServiceKpi')),
+S['V3ServiceCatalog'] = obj({'kpis':arr(ref('V3ServiceCatalogKpi')),
     'items':arr(ref('V3ServiceSummary')),'facets':arr(ref('V3ServiceFacet'))},
     ['kpis','items','facets'])
 S['V3ServiceDependency'] = obj({'brand':string(),'name':string(),
-    'status':string(enum=['ok','warn','danger']),'meta':string()},['name','status','meta'])
-S['V3ServiceDetail'] = obj({**fieldnames('id name team desc'),
-    'tier':string(enum=['T0','T1','T2']),
-    'env':string(enum=['prod','staging','test']),
-    'status':string(enum=['ok','warn','danger']),
+    'status':v3_svc_null(v3_svc_health),'meta':string(),'unavailable':v3_svc_unavailable()},
+    ['name','status','meta','unavailable'])
+S['V3ServiceDetail'] = obj({**fieldnames('id name desc'),
+    'tier':v3_svc_null(v3_svc_tier),'team':v3_svc_null(string()),
+    'env':string(description='Environment key of the selected V3 instance, e.g. prod, staging, test or dev'),
+    'status':v3_svc_null(v3_svc_health),
     'deeplinks':arr(obj(fieldnames('brand name url'),['brand','name','url'])),
-    'ai':obj({'text':string(),'investigation':string(),'proposal':string(),'meta':string()},
-             ['text','investigation','meta']),
-    'signals':arr(ref('V3ServiceKpi')),
-    'slo':obj({'availability':string(),'target':string(),
-        'budget_left':{'type':'number','minimum':0,'maximum':100},
-        'burn':arr(ref('V3ServiceBurn')),'note':string()},
+    'ai':v3_svc_null(obj({'text':string(),'investigation':string(),'proposal':string(),'meta':string()},
+             ['text','investigation','meta'])),
+    'signals':v3_svc_null(arr(ref('V3ServiceKpi'))),
+    'slo':obj({'availability':v3_svc_null(string()),'target':v3_svc_null(string()),
+        'budget_left':v3_svc_null({'type':'number','minimum':0,'maximum':100}),
+        'burn':v3_svc_null(arr(ref('V3ServiceBurn'))),'note':string()},
         ['availability','target','budget_left','burn','note']),
-    'changes':arr(obj({'brand':string(),'title':string(),'meta':string(),'tag':string()},
-        ['brand','title','meta'])),
-    'deps':obj({'upstream':arr(ref('V3ServiceDependency')),
-        'downstream':arr(ref('V3ServiceDependency'))},['upstream','downstream']),
-    'tabs':v3_map(integer(minimum=0))},
-    ['id','name','tier','team','env','status','desc','deeplinks','ai','signals','slo','changes','deps','tabs'])
-v3_route('get','/services','Read complete source-backed authorized service catalog',
+    'changes':v3_svc_null(arr(obj({'brand':string(),'title':string(),'meta':string(),'tag':string()},
+        ['brand','title','meta']))),
+    'deps':v3_svc_null(obj({'upstream':arr(ref('V3ServiceDependency')),
+        'downstream':arr(ref('V3ServiceDependency'))},['upstream','downstream'])),
+    'tabs':obj({k:v3_svc_null(integer(minimum=0)) for k in ('changes','deps','incidents')},
+        ['changes','deps','incidents']),
+    'unavailable':v3_svc_unavailable()},
+    ['id','name','tier','team','env','status','desc','deeplinks','ai','signals','slo','changes','deps','tabs','unavailable'])
+v3_route('get','/services','Read the authorized service catalog with explicit unknowns',
     response=ref('V3ServiceCatalog'),
     query=[v3_query(x) for x in ['q','tier','team','status']],
-    desc='Uses registered application/environment/team identity, reviewed Prometheus dashboard evidence, covered operational alerts, verified successful deployments and explicit connector targets. Status is derived from measured SLO burn and current critical alerts, not Kubernetes readiness. All required evidence must be present and current or the full request returns 503 service_view_incomplete. More than 50 authorized rows returns 422 result_limit; no partial counts or synthetic healthy state.')
-v3_route('get','/services/{id}','Read one complete authorized service detail',
+    desc='Uses registered application/environment/team identity, reviewed Prometheus dashboard evidence, covered operational alerts, verified successful deployments and explicit connector targets. Status is derived from measured SLO burn and current critical alerts, not Kubernetes readiness; a critical alert or a danger burn decides it alone, anything milder needs both inputs. Missing or ungranted evidence returns 200 with that field null and its path in the item unavailable map (not_connected, not_configured, no_authorized_target, not_generated, unavailable, stale); unknown is never zero, ok, empty or "not on call". KPIs and facets count known values only; a KPI with no known input is null with a reason. The status filter matches known statuses only and sorting puts unknown values last. More than 50 authorized rows returns 422 result_limit. Storage, policy or session failures return 503 service_view_unavailable; evidence that changes or is withdrawn between its read and the reply (metric source seal, alert coverage) returns 503 service_source_changed.')
+v3_route('get','/services/{id}','Read one authorized service detail with explicit unknowns',
     response=ref('V3ServiceDetail'),
-    desc='The opaque ID binds application and environment. Detail additionally requires authorized persisted investigation model text for the AI panel; changes come from successful deployments and dependencies from non-mock CMDB depends_on service relations. Unrepresentable required evidence returns 503 rather than placeholder data.')
+    desc='The opaque ID binds application and environment. The AI panel shows the authorized open investigation reply from the latest completed run within the last hour (older: stale; none: not_generated). Changes come from successful deployments; dependencies from non-mock CMDB depends_on service relations, and any relation that cannot be represented makes deps null rather than shorter. Each dependency carries its own status and unavailable map. Incident and dependency tab counts need events.view and resources.view; unknowns follow GET /services. 503 and 422 follow GET /services.')
 S['V3Resilience'] = obj({
     'synced':string(format='date-time'),
     'rollout':obj({**fieldnames('title status stable next source'),

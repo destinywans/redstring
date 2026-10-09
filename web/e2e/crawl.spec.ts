@@ -49,6 +49,10 @@ for (const instance of Object.keys(INSTANCES) as InstanceName[]) {
           await m.quiet();
           expect.soft(mounted, "app mounted within 20s").toBe(true);
           await m.settle();
+          // Pages that auto-select the first item fetch its detail after the list; give that a beat, then settle again.
+          await page.waitForTimeout(800);
+          await m.quiet(800, 8_000);
+          await m.settle();
           // Render errors caught by PageBoundary leave no pageerror; read the fallback marker instead.
           const caught = await page.locator("[data-page-error]").first().getAttribute("data-page-error", { timeout: 500 }).catch(() => null);
           if (caught) m.pageErrors.push(`PageBoundary: ${caught}`);

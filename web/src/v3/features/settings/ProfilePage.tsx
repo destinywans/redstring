@@ -6,6 +6,7 @@ import { API_MODE, ApiError, api, useGet, useSend } from "../../api/client";
 import { uploadAvatar } from "../../api/upload";
 import { PartialBanner, UnknownValue, Unavailable, errorReason } from "../../ui/unknown";
 import { PasskeysPanel } from "./PasskeysPanel";
+import { TotpPanel } from "./TotpPanel";
 import type { Me, NotificationSettings, NotifyChannel, ProfileView } from "../../api/types";
 import { Avatar, Badge, Brand, Btn, Chip, Col, Field, Input, Muted, Panel, Row, Section, Segmented, Skeleton, Spacer, State, Strong, TextLink, Tile, Toggle, type IconName, Icon } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -321,6 +322,7 @@ export function AccountSecurityPage() {
         <IdentityBanner form={form} />
         {/* Passkeys stand on their own: approvals need them even when no identity source fills the rest. */}
         {API_MODE !== "mock" && <PasskeysPanel />}
+        {API_MODE !== "mock" && <TotpPanel />}
         {!form ? (
           profileError ? (
             <Panel title={tx("登录、会话与令牌", "Sign-in, sessions and tokens")}>

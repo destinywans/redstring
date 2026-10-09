@@ -5,6 +5,7 @@ import { confirmAction, openForm } from "../../ui/demo";
 import { toast } from "../../ui/overlays";
 import { createCredential, getAssertion, passkeysSupported } from "../../ui/passkey";
 import { useI18n } from "../../i18n";
+import { RecentLoginBanner, isRecentLoginError } from "./common";
 
 type Credential = { id: string; label?: string; created_at: string; last_used_at?: string; backup_eligible: boolean; backup_state: boolean };
 type Ceremony = { id: string; options: unknown; expires_at: string };
@@ -17,11 +18,13 @@ export function PasskeysPanel() {
   const { tx, fmt } = useI18n();
   const { data, error, refetch } = useGet<{ credentials: Credential[] }>("/me/passkeys");
   const [busy, setBusy] = useState<string | null>(null);
+  const [needsLogin, setNeedsLogin] = useState(false);
 
   const fail = (e: unknown) => {
     if (e instanceof DOMException && (e.name === "NotAllowedError" || e.name === "AbortError")) return toast(tx("验证没有完成，未做任何更改", "Verification didn't finish; nothing changed"), { tone: "danger" });
     if (e instanceof DOMException && e.name === "InvalidStateError") return toast(tx("这台设备上已经有你的通行密钥", "This device already has one of your passkeys"), { tone: "danger" });
-    if (e instanceof ApiError && (e.status === 401 || e.code.includes("recent"))) return toast(tx("需要最近登录过才能更改通行密钥，请重新登录后再试", "Changing passkeys needs a recent sign-in; sign in again and retry"), { tone: "danger" });
+    // A stale sign-in keeps an inline way forward in the panel instead of a toast that disappears.
+    if (isRecentLoginError(e)) return setNeedsLogin(true);
     toast(e instanceof ApiError ? e.message : tx("操作失败，请稍后重试", "That didn't work; try again later"), { tone: "danger" });
   };
 
@@ -75,11 +78,16 @@ export function PasskeysPanel() {
     <Panel
       title={tx("通行密钥", "Passkeys")}
       right={
-        <Btn h={26} kind="secondary" icon="plus" loading={busy === "add"} disabled={!!error} onClick={() => void add()}>
+        <Btn h={26} kind="secondary" icon="plus" loading={busy === "add"} disabled={!!error || needsLogin} onClick={() => void add()}>
           {tx("添加", "Add")}
         </Btn>
       }
     >
+      {needsLogin && (
+        <div style={{ marginBottom: 10 }}>
+          <RecentLoginBanner what={tx("更改通行密钥", "Changing passkeys")} />
+        </div>
+      )}
       {error ? (
         <Muted>{error instanceof ApiError && error.status === 404 ? tx("这个实例没有启用通行密钥。", "Passkeys are not enabled on this instance.") : tx("暂时读不到你的通行密钥。", "Your passkeys can't be read right now.")}</Muted>
       ) : !data ? (
@@ -99,7 +107,7 @@ export function PasskeysPanel() {
                 </Muted>
               </Col>
               {c.backup_state && <Badge>{tx("已同步", "Synced")}</Badge>}
-              <Btn h={26} kind="ghost" loading={busy === c.id} onClick={() => void remove(c)}>
+              <Btn h={26} kind="ghost" loading={busy === c.id} disabled={needsLogin} onClick={() => void remove(c)}>
                 {tx("删除", "Remove")}
               </Btn>
             </li>

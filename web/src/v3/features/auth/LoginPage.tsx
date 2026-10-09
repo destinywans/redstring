@@ -19,6 +19,8 @@ export default function LoginPage() {
   const [params] = useSearchParams();
   const next = safeNext(params.get("next"));
   const expired = params.get("expired") === "1";
+  // Passkey / authenticator changes need a fresh sign-in; the page that sent us here is named.
+  const recent = params.get("reason") === "recent";
   const [instance, setInstance] = useState<InstanceInfo | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -94,6 +96,13 @@ export default function LoginPage() {
           Redstring
         </div>
         <h1>{tx("登录", "Sign in")}</h1>
+        {recent && !expired && (
+          <div className="v3-login-note" role="status">
+            {returnTitle
+              ? tx("为了安全，请重新登录。登录后回到「{t}」。", "For security, sign in again. You'll return to “{t}”.", { t: returnTitle })
+              : tx("为了安全，请重新登录。", "For security, please sign in again.")}
+          </div>
+        )}
         {expired && (
           <div className="v3-login-note" role="status">
             {returnTitle

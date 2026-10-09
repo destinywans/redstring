@@ -79,6 +79,11 @@
   min-width: 0;
   color: var(--text);
 }
+.unk-banner.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+  flex-wrap: wrap;
+}
 .unk-page {
   display: flex;
   flex-direction: column;

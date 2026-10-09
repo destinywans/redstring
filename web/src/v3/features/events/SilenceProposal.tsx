@@ -32,7 +32,7 @@ const OPS = ["=", "!=", "=~", "!~"];
 const DURATIONS = [1800, 3600, 14400, 43200, 86400];
 
 /** Investigation picker shared by create and expire: open investigations only, with a way to start one. */
-function InvestigationPicker({ value, onChange, items }: { value: string; onChange: (id: string) => void; items: ReturnType<typeof useOpenInvestigations>["items"] }) {
+export function InvestigationPicker({ value, onChange, items }: { value: string; onChange: (id: string) => void; items: ReturnType<typeof useOpenInvestigations>["items"] }) {
   const { tx } = useI18n();
   if (!items.length)
     return (

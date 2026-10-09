@@ -15,6 +15,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
 	"github.com/wans/aiops-canvas/internal/v3conversation"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 // v3ReadTools is shared by ordinary chat and application-bound investigations.
@@ -27,6 +28,8 @@ type v3ReadTools struct {
 	LookupService func(context.Context, core.User, string, string) (v3catalog.ServiceEvidence, error)
 	Access        v3catalog.Access
 	Telemetry     *connectors.Telemetry
+	// SourceCompare receives legacy reads in PA-19 compare mode (nil off).
+	SourceCompare v3telemetry.Observer
 	KnowledgeTool func(actorID, applicationID, environmentID string) (inference.EvidenceTool, bool)
 }
 
@@ -77,12 +80,14 @@ func (f v3ReadTools) ForTurn(_ context.Context, ownerID, applicationID, environm
 		if tool, ok := v3conversation.NewServiceMetricsTool(v3conversation.ServiceMetricsToolOptions{
 			DB: f.DB, OwnerID: ownerID, EnvironmentID: environmentID,
 			CurrentUser: f.CurrentUser, LookupService: lookup, Telemetry: f.Telemetry,
+			SourceCompare: f.SourceCompare,
 		}); ok {
 			tools = append(tools, tool)
 		}
 		if tool, ok := v3conversation.NewServiceLogsTool(v3conversation.ServiceLogsToolOptions{
 			Enabled: true, DB: f.DB, OwnerID: ownerID, EnvironmentID: environmentID,
 			CurrentUser: f.CurrentUser, LookupService: lookup, Access: f.Access, Telemetry: f.Telemetry,
+			SourceCompare: f.SourceCompare,
 		}); ok {
 			tools = append(tools, tool)
 		}

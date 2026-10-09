@@ -11,6 +11,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 type metricToolTelemetry struct {
@@ -48,8 +49,9 @@ func TestServiceMetricsToolFailsClosedAndRedactsProviderConfiguration(t *testing
 		Source: connectors.TelemetrySource{Provider: "prometheus", ApplicationID: "registered-checkout", QueryID: "request_rate", Query: "secret-promql", URL: "https://secret.metrics.internal", CapturedAt: time.Now().UTC()},
 		Series: []connectors.MetricSeries{{Labels: map[string]string{"job": "checkout", "sensitive": "secret-label"}, Samples: []connectors.MetricSample{{Timestamp: 100, Value: "2.5"}}}},
 	}}
+	compared := &recordedUses{}
 	tool, ok := NewServiceMetricsTool(ServiceMetricsToolOptions{
-		DB: db, OwnerID: "owner", EnvironmentID: "test", Telemetry: provider,
+		DB: db, OwnerID: "owner", EnvironmentID: "test", Telemetry: provider, SourceCompare: compared,
 		CurrentUser: func(_ context.Context, owner string) (core.User, error) {
 			identityCalls++
 			if owner != "owner" || !memberActive {
@@ -109,6 +111,9 @@ func TestServiceMetricsToolFailsClosedAndRedactsProviderConfiguration(t *testing
 	}
 	if provider.calls != 1 || provider.resource != "registered-checkout" || provider.queryID != "request_rate" || provider.window.End.Sub(provider.window.Start) != 15*time.Minute || provider.window.StepSeconds != 30 {
 		t.Fatalf("unscoped provider call: %+v", provider)
+	}
+	if use := compared.last(); use != (v3telemetry.Use{ApplicationID: "app-1", EnvironmentID: "test", Provider: "prometheus", Resource: "registered-checkout"}) {
+		t.Fatalf("compare mode was not told the legacy binding: %+v", use)
 	}
 	if evidence.TargetID != "app-1" || evidence.Source != "prometheus" || !strings.Contains(evidence.Content, `"status":"observed"`) || strings.Contains(evidence.Content, "secret-") {
 		t.Fatalf("unsafe or missing metric evidence: %#v", evidence)

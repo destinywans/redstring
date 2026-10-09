@@ -14,6 +14,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 // ServiceMetricsToolOptions separates the live identity/catalog checks from the
@@ -29,6 +30,9 @@ type ServiceMetricsToolOptions struct {
 	Telemetry     interface {
 		QueryMetrics(context.Context, string, string, connectors.TimeWindow) (connectors.MetricEvidence, error)
 	}
+	// SourceCompare, when set, is told which file-configured binding was
+	// read (PA-19 compare mode). It never changes the result.
+	SourceCompare v3telemetry.Observer
 }
 
 var metricServiceKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
@@ -103,7 +107,7 @@ func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, inp
 	}
 	// The authorized service key must have exactly one persisted Prometheus
 	// binding in this environment. Ambiguity is an error, never a broader query.
-	rows, err := opts.DB.Query(ctx, `SELECT b.resource
+	rows, err := opts.DB.Query(ctx, `SELECT a.id,b.resource
  FROM applications a
  JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
@@ -113,9 +117,10 @@ func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, inp
 		return inference.Evidence{}, errors.New(unavailable)
 	}
 	var bindings []string
+	var appID string
 	for rows.Next() {
 		var resource string
-		if err = rows.Scan(&resource); err != nil {
+		if err = rows.Scan(&appID, &resource); err != nil {
 			break
 		}
 		bindings = append(bindings, resource)
@@ -126,6 +131,9 @@ func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, inp
 	rows.Close()
 	if err != nil || len(bindings) != 1 {
 		return inference.Evidence{}, errors.New(unavailable)
+	}
+	if opts.SourceCompare != nil {
+		opts.SourceCompare.ObserveLegacy(v3telemetry.Use{ApplicationID: appID, EnvironmentID: opts.EnvironmentID, Provider: "prometheus", Resource: bindings[0]})
 	}
 	window := connectors.TimeWindow{Start: time.Now().UTC().Truncate(time.Second).Add(-15 * time.Minute), StepSeconds: 30}
 	window.End = window.Start.Add(15 * time.Minute)

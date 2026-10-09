@@ -15,6 +15,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3conversation"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 type Access interface {
@@ -46,6 +47,9 @@ type Service struct {
 	Telemetry           Telemetry
 	MetricReader        MetricSamplesReader
 	MetricsConversation MetricsConversation
+	// SourceCompare, when set, is told which file-configured bindings were
+	// read (PA-19 compare mode). It never changes the result.
+	SourceCompare v3telemetry.Observer
 }
 
 type observationTarget struct {
@@ -167,6 +171,12 @@ func (s *Service) observationTargets(ctx context.Context, user core.User, enviro
 	}
 	if hadCandidates && len(result) == 0 {
 		return nil, store.ErrForbidden
+	}
+	if s.SourceCompare != nil {
+		for _, target := range result {
+			s.SourceCompare.ObserveLegacy(v3telemetry.Use{ApplicationID: target.ApplicationID, EnvironmentID: target.EnvironmentID,
+				Provider: target.Provider, Resource: target.Resource})
+		}
 	}
 	return result, nil
 }

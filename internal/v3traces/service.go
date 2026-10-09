@@ -14,6 +14,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3pagequery"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 type Access interface {
@@ -31,6 +32,9 @@ type Service struct {
 	Store  *store.Store
 	Access Access
 	Source Source
+	// SourceCompare, when set, is told which file-configured bindings were
+	// read (PA-19 compare mode). It never changes the result.
+	SourceCompare v3telemetry.Observer
 }
 
 func New(st *store.Store, access Access, source Source) *Service {
@@ -169,6 +173,12 @@ func (s *Service) targets(ctx context.Context, user core.User, environments []st
 		}
 		if owners != 1 {
 			return nil, errAmbiguous
+		}
+	}
+	if s.SourceCompare != nil {
+		for _, item := range result {
+			s.SourceCompare.ObserveLegacy(v3telemetry.Use{ApplicationID: item.ApplicationID, EnvironmentID: item.EnvironmentID,
+				Provider: item.Provider, Resource: item.Resource})
 		}
 	}
 	return result, nil

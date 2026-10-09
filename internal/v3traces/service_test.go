@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 type sourceStub struct {
@@ -106,7 +108,10 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	}}}}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	New(st, policy, source).Register(api)
+	compared := &recordedUses{}
+	traces := New(st, policy, source)
+	traces.SourceCompare = compared
+	traces.Register(api)
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, policy, st.Session, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -235,6 +240,10 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	}
 	assertError(request("/api/v1/traces?service=app"), 403, "forbidden")
 	assertError(request("/api/v1/traces?service=app"), 404, "not_found")
+	// PA-19 compare mode heard each authorized legacy read.
+	if !compared.saw(v3telemetry.Use{ApplicationID: "app", EnvironmentID: "dev", Provider: "tempo", Resource: "registered-app"}) {
+		t.Fatalf("compare mode uses: %+v", compared.uses)
+	}
 }
 
 func containsAll(value string, parts ...string) bool {
@@ -244,4 +253,27 @@ func containsAll(value string, parts ...string) bool {
 		}
 	}
 	return true
+}
+
+// recordedUses collects PA-19 compare-mode notifications.
+type recordedUses struct {
+	mu   sync.Mutex
+	uses []v3telemetry.Use
+}
+
+func (r *recordedUses) ObserveLegacy(u v3telemetry.Use) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.uses = append(r.uses, u)
+}
+
+func (r *recordedUses) saw(u v3telemetry.Use) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, seen := range r.uses {
+		if seen == u {
+			return true
+		}
+	}
+	return false
 }

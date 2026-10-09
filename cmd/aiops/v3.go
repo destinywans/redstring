@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -58,6 +59,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3serviceviews"
 	"github.com/wans/aiops-canvas/internal/v3settings"
 	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 	"github.com/wans/aiops-canvas/internal/v3tokens"
 	"github.com/wans/aiops-canvas/internal/v3topology"
 	"github.com/wans/aiops-canvas/internal/v3traces"
@@ -572,9 +574,24 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	allowedConversationEnvs := func(ctx context.Context, u core.User) ([]string, error) {
 		return allowedConversationEnvironments(ctx, u, cfg.EnvironmentIDs, policy)
 	}
-	metricCatalog, err := v3integrations.LoadPrometheusQueryCatalog(os.Getenv("AIOPS_V3_PROMETHEUS_QUERIES_CONFIG"))
+	sourceCatalog, err := loadSourceCatalog()
 	if err != nil {
-		return fmt.Errorf("load V3 Prometheus query catalog: %w", err)
+		return fmt.Errorf("load V3 source catalog: %w", err)
+	}
+	metricCatalog := sourceCatalog.Queries
+	// PA-19 P2: readers keep using the file configuration; compare mode also
+	// resolves each read in the registry and logs differences.
+	registryMode, err := v3telemetry.ParseMode(os.Getenv("AIOPS_V3_SOURCE_REGISTRY"))
+	if err != nil {
+		return err
+	}
+	var sourceCompare v3telemetry.Observer
+	if registryMode == v3telemetry.ModeCompare {
+		comparer := v3telemetry.NewComparer(s.DB, &v3telemetry.Resolver{Tier: cfg.Tier, Catalog: sourceCatalog,
+			Approvals: v3telemetry.NewApprovals(credentialBindings)}, telemetry.Registration(), slog.Default())
+		go comparer.Run(ctx)
+		sourceCompare = comparer
+		slog.Info("source registry compare mode enabled")
 	}
 	metricReader, err := v3integrations.NewPrometheusReader(s.DB, cfg.Tier, connector.Prober.Resolver, metricCatalog)
 	if err != nil {
@@ -632,6 +649,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	readTools := v3ReadTools{
 		DB: s.DB, Models: toolModels, CurrentUser: currentToolUser,
 		LookupService: catalog.LookupServiceEvidence, Access: policy, Telemetry: telemetry,
+		SourceCompare: sourceCompare,
 		KnowledgeTool: func(actorID, applicationID, environmentID string) (inference.EvidenceTool, bool) {
 			return v3knowledge.NewKnowledgeEvidenceTool(v3knowledge.KnowledgeEvidenceToolOptions{
 				Enabled: true, Service: knowledgeV3, ActorID: actorID, ApplicationID: applicationID,
@@ -738,6 +756,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	observations := v3observe.New(s, policy, telemetry)
 	observations.MetricReader = metricReader
 	observations.MetricsConversation = chat
+	observations.SourceCompare = sourceCompare
 	observations.Register(api)
 	alertCoverage, err := v3serviceviews.LoadAlertCoverage(os.Getenv("AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG"), opsConfig, cfg, s.DB)
 	if err != nil {
@@ -773,7 +792,9 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 			}
 		}
 	}
-	v3traces.New(s, policy, telemetry).Register(api)
+	traces := v3traces.New(s, policy, telemetry)
+	traces.SourceCompare = sourceCompare
+	traces.Register(api)
 	events := v3events.New(s.DB, func(ctx context.Context, user core.User, app, env, action string) error {
 		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})
 	}, func(ctx context.Context, tx pgx.Tx, user core.User, app, env, action string) error {

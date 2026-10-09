@@ -17,6 +17,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 // ServiceLogsToolOptions must be assembled only for an operator-enabled tool
@@ -33,6 +34,9 @@ type ServiceLogsToolOptions struct {
 	Telemetry     interface {
 		QueryLogsOptions(context.Context, string, string, string, string, bool, connectors.TimeWindow, int) (connectors.LogEvidence, error)
 	}
+	// SourceCompare, when set, is told which file-configured binding was
+	// read (PA-19 compare mode). It never changes the result.
+	SourceCompare v3telemetry.Observer
 }
 
 type logsToolInput struct {
@@ -148,6 +152,9 @@ func readServiceLogs(ctx context.Context, opts ServiceLogsToolOptions, input str
 		return inference.Evidence{}, errors.New(unavailable)
 	}
 	binding := bindings[0]
+	if opts.SourceCompare != nil {
+		opts.SourceCompare.ObserveLegacy(v3telemetry.Use{ApplicationID: binding.appID, EnvironmentID: opts.EnvironmentID, Provider: binding.provider, Resource: binding.resource})
+	}
 	if binding.appID == "" || !auditTargetID.MatchString(binding.appID) {
 		return inference.Evidence{}, errors.New(unavailable)
 	}

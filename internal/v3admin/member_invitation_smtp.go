@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -101,16 +102,7 @@ func (s *SMTPInvitationSender) SendInvitation(ctx context.Context, message Invit
 	if err != nil {
 		return errInvitationUnavailable
 	}
-	body := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: AIOps Canvas invitation\r\n"+
-		"MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"+
-		"You have been invited to AIOps Canvas as a read-only member.\r\n"+
-		"Trusted product entry: %s\r\nOne-time invitation code: %s\r\n"+
-		"Code expires at: %s\r\n\r\n"+
-		"Set your name and password through the invitation acceptance flow.\r\n"+
-		"An administrator must separately grant environment and application access.\r\n",
-		s.from, message.Email, message.EntryURL, message.Code,
-		message.ExpiresAt.UTC().Format(time.RFC3339))
-	if _, err = io.WriteString(w, body); err != nil {
+	if _, err = io.WriteString(w, invitationMail(s.from, message)); err != nil {
 		_ = w.Close()
 		return errInvitationUnavailable
 	}
@@ -125,4 +117,25 @@ func (s *SMTPInvitationSender) SendInvitation(ctx context.Context, message Invit
 		return nil
 	}
 	return nil
+}
+
+// invitationMail renders the invitation in Chinese and English: the
+// invitee's language is unknown before they sign in (PA-33). The subject is
+// an RFC 2047 encoded word because it is not ASCII.
+func invitationMail(from string, message InvitationMessage) string {
+	expires := message.ExpiresAt.UTC().Format(time.RFC3339)
+	subject := mime.BEncoding.Encode("utf-8", "Redstring 邀请 / Redstring invitation")
+	return fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n"+
+		"MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\n\r\n"+
+		"你已受邀以只读成员身份加入 Redstring。\r\n"+
+		"可信产品入口：%s\r\n一次性邀请码：%s\r\n邀请码过期时间（UTC）：%s\r\n\r\n"+
+		"请通过接受邀请流程设置姓名和密码。环境和应用的访问权限需要管理员另行授予。\r\n"+
+		"\r\n----\r\n\r\n"+
+		"You have been invited to Redstring as a read-only member.\r\n"+
+		"Trusted product entry: %s\r\nOne-time invitation code: %s\r\n"+
+		"Code expires at: %s\r\n\r\n"+
+		"Set your name and password through the invitation acceptance flow.\r\n"+
+		"An administrator must separately grant environment and application access.\r\n",
+		from, message.Email, subject, message.EntryURL, message.Code, expires,
+		message.EntryURL, message.Code, expires)
 }

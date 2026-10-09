@@ -72,17 +72,21 @@ func (n *noticeRuntime) Run(_ context.Context, _ inference.Request, emit func(in
 }
 
 // PA-52: an answer given after the evidence-tool limit completes with its own
-// finish reason and note; a canceled run fails with a readable reason.
+// finish reason and note; a canceled run fails with a readable reason. PA-60:
+// the failure status follows the language of the starting request and has a
+// stable code.
 func TestEvidenceLimitReplyCompletesAndCancellationIsReadable(t *testing.T) {
 	for name, tc := range map[string]struct {
 		runtime                     *noticeRuntime
 		state, finish, note, errStr string
+		english                     bool
 	}{
 		"evidence limit": {&noticeRuntime{"Node lab-vm-2 is saturated.", inference.ErrEvidenceLimitReached},
-			"completed", "evidence_limit", "取证次数已达上限", ""},
+			"completed", "evidence_limit", "取证次数已达上限", "", false},
 		"limit and truncation": {&noticeRuntime{"Node lab-vm-2 is", errors.Join(inference.ErrOutputTruncated, inference.ErrEvidenceLimitReached)},
-			"completed", "max_output_tokens", "回答达到输出长度上限", ""},
-		"canceled": {&noticeRuntime{"", context.Canceled}, "failed", "", "Model reply failed", "reply_canceled: "},
+			"completed", "max_output_tokens", "回答达到输出长度上限", "", false},
+		"canceled": {&noticeRuntime{"", context.Canceled}, "failed", "", `"code": "reply_failed", "text": "模型回复失败"`, "reply_canceled: ", false},
+		"canceled in English": {&noticeRuntime{"", context.Canceled}, "failed", "", `"code": "reply_failed", "text": "Model reply failed"`, "reply_canceled: ", true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			db := isolatedConversationDB(t)
@@ -91,7 +95,7 @@ func TestEvidenceLimitReplyCompletesAndCancellationIsReadable(t *testing.T) {
 				AuthorizeBackgroundTurn:   func(context.Context, string, string) error { return nil },
 				AuthorizeBackgroundTurnTx: func(context.Context, pgx.Tx, string, string) error { return nil },
 			})
-			svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session", false)
+			svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session", tc.english)
 			var state, parts, finish, replyError string
 			if err := db.QueryRow(context.Background(), `SELECT m.state,m.parts::text,r.finish_reason,r.error FROM v3_conversation_messages m
 				JOIN v3_conversation_replies r ON r.assistant_message_id=m.id WHERE m.id='a'`).Scan(&state, &parts, &finish, &replyError); err != nil {

@@ -67576,6 +67576,16 @@
               },
               "detail": {
                 "type": "string"
+              },
+              "code": {
+                "type": "string",
+                "enum": [
+                  "reply_failed",
+                  "reply_interrupted",
+                  "evidence_limit",
+                  "output_truncated"
+                ],
+                "description": "Stable reason for clients to translate or style; text and detail follow the Accept-Language of the request that started the reply (PA-60). Absent on older parts."
               }
             },
             "additionalProperties": false,

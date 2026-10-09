@@ -32,7 +32,8 @@ S['V3Part'] = {'oneOf': [
         'ref': v3_object('kind id label')}))}, ['items']),
     v3_part('data_gap', fieldnames('text href'), ['text','href']),
     v3_part('next_steps', {'items': arr(v3_object('icon label action'))}, ['items']),
-    v3_part('status', fieldnames('text detail'), ['text']),
+    v3_part('status', {**fieldnames('text detail'), 'code': string(enum=['reply_failed','reply_interrupted','evidence_limit','output_truncated'],
+        description='Stable reason for clients to translate or style; text and detail follow the Accept-Language of the request that started the reply (PA-60). Absent on older parts.')}, ['text']),
     v3_part('artifacts', {'ids': arr(string())}, ['ids']),
 ]}
 S['V3ConversationRun'] = obj({'id': string(), 'agent': string(), 'version': string(),

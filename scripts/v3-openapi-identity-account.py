@@ -4,7 +4,7 @@ v3_route('patch','/me','Update current account',body=ref('V3MePatch'),response=r
     desc='Requires one selected authorized environment and an active human account/session. Only name, title, timezone and supported preference fields are self-editable; email, phone, team, department, roles, MFA and on-call are server-owned and rejected. The transaction locks the account before its session, rechecks authority and evidence, then saves profile/preferences and audit atomically before returning the full Me response. Editing the account does not depend on on-call evidence; the response reports on-call as in GET /me.')
 v3_route('patch','/me/preferences','Update visual and language preferences',body=ref('V3PreferencesPatch'),response=ref('V3Preferences'))
 v3_route('get','/me/profile','Read personal profile',response=ref('V3ProfileView'))
-v3_route('put','/me/profile','Update personal profile',body=ref('V3ProfileView'),response=ref('V3ProfileView'))
+v3_route('put','/me/profile','Update personal profile',body=ref('V3ProfileUpdate'),response=ref('V3ProfileView'))
 v3_route('delete','/me/sessions/{id}','Revoke one account session',status=204)
 S['V3MFATOTPStatus'] = obj({'state':string(enum=['none','pending','expired','active']),
     'recovery_remaining':integer(minimum=0)},['state','recovery_remaining'])
@@ -125,17 +125,17 @@ v3_route('get','/models/observations','Read one model metadata observation',
 for _method in ('get','patch'):
     P['/me'][_method]['responses']['503']['description'] = 'Authoritative current on-call evidence is unavailable or stale'
 P['/me/profile']['get']['description'] += (' Requires one selected authorized environment and a current human account/session. '
-    'An operator-configured trusted HTTPS source must return a fresh, complete, exact instance/user/environment/contact/session-bound '
-    'snapshot of contact verification, MFA enrollment and factors, organization rule, and device/login method for every active session. '
-    'Factor types and counts must agree with the same-instance TOTP/passkey registrations used by GET /me. '
-    'The account database supplies editable fields, notifications, password audit time and session expiry. Unknown, stale, incomplete '
-    'or unconfigured evidence returns 503 identity_evidence_unavailable; no security state is guessed.')
-P['/me/profile']['put']['description'] += (' Accepts one complete ProfileView in a selected authorized environment. Only name, display_name, '
-    'title, timezone and notifications are editable; department, contacts and every security field must exactly match the current '
-    'authoritative view. The source is called before database locks, then the transaction rechecks exact session, human account, '
+    'When an operator-configured trusted HTTPS identity source is set, it must return a fresh, complete, exact instance/user/environment/contact/session-bound '
+    'snapshot of contact verification, MFA factors, organization rule, and device/login method for every active session; factor types and counts '
+    'must agree with the same-instance TOTP/passkey registrations used by GET /me, and a stale, incomplete or failing source returns 503 '
+    'identity_evidence_unavailable. Without a source the view is partial (partial=true): the account database supplies editable fields, contacts, '
+    'notifications, password audit time, session expiry and this instance\'s own TOTP/passkey enrollments (mfa_enabled follows them), while '
+    'contacts[].verified, security.org_rule and sessions[].device are null and listed in unavailable_fields. No security state is guessed.')
+P['/me/profile']['put']['description'] += (' Accepts one complete ProfileView (partial and unavailable_fields optional) in a selected authorized environment. Only name, display_name, '
+    'title, timezone and notifications are editable; department, contacts and every security field, including nulls, must exactly match the current '
+    'view. With an identity source, the source is called before database locks; the transaction rechecks exact session, human account, '
     'environment.view, source freshness and the complete contact/session set before writing fields and a secret-free audit atomically. '
-    'Unconfigured, stale or incomplete evidence returns 503 without a partial write. Production startup must inject both the trusted '
-    'source and instance ID; a configured source has not yet been verified against a real provider.')
+    'A configured but stale or incomplete source returns 503 without a partial write.')
 v3_route('post','/uploads','Store an inert conversation attachment',
     body=obj({'kind':string(enum=['link','paste']),'name':string(),
         'url':string(),'text':string(),'size':integer(),'mime':string()},['kind','name']),

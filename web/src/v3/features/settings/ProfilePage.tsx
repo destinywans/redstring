@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Page } from "../../app/Shell";
 import { usePreferences } from "../../app/preferences";
 import { API_MODE, useGet, useSend } from "../../api/client";
-import { Unavailable, errorReason } from "../../ui/unknown";
+import { PartialBanner, UnknownValue, Unavailable, errorReason } from "../../ui/unknown";
 import { PasskeysPanel } from "./PasskeysPanel";
 import type { NotifyChannel } from "../../api/types";
 import { Avatar, Badge, Brand, Btn, Chip, Col, Field, Input, Muted, Panel, Row, Section, Segmented, Skeleton, Spacer, State, Strong, TextLink, Tile, Toggle, type IconName, Icon } from "../../ui/core";
@@ -32,6 +32,11 @@ export default function ProfilePage() {
     <Page ai={false} bodyClass="set-narrow" error={!form ? error : undefined} errorSource={tx("身份来源", "identity source")} crumbs={[tx("设置", "Settings"), tx("个人资料", "Profile")]} actions={<SaveBtn dirty={dirty} pending={save.isPending} onSave={() => form && save.mutate(form, { onSuccess: () => toast(tx("个人资料已保存", "Profile saved")) })} />}>
       <div className="v3-content anim-fade">
         <SettingsHead title={tx("个人资料", "Profile")} desc={tx("你在工作区里的名字、头像和联系方式。", "Your name, photo and contact details in this workspace.")} />
+        {form?.partial && (
+          <PartialBanner fields={form.unavailable_fields ?? []}>
+            {tx("没有接入身份来源：联系方式是否已确认、组织 MFA 规则和登录设备显示为未知；其余信息来自本实例。", "No identity source is connected: contact verification, the organization MFA rule and sign-in devices show as unknown; everything else comes from this instance.")}
+          </PartialBanner>
+        )}
         {!form ? (
           <Skeleton h={400} />
         ) : (
@@ -102,8 +107,8 @@ export default function ProfilePage() {
                       <Muted>{c.label}</Muted>
                       <span style={{ fontSize: "var(--fs-body)", fontWeight: 500 }}>{c.value}</span>
                     </Col>
-                    {c.note ? <Badge tone="accent">{c.note}</Badge> : c.verified && <State tone="ok">{tx("已确认", "Verified")}</State>}
-                    <Btn
+                    {c.note ? <Badge tone="accent">{c.note}</Badge> : c.verified === null ? <UnknownValue reason="not_connected" source={tx("身份来源", "identity source")} label={tx("确认状态未知", "Verification unknown")} /> : c.verified && <State tone="ok">{tx("已确认", "Verified")}</State>}
+                    {API_MODE === "mock" && <Btn
                       h={28}
                       onClick={async () => {
                         if (c.kind === "feishu") {
@@ -115,7 +120,7 @@ export default function ProfilePage() {
                       }}
                     >
                       {c.kind === "feishu" ? tx("解绑", "Unlink") : tx("修改", "Change")}
-                    </Btn>
+                    </Btn>}
                   </li>
                 ))}
               </ul>
@@ -229,10 +234,25 @@ export function AccountSecurityPage() {
   const { form, error: profileError } = useProfileForm();
   const [ended, setEnded] = useState<Set<string>>(new Set());
   const endSession = useSend<string>("DELETE", (id) => `/me/sessions/${id}`);
+  const signOutOthers = async () => {
+    const others = form?.security.sessions.filter((s) => !s.current && !ended.has(s.id)).map((s) => s.id) ?? [];
+    if (API_MODE !== "mock") {
+      const results = await Promise.allSettled(others.map((id) => endSession.mutateAsync(id)));
+      const done = others.filter((_, i) => results[i].status === "fulfilled");
+      setEnded((e) => new Set([...e, ...done]));
+      if (done.length < others.length) return toast(tx("有 {n} 个会话没能退出，请重试", "{n} sessions couldn't be signed out; retry", { n: others.length - done.length }), { tone: "danger" });
+    } else setEnded(new Set(others));
+    toast(tx("已退出其他所有会话", "Signed out of all other sessions"));
+  };
   return (
     <Page ai={false} bodyClass="set-narrow" crumbs={[tx("设置", "Settings"), tx("账号安全", "Account security")]}>
       <div className="v3-content anim-fade">
         <SettingsHead title={tx("账号安全", "Account security")} desc={tx("你自己的登录方式、两步验证、设备与访问令牌。工作区的统一策略在「安全策略」。", "Your own sign-in, two-factor, devices and tokens. Workspace-wide rules live in Security policy.")} />
+        {form?.partial && (
+          <PartialBanner fields={form.unavailable_fields ?? []}>
+            {tx("没有接入身份来源：联系方式是否已确认、组织 MFA 规则和登录设备显示为未知；其余信息来自本实例。", "No identity source is connected: contact verification, the organization MFA rule and sign-in devices show as unknown; everything else comes from this instance.")}
+          </PartialBanner>
+        )}
         {/* Passkeys stand on their own: approvals need them even when no identity source fills the rest. */}
         {API_MODE !== "mock" && <PasskeysPanel />}
         {!form ? (
@@ -251,14 +271,14 @@ export function AccountSecurityPage() {
                     <Strong>{tx("密码", "Password")}</Strong>
                     <Muted size={11.5}>{form.security.password_changed}</Muted>
                   </Col>
-                  <Btn h={28} icon="external" onClick={() => openExternal(tx("统一身份认证", "Single sign-on"), "https://sso.example.internal/account/password")}>{tx("修改密码", "Change password")}</Btn>
+                  {API_MODE === "mock" && <Btn h={28} icon="external" onClick={() => openExternal(tx("统一身份认证", "Single sign-on"), "https://sso.example.internal/account/password")}>{tx("修改密码", "Change password")}</Btn>}
                 </Row>
                 <Row gap={8}>
                   <Strong>{tx("两步验证", "Two-factor")}</Strong>
-                  <State tone="ok">{tx("已启用", "On")}</State>
+                  {form.security.mfa_enabled ? <State tone="ok">{tx("已启用", "On")}</State> : <State tone="warn">{tx("未启用", "Off")}</State>}
                   <Spacer />
                 </Row>
-                <Muted size={11.5}>{form.security.org_rule}</Muted>
+                <Muted size={11.5}>{form.security.org_rule ?? <UnknownValue reason="not_connected" source={tx("身份来源", "identity source")} label={tx("组织 MFA 规则未知", "Organization MFA rule unknown")} />}</Muted>
                 <ul className="set-list">
                   {form.security.factors.map((f) => (
                     <li key={f.kind}>
@@ -267,6 +287,8 @@ export function AccountSecurityPage() {
                         <Strong>{f.name}</Strong>
                         <Muted size={11.5}>{f.sub}</Muted>
                       </Col>
+                      {/* Real passkeys are managed in the panel above; TOTP/recovery flows are demo-only for now. */}
+                      {API_MODE === "mock" && (
                       <Btn
                         h={26}
                         kind={f.kind === "passkey" ? "secondary" : "ghost"}
@@ -280,13 +302,14 @@ export function AccountSecurityPage() {
                       >
                         {f.kind === "passkey" ? tx("添加", "Add") : f.kind === "totp" ? tx("重新绑定", "Re-link") : tx("查看", "View")}
                       </Btn>
+                      )}
                     </li>
                   ))}
                 </ul>
                 <Section
                   title={tx("登录设备与会话", "Devices & sessions")}
                   right={
-                    <TextLink icon={null} onClick={() => { setEnded(new Set(form.security.sessions.filter((s) => !s.current).map((s) => s.id))); toast(tx("已退出其他所有会话", "Signed out of all other sessions")); }}>
+                    <TextLink icon={null} onClick={() => void signOutOthers()}>
                       {tx("退出其他所有会话", "Sign out others")}
                     </TextLink>
                   }
@@ -296,15 +319,15 @@ export function AccountSecurityPage() {
                       .filter((s) => !ended.has(s.id))
                       .map((s) => (
                         <li key={s.id}>
-                          <Tile icon={s.device.includes("iPhone") ? "phone" : "monitor"} size={28} />
+                          <Tile icon={s.device?.includes("iPhone") ? "phone" : "monitor"} size={28} />
                           <Col gap={0} grow>
-                            <Strong>{s.device}</Strong>
+                            <Strong>{s.device ?? <UnknownValue reason="not_connected" source={tx("身份来源", "identity source")} label={tx("设备未知", "Unknown device")} />}</Strong>
                             <Muted size={11.5}>{s.sub}</Muted>
                           </Col>
                           {s.current ? (
                             <Badge tone="ok">{tx("当前会话", "This session")}</Badge>
                           ) : (
-                            <Btn h={26} kind="ghost" onClick={() => { endSession.mutate(s.id); setEnded((e) => new Set(e).add(s.id)); toast(tx("已退出 {d}", "Signed out {d}", { d: s.device })); }}>
+                            <Btn h={26} kind="ghost" onClick={() => { endSession.mutate(s.id); setEnded((e) => new Set(e).add(s.id)); toast(s.device ? tx("已退出 {d}", "Signed out {d}", { d: s.device }) : tx("已退出该会话", "Signed out that session")); }}>
                               {tx("退出", "Sign out")}
                             </Btn>
                           )}

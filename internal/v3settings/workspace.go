@@ -72,13 +72,22 @@ func decodeWorkspace(w http.ResponseWriter, r *http.Request) (workspace, bool) {
 // fields that the server compares against the current row. Explicit presence
 // matters: zero values must not silently stand in for omitted fields.
 func requiredWorkspaceFields(raw []byte, names []string) (map[string]json.RawMessage, error) {
+	return requiredFields(raw, names, nil, map[string]bool{"logo": true})
+}
+
+// requiredFields decodes one object that has every name exactly once, may have the
+// optional names, and nothing else. Only nullable names may be null.
+func requiredFields(raw []byte, names, optional []string, nullable map[string]bool) (map[string]json.RawMessage, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	open, err := decoder.Token()
 	if err != nil || open != json.Delim('{') {
 		return nil, errInvalid
 	}
-	allowed := make(map[string]bool, len(names))
+	allowed := make(map[string]bool, len(names)+len(optional))
 	for _, name := range names {
+		allowed[name] = true
+	}
+	for _, name := range optional {
 		allowed[name] = true
 	}
 	fields := make(map[string]json.RawMessage, len(names))
@@ -92,14 +101,19 @@ func requiredWorkspaceFields(raw []byte, names []string) (map[string]json.RawMes
 			return nil, errInvalid
 		}
 		var value json.RawMessage
-		if err := decoder.Decode(&value); err != nil || bytes.Equal(bytes.TrimSpace(value), []byte("null")) && key != "logo" {
+		if err := decoder.Decode(&value); err != nil || bytes.Equal(bytes.TrimSpace(value), []byte("null")) && !nullable[key] {
 			return nil, errInvalid
 		}
 		fields[key] = value
 	}
 	close, err := decoder.Token()
-	if err != nil || close != json.Delim('}') || len(fields) != len(names) {
+	if err != nil || close != json.Delim('}') {
 		return nil, errInvalid
+	}
+	for _, name := range names {
+		if _, ok := fields[name]; !ok {
+			return nil, errInvalid
+		}
 	}
 	if decoder.Decode(new(any)) != io.EOF {
 		return nil, errInvalid

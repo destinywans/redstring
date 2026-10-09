@@ -693,16 +693,20 @@ export type ProfileView = {
   department: string;
   title: string;
   timezone: string;
-  contacts: { kind: "email" | "phone" | "feishu"; label: string; value: string; verified: boolean; note?: string }[];
+  /** verified is null when no identity source can confirm it. */
+  contacts: { kind: "email" | "phone" | "feishu"; label: string; value: string; verified: boolean | null; note?: string }[];
   notifications: { event: string; label: string; channels: Record<NotifyChannel, boolean> }[];
   security: {
     password_changed: string;
     mfa_enabled: boolean;
-    org_rule: string;
+    org_rule: string | null;
     factors: { kind: "passkey" | "totp" | "recovery"; name: string; sub: string }[];
-    sessions: { id: string; device: string; sub: string; current?: boolean }[];
+    sessions: { id: string; device: string | null; sub: string; current?: boolean }[];
     tokens: string;
   };
+  /** True without an identity source; unavailable_fields names what stays unknown. */
+  partial?: boolean;
+  unavailable_fields?: string[];
 };
 export type OrgNode = { id: string; name: string; count: number; depth: number; kind: "org" | "team" | "group" };
 export type Member = {

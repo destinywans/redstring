@@ -29,18 +29,25 @@ S['V3InstanceInfo'] = v3_object('name domain default_env', {
     'other': v3_object('label url domain')}, ['tier','name','domain','environments','default_env'])
 S['V3LowerSource'] = v3_object('id name brand env env_label purpose credential',
     required=['id','name','brand','env','env_label','purpose','credential'])
+# Without an identity authority the profile is partial: contact verification, the org MFA rule
+# and session devices are null and named in unavailable_fields; local facts are still exact.
 S['V3ProfileView'] = v3_object('name display_name department title timezone', {
-    'contacts': arr(obj({'kind': string(enum=['email','phone','feishu']), **fieldnames('label value'), 'verified': v3_bool(), 'note': string()},
+    'contacts': arr(obj({'kind': string(enum=['email','phone','feishu']), **fieldnames('label value'),
+                         'verified': {'type': ['boolean','null']}, 'note': string()},
                         ['kind','label','value','verified'])),
     'notifications': arr(obj({'event': string(), 'label': string(),
         'channels': obj({k:v3_bool() for k in ['feishu','email','sms','phone']}, ['feishu','email','sms','phone'])},
         ['event','label','channels'])),
-    'security': obj({'password_changed': string(), 'mfa_enabled': v3_bool(), 'org_rule': string(),
+    'security': obj({'password_changed': string(), 'mfa_enabled': v3_bool(), 'org_rule': {'type': ['string','null']},
         'factors': arr(obj({'kind':string(enum=['passkey','totp','recovery']), **fieldnames('name sub')},
                             ['kind','name','sub'])),
-        'sessions': arr(obj({**fieldnames('id device sub'), 'current': v3_bool()}, ['id','device','sub'])),
-        'tokens': string()}, ['password_changed','mfa_enabled','org_rule','factors','sessions','tokens'])},
-    ['name','display_name','department','title','timezone','contacts','notifications','security'])
+        'sessions': arr(obj({**fieldnames('id sub'), 'device': {'type': ['string','null']}, 'current': v3_bool()}, ['id','device','sub'])),
+        'tokens': string()}, ['password_changed','mfa_enabled','org_rule','factors','sessions','tokens']),
+    'partial': v3_bool(),
+    'unavailable_fields': arr(string(enum=['contacts.verified','security.org_rule','security.sessions.device','security.sessions.login_method']))},
+    ['name','display_name','department','title','timezone','contacts','notifications','security','partial','unavailable_fields'])
+# PUT echoes the GET view; partial and unavailable_fields are accepted but not required.
+S['V3ProfileUpdate'] = {**S['V3ProfileView'], 'required': [k for k in S['V3ProfileView']['required'] if k not in ('partial','unavailable_fields')]}
 S['V3ModelChoice'] = obj({'model': string(), 'reasoning': string()}, ['model'])
 S['V3ModelInfo'] = v3_object('id name provider brand connector cost note unavailable_reason', {
     'api': string(enum=['responses','chat_completions','messages']),

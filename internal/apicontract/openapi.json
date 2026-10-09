@@ -22494,7 +22494,7 @@
       "get": {
         "summary": "Read personal profile",
         "operationId": "get_me_profile",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply.  Requires one selected authorized environment and a current human account/session. An operator-configured trusted HTTPS source must return a fresh, complete, exact instance/user/environment/contact/session-bound snapshot of contact verification, MFA enrollment and factors, organization rule, and device/login method for every active session. Factor types and counts must agree with the same-instance TOTP/passkey registrations used by GET /me. The account database supplies editable fields, notifications, password audit time and session expiry. Unknown, stale, incomplete or unconfigured evidence returns 503 identity_evidence_unavailable; no security state is guessed.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply.  Requires one selected authorized environment and a current human account/session. When an operator-configured trusted HTTPS identity source is set, it must return a fresh, complete, exact instance/user/environment/contact/session-bound snapshot of contact verification, MFA factors, organization rule, and device/login method for every active session; factor types and counts must agree with the same-instance TOTP/passkey registrations used by GET /me, and a stale, incomplete or failing source returns 503 identity_evidence_unavailable. Without a source the view is partial (partial=true): the account database supplies editable fields, contacts, notifications, password audit time, session expiry and this instance's own TOTP/passkey enrollments (mfa_enabled follows them), while contacts[].verified, security.org_rule and sessions[].device are null and listed in unavailable_fields. No security state is guessed.",
         "responses": {
           "200": {
             "description": "Success",
@@ -22589,7 +22589,7 @@
       "put": {
         "summary": "Update personal profile",
         "operationId": "put_me_profile",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply.  Accepts one complete ProfileView in a selected authorized environment. Only name, display_name, title, timezone and notifications are editable; department, contacts and every security field must exactly match the current authoritative view. The source is called before database locks, then the transaction rechecks exact session, human account, environment.view, source freshness and the complete contact/session set before writing fields and a secret-free audit atomically. Unconfigured, stale or incomplete evidence returns 503 without a partial write. Production startup must inject both the trusted source and instance ID; a configured source has not yet been verified against a real provider.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply.  Accepts one complete ProfileView (partial and unavailable_fields optional) in a selected authorized environment. Only name, display_name, title, timezone and notifications are editable; department, contacts and every security field, including nulls, must exactly match the current view. With an identity source, the source is called before database locks; the transaction rechecks exact session, human account, environment.view, source freshness and the complete contact/session set before writing fields and a secret-free audit atomically. A configured but stale or incomplete source returns 503 without a partial write.",
         "responses": {
           "200": {
             "description": "Success",
@@ -22675,7 +22675,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/V3ProfileView"
+                "$ref": "#/components/schemas/V3ProfileUpdate"
               }
             }
           }
@@ -64818,7 +64818,10 @@
                   "type": "string"
                 },
                 "verified": {
-                  "type": "boolean"
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "note": {
                   "type": "string"
@@ -64887,7 +64890,10 @@
                 "type": "boolean"
               },
               "org_rule": {
-                "type": "string"
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "factors": {
                 "type": "array",
@@ -64925,11 +64931,14 @@
                     "id": {
                       "type": "string"
                     },
-                    "device": {
-                      "type": "string"
-                    },
                     "sub": {
                       "type": "string"
+                    },
+                    "device": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     },
                     "current": {
                       "type": "boolean"
@@ -64956,6 +64965,237 @@
               "sessions",
               "tokens"
             ]
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "unavailable_fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "contacts.verified",
+                "security.org_rule",
+                "security.sessions.device",
+                "security.sessions.login_method"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "display_name",
+          "department",
+          "title",
+          "timezone",
+          "contacts",
+          "notifications",
+          "security",
+          "partial",
+          "unavailable_fields"
+        ]
+      },
+      "V3ProfileUpdate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "phone",
+                    "feishu"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                },
+                "verified": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "label",
+                "value",
+                "verified"
+              ]
+            }
+          },
+          "notifications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "event": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "channels": {
+                  "type": "object",
+                  "properties": {
+                    "feishu": {
+                      "type": "boolean"
+                    },
+                    "email": {
+                      "type": "boolean"
+                    },
+                    "sms": {
+                      "type": "boolean"
+                    },
+                    "phone": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "feishu",
+                    "email",
+                    "sms",
+                    "phone"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "event",
+                "label",
+                "channels"
+              ]
+            }
+          },
+          "security": {
+            "type": "object",
+            "properties": {
+              "password_changed": {
+                "type": "string"
+              },
+              "mfa_enabled": {
+                "type": "boolean"
+              },
+              "org_rule": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "factors": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "passkey",
+                        "totp",
+                        "recovery"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "sub": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "name",
+                    "sub"
+                  ]
+                }
+              },
+              "sessions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "sub": {
+                      "type": "string"
+                    },
+                    "device": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "current": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "device",
+                    "sub"
+                  ]
+                }
+              },
+              "tokens": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "password_changed",
+              "mfa_enabled",
+              "org_rule",
+              "factors",
+              "sessions",
+              "tokens"
+            ]
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "unavailable_fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "contacts.verified",
+                "security.org_rule",
+                "security.sessions.device",
+                "security.sessions.login_method"
+              ]
+            }
           }
         },
         "additionalProperties": false,

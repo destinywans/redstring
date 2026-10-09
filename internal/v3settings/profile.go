@@ -2,14 +2,10 @@ package v3settings
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"net/http"
 	"strings"
-	"time"
 	"unicode/utf8"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
 )
@@ -33,10 +29,11 @@ type profileContact struct {
 	Note     string `json:"note,omitempty"`
 }
 type profileSession struct {
-	ID      string `json:"id"`
-	Device  string `json:"device"`
-	Sub     string `json:"sub"`
-	Current bool   `json:"current,omitempty"`
+	ID string `json:"id"`
+	// Device is null when no identity authority reports it; the session row alone does not.
+	Device  *string `json:"device"`
+	Sub     string  `json:"sub"`
+	Current bool    `json:"current,omitempty"`
 }
 type profileFactor struct {
 	Kind string `json:"kind"`
@@ -46,7 +43,7 @@ type profileFactor struct {
 type profileSecurity struct {
 	PasswordChanged string           `json:"password_changed"`
 	MFAEnabled      *bool            `json:"mfa_enabled"`
-	OrgRule         string           `json:"org_rule"`
+	OrgRule         *string          `json:"org_rule"`
 	Factors         []profileFactor  `json:"factors"`
 	Sessions        []profileSession `json:"sessions"`
 	Tokens          string           `json:"tokens"`
@@ -60,75 +57,20 @@ type profileView struct {
 	Contacts      []profileContact      `json:"contacts"`
 	Notifications []profileNotification `json:"notifications"`
 	Security      profileSecurity       `json:"security"`
+	// Partial is true when no identity authority is configured: the view then holds only what
+	// this instance records, and UnavailableFields names what stays unknown (null).
+	Partial           bool     `json:"partial"`
+	UnavailableFields []string `json:"unavailable_fields"`
 }
+
+// profileLocalUnknown lists what a profile without an identity authority cannot know.
+var profileLocalUnknown = []string{"contacts.verified", "security.org_rule", "security.sessions.device", "security.sessions.login_method"}
 
 func localize(r *http.Request, zh, en string) string {
 	if strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en") {
 		return en
 	}
 	return zh
-}
-
-func (s *Service) getProfile(r *http.Request) (profileView, error) {
-	ctx := r.Context()
-	id := httpapi.CurrentUser(r).ID
-	v := profileView{Contacts: []profileContact{}, Notifications: []profileNotification{}}
-	v.Security.Sessions = []profileSession{}
-	var email, phone *string
-	err := s.Store.DB.QueryRow(ctx, `SELECT u.name,u.v3_display_name,u.department,u.job_title,u.v3_timezone,u.email,u.phone FROM users u WHERE u.id=$1 AND NOT u.disabled AND u.deleted_at IS NULL`, id).Scan(&v.Name, &v.DisplayName, &v.Department, &v.Title, &v.Timezone, &email, &phone)
-	if err != nil {
-		return v, err
-	}
-	if email != nil && *email != "" {
-		v.Contacts = append(v.Contacts, profileContact{Kind: "email", Label: localize(r, "邮箱", "Email"), Value: *email})
-	}
-	if phone != nil && *phone != "" {
-		v.Contacts = append(v.Contacts, profileContact{Kind: "phone", Label: localize(r, "手机号", "Phone"), Value: *phone})
-	}
-	var raw []byte
-	err = s.Store.DB.QueryRow(ctx, `SELECT profile_notifications FROM v3_user_settings WHERE user_id=$1`, id).Scan(&raw)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return v, err
-	}
-	if len(raw) > 0 {
-		if err = json.Unmarshal(raw, &v.Notifications); err != nil {
-			return v, err
-		}
-	}
-	var changed *time.Time
-	err = s.Store.DB.QueryRow(ctx, `SELECT max(created_at) FROM management_audit WHERE actor_id=$1 AND action='profile.password.updated' AND outcome='success'`, id).Scan(&changed)
-	if err != nil {
-		return v, err
-	}
-	v.Security.PasswordChanged = localize(r, "密码修改时间未记录", "Password change time not recorded")
-	if changed != nil {
-		v.Security.PasswordChanged = changed.UTC().Format(time.RFC3339)
-	}
-	v.Security.OrgRule = localize(r, "组织 MFA 策略状态不可用", "Organization MFA policy status unavailable")
-	v.Security.Tokens = localize(r, "个人令牌尚未接入", "Personal tokens are not configured")
-	current := currentSessionHash(r)
-	rows, err := s.Store.DB.Query(ctx, `SELECT token_hash,expires_at FROM sessions WHERE user_id=$1 AND expires_at>now() ORDER BY expires_at DESC,token_hash LIMIT 100`, id)
-	if err != nil {
-		return v, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var sid string
-		var expires time.Time
-		if err = rows.Scan(&sid, &expires); err != nil {
-			return v, err
-		}
-		v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: sid, Device: localize(r, "设备信息未记录", "Device not recorded"), Sub: localize(r, "到期时间 ", "Expires ") + expires.UTC().Format(time.RFC3339), Current: sid == current})
-	}
-	if err := rows.Err(); err != nil {
-		return v, err
-	}
-	// The persisted user and session rows do not establish contact verification,
-	// usable MFA factors, or a session's login method/device. Their nil values are
-	// explicitly unknown. ProfileView requires booleans, so this projection must
-	// not be served or used as the basis of a partial PUT until the evidence and
-	// permission checks are connected.
-	return v, errIdentityUnavailable
 }
 
 func currentSessionHash(r *http.Request) string {
@@ -202,7 +144,7 @@ func (s *Service) registerProfile(api *httpapi.Server) {
 		respondProfile(w, v, err)
 	})
 	api.Register("PUT /api/v1/me/profile", "viewer", func(w http.ResponseWriter, r *http.Request) {
-		if s.ProfileEvidence == nil || s.ProfileInstanceID == "" {
+		if s.ProfileInstanceID == "" {
 			respondProfile(w, profileView{}, errIdentityUnavailable)
 			return
 		}

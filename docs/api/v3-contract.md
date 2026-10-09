@@ -397,8 +397,8 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/me/profile` | 单一所选环境；需当前真人账号、活动会话与环境查看权 | 受信身份来源完整覆盖联系人验证、MFA 因子和全部活动会话设备/登录方式时返回持久资料 `ProfileView`；缺证据 503 | implemented |
-| PUT | `/me/profile` | 单一所选环境、完整 `ProfileView`；仅姓名、显示名、职务、时区和通知可编辑 | 同事务复核当前证据、会话及权限后保存可编辑字段与审计；联系人、部门和安全字段不可借完整提交改写 | implemented |
+| GET | `/me/profile` | 单一所选环境；需当前真人账号、活动会话与环境查看权 | 配置受信身份来源时，来源完整覆盖联系人验证、MFA 因子和全部活动会话设备/登录方式才返回完整 `ProfileView`，来源过期或不全 503；未配置来源时返回 `partial: true` 的本实例事实，联系人验证、组织 MFA 规则和会话设备为 `null` 并列入 `unavailable_fields`（2026-10-09 PA-16） | implemented |
+| PUT | `/me/profile` | 单一所选环境、完整 `ProfileView`（`partial`/`unavailable_fields` 可省略）；仅姓名、显示名、职务、时区和通知可编辑 | 同事务复核当前证据（如已配置）、会话及权限后保存可编辑字段与审计；联系人、部门和安全字段（含 `null`）须与当前视图一致，不可借完整提交改写 | implemented |
 | DELETE | `/me/sessions/{id}` | | 204 | implemented |
 | GET | `/members` | `filter: all\|admin\|no_mfa\|disabled`, `q`；`no_mfa` 缺证据时 503 | 当前受权持久成员与角色；登录、MFA、组与目录来源未知时可空 | implemented |
 | POST | `/members/invitations` | `{ email, role?: "viewer" }` | `{ ok: true }`；仅 SMTP relay 接受且状态落库后成功 | implemented |

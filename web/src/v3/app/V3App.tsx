@@ -12,6 +12,7 @@ const p = (load: () => Promise<Record<string, unknown>>, name = "default") =>
 
 const Home = p(() => import("../features/home/HomePage"));
 const Login = p(() => import("../features/auth/LoginPage"));
+const Invite = p(() => import("../features/auth/InvitePage"));
 const Preferences = p(() => import("../features/settings/PreferencesPage"));
 const Pending = p(() => import("../features/Pending"));
 const Conversations = p(() => import("../features/conversation/ConversationsPage"));
@@ -108,6 +109,7 @@ export default function V3App() {
     <Suspense fallback={<Loading />}>
       <Routes>
         <Route path="login" element={<Login />} />
+        <Route path="invite" element={<Invite />} />
         <Route element={<Shell />}>
           <Route index element={<Home />} />
           <Route path="settings" element={<Navigate to="/settings/profile" replace />} />

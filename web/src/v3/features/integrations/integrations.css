@@ -467,3 +467,16 @@ a.cov-miss:hover {
 .lower-src { margin-top: 18px; }
 .lower-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
 .lower-row:last-child { border-bottom: none; }
+.map-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+}
+.map-edit-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1.3fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}

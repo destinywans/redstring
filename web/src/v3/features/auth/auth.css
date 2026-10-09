@@ -60,3 +60,29 @@
 .v3-login-instance .tag.prod {
   color: var(--prod);
 }
+.v3-login-lead {
+  margin: -6px 0 0;
+  color: var(--muted);
+  font-size: var(--fs-sub);
+}
+.v3-login-ok {
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--ok-soft);
+  color: var(--ok);
+  font-size: var(--fs-sub);
+}
+.v3-login-alt {
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--fs-sub);
+}
+.v3-login-alt a {
+  color: var(--accent-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+.v3-login-alt a:hover,
+.v3-login-alt a:focus-visible {
+  text-decoration: underline;
+}

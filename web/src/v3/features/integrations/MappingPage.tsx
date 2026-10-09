@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet, useSend } from "../../api/client";
-import type { MappingCandidate, MappingCell, ServiceMapping } from "../../api/types";
+import type { MappingCandidate, MappingCell, MappingSave, ServiceMapping } from "../../api/types";
+import { MappingEditor } from "./MappingEditor";
 import { Badge, Brand, Btn, Card, Icon, Muted, Row, Skeleton, Tile, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
@@ -16,6 +17,8 @@ export default function MappingPage() {
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [rejected, setRejected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<{ service: string; save: MappingSave } | null>(null);
+  const [conflict, setConflict] = useState(false);
   const discover = useSend<void, { suggestions: number; source_state?: "configured" | "not_configured" }>("POST", "/service-mappings/discover");
   const save = useSend<void>("PUT", "/service-mappings");
   // Real suggestions are reviewed GitLab candidates; only those can be accepted, and only the server's answer marks them accepted.
@@ -163,6 +166,7 @@ export default function MappingPage() {
                       </Row>
                     </th>
                   ))}
+                  {!demo && <th style={{ width: 120 }} />}
                 </tr>
               </thead>
               <tbody className="stagger">
@@ -179,6 +183,17 @@ export default function MappingPage() {
                         {cell(r.service, s.id, r.cells[s.id])}
                       </td>
                     ))}
+                    {!demo && (
+                      <td>
+                        {r.save?.editable ? (
+                          <Btn h={26} icon="edit" onClick={() => setEditing({ service: r.service, save: r.save! })}>
+                            {tx("编辑", "Edit")}
+                          </Btn>
+                        ) : (
+                          <Muted size={11.5}>{r.save?.unavailable_reason ?? tx("只能在配置里改", "Change it in configuration")}</Muted>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -186,6 +201,31 @@ export default function MappingPage() {
           )}
         </Card>
       </div>
+      {!demo && data && (
+        <MappingEditor
+          row={editing}
+          systems={data.systems}
+          onClose={() => {
+            setEditing(null);
+            setConflict(false);
+          }}
+          conflict={conflict}
+          onSaved={(stale) => {
+            if (!stale) {
+              setEditing(null);
+              setConflict(false);
+              void refetch();
+              return;
+            }
+            // A stale revision: reload, keep the drawer on the fresh snapshot and say what happened.
+            void refetch().then((r) => {
+              const fresh = r.data?.rows.find((x) => x.service === editing?.service);
+              setEditing(fresh?.save?.editable ? { service: fresh.service, save: fresh.save } : null);
+              setConflict(true);
+            });
+          }}
+        />
+      )}
     </Page>
   );
 }

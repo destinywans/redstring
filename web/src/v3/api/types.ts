@@ -212,6 +212,9 @@ export type WritebackPreview = {
   budget: { before: number; after: number; limit: number };
 };
 
+/** GET /investigations item (persisted investigation); open means status is not "closed". */
+export type InvestigationRecord = { id: string; application_id?: string; environment_id?: string; title?: string; status?: string; created_at?: string; updated_at?: string };
+
 /* ---------------- investigation templates ---------------- */
 export type InvestigationTemplate = {
   id: string;
@@ -571,6 +574,8 @@ export type LogPattern = { template: string; level: LogLine["level"]; count: str
  */
 export type LogSearch = { total: string | null; errors: string | null; histogram: number[][] | null; items: LogLine[] | null; patterns: LogPattern[] | null; unavailable: Unavailable };
 export type Pipeline = { id: string; brand: string; ref: string; service: string; title: string; trigger: string; status: "success" | "failed" | "running" | "canceled"; stages: ("ok" | "danger" | "accent" | "neutral")[]; duration: string; time: string };
+/** GET /delivery/runs item (native delivery run), used to pick a run for the changes view. */
+export type DeliveryRunSummary = { id: string; pipeline_id?: string; application_id?: string; environment_id?: string; provider?: string; status?: string; version?: number; created_at?: string; updated_at?: string; snapshot?: { name?: string }; projection?: { status?: string; commit_sha?: string; message?: string } };
 export type ChangesView = {
   kpis: Kpi[];
   sources: { brand: string; name: string; count: number; on: boolean }[];

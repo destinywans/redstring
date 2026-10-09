@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"regexp"
 	"slices"
 	"strings"
@@ -45,9 +46,27 @@ type metricToolInput struct {
 }
 
 type metricToolSeries struct {
-	Index   int                       `json:"index"`
-	Labels  map[string]string         `json:"labels,omitempty"`
-	Samples []connectors.MetricSample `json:"samples"`
+	Index   int                `json:"index"`
+	Labels  map[string]string  `json:"labels,omitempty"`
+	Samples []metricToolSample `json:"samples"`
+}
+
+// metricToolSample carries an RFC 3339 UTC time like the log samples. The
+// model misread Unix seconds by minutes (PA-53).
+type metricToolSample struct {
+	Time  string `json:"time"`
+	Value string `json:"value"`
+}
+
+// metricSampleTime formats a Prometheus sample time (Unix seconds, possibly
+// fractional) as RFC 3339 UTC, with sub-seconds only when present.
+func metricSampleTime(timestamp float64) string {
+	seconds := math.Floor(timestamp)
+	at := time.Unix(int64(seconds), int64(math.Round((timestamp-seconds)*1e9))).UTC()
+	if at.Nanosecond() == 0 {
+		return at.Format(time.RFC3339)
+	}
+	return at.Format(time.RFC3339Nano)
 }
 
 type metricToolEvidence struct {
@@ -253,8 +272,11 @@ func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, inp
 		evidence.Meaning = known.meaning
 	}
 	for index, series := range result.Series[:min(len(result.Series), 8)] {
-		line := metricToolSeries{Index: index + 1, Samples: series.Samples[:min(len(series.Samples), 32)],
+		line := metricToolSeries{Index: index + 1, Samples: []metricToolSample{},
 			Labels: reviewedMetricLabels(request.QueryID, series.Labels)}
+		for _, sample := range series.Samples[:min(len(series.Samples), 32)] {
+			line.Samples = append(line.Samples, metricToolSample{Time: metricSampleTime(sample.Timestamp), Value: sample.Value})
+		}
 		if len(series.Samples) > 32 {
 			evidence.Truncated = true
 		}

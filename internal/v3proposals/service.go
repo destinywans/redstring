@@ -70,6 +70,8 @@ func (s *Service) Register(api *httpapi.Server) {
 	}{
 		{"GET /api/v1/proposals/{id}", "view", s.Detail},
 		{"POST /api/v1/proposals/{id}/comments", "change", s.Comment},
+		// The handler also lets an approver of the proposal's scope reject
+		// (PA-57); see authorizeActionTx.
 		{"POST /api/v1/proposals/{id}/reject", "manage", s.Reject},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
@@ -391,7 +393,7 @@ func (s *Service) scopedTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, ac
 	// This first check is only admission to the potentially long query: the
 	// final check below still decides whether its result may be returned.
 	if beforeAuthorization != nil {
-		err = s.authorizeTx(r.Context(), tx, user, v, action)
+		err = s.authorizeActionTx(r.Context(), tx, user, v, action)
 		if errors.Is(err, store.ErrForbidden) {
 			httpapi.Error(w, 403, "forbidden", "Proposal permission required")
 			return record{}, false
@@ -400,7 +402,7 @@ func (s *Service) scopedTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, ac
 			httpapi.Error(w, 503, "authorization_unavailable", "Proposal authorization unavailable")
 			return record{}, false
 		}
-		if action == "manage" {
+		if action == actionReject {
 			// Reject is a human decision. The final check remains in Reject,
 			// but a machine must not scan the discussion before reaching it.
 			var human bool
@@ -437,7 +439,7 @@ func (s *Service) scopedTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, ac
 		unavailable(w)
 		return record{}, false
 	}
-	err = s.authorizeTx(r.Context(), tx, user, v, action)
+	err = s.authorizeActionTx(r.Context(), tx, user, v, action)
 	if errors.Is(err, store.ErrForbidden) {
 		httpapi.Error(w, 403, "forbidden", "Proposal permission required")
 		return record{}, false
@@ -447,6 +449,24 @@ func (s *Service) scopedTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, ac
 		return record{}, false
 	}
 	return v, true
+}
+
+// actionReject is the review action of Reject: proposals.manage, or the
+// approve grant that could have approved this proposal (PA-57).
+const actionReject = "reject"
+
+func (s *Service) authorizeActionTx(ctx context.Context, tx pgx.Tx, user core.User, v record, action string) error {
+	if action != actionReject {
+		return s.authorizeTx(ctx, tx, user, v, action)
+	}
+	err := s.authorizeTx(ctx, tx, user, v, "manage")
+	if !errors.Is(err, store.ErrForbidden) {
+		return err
+	}
+	// A reviewer who may approve may also decline. The grant check is the
+	// one approval votes use, so the same scopes count; Reject still requires
+	// a human identity.
+	return approvalGrantTx(ctx, tx, user.ID, v.EnvironmentID, v.ApplicationID, v.TeamID)
 }
 
 // Locking only rows found by a role scan leaves new assignments and grants
@@ -651,7 +671,7 @@ func (s *Service) Reject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var out Proposal
-	v, ok := s.scopedTx(w, r, tx, "manage", func(v record) error {
+	v, ok := s.scopedTx(w, r, tx, actionReject, func(v record) error {
 		var err error
 		out, err = detailTx(r.Context(), tx, v)
 		return err

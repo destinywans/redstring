@@ -77,6 +77,9 @@ func TestRoleMatrixWriteHTTPAuthorizationPersistenceAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		// Fixture users keep the legacy viewer binding; drop its global
+		// environment grant (PA-55) so each manager is scoped by its own role.
+		`DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='environment'`,
 		`INSERT INTO rbac_roles(id,name,v3_kind) VALUES
  ('ops-role','Operations','business'),('concurrent-role','Concurrent','business'),('machine-role','Machine','machine'),
  ('execute-role','Executor','business'),('mixed-role','Mixed','business'),

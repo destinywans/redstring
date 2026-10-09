@@ -25878,7 +25878,7 @@
       "post": {
         "summary": "Start a durable assistant reply",
         "operationId": "post_conversations_id_messages",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. A nonblank text or at least one attachment is required; attachment-only requests may omit text. A second concurrent reply is rejected with 409. The user message, canonical Upload references, selected model/reasoning, acceptance audit and private image/PDF byte snapshots are durable in one transaction before 202. Persisted uploads are rechecked in that transaction for exact owner, environment, reference metadata, MIME and bytes. Paste and safe UTF-8 .txt/.log/.conf/.toml/.md/.csv/.json/.yaml/.yml files enter a private bounded text snapshot (16 KiB source, 32 KiB snapshot). A link is fetched before acceptance only when it is public HTTPS Markdown with at most 1000 URL bytes, no query or fragment, and port 443; SSRF-protected fetch rejects private addresses, redirects and unsupported content. The default fetcher rejects a response above its 128 KiB ingress cap as unreadable (422); fetched content exceeding the stricter 16 KiB turn source limit returns 413. The fetched body is frozen in the private text snapshot and never refetched for a model retry or later turn. Upload storage accepts broader HTTP/HTTPS URLs, so an uploaded link can still be rejected at send. Internal Grafana/Kibana/GitLab links are not parsed through connector credentials and return 422 when not publicly readable Markdown. PNG/JPEG/GIF/WebP images and PDFs are supplied as bounded media input on explicitly capable OpenAI Responses models (8 MiB aggregate raw bytes across the replayed conversation). An incapable model or unsupported type returns 422 before a turn is created, including when switching models with prior media in history. Invalid references or unsupported link content return 422; excessive accepted attachment source/snapshot, media bytes or known text budget return 413; a genuine link fetch failure returns 503 before a turn exists. All turns precheck saved history plus the new message before 202; image/PDF token cost and the full system/tool request remain provider-authoritative and can still fail after acceptance. Start and terminal writes recheck the persisted owner, environment, initiating session and current V3 conversation authorization in their transactions. A revoked terminal turn drops partial output rather than saving it. SSE reply_id pins durable event replay; failures persist a terminal status and release the conversation for a new turn. Provider usage in message.completed.run is optional and must not be inferred when unavailable. Evidence that would exceed the model input budget after tool calls is trimmed, oldest first, in the model request only (each trimmed result says so) instead of failing the turn (PA-45). A reply cut at the model output limit is completed, not failed: it keeps the streamed answer, adds a status part in the request language and carries finish_reason=max_output_tokens on message.completed and the message (PA-46).",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A nonblank text or at least one attachment is required; attachment-only requests may omit text. A second concurrent reply is rejected with 409. The user message, canonical Upload references, selected model/reasoning, acceptance audit and private image/PDF byte snapshots are durable in one transaction before 202. Persisted uploads are rechecked in that transaction for exact owner, environment, reference metadata, MIME and bytes. Paste and safe UTF-8 .txt/.log/.conf/.toml/.md/.csv/.json/.yaml/.yml files enter a private bounded text snapshot (16 KiB source, 32 KiB snapshot). A link is fetched before acceptance only when it is public HTTPS Markdown with at most 1000 URL bytes, no query or fragment, and port 443; SSRF-protected fetch rejects private addresses, redirects and unsupported content. The default fetcher rejects a response above its 128 KiB ingress cap as unreadable (422); fetched content exceeding the stricter 16 KiB turn source limit returns 413. The fetched body is frozen in the private text snapshot and never refetched for a model retry or later turn. Upload storage accepts broader HTTP/HTTPS URLs, so an uploaded link can still be rejected at send. Internal Grafana/Kibana/GitLab links are not parsed through connector credentials and return 422 when not publicly readable Markdown. PNG/JPEG/GIF/WebP images and PDFs are supplied as bounded media input on explicitly capable OpenAI Responses models (8 MiB aggregate raw bytes across the replayed conversation). An incapable model or unsupported type returns 422 before a turn is created, including when switching models with prior media in history. Invalid references or unsupported link content return 422; excessive accepted attachment source/snapshot, media bytes or known text budget return 413; a genuine link fetch failure returns 503 before a turn exists. All turns precheck saved history plus the new message before 202; image/PDF token cost and the full system/tool request remain provider-authoritative and can still fail after acceptance. Start and terminal writes recheck the persisted owner, environment, initiating session and current V3 conversation authorization in their transactions. A revoked terminal turn drops partial output rather than saving it. SSE reply_id pins durable event replay; failures persist a terminal status and release the conversation for a new turn. Provider usage in message.completed.run is optional and must not be inferred when unavailable. Evidence that would exceed the model input budget after tool calls is trimmed, oldest first, in the model request only (each trimmed result says so) instead of failing the turn (PA-45). A reply cut at the model output limit is completed, not failed: it keeps the streamed answer, adds a status part in the request language and carries finish_reason=max_output_tokens on message.completed and the message (PA-46). When the reply uses its evidence-tool budget (32 reads), the next model call has no tools and answers from the evidence gathered; the reply completes with finish_reason=evidence_limit and a status part. An identical repeat of a tool call (same tool and input) is answered from the earlier result without a read or a count, and over-budget calls get an evidence_limit tool error instead of canceling the reply (PA-52). A failed reply records a readable reason such as reply_timeout or reply_canceled.",
         "responses": {
           "202": {
             "description": "Success",
@@ -36007,7 +36007,7 @@
       "get": {
         "summary": "Read the scoped active Alertmanager route tree",
         "operationId": "get_notification_routes",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires exactly one selected environment and environment-wide alert_rules.view plus alert_rules.manage. Reads configured Alertmanager status and exposes only a subtree proven to be selected by one exact environment matcher. When the configuration has no exact branch for the environment at all, root and config_revision are null with root_unavailable=not_configured and no ETag (PA-09). Ambiguous shared routing, a failed or missing source, malformed or over-limit configuration fail closed. Matcher values and receiver names are redacted to opaque per-revision receiver refs; receiver definitions, channel targets, credentials and raw YAML are excluded. The quoted config_revision is also returned as the ETag for a conditional draft request. Hit counts, on-call, escalation and current interval activity remain unavailable. Current session and grants are rechecked after the provider read. The frozen frontend expects channel targets and numeric hits and is not accepted.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires exactly one selected environment and environment-wide alert_rules.view; reading the redacted tree does not need alert_rules.manage (PA-56), which route tests and drafts still require. Reads configured Alertmanager status and exposes only a subtree proven to be selected by one exact environment matcher. When the configuration has no exact branch for the environment at all, root and config_revision are null with root_unavailable=not_configured and no ETag (PA-09). Ambiguous shared routing, a failed or missing source, malformed or over-limit configuration fail closed. Matcher values and receiver names are redacted to opaque per-revision receiver refs; receiver definitions, channel targets, credentials and raw YAML are excluded. The quoted config_revision is also returned as the ETag for a conditional draft request. Hit counts, on-call, escalation and current interval activity remain unavailable. Current session and grants are rechecked after the provider read. The frozen frontend expects channel targets and numeric hits and is not accepted.",
         "responses": {
           "200": {
             "description": "Success",
@@ -38419,7 +38419,7 @@
       "post": {
         "summary": "Reject a pending proposal without executing it",
         "operationId": "post_proposals_id_reject",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Serializes state changes, audits rejection, and returns the persisted review record.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires a human reviewer with proposals.manage for the proposal, or the passkey proposals.approve grant that covers its environment, application or owner team (PA-57). Serializes state changes, audits rejection, and returns the persisted review record.",
         "responses": {
           "200": {
             "description": "Success",
@@ -67692,7 +67692,8 @@
           "finish_reason": {
             "type": "string",
             "enum": [
-              "max_output_tokens"
+              "max_output_tokens",
+              "evidence_limit"
             ]
           }
         },
@@ -67795,7 +67796,8 @@
               "finish_reason": {
                 "type": "string",
                 "enum": [
-                  "max_output_tokens"
+                  "max_output_tokens",
+                  "evidence_limit"
                 ]
               }
             },
@@ -87024,6 +87026,12 @@
                 "grants"
               ]
             }
+          },
+          "environment_access": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false,
@@ -87037,6 +87045,7 @@
           "scope",
           "actions",
           "matrix",
+          "environment_access",
           "notes"
         ]
       },

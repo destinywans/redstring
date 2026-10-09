@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -63,6 +64,8 @@ func TestRolesHTTPReadsCurrentGrantsWithinAuthorizedEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		// Replace the viewer's global environment grant (PA-55) with dev only.
+		`DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='environment'`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
 VALUES ('viewer','environment','view','environment','dev'),
        ('viewer','roles','view','global','*')`,
@@ -210,6 +213,17 @@ VALUES ('viewer','environment','view','environment','dev'),
 	}
 	if !globalIDs["test-role"] || !globalIDs["unassigned-role"] {
 		t.Fatalf("global manager could not inspect test-scoped or unassigned role: %+v", listed.Items)
+	}
+	// PA-55: environment access is shown beside the matrix, not as a row.
+	for _, tc := range []struct{ id, access, note string }{
+		{"admin", "global", "全部环境"}, {"test-role", "test", "环境访问：test"}, {"unassigned-role", "", "没有环境查看权"},
+	} {
+		w = request("/api/v1/roles/"+tc.id, "all", adminToken)
+		detail = roleDetail{}
+		if err := json.Unmarshal(w.Body.Bytes(), &detail); err != nil || w.Code != 200 || len(detail.Matrix) != len(matrixCatalog) ||
+			strings.Join(detail.EnvironmentAccess, ",") != tc.access || !strings.Contains(detail.Notes, tc.note) {
+			t.Fatalf("%s environment access: status=%d body=%s", tc.id, w.Code, w.Body.String())
+		}
 	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='roles' AND action='view'`); err != nil {
 		t.Fatal(err)

@@ -19,7 +19,11 @@ type roleDetail struct {
 	Scope       []string    `json:"scope"`
 	Actions     []string    `json:"actions"`
 	Matrix      []matrixRow `json:"matrix"`
-	Notes       string      `json:"notes"`
+	// EnvironmentAccess lists the role's environment.view scopes ("global"
+	// or environment IDs) visible in the selected environments. It is not a
+	// matrix row; without it the role's members see no environment (PA-55).
+	EnvironmentAccess []string `json:"environment_access"`
+	Notes             string   `json:"notes"`
 }
 
 type orgNode struct {

@@ -29,7 +29,7 @@ func TestEvidenceOverInputBudgetIsTrimmedNotFatal(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		if n := calls.Add(1); n <= 3 {
 			openChunk(w, map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": fmt.Sprintf("call%d", n),
-				"function": map[string]any{"name": "read_logs", "arguments": "{\"query\":\"recent\"}"}}}}, "tool_calls")
+				"function": map[string]any{"name": "read_logs", "arguments": fmt.Sprintf("{\"query\":\"recent-%d\"}", n)}}}}, "tool_calls")
 		} else {
 			openChunk(w, map[string]any{"content": "Answered from trimmed evidence"}, "stop")
 		}

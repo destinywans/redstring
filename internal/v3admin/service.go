@@ -230,7 +230,7 @@ func roleSessionToken(r *http.Request) string {
 }
 
 func (s *Service) getRole(ctx context.Context, id string, actor core.User, sessionToken string, envs []string, english bool) (roleDetail, int64, error) {
-	v := roleDetail{MemberNames: []string{}, Scope: []string{}, Matrix: []matrixRow{}}
+	v := roleDetail{MemberNames: []string{}, Scope: []string{}, Matrix: []matrixRow{}, EnvironmentAccess: []string{}}
 	tx, err := s.Store.DB.Begin(ctx)
 	if err != nil {
 		return v, 0, err
@@ -353,6 +353,16 @@ func (s *Service) getRole(ctx context.Context, id string, actor core.User, sessi
 		v.Actions = []string{"View", "Create / edit", "Delete", "Approve", "Manage"}
 	}
 	v.Matrix = displayMatrix(grants, english)
+	for _, g := range grants {
+		if g.Module == "environment" && g.Action == "view" {
+			if g.ScopeKind == "global" {
+				v.EnvironmentAccess = append(v.EnvironmentAccess, "global")
+			} else if g.ScopeKind == "environment" {
+				v.EnvironmentAccess = append(v.EnvironmentAccess, g.ScopeID)
+			}
+		}
+	}
+	sort.Strings(v.EnvironmentAccess)
 	v.Notes = "机器身份不能审批；审批在通行密钥二次验证接入前不可执行，发起人与批准人不能相同。"
 	if english {
 		v.Notes = "Machine identities cannot approve. Approval remains unavailable until passkey step-up verification is implemented, and the author cannot approve their own proposal."
@@ -366,6 +376,20 @@ func (s *Service) getRole(ctx context.Context, id string, actor core.User, sessi
 			}
 			break
 		}
+	}
+	switch {
+	case len(v.EnvironmentAccess) == 0 && english:
+		v.Notes += " This role grants no environment access; members who hold only this role see no environment."
+	case len(v.EnvironmentAccess) == 0:
+		v.Notes += " 该角色没有环境查看权，只持有此角色的成员看不到任何环境。"
+	case contains(v.EnvironmentAccess, "global") && english:
+		v.Notes += " Environment access: every environment of this instance."
+	case contains(v.EnvironmentAccess, "global"):
+		v.Notes += " 环境访问：本实例的全部环境。"
+	case english:
+		v.Notes += " Environment access: " + strings.Join(v.EnvironmentAccess, ", ") + "."
+	default:
+		v.Notes += " 环境访问：" + strings.Join(v.EnvironmentAccess, "、") + "。"
 	}
 	if english {
 		v.Notes += " Only grants in the selected authorized environments are shown."

@@ -151,3 +151,14 @@ func TestInvestigationLogEvidenceSources(t *testing.T) {
 		t.Fatal("elasticsearch accepted for metrics")
 	}
 }
+
+// PA-52: an investigation answer that ended at a run limit carries a note in
+// the request language.
+func TestReplyLimitNote(t *testing.T) {
+	limited := replyLimitNote("zh-CN", inference.ErrEvidenceLimitReached)
+	both := replyLimitNote("en-US", errors.Join(inference.ErrOutputTruncated, inference.ErrEvidenceLimitReached))
+	if !strings.Contains(limited, "取证次数已达上限") || strings.Contains(limited, "截断") ||
+		!strings.Contains(both, "evidence reads") || !strings.Contains(both, "output limit") || replyLimitNote("", nil) != "" {
+		t.Fatalf("notes: %q %q", limited, both)
+	}
+}

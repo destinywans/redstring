@@ -277,14 +277,17 @@ func (s *Service) authorizeInvitation(ctx context.Context, tx pgx.Tx, actor core
 
 // Viewer is editable in the role UI. Inspect the actual role before sending
 // a code and again when consuming it; the identity and matrix locks serialize
-// this check with the existing role and permission writers.
+// this check with the existing role and permission writers. The one
+// environment grant allowed is the instance-wide environment.view the
+// built-in viewer carries since PA-55 (decision D6).
 func safeInvitationViewer(ctx context.Context, tx pgx.Tx) (bool, error) {
 	var safe bool
 	err := tx.QueryRow(ctx, `SELECT
  EXISTS(SELECT 1 FROM rbac_roles WHERE id='viewer' AND builtin AND v3_kind='system')
  AND NOT EXISTS(SELECT 1 FROM v3_role_grants
   WHERE role_id='viewer' AND
-   (module='environment' OR action<>'view' OR scope_kind IN ('application','team')))
+   ((module='environment' AND NOT (scope_kind='global' AND scope_id='*'))
+    OR action<>'view' OR scope_kind IN ('application','team')))
  AND NOT EXISTS(SELECT 1 FROM rbac_role_permissions rp
   JOIN rbac_permission_resources pr ON pr.permission_id=rp.permission_id
   WHERE rp.role_id='viewer' AND
@@ -305,7 +308,8 @@ func safeAcceptedMember(ctx context.Context, tx pgx.Tx, accountID string) (bool,
   WHERE subject_type='user' AND subject_id=$1)
  AND NOT EXISTS(SELECT 1 FROM v3_effective_role_grants
   WHERE user_id=$1 AND
-   (module='environment' OR action<>'view' OR scope_kind IN ('application','team')))
+   ((module='environment' AND NOT (scope_kind='global' AND scope_id='*'))
+    OR action<>'view' OR scope_kind IN ('application','team')))
  AND NOT EXISTS(SELECT 1 FROM rbac_effective_permissions
   WHERE user_id=$1 AND
    (action<>'view' OR scope_type NOT IN ('resource','legacy_application')))`, accountID).Scan(&safe)

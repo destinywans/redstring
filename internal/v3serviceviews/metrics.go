@@ -147,22 +147,25 @@ func projectServiceMetrics(p v3metricpanels.Set, target float64, captured time.T
 		out.Missing["status"] = reasonNotConfigured
 	}
 	last := v3metricpanels.Points - 1
-	signal := func(id, label, unit, sub, format string, series []float64) {
+	// Labels are English here; the detail handler relabels them in the
+	// request language by signal ID.
+	signal := func(id, unit, format string, series []float64) {
+		label, sub := english.signal(id)
 		out.Signals = append(out.Signals, KPI{ID: id, Label: label, Value: fmt.Sprintf(format, series[last]), Unit: unit, Sub: sub, Series: series})
 	}
 	if requests {
-		signal("rps", "Requests", "/s", "Observed request rate", "%.2f", rate)
-		signal("err", "5xx ratio", "%", "Observed server errors", "%.2f", errorsPct)
+		signal("rps", "/s", "%.2f", rate)
+		signal("err", "%", "%.2f", errorsPct)
 	} else {
 		out.Missing["signals.rps"], out.Missing["signals.err"] = reasonNotConfigured, reasonNotConfigured
 	}
-	for _, s := range []struct{ id, panel, label, unit, sub, format string }{
-		{"p99", v3metricpanels.LatencyP99, "P99 latency", "ms", "Observed latency", "%.1f"},
-		{"wait", v3metricpanels.ConnectionWaitP95, "Connection wait P95", "ms", "Observed wait", "%.1f"},
-		{"cpu", v3metricpanels.CPUSaturation, "CPU saturation", "%", "Observed saturation", "%.1f"},
+	for _, s := range []struct{ id, panel, unit, format string }{
+		{"p99", v3metricpanels.LatencyP99, "ms", "%.1f"},
+		{"wait", v3metricpanels.ConnectionWaitP95, "ms", "%.1f"},
+		{"cpu", v3metricpanels.CPUSaturation, "%", "%.1f"},
 	} {
 		if series, ok := p.Plain[s.panel]; ok {
-			signal(s.id, s.label, s.unit, s.sub, s.format, series)
+			signal(s.id, s.unit, s.format, series)
 		} else {
 			out.Missing["signals."+s.id] = reasonNotConfigured
 		}

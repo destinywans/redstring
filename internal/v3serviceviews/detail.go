@@ -115,7 +115,8 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		}
 		return isUnknown
 	}
-	ai, aiErr := s.narrative(ctx, user, row)
+	t := textFor(r.Header.Get("Accept-Language"))
+	ai, aiErr := s.narrative(ctx, user, row, t)
 	if !unknownAs("ai", aiErr) {
 		if aiErr != nil {
 			writeReadError(w, aiErr)
@@ -123,7 +124,7 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		}
 		out.AI, used.canvas = &ai, true
 	}
-	changes, changesErr := s.changes(ctx, row)
+	changes, changesErr := s.changes(ctx, row, t)
 	if !unknownAs("changes", changesErr) {
 		if changesErr != nil {
 			writeReadError(w, changesErr)
@@ -141,6 +142,11 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		if depsErr != nil {
 			writeReadError(w, depsErr)
 			return
+		}
+		for _, side := range [][]dependency{deps.Upstream, deps.Downstream} {
+			for i := range side {
+				side[i].Meta = t.dependencyMeta()
+			}
 		}
 		n := len(deps.Upstream) + len(deps.Downstream)
 		out.Deps, out.Tabs["deps"], used.resources = &deps, &n, true
@@ -181,14 +187,19 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out.SLO.Target = item.SLO.Target
-	out.SLO.Note = "Observed monthly availability and error-budget burn"
+	out.SLO.Note = t.sloNote()
 	if reason, missing := item.Unavailable["slo.target"]; missing {
 		out.Unavailable["slo.target"] = reason
 	}
 	if m := item.obs.metrics; m != nil {
 		// A partial panel set fills what it can; each absent panel's field is
 		// null or omitted from its list and named with its reason (PA-41).
-		out.SLO.Availability, out.SLO.BudgetLeft, out.SLO.Burn, out.Signals = m.Availability, m.BudgetLeft, m.Burn, m.Signals
+		out.SLO.Availability, out.SLO.BudgetLeft, out.SLO.Burn = m.Availability, m.BudgetLeft, m.Burn
+		out.Signals = make([]KPI, len(m.Signals))
+		for i, signal := range m.Signals {
+			signal.Label, signal.Sub = t.signal(signal.ID)
+			out.Signals[i] = signal
+		}
 		for field, reason := range m.Missing {
 			if field != "status" {
 				out.Unavailable[field] = reason
@@ -216,7 +227,7 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 // its model and time, not summarized by this read path. The linked
 // investigation belongs to this app/environment. An older reply is stale; no
 // qualifying reply is not_generated.
-func (s *Service) narrative(ctx context.Context, user core.User, row serviceRow) (aiNarrative, error) {
+func (s *Service) narrative(ctx context.Context, user core.User, row serviceRow, t text) (aiNarrative, error) {
 	allowed, err := s.canView(ctx, user, row, "canvas")
 	if err != nil {
 		return aiNarrative{}, err
@@ -256,8 +267,7 @@ func (s *Service) narrative(ctx context.Context, user core.User, row serviceRow)
 	if at.Before(now.Add(-time.Hour)) {
 		return aiNarrative{}, unknown(reasonStale)
 	}
-	out := aiNarrative{Text: "Investigation note as of " + at.UTC().Format(time.RFC3339) + ": " + content,
-		Investigation: inv, Meta: "Model " + model + " · " + at.UTC().Format(time.RFC3339)}
+	out := aiNarrative{Text: t.narrative(at, content), Investigation: inv, Meta: t.narrativeMeta(model, at)}
 	// Proposal links expose no content, but still require a current proposal
 	// grant and a pending proposal bound to the selected investigation.
 	proposalAllowed, e := s.canView(ctx, user, row, "proposals")

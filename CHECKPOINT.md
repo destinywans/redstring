@@ -1,3 +1,13 @@
+**最新整理：[CP-322](#cp-322-current)，2026-10-09 (+08)。此前一直未提交的 CP-310 进展记录、接口收口计划、验收登记和 5 个候选 testlab 工具已一并提交；testlab 的契约计数已随 v1.1 修正，已提交的离线测试恢复通过。**
+
+<a id="cp-322-current"></a>
+## CP-322 · 提交遗留的 CP-310 记录与候选 testlab 工具
+
+- 用户要求把本分支上长期未提交的文件全部提交。内容是 WAN-138 CP-310 的后续批次进展（CHECKPOINT 与 PLAN 中的 CP-310 段、`docs/plans/2026-10-06-interface-closure.md`、`tools/testlab/acceptance-plan.json`），以及 5 个候选工具和 4 个离线测试。原样提交，没有改写内容；检查过没有写死的凭据，密码都在运行时随机生成。
+- 同时发现 testlab 的三个工具按 `docs/api/v3-contract.md` 的表格行数核对契约。契约 v1.1（`97cfb38`）新增 51 行后计数变成 217，所有工具启动即拒绝运行，离线测试有 484 个报错（main 上同样）。`cfa0f72` 改为跳过 `v1.1·` 行，已提交的 1948 个离线测试全部通过。
+- 候选工具 `api_agent_catalog_real_inputs_coverage` 已与当前后端不符：WAN-241/242 起，Agent 发布配置会被手动运行使用，评测能否执行取决于是否注册了运行时；它仍按“只存元数据、没有流量路由、不可执行”断言，离线测试有 1 个失败，使用前需要按新行为重写。其余 3 个候选工具的离线测试通过；`api_conversation_reads_storage_failure` 没有离线测试，只确认能编译。
+- 没有运行任何真实 HTTP、PG 或 testlab 批次。
+
 **最新后端：[CP-321](#cp-321-current)，2026-10-07 (+08)。V3 v1.1 32 个新增端点和查询参数已接线；27 个持久化/真实读取、5 个缺可信来源明确 503。定向隔离 PG/race、正式启动组装六子例与460操作契约检查通过，未部署或升级整体验收。**
 
 <a id="cp-321-current"></a>
@@ -125,7 +135,7 @@
 - 新反例先在旧实现失败，再最小修复；角色24 + 对象15 + overview53 = 92 离线通过。证据边界、命令和文件范围见[交付记录](docs/releases/2026-10-07-testlab-review-fixes.md)。产品 Go/shared helper/ACL/预算/原 native 证据未改。
 - 本轮未运行真实HTTP/PG、性能24h、前端；接口整体OPEN保持。原未提交 PLAN、接口计划、验收登记以及其它候选均保留。后续 native 准入需要重新冻结 helper hashes，不能复用旧许可冒新工具验收。
 
-**最新入口：[CP-310](#cp-310-current)，2026-10-06 (+08)。五批226P/105HTTP已验，273.898秒实际运行；normal128/166、剩38来源/实现/暂停前置，接口仍OPEN。MCP/知识源与settings故障批已通过；下一三个查询输入边界及三个对象读取故障正在准备；恢复先fresh SQLite/HMAC，不能按快照重启。**
+**最新入口：[CP-310](#cp-310-current)，2026-10-06 (+08)。七批290P/130HTTP已验，368.761秒实际运行；normal128/166、剩38来源/实现/暂停前置，接口仍OPEN。查询边界及三对象读故障也已通过；role窄读故障准备，来源/暂停边界保留；恢复先fresh SQLite/HMAC，不能按快照重启。**
 
 <a id="cp-310-current"></a>
 ## CP-310 · 有限接口收口计划与连续批次推进（进行中）
@@ -137,7 +147,8 @@
 - [有限收口计划](docs/plans/2026-10-06-interface-closure.md)记录剩38逐项完成标准/原件/责任/历史时长；34来源/能力+4暂停或兼容范围，20协议待真实+18两normal缺，不自动新增producer或改变partial合同。normal queue0不代表非normal完成；具名scene待核属于root工作，不能甩为用户选择。Trace CP309反例已足，停止重复来源实验。
 - 私有scene证据索引4cca1d83-4ab7-4b0f-8bf5-a87c1f57bfd6、38表029d87bb-fa7b-4201-acda-43a5eef9a85f已注册；2.5MiB原矩阵通过exact evidence refs缩为565718B以保持1MiB存储原限制，两个curation工具首错原件25128630保留。索引不是完整类别验收。五GET原fault为写失败后200/401，不证明自身读503；DELETEsilence误套读取模板已纠正为原202重复提案receipt/single audit/零AM DELETE，无新增需求。
 - 后续实际MCP/knowledge 7b241f34：30P/12HTTP/54.546s，formal upload登记unverified/no sync/index，准确表ai_extensions和v3_knowledge_source_registrations（不是knowledge_documents）；proof2c795a42-4ccb-458a-8074-33cda608a006。settings e34a4eff：46P/19HTTP/83.489s，prefs/通知/watched/models全部200/repeat/SELECT503/恢复；proofa4221bbf-3f59-4938-8ee4-416ec0e741da。各完整182账、有效ACL恢复/精确UUID库role/端口/main同源独立核实；模型仅配置目录/watch空，不冒推理/通知。SQL TABLE关键词变换问题在native前被root定位，compiled revoke/restore反例红后限定Python token修，15offline新资格取代14P。原API12/SQL8/420/sole40+45保持。五通过实际273.898s、226含汇总记录/105HTTP/normal0；15份原三格式报告实际HTTP下载200/与0600原文件SHA匹配。
-- 下一三个查询输入边界及三个对象读取故障私有准备中；role整表故障会先到environment_unavailable，不能盲证role mapper，暂不新增列ACL工具。有限读事务/输入合同与原具体assertions核对，不默认填166×5、不把run完成或标签数量叫接口收口。
+- 后续query99cd67b5已22P/7HTTP/21.619s：invalid silence state、1025字节peek引用、empty mappings双API exact422/182表零写；proofdadbd601-cbbc-4b43-bd26-5a5c4cea0edf。objecta7b5b3fc已42P/18HTTP/73.244s：正式plan/INV Canvas、unverified connector，各read/repeat/不同准确SELECT503/ACL restore/recovery，182表零写；proofc36c53e8-96d7-4dc5-b36f-5e9bf640224e。原marker24/18、15/7逐一核及精确UUID清理/mainHMAC；6额外三报告实际下载，source/provider调用未采，静态未发起不冒counter0。七批共290含汇总记录/130HTTP/368.761s/normal0。
+- Role整表故障先到environment_unavailable，不能盲证自身mapper。HTTPcreate工具前置过严：用户授权本地测试数据含迁移/启动builtin及原合成身份角色，root记录纠正，缺正式create新能力仍待办。只准备窄列ACL6HTTP批、不改core columns=0 guard，不写pg_catalog/泛化平台；effective完整tableACL与原column ACL精确恢复，raw table relacl NULL→等效显式仅观测不称字节同。source/权限前置有证后才actual，新时长未知。有限scene待核仍root责任，不默认填166×5或变成用户问答。
 
 **最新入口：[CP-309](#cp-309-current)，2026-10-06 (+08)。三接口组184P/126HTTP已交付；正常128/166、缺38，接口仍OPEN。真实Tempo元数据缺失反例已确认，不能当全集验收通过。当前无active；完整链仍在接口之后，性能/24h及原暂停域保持。**
 

@@ -38,8 +38,10 @@
 | Settings四GET | 46P / 19HTTP / 83.489秒 | prefs/通知/watched/models各200/repeat、自身读取503与恢复；两个准确有效ACL、182表零写；proof `a4221bbf-3f59-4938-8ee4-416ec0e741da` | 完成具名空watch/配置模型目录子项，不证推理或通知 |
 | MCP/知识源两GET | 30P / 12HTTP / 54.546秒 | MCP empty；正式upload登记unverified，准确主表故障503/恢复、全182表零写；proof `2c795a42-4ccb-458a-8074-33cda608a006` | 登记不等于观察文档、同步或索引 |
 
-五批实际运行总计273.898秒，226条记录包含前置和汇总，105HTTP不是105接口，normal新增0。UUID库/角色、独立端口及主环境身份已独立后置核实，三格式报告保存于只读看板。首工具失败24.253秒另保，不把工具类型错误算产品缺陷。对应工具离线10+13+8+8+15项通过仅验证工具，不冒native。Settings源码变换先错误替换了SQL TABLE关键词，root在native前发现；compiled revoke/restore反例先红，再仅替换Python变量token，原SQL/ACL/budget不变，旧14P资格被新15P取代。
+七批实际运行总计368.761秒，290条记录包含前置和汇总，130HTTP不是130接口，normal新增0。UUID库/角色、独立端口及主环境身份已独立后置核实，三格式报告保存于只读看板。首工具失败24.253秒另保，不把工具类型错误算产品缺陷。对应工具离线10+13+8+8+15+6+14项通过仅验证工具，不冒native。Settings源码变换先错误替换了SQL TABLE关键词，root在native前发现；compiled revoke/restore反例先红，再仅替换Python变量token，原SQL/ACL/budget不变，旧14P资格被新15P取代。
 
-下一有限批次为silences状态参数/servicepeek引用上限/mapping空集合三个边界，以及Canvas/connector/investigationCanvas三个对象读依赖故障。新批时长未知，前置/source准确冻结后root准入运行；不恢复role列ACL实验或扩大generic矩阵。
+新增已实际完成：三快速边界99cd67b5（22P/7HTTP/21.619秒，root proof `dadbd601-cbbc-4b43-bd26-5a5c4cea0edf`）；三对象读故障a7b5b3fc（42P/18HTTP/73.244秒，root proof `c36c53e8-96d7-4dc5-b36f-5e9bf640224e`）。21份报告下载200、与保存原件SHA一致，均精确清理。
+
+Role自身fault仍OPEN；旧正常和写故障读回可复用。迁移/正式启动builtin角色、原合成身份角色均在用户已授权本地测试数据范围，root纠正了此前过严“必须HTTP create角色”的工具前置，角色创建接口本身缺实现继续待办。仅准备一个窄权限故障批：保id/v3_kind所需认证列、拒主投影列，故障与恢复前后完整effective table ACL及原column ACL精确比较；原raw relacl若NULL会变为等效显式ACL，仅观测不称字节相同、不写pg_catalog。不是新角色能力或泛化列ACL系统，actual前只能算准备；成本未知。
 
 收口顺序：完成本地可达有限缺项、记录首次失败并修复复验；核对已有原断言与共享机制；把剩38来源/缺实现/暂停边界写清楚。完整接口与本地子范围都不自动因run结束变绿。接口阶段仍OPEN，完整业务链未开始；任何进入链路验收的部分范围必须明确，不能宣称全部166已通过。性能/24h、前端及原CI/CD/Workflows/VM继续暂停，自动化已删除不重建。提交、推送不等于合并或部署。

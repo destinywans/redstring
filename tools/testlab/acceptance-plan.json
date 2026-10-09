@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-10-06T06:41:02.815539+00:00",
+  "updated_at": "2026-10-06T07:04:00.738214+00:00",
   "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
   "catalogue_sha256": "ac1503781afffddf0b3c886581a53d652213177b1bfc2510aeb5292f123a0a66",
   "coverage_snapshot": {
@@ -7927,7 +7927,7 @@
     {
       "package_id": "local-components",
       "priority": "P0",
-      "action": "CP310五批接口具名场景已实际通过：匿名入口、核心读故障、输入/paste重复、MCP与知识源读故障、settings四GET故障。继续一批3接口6个快边界；复用原适用断言和故障mapper，剩38来源/能力/暂停条件单列。Trace反例足证不重复；接口先、完整链后，性能24h暂停。",
+      "action": "CP310七批具名接口场景已实际通过（290记录/130HTTP，normal0），原工具首红保留；继续有限role自身读fault来源/权限前置核，允许迁移/启动与原合成身份角色作为测试目标（本轮既有授权），不强求不存在的HTTP create前置。无新producer或列ACL平台，剩38来源/能力/暂停条件单列；先接口后完整链、性能24h暂停。",
       "preconditions": [
         "当前38正常缺口=34来源/生产能力+4暂停或兼容范围；并非38个随时可运行用例。原正常128与20协议待真实/18两类缺保持。",
         "本地适用具名场景继续：真实读取503不能由写事务故障后的200读回替代；已有可靠断言复用，不默认补166×5。",
@@ -8831,6 +8831,20 @@
           "summary": "46P/19HTTP/83.489s; finite scenes only",
           "normal_added": 0,
           "proof_evidence_id": "a4221bbf-3f59-4938-8ee4-416ec0e741da"
+        },
+        {
+          "id": "99cd67b5-0aa6-4442-b547-c5b8f931393b",
+          "status": "passed",
+          "summary": "22P/7HTTP/21.619s; finite scenes only",
+          "normal_added": 0,
+          "proof_evidence_id": "dadbd601-cbbc-4b43-bd26-5a5c4cea0edf"
+        },
+        {
+          "id": "a7b5b3fc-749e-41ba-86f8-64ddbb483d30",
+          "status": "passed",
+          "summary": "42P/18HTTP/73.244s; finite scenes only",
+          "normal_added": 0,
+          "proof_evidence_id": "c36c53e8-96d7-4dc5-b36f-5e9bf640224e"
         }
       ],
       "corresponding_groups": 44,
@@ -12167,6 +12181,218 @@
       },
       "proof_evidence_id": "a4221bbf-3f59-4938-8ee4-416ec0e741da",
       "counts_as_whole_acceptance": false
+    },
+    {
+      "id": "formal-read-query-mapping-boundaries",
+      "title": "静默状态、服务引用、空映射输入边界",
+      "route_keys": [
+        "GET /api/v1/silences",
+        "GET /api/v1/services/{id}/peek",
+        "PUT /api/v1/service-mappings"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-read-query-mapping-boundaries --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "query_mapping.identity"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "query_mapping.baseline"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "query_mapping.silence_state.0"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "query_mapping.silence_state.1"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "query_mapping.oversized_reference.0"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "query_mapping.oversized_reference.1"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "query_mapping.empty_mappings.0"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "query_mapping.empty_mappings.1"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "query_mapping.ledger"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "query_mapping.cleanup"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "readonly.fresh_database"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "readonly.api_ready.0"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "readonly.api_ready.1"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "readonly.cleanup"
+        },
+        {
+          "suite": "formal-read-query-mapping-boundaries",
+          "name": "readonly.complete"
+        }
+      ],
+      "proof_scope": "一次admin login、三422各双API；非法silence state、1025字节servicepeek引用、empty mappings，182表含session/audit前后完全相等。source调用未采，仅静态早退guard依据。",
+      "helper": "tools/testlab/api_read_query_mapping_boundaries.py",
+      "run_id": "99cd67b5-0aa6-4442-b547-c5b8f931393b",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 22,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 7,
+        "normal_added": 0,
+        "actual_seconds": 21.61916
+      },
+      "proof_evidence_id": "dadbd601-cbbc-4b43-bd26-5a5c4cea0edf",
+      "counts_as_whole_acceptance": false
+    },
+    {
+      "id": "formal-object-reads-storage-failure",
+      "title": "三个正式业务对象读取故障恢复",
+      "route_keys": [
+        "GET /api/v1/canvases/{id}",
+        "GET /api/v1/investigations/{id}/canvas",
+        "GET /api/v1/connectors/{id}"
+      ],
+      "command": "python3 tools/testlab/testlab.py run --suite formal-object-reads-storage-failure --manifest <fresh-root-admitted-singlemanifest>",
+      "evidence_mode": "real_local",
+      "required_cases": [
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.http_inputs"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.0.baseline"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.0.repeat"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.0.fault"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.0.restore"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.0.recovery"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.1.baseline"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.1.repeat"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.1.fault"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.1.restore"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.1.recovery"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.2.baseline"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.2.repeat"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.2.fault"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.2.restore"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.2.recovery"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.ledger"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.cleanup"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.api_ready.0"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "object_read.api_ready.1"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "readonly.fresh_database"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "readonly.synthetic_identities"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "readonly.cleanup"
+        },
+        {
+          "suite": "formal-object-reads-storage-failure",
+          "name": "readonly.complete"
+        }
+      ],
+      "proof_scope": "正式service/plan+investigation Canvas/draft unverified connector+合成身份fixture；三GET完整DTO repeat200/三不同mapper SELECT503/各精确ACL恢复/对侧200、完整182表零写。无模型执行/probe/通知或role自身fault证明；provider调用未采。",
+      "helper": "tools/testlab/api_object_reads_storage_failure.py",
+      "run_id": "a7b5b3fc-749e-41ba-86f8-64ddbb483d30",
+      "source_tree_sha": "93f768edb580edd84f5dceb702e808103e77d38bbe42ee29b11a74558b0aeeeb",
+      "result_snapshot": {
+        "passed": 42,
+        "failed": 0,
+        "blocked": 0,
+        "skipped": 0,
+        "formal_HTTP_calls": 18,
+        "normal_added": 0,
+        "actual_seconds": 73.243582
+      },
+      "proof_evidence_id": "c36c53e8-96d7-4dc5-b36f-5e9bf640224e",
+      "counts_as_whole_acceptance": false
     }
   ],
   "trace_source_boundary": {
@@ -12237,6 +12463,20 @@
         "run_id": "7b241f34-5b4f-45c8-a9e4-c32b28c251f4",
         "proof_evidence_id": "2c795a42-4ccb-458a-8074-33cda608a006",
         "actual_seconds": 54.545787
+      },
+      {
+        "package_id": "formal-read-query-mapping-boundaries",
+        "status": "passed",
+        "run_id": "99cd67b5-0aa6-4442-b547-c5b8f931393b",
+        "proof_evidence_id": "dadbd601-cbbc-4b43-bd26-5a5c4cea0edf",
+        "actual_seconds": 21.61916
+      },
+      {
+        "package_id": "formal-object-reads-storage-failure",
+        "status": "passed",
+        "run_id": "a7b5b3fc-749e-41ba-86f8-64ddbb483d30",
+        "proof_evidence_id": "c36c53e8-96d7-4dc5-b36f-5e9bf640224e",
+        "actual_seconds": 73.243582
       }
     ],
     "source_and_pause_not_passed": true,

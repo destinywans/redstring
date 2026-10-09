@@ -15,6 +15,7 @@ import { Donut, Lines, Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
 import { LoopBar } from "./LoopBar";
 import { WritebackDialog } from "./WritebackDialog";
+import { EvidenceContent, evidenceParts } from "./EvidenceContent";
 import { CompareDialog } from "./CompareDialog";
 import { DetailPanel, useFloatCover, usePinned } from "../../ui/DetailPanel";
 import "./canvas.css";
@@ -218,7 +219,8 @@ function NodeCard({
               <div className="add">{n.evidence.plus}</div>
             </div>
           )}
-          {n.evidence.type === "table" && (
+          {n.evidence.type === "table" && evidenceParts(n.evidence) && <EvidenceContent body={n.evidence} compact />}
+          {n.evidence.type === "table" && !evidenceParts(n.evidence) && (
             <div className="cv-log">
               {n.evidence.rows.map((r) => (
                 <div key={r[0]} className="v3-row" style={{ gap: 8 }}>
@@ -235,7 +237,7 @@ function NodeCard({
   );
 }
 
-function Inspector({ n, nodes, onClose, onWriteback, pinned, onPin }: { n: CanvasNode; nodes: CanvasNode[]; onClose: () => void; onWriteback: () => void; pinned: boolean; onPin: (v: boolean) => void }) {
+function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin }: { n: CanvasNode; nodes: CanvasNode[]; tray?: EvidenceTrayItem[]; onClose: () => void; onWriteback: () => void; pinned: boolean; onPin: (v: boolean) => void }) {
   const { tx, fmt } = useI18n();
   const [tab, setTab] = useState<"chat" | "evidence" | "context" | "agent">("context");
   const kids = nodes.filter((x) => x.parent === n.id);
@@ -368,7 +370,24 @@ function Inspector({ n, nodes, onClose, onWriteback, pinned, onPin }: { n: Canva
         )}
         {tab === "evidence" && (
           <Col gap={8}>
-            {(n.evidence_refs ?? []).map((r, i) => (
+            {/* Real evidence: show what the tool stored (masked log samples, query results) for each ref. */}
+            {!demo &&
+              (n.evidence_refs ?? []).map((r) => {
+                const item = tray?.find((t) => t.id === r);
+                return (
+                  <Col key={r} gap={6} className="cv-ev-row" style={{ alignItems: "stretch" }}>
+                    <Row gap={8}>
+                      <Tile icon={item && evidenceParts(item.body)?.kind === "logs" ? "terminal" : "file"} size={24} />
+                      <Col gap={0} grow style={{ minWidth: 0 }}>
+                        <span className="ellipsis" style={{ fontSize: "var(--fs-sm)" }}>{item?.title ?? r}</span>
+                        {item?.source && <Muted size={11}>{item.source}</Muted>}
+                      </Col>
+                    </Row>
+                    {item && <EvidenceContent body={item.body} />}
+                  </Col>
+                );
+              })}
+            {demo && (n.evidence_refs ?? []).map((r, i) => (
               <Row key={r} gap={10} className="cv-ev-row">
                 <Tile icon={(["code", "activity", "terminal"] as IconName[])[i % 3]} size={24} />
                 <Col gap={0} grow>
@@ -716,7 +735,7 @@ export default function CanvasPage() {
     setParams(next, { replace: true });
   };
 
-  const inspector = selected ? <Inspector n={selected} nodes={nodes} onClose={() => setSel(null)} onWriteback={() => setWriteback("b-amp")} pinned={pinned} onPin={setPinned} /> : null;
+  const inspector = selected ? <Inspector n={selected} nodes={nodes} tray={data?.tray} onClose={() => setSel(null)} onWriteback={() => setWriteback("b-amp")} pinned={pinned} onPin={setPinned} /> : null;
   // Keep the selected node clear of the floating card by panning the canvas.
   useEffect(() => {
     if (!selected || pinned || !area.current) return;

@@ -20,7 +20,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCAL = ROOT / '.local/acceptance'
-SPECS = ['golden-conversation.spec.ts', 'golden-approval.spec.ts', 'golden-invite.spec.ts', 'golden-silence-ui.spec.ts']
+# golden-approval needs a pending proposal id (GOLDEN_PROPOSAL); golden-silence-ui proposes, approves
+# with passkeys, executes and expires a silence end to end, so it covers approval in the regression.
+SPECS = {'golden-conversation.spec.ts': {}, 'golden-invite.spec.ts': {},
+         'golden-silence-ui.spec.ts': {'GOLDEN_INVESTIGATION': os.environ.get('GOLDEN_INVESTIGATION', 'INV-df39c2dd6350ef10e845afbf03f21a41')}}
 
 
 def run(name, cmd, cwd=ROOT, env=None, timeout=1800, parse=None):
@@ -38,6 +41,13 @@ def run(name, cmd, cwd=ROOT, env=None, timeout=1800, parse=None):
 def passed_line(out):
     m = re.search(r'(\d+)/(\d+) passed', out)
     return {'passed': int(m[1]), 'total': int(m[2]), 'ok': m[1] == m[2]} if m else {}
+
+
+def playwright_counts(out):
+    passed = sum(int(n) for n in re.findall(r'(\d+) passed', out))
+    failed = sum(int(n) for n in re.findall(r'(\d+) failed', out))
+    skipped = sum(int(n) for n in re.findall(r'(\d+) skipped', out))
+    return {'passed': passed, 'failed': failed, 'skipped': skipped, 'ok': failed == 0 and skipped == 0 and passed > 0}
 
 
 def mismatches(out):
@@ -63,8 +73,9 @@ def main():
     results.append(run('crawl (216 page loads)', ['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', 'crawl.spec.ts'],
                        cwd=ROOT / 'web', env={'E2E_WORKERS': '6'}))
     results.append(run('crawl summary', ['python3', 'tools/acceptance/crawl-summary.py'], parse=crawl_summary))
-    for spec in SPECS:
-        results.append(run(spec, ['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', spec], cwd=ROOT / 'web', timeout=900))
+    for spec, env in SPECS.items():
+        results.append(run(spec, ['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', spec], cwd=ROOT / 'web',
+                           env=env, timeout=900, parse=playwright_counts))
     for instance in ('prod', 'nonprod'):
         results.append(run(f'permissions {instance}', ['python3', 'tools/acceptance/permissions.py', instance,
                                                        '--json', str(LOCAL / f'e2e/permissions-{instance}.json')], parse=mismatches))

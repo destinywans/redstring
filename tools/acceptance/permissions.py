@@ -66,6 +66,8 @@ DYNAMIC = {
     'PUT /api/v1/investigation-templates/{id}': (True, 'canvas', 'change'),
 }
 ROLES = ['admin', 'operator', 'approver1', 'viewer']
+# Readable only by the account that created the object (the sample ids come from admin's records).
+OWNER_ONLY = {'GET /api/v1/agent-runs/{id}/result'}
 DENIED = {403, 404}
 
 
@@ -170,7 +172,7 @@ def main():
         method, path = key.split(' ', 1)
         scoped, module, action = table[key]
         for role in ROLES:
-            allowed = (module, action) in effective[role]
+            allowed = (module, action) in effective[role] and not (key in OWNER_ONLY and role != 'admin')
             if method != 'GET' and allowed:
                 continue  # positive writes are covered by the golden paths
             target = resolve(path, ids, dummy=method != 'GET')

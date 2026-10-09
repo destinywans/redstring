@@ -257,7 +257,8 @@ export type AlertDetail = {
   assignee_id?: string;
   unavailable?: string[];
 };
-export type AlertInstance = { id: string; value: string; state: "firing" | "pending"; duration: string; series: number[]; pending?: { pct: number; text: string } };
+/** Real instances carry no current value, series or pending progress yet (null = unknown, never zero). */
+export type AlertInstance = { id: string; value: string | null; state: "firing" | "pending"; duration: string; series: number[] | null; pending?: { pct: number; text: string } | null };
 /** Real groups are local persisted incidents: service is the application ID, owner/inhibited/notify.channel may be null. */
 export type AlertGroup = {
   id: string;

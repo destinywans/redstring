@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3knowledgesources"
@@ -312,6 +313,11 @@ func (s *Service) authorizeActiveTurn(ctx context.Context, owner, env, sessionTo
 		return ErrForbidden
 	}
 	current, err := s.opts.RefreshSession(ctx, sessionToken)
+	if err != nil && !httpapi.SessionMissing(err) {
+		// The session store could not be read: unavailable, not a revoked
+		// session (PA-59).
+		return err
+	}
 	if err != nil || current.ID != owner || current.Disabled {
 		return ErrForbidden
 	}
@@ -706,7 +712,7 @@ func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assi
 		// The frozen V3 stream understands only four event types. A status part
 		// exposes the failure while message.completed closes EventSource. The
 		// durable reply state and error still record that the model did not succeed.
-		failurePart := marshal(map[string]any{"type": "status", "text": "Model reply failed", "detail": "Retry this message after checking the model connection."})
+		failurePart := marshal(replyFailurePart(replyEnglish(ctx), errors.Is(runErr, errReplyInterrupted)))
 		parts = append(parts, failurePart)
 		if _, err = tx.Exec(ctx, `INSERT INTO v3_conversation_events(conversation_id,reply_id,payload) VALUES($1,$2,$3)`, conv, reply, marshal(map[string]any{"type": "part.added", "message_id": assistant, "part": json.RawMessage(failurePart)})); err != nil {
 			return err
@@ -754,11 +760,48 @@ func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assi
 // evidence-tool limit (PA-52), in the language of the request.
 func evidenceLimitPart(english bool) map[string]any {
 	if english {
-		return map[string]any{"type": "status", "text": "Answered at the evidence limit",
+		return map[string]any{"type": "status", "code": "evidence_limit", "text": "Answered at the evidence limit",
 			"detail": "This reply used all of its evidence reads, so the model answered from the evidence it had. Ask a narrower follow-up to check what is still open."}
 	}
-	return map[string]any{"type": "status", "text": "取证次数已达上限，已基于现有证据作答",
+	return map[string]any{"type": "status", "code": "evidence_limit", "text": "取证次数已达上限，已基于现有证据作答",
 		"detail": "本次回复的取证次数已用完，模型根据已获取的证据作答。可以针对尚未核实的部分继续追问。"}
+}
+
+// errReplyInterrupted fails a reply whose worker lease expired mid-reply.
+var errReplyInterrupted = errors.New("reply interrupted after lease expiry")
+
+type replyLanguageKey struct{}
+
+// withReplyLanguage carries the language of the request that started the
+// turn to the code that records its failure (PA-60).
+func withReplyLanguage(ctx context.Context, english bool) context.Context {
+	return context.WithValue(ctx, replyLanguageKey{}, english)
+}
+
+// replyEnglish reports the turn's language; without one (lease recovery runs
+// with no request) it is Chinese, the product default.
+func replyEnglish(ctx context.Context) bool {
+	english, _ := ctx.Value(replyLanguageKey{}).(bool)
+	return english
+}
+
+// replyFailurePart is the status shown on a failed reply (PA-60). Its code is
+// stable for clients: reply_failed, or reply_interrupted when the reply
+// stopped because its worker went away.
+func replyFailurePart(english, interrupted bool) map[string]any {
+	switch {
+	case interrupted && english:
+		return map[string]any{"type": "status", "code": "reply_interrupted", "text": "Reply interrupted",
+			"detail": "The service stopped while writing this reply, so it is incomplete. Send the message again."}
+	case interrupted:
+		return map[string]any{"type": "status", "code": "reply_interrupted", "text": "回复中断",
+			"detail": "服务在生成回复时中断，回复不完整。请重新发送这条消息。"}
+	case english:
+		return map[string]any{"type": "status", "code": "reply_failed", "text": "Model reply failed",
+			"detail": "Retry this message after checking the model connection."}
+	}
+	return map[string]any{"type": "status", "code": "reply_failed", "text": "模型回复失败",
+		"detail": "请检查模型连接后重试这条消息。"}
 }
 
 // replyErrorText gives a failed reply a readable reason instead of a bare
@@ -777,10 +820,10 @@ func replyErrorText(err error) string {
 // limit, in the language of the request that started the turn.
 func truncatedPart(english bool) map[string]any {
 	if english {
-		return map[string]any{"type": "status", "text": "Reply truncated at the output limit",
+		return map[string]any{"type": "status", "code": "output_truncated", "text": "Reply truncated at the output limit",
 			"detail": "The model reached its maximum output length. Send \"continue\" to have it carry on from here."}
 	}
-	return map[string]any{"type": "status", "text": "回答达到输出长度上限，已截断",
+	return map[string]any{"type": "status", "code": "output_truncated", "text": "回答达到输出长度上限，已截断",
 		"detail": "模型输出达到长度上限。发送“继续”可让它从这里接着回答。"}
 }
 
@@ -819,32 +862,32 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	defer cancel()
 	metricsBacked, err := s.metricsBackedConversation(ctx, conv)
 	if err != nil {
-		s.failTurn(conv, reply, claimID, assistant, nil, err)
+		s.failTurn(english, conv, reply, claimID, assistant, nil, err)
 		return
 	}
 	stopRenewal := s.renewWhileRunning(ctx, cancel, conv, reply, claimID, owner, env, sessionToken, metricsBacked, replyRenewInterval)
 	defer stopRenewal()
 	if sessionToken == "" || sessionHash == "" || store.Hash(sessionToken) != sessionHash {
-		s.failTurn(conv, reply, claimID, assistant, nil, ErrForbidden)
+		s.failTurn(english, conv, reply, claimID, assistant, nil, ErrForbidden)
 		return
 	}
 	if err := s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken); err != nil {
-		s.failTurn(conv, reply, claimID, assistant, nil, err)
+		s.failTurn(english, conv, reply, claimID, assistant, nil, err)
 		return
 	}
 	started := time.Now()
 	if err := s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "message.started", "message": Message{ID: assistant, Role: "assistant", Author: "AI", CreatedAt: started.UTC(), Parts: []json.RawMessage{}, Streaming: true}}); err != nil {
-		s.failTurn(conv, reply, claimID, assistant, nil, err)
+		s.failTurn(english, conv, reply, claimID, assistant, nil, err)
 		return
 	}
 	msgs, err := s.contextMessagesWithMedia(ctx, conv, owner, env, model)
 	if err != nil {
-		s.failTurn(conv, reply, claimID, assistant, nil, err)
+		s.failTurn(english, conv, reply, claimID, assistant, nil, err)
 		return
 	}
 	parts := []json.RawMessage{textPart("")}
 	if err = s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": map[string]any{"type": "text", "markdown": ""}}); err != nil {
-		s.failTurn(conv, reply, claimID, assistant, parts, err)
+		s.failTurn(english, conv, reply, claimID, assistant, parts, err)
 		return
 	}
 	var streamed strings.Builder
@@ -961,7 +1004,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	if !metricsBacked && model.Tools && s.opts.ToolsForTurn != nil {
 		tools, err = s.opts.ToolsForTurn(ctx, owner, env, model.ID)
 		if err != nil {
-			s.failTurn(conv, reply, claimID, assistant, parts, err)
+			s.failTurn(english, conv, reply, claimID, assistant, parts, err)
 			return
 		}
 	}
@@ -976,7 +1019,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		}
 	}
 	if !s.modelBoundToEnvironment(env, model.ID) {
-		s.failTurn(conv, reply, claimID, assistant, parts, ErrModel)
+		s.failTurn(english, conv, reply, claimID, assistant, parts, ErrModel)
 		return
 	}
 	answer, runErr := s.runtime.Run(ctx, inference.Request{RunID: reply, AttemptID: reply, BranchID: conv, EnvironmentID: env, ModelID: model.ID, Reasoning: reasoning, Messages: msgs, Tools: tools}, emit)
@@ -998,12 +1041,12 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	}
 	if runErr != nil {
 		parts[0] = textPart(streamed.String())
-		s.failTurn(conv, reply, claimID, assistant, parts, runErr)
+		s.failTurn(english, conv, reply, claimID, assistant, parts, runErr)
 		return
 	}
 	if answer == "" {
 		parts[0] = textPart(streamed.String())
-		s.failTurn(conv, reply, claimID, assistant, parts, errors.New("empty model response"))
+		s.failTurn(english, conv, reply, claimID, assistant, parts, errors.New("empty model response"))
 		return
 	}
 	streamedText := streamed.String()
@@ -1012,24 +1055,24 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		// The client can only append text.delta. Publishing a divergent final
 		// answer would leave its message different from the durable message.
 		parts[0] = textPart(streamedText)
-		s.failTurn(conv, reply, claimID, assistant, parts, err)
+		s.failTurn(english, conv, reply, claimID, assistant, parts, err)
 		return
 	}
 	parts[0] = textPart(streamedText)
 	// The provider may emit a final accumulated chunk rather than individual deltas.
 	if suffix != "" {
 		if err := s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken); err != nil {
-			s.failTurn(conv, reply, claimID, assistant, nil, err)
+			s.failTurn(english, conv, reply, claimID, assistant, nil, err)
 			return
 		}
 		if err := s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "text.delta", "message_id": assistant, "index": 0, "delta": suffix}); err != nil {
-			s.failTurn(conv, reply, claimID, assistant, parts, err)
+			s.failTurn(english, conv, reply, claimID, assistant, parts, err)
 			return
 		}
 	}
 	parts[0] = textPart(answer)
 	if err := s.authorizeActiveMetricsTurn(ctx, conv, owner, env, sessionToken); err != nil {
-		s.failTurn(conv, reply, claimID, assistant, nil, err)
+		s.failTurn(english, conv, reply, claimID, assistant, nil, err)
 		return
 	}
 	// A tool card's tokens come only from provider-reported model steps that
@@ -1038,14 +1081,14 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	if len(calls) > 0 && toolModelSteps > 0 && toolModelSteps == reportedToolModelSteps {
 		part := map[string]any{"type": "tool_calls", "summary": fmt.Sprintf("%d tool calls", len(calls)), "calls": calls, "tokens": toolTokens, "duration_s": float64(toolDurationMS) / 1000}
 		if err := s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": part}); err != nil {
-			s.failTurn(conv, reply, claimID, assistant, parts, err)
+			s.failTurn(english, conv, reply, claimID, assistant, parts, err)
 			return
 		}
 		parts = append(parts, marshal(part))
 	}
 	for _, part := range notes {
 		if err := s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": part}); err != nil {
-			s.failTurn(conv, reply, claimID, assistant, parts, err)
+			s.failTurn(english, conv, reply, claimID, assistant, parts, err)
 			return
 		}
 		parts = append(parts, marshal(part))
@@ -1070,7 +1113,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		run = reported
 	}
 	if err := s.finish(ctx, conv, reply, claimID, assistant, parts, run, nil, finishReason); err != nil {
-		s.failTurn(conv, reply, claimID, assistant, parts, err)
+		s.failTurn(english, conv, reply, claimID, assistant, parts, err)
 	}
 }
 
@@ -1081,7 +1124,7 @@ func completionSuffix(streamed, final string) (string, error) {
 	return strings.TrimPrefix(final, streamed), nil
 }
 
-func (s *Service) failTurn(conv, reply, claim, assistant string, parts []json.RawMessage, cause error) {
+func (s *Service) failTurn(english bool, conv, reply, claim, assistant string, parts []json.RawMessage, cause error) {
 	if parts == nil {
 		parts = []json.RawMessage{}
 	}
@@ -1089,7 +1132,7 @@ func (s *Service) failTurn(conv, reply, claim, assistant string, parts []json.Ra
 		if s.opts.Shutdown.Err() != nil {
 			return
 		}
-		ctx, cancel := context.WithTimeout(s.opts.Shutdown, 10*time.Second)
+		ctx, cancel := context.WithTimeout(withReplyLanguage(s.opts.Shutdown, english), 10*time.Second)
 		err := s.finish(ctx, conv, reply, claim, assistant, parts, nil, cause, "")
 		cancel()
 		if err == nil || errors.Is(err, ErrBusy) {
@@ -1216,7 +1259,7 @@ func (s *Service) recoverOne(ctx context.Context, conv, reply string) error {
 		if err != nil {
 			return err
 		}
-		cause = errors.New("reply interrupted after lease expiry")
+		cause = errReplyInterrupted
 	}
 	if err = s.finishLocked(ctx, tx, conv, reply, assistant, parts, nil, cause, ""); err != nil {
 		return err

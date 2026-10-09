@@ -319,7 +319,7 @@ func (s *Service) get(w http.ResponseWriter, r *http.Request) {
 		apiError(w, 401, "unauthorized", "Login required")
 		return
 	}
-	detail, err := s.readOwnedDetail(r.Context(), cookie.Value, u, r.PathValue("id"), env, selected)
+	detail, err := s.readOwnedDetail(withReplyLanguage(r.Context(), englishRequest(r)), cookie.Value, u, r.PathValue("id"), env, selected)
 	if err != nil {
 		operationError(w, err)
 		return

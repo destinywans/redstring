@@ -26,6 +26,9 @@ func (s *Service) loadDraftSource(r *http.Request, tx pgx.Tx, in createInput) (s
 	if err != nil {
 		return binding, err
 	}
+	// validateSource resolves a postmortem reference (ID or incident ID) and
+	// locks its source; read exactly that record below.
+	postmortemID := binding.SourceID
 	binding.SourceID = in.From
 	switch in.Source {
 	case "blank":
@@ -52,17 +55,8 @@ func (s *Service) loadDraftSource(r *http.Request, tx pgx.Tx, in createInput) (s
     THEN pm.actions ELSE '[]'::jsonb END,
   octet_length(pm.sections::text)+octet_length(pm.actions::text)<=$2
  FROM v3_postmortems pm
- JOIN ops_incidents i ON i.id=pm.incident_id AND i.application_id=pm.application_id
-  AND i.investigation_id=pm.investigation_id AND i.status='resolved'
- JOIN application_environments app_env ON app_env.id=i.environment_id
-  AND app_env.application_id=pm.application_id AND app_env.key=pm.environment_id AND NOT app_env.archived
- JOIN investigations inv ON inv.id=pm.investigation_id AND inv.application_id=pm.application_id AND inv.status='closed'
- JOIN investigation_reports report ON report.investigation_id=inv.id
- JOIN events closed ON closed.seq=pm.close_event_seq AND closed.investigation_id=inv.id AND closed.type='investigation.closed'
- WHERE (pm.id=$1 OR pm.incident_id=$1) AND pm.status='published'
- AND pm.application_id=$3 AND pm.environment_id=$4
- ORDER BY CASE WHEN pm.id=$1 THEN 0 ELSE 1 END LIMIT 1
- FOR SHARE OF pm,i,app_env,inv,report,closed`, in.From, maxDraftSourceBytes, binding.ApplicationID, scopeIDs(r)[0]).
+ WHERE pm.id=$1 AND pm.status='published' AND pm.application_id=$3 AND pm.environment_id=$4
+ FOR SHARE OF pm`, postmortemID, maxDraftSourceBytes, binding.ApplicationID, scopeIDs(r)[0]).
 			Scan(&binding.SourceID, &incidentID, &rawSections, &rawActions, &validSize)
 		if err != nil {
 			return binding, err

@@ -64,6 +64,8 @@ func TestConnectorCRUDHTTPV3ScopePersistenceAndAudit(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, statement := range []string{
+		// Replace the viewer's global environment grant (PA-55) with dev only.
+		`DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='environment'`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','dev'),
  ('viewer','connectors','view','environment','dev')`,

@@ -82,6 +82,9 @@ func TestConversationListRealMigrationGrantAndPinyin(t *testing.T) {
 		sql  string
 		args []any
 	}{
+		// The owner keeps the legacy viewer binding; drop the viewer's global
+		// environment grant (PA-55) so access comes only from list-reader.
+		{sql: `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='environment'`},
 		{sql: `INSERT INTO rbac_roles(id,name) VALUES('list-reader','List Reader')`},
 		{sql: `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'list-reader')`, args: []any{owner.ID}},
 		{sql: `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES

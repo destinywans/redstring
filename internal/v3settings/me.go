@@ -228,6 +228,9 @@ type meView struct {
 	Roles       []string      `json:"roles"`
 	MFA         meMFA         `json:"mfa"`
 	Preferences Preferences   `json:"preferences"`
+	// Permissions are the caller's effective grants for each selected
+	// environment, environment → module → action → reach (PA-64).
+	Permissions map[string]map[string]map[string]string `json:"permissions"`
 }
 
 type mePatch struct {
@@ -401,6 +404,9 @@ func (s *Service) meTransaction(ctx context.Context, user core.User, sessionHash
 		}
 	}
 	view, err := s.projectMe(ctx, tx, user.ID, oncall)
+	if err == nil {
+		view.Permissions, err = effectivePermissionsTx(ctx, tx, user.ID, scope.EnvironmentIDs)
+	}
 	if err != nil {
 		return meView{}, err
 	}

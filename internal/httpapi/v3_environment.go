@@ -113,7 +113,11 @@ func NewV3EnvironmentHandler(cfg V3InstanceConfig, authorizer V3EnvironmentAutho
 			return
 		}
 		user, err := session(r.Context(), cookie.Value)
-		if err != nil || user.ID == "" || user.Disabled {
+		if err != nil {
+			SessionError(w, err)
+			return
+		}
+		if user.ID == "" || user.Disabled {
 			Error(w, http.StatusUnauthorized, "unauthorized", "Session expired")
 			return
 		}

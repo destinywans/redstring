@@ -114,7 +114,7 @@ func (s *Server) Register(pattern, minRole string, h http.HandlerFunc) {
 		}
 		u, e := s.Store.Session(r.Context(), cookie.Value)
 		if e != nil {
-			Error(w, 401, "unauthorized", "Session expired")
+			SessionError(w, e)
 			return
 		}
 		ctx := store.WithPrincipal(context.WithValue(r.Context(), userKey{}, u), u)

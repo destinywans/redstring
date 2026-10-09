@@ -120,6 +120,9 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 				httpapi.Error(w, 413, "source_too_large", "Source exceeds the bounded Runbook draft limit")
 				return
 			}
+			if postmortemSourceError(w, sourceErr) {
+				return
+			}
 			if errors.Is(sourceErr, store.ErrForbidden) || errors.Is(sourceErr, store.ErrNotFound) || errors.Is(sourceErr, pgx.ErrNoRows) || errors.Is(sourceErr, errSourceEmpty) {
 				httpapi.Error(w, 422, "invalid_source", "Source was not found or is not accessible in this environment")
 				return
@@ -179,6 +182,9 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 		if sourceErr != nil {
 			if errors.Is(sourceErr, errSourceTooLarge) {
 				httpapi.Error(w, 413, "source_too_large", "Source exceeds the bounded Runbook draft limit")
+				return
+			}
+			if postmortemSourceError(w, sourceErr) {
 				return
 			}
 			if errors.Is(sourceErr, store.ErrForbidden) || errors.Is(sourceErr, store.ErrNotFound) || errors.Is(sourceErr, pgx.ErrNoRows) || errors.Is(sourceErr, errSourceEmpty) {
@@ -511,21 +517,16 @@ func (s *Service) validateSource(r *http.Request, tx pgx.Tx, in createInput) (so
 		if len(envs) != 1 {
 			return sourceBinding{}, store.ErrForbidden
 		}
-		var app, team, actualEnvironment string
-		err := tx.QueryRow(r.Context(), `SELECT pm.application_id,COALESCE(a.owner_team_id,''),pm.environment_id
+		// Find the postmortem first and authorize it; only then say why it
+		// cannot seed a Runbook, so an unauthorized caller learns nothing.
+		var id, app, team, actualEnvironment, status, kind string
+		err := tx.QueryRow(r.Context(), `SELECT pm.id,pm.application_id,COALESCE(a.owner_team_id,''),pm.environment_id,pm.status,pm.source_kind
  FROM v3_postmortems pm
  JOIN applications a ON a.id=pm.application_id AND NOT a.archived
  JOIN v3_application_environments ae ON ae.application_id=pm.application_id AND ae.environment_id=pm.environment_id
- JOIN ops_incidents i ON i.id=pm.incident_id AND i.application_id=pm.application_id
-  AND i.investigation_id=pm.investigation_id AND i.status='resolved'
- JOIN application_environments app_env ON app_env.id=i.environment_id
-  AND app_env.application_id=pm.application_id AND app_env.key=pm.environment_id AND NOT app_env.archived
- JOIN investigations inv ON inv.id=pm.investigation_id AND inv.application_id=pm.application_id AND inv.status='closed'
- JOIN investigation_reports report ON report.investigation_id=inv.id
- JOIN events closed ON closed.seq=pm.close_event_seq AND closed.investigation_id=inv.id AND closed.type='investigation.closed'
- WHERE (pm.id=$1 OR pm.incident_id=$1) AND pm.status='published'
- ORDER BY CASE WHEN pm.id=$1 THEN 0 ELSE 1 END LIMIT 1
- FOR SHARE OF pm,a,ae,i,app_env,inv,report,closed`, in.From).Scan(&app, &team, &actualEnvironment)
+ WHERE pm.id=$1 OR pm.incident_id=$1
+ ORDER BY CASE WHEN pm.id=$1 THEN 0 ELSE 1 END,CASE WHEN pm.status='published' THEN 0 ELSE 1 END,pm.id LIMIT 1
+ FOR SHARE OF pm,a,ae`, in.From).Scan(&id, &app, &team, &actualEnvironment, &status, &kind)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return sourceBinding{}, store.ErrNotFound
 		}
@@ -547,7 +548,13 @@ func (s *Service) validateSource(r *http.Request, tx pgx.Tx, in createInput) (so
 				return sourceBinding{}, err
 			}
 		}
-		return sourceBinding{ApplicationID: app, TeamID: team}, nil
+		if status != "published" {
+			return sourceBinding{}, errSourceNotPublished
+		}
+		if err = lockPostmortemSource(r.Context(), tx, id, kind); err != nil {
+			return sourceBinding{}, err
+		}
+		return sourceBinding{ApplicationID: app, TeamID: team, SourceID: id}, nil
 	case "template":
 		for _, template := range knowledge.Templates() {
 			if template.ID == in.From && template.ID != "blank" {

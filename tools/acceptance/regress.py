@@ -76,6 +76,12 @@ def main():
     for spec, env in SPECS.items():
         results.append(run(spec, ['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', spec], cwd=ROOT / 'web',
                            env=env, timeout=900, parse=playwright_counts))
+        proposal = LOCAL / 'e2e/golden/silence-proposal.txt'
+        if spec == 'golden-silence-ui.spec.ts' and results[-1]['ok'] and proposal.exists():
+            # The proposal just made in the drawer: two approvers approve it with passkeys, the executor writes it.
+            results.append(run('golden-approval.spec.ts', ['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts',
+                                                          'golden-approval.spec.ts'], cwd=ROOT / 'web', timeout=900,
+                               env={'GOLDEN_PROPOSAL': proposal.read_text().strip()}, parse=playwright_counts))
     for instance in ('prod', 'nonprod'):
         results.append(run(f'permissions {instance}', ['python3', 'tools/acceptance/permissions.py', instance,
                                                        '--json', str(LOCAL / f'e2e/permissions-{instance}.json')], parse=mismatches))

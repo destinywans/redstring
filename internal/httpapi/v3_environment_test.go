@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/store"
 )
@@ -30,7 +31,7 @@ func (f testV3EnvironmentAuthorizerFunc) AuthorizeEnvironment(ctx context.Contex
 
 func testV3Session(_ context.Context, token string) (core.User, error) {
 	if token != "good" {
-		return core.User{}, errors.New("expired")
+		return core.User{}, pgx.ErrNoRows
 	}
 	return core.User{ID: "u1"}, nil
 }

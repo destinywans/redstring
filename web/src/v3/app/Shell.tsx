@@ -8,6 +8,7 @@ import { CommandPalette, useCommandPalette } from "./CommandPalette";
 import { AskAiCard, useAskAi, useAskOpenClass } from "./AskAi";
 import { DemoHost } from "../ui/demo";
 import { BrandMark } from "../ui/BrandMark";
+import { PageBoundary } from "../ui/PageBoundary";
 import { API_MODE, useGet } from "../api/client";
 import type { Me, WatchedService } from "../api/types";
 import { EnvSwitch, useInstanceLoader } from "./EnvSwitch";
@@ -177,7 +178,7 @@ function AccountCard({ me }: { me?: Me }) {
               {me ? `${me.title} · ${me.team}` : ""}
             </span>
           </span>
-          {me?.oncall.active && (
+          {me?.oncall?.active && (
             <Badge tone="ok">
               <Dot tone="ok" size={6} />
               {tx("值班", "On call")}
@@ -303,7 +304,9 @@ export function Shell() {
       </a>
       {inSettings ? <SettingsSidebar /> : <Sidebar />}
       <div id="v3-main" className="v3-main" key={pathname.split("/").slice(0, 2).join("/")}>
-        <Outlet />
+        <PageBoundary resetKey={pathname}>
+          <Outlet />
+        </PageBoundary>
       </div>
       <CommandPalette />
       {!inSettings && <AskAiCard />}

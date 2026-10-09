@@ -60,6 +60,9 @@ export async function api<T>(
 export function useGet<T>(path: string | null, query?: Query, options?: Partial<UseQueryOptions<T>>) {
   const locale = usePreferences((s) => s.locale);
   const env = useEnv((s) => s.env);
+  // Business reads wait for /instance to settle the environment; firing earlier sends no
+  // X-AIOps-Environment (422 on non-production instances) and then refetches under the real key.
+  const ready = useEnv((s) => s.instance !== null) || path === "/instance" || API_MODE === "mock";
   return useQuery<T>({
     // Switching environment refetches, like switching language.
     queryKey: [path, query ?? {}, locale, env],
@@ -68,9 +71,9 @@ export function useGet<T>(path: string | null, query?: Query, options?: Partial<
     // a different path or query is a different resource and must not show the old one.
     placeholderData: (prev, prevQuery) =>
       prevQuery && prevQuery.queryKey[0] === path && JSON.stringify(prevQuery.queryKey[1]) === JSON.stringify(query ?? {}) ? prev : undefined,
-    enabled: path !== null,
     staleTime: 30_000,
     ...options,
+    enabled: path !== null && ready && (options?.enabled ?? true),
   });
 }
 

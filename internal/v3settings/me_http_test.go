@@ -183,7 +183,7 @@ func TestMeHTTPAuthenticatedProjectionPatchAndAudit(t *testing.T) {
 	if err := json.Unmarshal(read.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.ID != "one" || got.Name != "One" || got.Team != "Me Team" || got.Department != "Engineering" || got.Phone != "+10000000000" || got.Title != "SRE" || !got.MFA.TOTP || got.MFA.Passkeys != 1 || !got.Oncall.Active || got.Preferences.Theme != "system" || len(got.Roles) != 1 || got.Roles[0] != "viewer" {
+	if got.ID != "one" || got.Name != "One" || got.Team != "Me Team" || got.Department != "Engineering" || got.Phone != "+10000000000" || got.Title != "SRE" || !got.MFA.TOTP || got.MFA.Passkeys != 1 || got.Oncall == nil || !got.Oncall.Active || got.OncallState != "verified" || got.Preferences.Theme != "system" || len(got.Roles) != 1 || got.Roles[0] != "viewer" {
 		t.Fatalf("incorrect projection: %+v", got)
 	}
 	if oncall.user != "one" || len(oncall.envs) != 1 || oncall.envs[0] != "dev" {
@@ -206,12 +206,19 @@ func TestMeHTTPAuthenticatedProjectionPatchAndAudit(t *testing.T) {
 	if err := st.DB.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id='one' AND action='v3.me.updated' AND changes->>'name'='Updated'`).Scan(&auditCount); err != nil || auditCount != 1 {
 		t.Fatalf("missing exact account audit: %d %v", auditCount, err)
 	}
+	// A failing on-call authority makes on-call unknown; it no longer blocks reading or
+	// editing the account, and unknown is never reported as "not on call".
 	oncall.err = ErrOncallUnavailable
-	if w := request(http.MethodPatch, `{"name":"ShouldNotSave"}`); w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), `"oncall_unavailable"`) {
-		t.Fatalf("failed source accepted: %d %s", w.Code, w.Body.String())
+	failed := request(http.MethodPatch, `{"name":"SavedWithoutOncall"}`)
+	if failed.Code != http.StatusOK || !strings.Contains(failed.Body.String(), `"oncall":null`) || !strings.Contains(failed.Body.String(), `"oncall_state":"unavailable"`) {
+		t.Fatalf("failed on-call source: %d %s", failed.Code, failed.Body.String())
 	}
-	if err := st.DB.QueryRow(ctx, `SELECT name FROM users WHERE id='one'`).Scan(&got.Name); err != nil || got.Name != "Updated" {
-		t.Fatalf("failed source changed account: %q %v", got.Name, err)
+	if err := st.DB.QueryRow(ctx, `SELECT name FROM users WHERE id='one'`).Scan(&got.Name); err != nil || got.Name != "SavedWithoutOncall" {
+		t.Fatalf("account edit without on-call evidence: %q %v", got.Name, err)
+	}
+	service.MeEvidence.Oncall = nil
+	if w := request(http.MethodGet, ""); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"oncall":null`) || !strings.Contains(w.Body.String(), `"oncall_state":"not_configured"`) {
+		t.Fatalf("unconfigured on-call source: %d %s", w.Code, w.Body.String())
 	}
 	if _, err := st.DB.Exec(ctx, `UPDATE users SET disabled=true WHERE id='one'`); err != nil {
 		t.Fatal(err)
@@ -259,7 +266,7 @@ func TestMeSessionRevocationRowsAreLocked(t *testing.T) {
 				name := "RevokedWrite"
 				patch = &mePatch{Name: &name}
 			}
-			_, opErr := service.meTransaction(context.Background(), user, store.Hash(token), scope, freshOncall(false), patch)
+			_, opErr := service.meTransaction(context.Background(), user, store.Hash(token), scope, oncallEvidence{status: freshOncall(false), known: true, state: "verified"}, patch)
 			done <- opErr
 		}()
 		select {
@@ -317,7 +324,6 @@ func TestMeEvidenceExpiresDuringLockWait(t *testing.T) {
 		wantError error
 	}{
 		{"session", "session", errMeUnauthorized},
-		{"oncall", "oncall", ErrOncallUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := st.DB.Exec(ctx, `UPDATE sessions SET expires_at=now()+interval '1 hour' WHERE token_hash=$1`, store.Hash(token)); err != nil {
@@ -341,7 +347,7 @@ func TestMeEvidenceExpiresDuringLockWait(t *testing.T) {
 			name := "ShouldNotSave"
 			done := make(chan error, 1)
 			go func() {
-				_, opErr := service.meTransaction(context.Background(), user, store.Hash(token), scope, status, &mePatch{Name: &name})
+				_, opErr := service.meTransaction(context.Background(), user, store.Hash(token), scope, oncallEvidence{status: status, known: true, state: "verified"}, &mePatch{Name: &name})
 				done <- opErr
 			}()
 			select {
@@ -413,7 +419,7 @@ func TestMeOIDCUserFirstSessionRevocationDoesNotDeadlock(t *testing.T) {
 					name := "MustNotCommit"
 					patch = &mePatch{Name: &name}
 				}
-				_, opErr := service.meTransaction(context.Background(), user, store.Hash(token), scope, freshOncall(false), patch)
+				_, opErr := service.meTransaction(context.Background(), user, store.Hash(token), scope, oncallEvidence{status: freshOncall(false), known: true, state: "verified"}, patch)
 				done <- opErr
 			}()
 			// Observe the read or write waiting on the account row before

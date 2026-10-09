@@ -22185,7 +22185,7 @@
       "get": {
         "summary": "Read current account",
         "operationId": "get_me",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns the current active human account, team, department, assigned role IDs, preferences and instance-scoped active TOTP/passkey registration state. MFA fields are enrollment evidence, not proof of enforced login MFA or proposal approval assurance. Current on-call state must come from an operator-configured authoritative HTTPS source covering the requested environments with a fresh, unambiguous assignment answer. Missing, stale, malformed or mismatched source evidence returns 503 oncall_unavailable; it never means inactive. The current frontend shell depends on this route and cannot show a complete account card until that source is configured.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Returns the current active human account, team, department, assigned role IDs, preferences and instance-scoped active TOTP/passkey registration state. MFA fields are enrollment evidence, not proof of enforced login MFA or proposal approval assurance. Current on-call state comes only from an operator-configured authoritative HTTPS source covering the requested environments with a fresh, unambiguous assignment answer. Without that source, or when it is missing, stale, malformed or mismatched, the account still loads with oncall null and oncall_state not_configured or unavailable; null never means inactive.",
         "responses": {
           "200": {
             "description": "Success",
@@ -22280,7 +22280,7 @@
       "patch": {
         "summary": "Update current account",
         "operationId": "patch_me",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected authorized environment and an active human account/session. Only name, title, timezone and supported preference fields are self-editable; email, phone, team, department, roles, MFA and on-call are server-owned and rejected. The transaction locks the account before its session, rechecks authority and evidence, then saves profile/preferences and audit atomically before returning the full Me response. Missing or stale on-call evidence returns 503 without changing the account. Production startup must inject the configured on-call source; without it the route remains unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected authorized environment and an active human account/session. Only name, title, timezone and supported preference fields are self-editable; email, phone, team, department, roles, MFA and on-call are server-owned and rejected. The transaction locks the account before its session, rechecks authority and evidence, then saves profile/preferences and audit atomically before returning the full Me response. Editing the account does not depend on on-call evidence; the response reports on-call as in GET /me.",
         "responses": {
           "200": {
             "description": "Success",
@@ -64462,21 +64462,36 @@
             ]
           },
           "oncall": {
-            "type": "object",
-            "properties": {
-              "active": {
-                "type": "boolean"
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "active": {
+                    "type": "boolean"
+                  },
+                  "until": {
+                    "type": "string"
+                  },
+                  "schedule": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "active"
+                ]
               },
-              "until": {
-                "type": "string"
-              },
-              "schedule": {
-                "type": "string"
+              {
+                "type": "null"
               }
-            },
-            "additionalProperties": false,
-            "required": [
-              "active"
+            ]
+          },
+          "oncall_state": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "not_configured",
+              "unavailable"
             ]
           },
           "roles": {
@@ -64516,6 +64531,7 @@
           "department",
           "timezone",
           "oncall",
+          "oncall_state",
           "roles",
           "mfa",
           "preferences"

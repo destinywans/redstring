@@ -19,3 +19,5 @@
 - 2026-09-23 AI-first 纠偏：平台定位为整合现有能力、由 AI 串联的企业 SaaS（SRE + DevOps）；Canvas 是复杂运维核心（节点上下文隔离、父子孙派生、后代结论回写祖先），对话模式并存；两种模式共用富消息渲染；首页为关注总览 + AI 入口；集成中心为核心模块；交付冻结保留、RBAC/团队保留；UI 走 Linear 式简洁风格。基线见 `docs/plans/2026-09-23-ai-first-realignment.md`，取代 `2026-09-23-frontend-ui-refactor.md` 的 P2/P3。
 
 - 2026-09-24 用户确认设计稿 v3 并恢复前端开发：按稿实施全部页面与 UI（Mock 数据、深浅色、中英文），只做前端并约定 API 契约；旧前端保留在 `/legacy`。见 `docs/plans/2026-09-24-v3-frontend.md`。后端与 CI/CD 仍不在本轮范围。
+
+- 2026-10-09 用户要求以生产验收为目标做完整前后端联调与全量回归（计划见 `docs/plans/2026-10-09-production-acceptance.md`）：功能、权限、故障本轮做，性能与 24 小时后置；边测边修，界面改动先出设计图；AI 流程用 DeepSeek；允许在 aiops-test 三台 Lima 虚拟机 Kubernetes（显式 `.local/vm-cluster/kubeconfig`）上做写操作和受控故障注入，不碰其他集群和默认上下文。验收实例与数据只在 `.local/acceptance/` 和独立 PG `aiops-acceptance-pg`，不改现有业务库或 testlab 数据。无关联的测试并行执行。

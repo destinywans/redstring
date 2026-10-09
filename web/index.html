@@ -5,29 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f7f8fa" />
     <link rel="preload" href="/src/assets/fonts/MiSansVF.woff2" as="font" type="font/woff2" crossorigin />
-    <script>
-      // Apply the saved palette before the first paint; theme motion is for changes only.
-      (() => {
-        let preference = "system";
-        try {
-          preference = localStorage.getItem("aiops-theme") || "system";
-        } catch {}
-        const dark =
-          preference === "dark" ||
-          (preference !== "light" &&
-            matchMedia("(prefers-color-scheme: dark)").matches);
-        document.documentElement.dataset.theme = dark ? "dark" : "light";
-        let v3 = "system";
-        try {
-          v3 = JSON.parse(localStorage.getItem("aiops-v3-preferences") || "{}").theme || "system";
-        } catch {}
-        document.documentElement.dataset.v3Theme =
-          v3 === "dark" || (v3 !== "light" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
-        document.querySelector('meta[name="theme-color"]').content = dark
-          ? "#030405"
-          : "#f7f8fa";
-      })();
-    </script>
+    <script src="/theme-init.js"></script>
     <title>Redstring</title>
     <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />

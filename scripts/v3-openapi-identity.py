@@ -5,10 +5,13 @@ S['V3Preferences'] = obj({'theme': string(enum=['light','dark','system']),
     'reduce_motion': v3_bool()}, ['theme','locale','density','reduce_motion'])
 S['V3PreferencesPatch'] = obj(S['V3Preferences']['properties'])
 S['V3Me'] = v3_object('id name email phone title team department timezone', {
-    'avatar_url': string(), 'oncall': obj({'active': v3_bool(), 'until': string(), 'schedule': string()}, ['active']),
+    'avatar_url': string(),
+    # null = unknown (no authoritative on-call source, or it failed/was stale); never "not on call".
+    'oncall': {'oneOf': [obj({'active': v3_bool(), 'until': string(), 'schedule': string()}, ['active']), {'type': 'null'}]},
+    'oncall_state': string(enum=['verified', 'not_configured', 'unavailable']),
     'roles': arr(string()), 'mfa': obj({'totp': v3_bool(), 'passkeys': integer()}, ['totp','passkeys']),
     'preferences': ref('V3Preferences')},
-    ['id','name','email','phone','title','team','department','timezone','oncall','roles','mfa','preferences'])
+    ['id','name','email','phone','title','team','department','timezone','oncall','oncall_state','roles','mfa','preferences'])
 S['V3MePreferencesPatch'] = obj(S['V3Preferences']['properties'])
 S['V3MePreferencesPatch']['minProperties'] = 1
 S['V3MePatch'] = obj({'name':string(minLength=1,maxLength=120),

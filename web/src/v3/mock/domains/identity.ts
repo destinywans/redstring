@@ -11,6 +11,7 @@ const me = {
   department: l("基础架构部", "Infrastructure"),
   timezone: "Asia/Shanghai",
   oncall: { active: true, until: "20:00", schedule: l("交易平台主值班", "Trading primary on-call") },
+  oncall_state: "verified",
   roles: ["sre", "approver"],
   mfa: { totp: true, passkeys: 2 },
   preferences: { theme: "system", locale: "zh-CN", density: "comfortable", reduce_motion: false },

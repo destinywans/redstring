@@ -41,7 +41,9 @@ export type Me = Person & {
   department: string;
   avatar_url?: string;
   timezone: string;
-  oncall: { active: boolean; until?: string; schedule?: string };
+  /** null = unknown: no authoritative on-call source, or it failed. Never means "not on call". */
+  oncall: { active: boolean; until?: string; schedule?: string } | null;
+  oncall_state: "verified" | "not_configured" | "unavailable";
   roles: string[];
   mfa: { totp: boolean; passkeys: number };
   preferences: Preferences;

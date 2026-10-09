@@ -43,6 +43,22 @@ func (v OncallStatus) validAt(now time.Time) bool {
 		(!v.Active || v.Schedule != "" && v.assignmentUntil.After(now))
 }
 
+// oncallEvidence is the on-call part of /me. A missing, failing or stale source
+// leaves the status unknown (null) instead of failing the whole account read:
+// unknown is still never reported as "not on call".
+type oncallEvidence struct {
+	status OncallStatus
+	known  bool
+	state  string // verified | not_configured | unavailable
+}
+
+func (e oncallEvidence) at(now time.Time) oncallEvidence {
+	if e.known && !e.status.validAt(now) {
+		return oncallEvidence{state: "unavailable"}
+	}
+	return e
+}
+
 type OncallSource interface {
 	Current(context.Context, string, []string) (OncallStatus, error)
 }
@@ -198,19 +214,20 @@ type meMFA struct {
 }
 
 type meView struct {
-	AvatarURL   *string      `json:"avatar_url"`
-	ID          string       `json:"id"`
-	Name        string       `json:"name"`
-	Email       string       `json:"email"`
-	Phone       string       `json:"phone"`
-	Title       string       `json:"title"`
-	Team        string       `json:"team"`
-	Department  string       `json:"department"`
-	Timezone    string       `json:"timezone"`
-	Oncall      OncallStatus `json:"oncall"`
-	Roles       []string     `json:"roles"`
-	MFA         meMFA        `json:"mfa"`
-	Preferences Preferences  `json:"preferences"`
+	AvatarURL   *string       `json:"avatar_url"`
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Email       string        `json:"email"`
+	Phone       string        `json:"phone"`
+	Title       string        `json:"title"`
+	Team        string        `json:"team"`
+	Department  string        `json:"department"`
+	Timezone    string        `json:"timezone"`
+	Oncall      *OncallStatus `json:"oncall"`
+	OncallState string        `json:"oncall_state"`
+	Roles       []string      `json:"roles"`
+	MFA         meMFA         `json:"mfa"`
+	Preferences Preferences   `json:"preferences"`
 }
 
 type mePatch struct {
@@ -296,25 +313,28 @@ func decodeMePatch(w http.ResponseWriter, r *http.Request) (mePatch, bool) {
 	return patch, true
 }
 
-func (s *Service) meEvidence(r *http.Request) (OncallStatus, httpapi.V3EnvironmentScope, error) {
+func (s *Service) meEvidence(r *http.Request) (oncallEvidence, httpapi.V3EnvironmentScope, error) {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok || len(scope.EnvironmentIDs) == 0 {
-		return OncallStatus{}, scope, store.ErrForbidden
+		return oncallEvidence{}, scope, store.ErrForbidden
 	}
 	if s.MeEvidence.MFAInstanceID == "" || s.MeEvidence.PasskeyRPID == "" {
-		return OncallStatus{}, scope, errMeEvidenceUnavailable
+		return oncallEvidence{}, scope, errMeEvidenceUnavailable
 	}
 	if s.MeEvidence.Oncall == nil {
-		return OncallStatus{}, scope, ErrOncallUnavailable
+		return oncallEvidence{state: "not_configured"}, scope, nil
 	}
 	oncall, err := s.MeEvidence.Oncall.Current(r.Context(), httpapi.CurrentUser(r).ID, scope.EnvironmentIDs)
-	if err == nil && !oncall.validAt(time.Now()) {
-		err = ErrOncallUnavailable
+	if err != nil {
+		if r.Context().Err() != nil {
+			return oncallEvidence{}, scope, r.Context().Err()
+		}
+		return oncallEvidence{state: "unavailable"}, scope, nil
 	}
-	return oncall, scope, err
+	return oncallEvidence{status: oncall, known: true, state: "verified"}.at(time.Now()), scope, nil
 }
 
-func (s *Service) meTransaction(ctx context.Context, user core.User, sessionHash string, scope httpapi.V3EnvironmentScope, oncall OncallStatus, patch *mePatch) (meView, error) {
+func (s *Service) meTransaction(ctx context.Context, user core.User, sessionHash string, scope httpapi.V3EnvironmentScope, oncall oncallEvidence, patch *mePatch) (meView, error) {
 	if user.ID == "" || sessionHash == "" {
 		return meView{}, store.ErrForbidden
 	}
@@ -385,9 +405,6 @@ func (s *Service) meTransaction(ctx context.Context, user core.User, sessionHash
 		return meView{}, err
 	}
 	if patch != nil {
-		if !oncall.validAt(time.Now()) {
-			return meView{}, ErrOncallUnavailable
-		}
 		changes := map[string]any{}
 		if patch.Name != nil {
 			changes["name"] = *patch.Name
@@ -421,23 +438,28 @@ func (s *Service) meTransaction(ctx context.Context, user core.User, sessionHash
 	if !time.Now().Before(expiresAt) {
 		return meView{}, errMeUnauthorized
 	}
-	if !oncall.validAt(time.Now()) {
-		return meView{}, ErrOncallUnavailable
-	}
 	if err := tx.Commit(ctx); err != nil {
 		return meView{}, err
 	}
 	if patch == nil && !time.Now().Before(expiresAt) {
 		return meView{}, errMeUnauthorized
 	}
-	if patch == nil && !oncall.validAt(time.Now()) {
-		return meView{}, ErrOncallUnavailable
-	}
+	// An observation that went stale while the transaction ran is reported as unknown.
+	view.setOncall(oncall.at(time.Now()))
 	return view, nil
 }
 
-func (s *Service) projectMe(ctx context.Context, tx pgx.Tx, userID string, oncall OncallStatus) (meView, error) {
-	v := meView{Oncall: oncall, Roles: []string{}}
+func (v *meView) setOncall(e oncallEvidence) {
+	v.Oncall, v.OncallState = nil, e.state
+	if e.known {
+		status := e.status
+		v.Oncall = &status
+	}
+}
+
+func (s *Service) projectMe(ctx context.Context, tx pgx.Tx, userID string, oncall oncallEvidence) (meView, error) {
+	v := meView{Roles: []string{}}
+	v.setOncall(oncall)
 	var phone *string
 	err := tx.QueryRow(ctx, `SELECT u.id,u.name,u.email,u.phone,u.job_title,COALESCE(t.name,''),u.department,u.v3_timezone,
  COALESCE(p.theme,'system'),COALESCE(p.locale,'zh-CN'),COALESCE(p.density,'comfortable'),COALESCE(p.reduce_motion,false)

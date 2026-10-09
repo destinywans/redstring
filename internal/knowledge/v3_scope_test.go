@@ -18,6 +18,9 @@ UPDATE applications SET owner_team_id='team-a' WHERE id='a';
 INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a','default'),('b','default');
 INSERT INTO rbac_roles(id,name) VALUES('scope-reader','Scope Reader');
 INSERT INTO rbac_user_roles(user_id,role_id) VALUES('u','scope-reader');
+-- 'u' is a legacy operator; since migration 162 that role views all knowledge.
+-- Scope the user by scope-reader alone.
+DELETE FROM rbac_user_roles WHERE user_id='u' AND role_id='operator';
 INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
 ('scope-reader','environment','view','environment','default'),
 ('scope-reader','knowledge','view','application','a');

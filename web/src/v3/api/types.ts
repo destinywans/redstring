@@ -278,20 +278,31 @@ export type AlertGroupPolicy = {
   timeline: { time: string; channel: string; text: string; done: boolean }[];
   inhibition: string[];
 };
-export type ServicePeek = { id: string; name: string; tier: Tier; team: string; env: EnvName; status: "ok" | "warn" | "danger"; kpis: { k: string; v: string; tone?: Tone }[]; owner: string; oncall: string; change: string };
-export type PersonPeek = { id: string; name: string; role: string; oncall?: string; load: string };
+/** Peeks are partial: null means unknown (never "healthy", "no owner" or "off call"). */
+export type ServicePeek = { id: string; name: string; tier: Tier | null; team: string | null; env: string; status: "ok" | "warn" | "danger" | null; kpis: { k: string; v: string; tone?: Tone }[]; owner: string | null; oncall: string | null; change: string | null };
+export type PersonPeek = { id: string; name: string; role: string | null; oncall: string | null; load: string | null };
+/**
+ * GET /incidents/{id}: sample data is fully filled; the real record has duration, commander, stage and every impact
+ * field null unless a human confirmed them, timeline entries are manual notes with RFC 3339 times, and human-confirmed
+ * cases (`record_kind: "case"`) carry `status_revision` for POST /incidents/{id}/status.
+ */
 export type Incident = {
   id: string;
   severity: Severity;
   title: string;
   status: "active" | "mitigated" | "resolved";
-  duration: string;
-  commander: string;
-  stage: number;
-  timeline: { time: string; actor: { kind: "brand" | "ai" | "person"; name: string }; text: string; sub?: string }[];
-  impact: { peak: string; budget_used: string; budget_left: number; note: string; series: number[] };
+  duration: string | null;
+  commander: string | null;
+  stage: number | null;
+  timeline: { id?: string; time: string; actor: { kind: "brand" | "ai" | "person" | "human" | "machine"; name: string }; text: string; sub?: string }[];
+  impact: { peak: string | null; budget_used: string | null; budget_left: number | null; note: string | null; series: number[] | null };
   roles: { role: string; name: string; ai?: boolean }[];
-  links: { kind: RefKind; label: string; href: string }[];
+  links: { kind: RefKind | string; label: string; href: string }[];
+  record_kind?: "case";
+  status_revision?: number;
+  investigation_id?: string | null;
+  partial?: boolean;
+  unavailable?: string[];
 };
 
 /* ---------------- alert rules, routing, silences ---------------- */

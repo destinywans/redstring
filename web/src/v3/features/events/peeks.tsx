@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { useGet } from "../../api/client";
+import { API_MODE, useGet } from "../../api/client";
+import { UnknownValue } from "../../ui/unknown";
 import type { PersonPeek, ServicePeek } from "../../api/types";
 import { Avatar, Badge, Btn, Dot, Env, KV, Muted, Row, Skeleton, Strong, Tier, Tile } from "../../ui/core";
 import { HoverPeek, toast } from "../../ui/overlays";
@@ -23,16 +24,22 @@ function ServiceCard({ id }: { id: string }) {
         <div className="v3-col grow" style={{ gap: 0 }}>
           <Row gap={6}>
             <Strong size={13}>{data.name}</Strong>
-            <Tier tier={data.tier} />
+            {data.tier && <Tier tier={data.tier} />}
           </Row>
           <Muted size={11}>
-            {data.team} · <Env env={data.env} />
+            {data.team ?? <UnknownValue label={tx("团队 —", "team —")} />} · <Env env={data.env} />
           </Muted>
         </div>
-        <Badge tone={data.status}>
-          <Dot tone={data.status} size={6} />
-          {data.status === "danger" ? tx("异常", "Degraded") : data.status === "warn" ? tx("告警", "Alerting") : tx("正常", "Healthy")}
-        </Badge>
+        {data.status ? (
+          <Badge tone={data.status}>
+            <Dot tone={data.status} size={6} />
+            {data.status === "danger" ? tx("异常", "Degraded") : data.status === "warn" ? tx("告警", "Alerting") : tx("正常", "Healthy")}
+          </Badge>
+        ) : (
+          <Badge>
+            <UnknownValue label={tx("状态 —", "status —")} />
+          </Badge>
+        )}
       </Row>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 6 }}>
         {data.kpis.map((k) => (
@@ -45,19 +52,19 @@ function ServiceCard({ id }: { id: string }) {
         ))}
       </div>
       <KV k={tx("负责人", "Owner")} kw={56}>
-        {data.owner}
+        {data.owner ?? <UnknownValue />}
       </KV>
       <KV k={tx("值班", "On call")} kw={56}>
-        {data.oncall}
+        {data.oncall ?? <UnknownValue />}
       </KV>
       <KV k={tx("最近变更", "Last change")} kw={56}>
-        {data.change}
+        {data.change ?? <UnknownValue />}
       </KV>
       <Row gap={6}>
         <Btn h={26} iconRight="right" to={`/services/${data.id}`}>
           {tx("打开服务", "Open service")}
         </Btn>
-        <Btn h={26} kind="soft" icon="branch" to="/canvas/INV-231">
+        <Btn h={26} kind="soft" icon="branch" to={API_MODE === "mock" ? "/canvas/INV-231" : `/canvases?new=investigation&service=${encodeURIComponent(data.id)}`}>
           {tx("发起调查", "Investigate")}
         </Btn>
       </Row>
@@ -74,7 +81,7 @@ function PersonCard({ name }: { name: string }) {
         <Avatar name={name} size={34} />
         <div className="v3-col grow" style={{ gap: 0 }}>
           <Strong size={13}>{name}</Strong>
-          <Muted size={11.5}>{data?.role ?? "…"}</Muted>
+          <Muted size={11.5}>{data ? data.role ?? "—" : "…"}</Muted>
         </div>
       </Row>
       <Row gap={6}>
@@ -83,11 +90,18 @@ function PersonCard({ name }: { name: string }) {
             <Dot tone="ok" size={6} />
             {data.oncall}
           </Badge>
+        ) : data && API_MODE !== "mock" ? (
+          // null means no on-call source proved it either way.
+          <Badge>
+            <UnknownValue label={tx("值班 —", "on call —")} />
+          </Badge>
         ) : (
           <Badge>{tx("非值班", "Off call")}</Badge>
         )}
-        <Muted size={11.5}>{data?.load}</Muted>
+        {data?.load && <Muted size={11.5}>{data.load}</Muted>}
       </Row>
+      {/* Chat, call and assign have no contract target yet; they only exist in sample data. */}
+      {API_MODE === "mock" && (
       <Row gap={6}>
         <Btn h={26} icon="message" onClick={() => openExternal(tx("飞书会话", "Feishu chat"), `https://applink.feishu.cn/client/chat/open?name=${encodeURIComponent(name)}`)}>
           {tx("飞书", "Feishu")}
@@ -122,6 +136,7 @@ function PersonCard({ name }: { name: string }) {
           {tx("指派", "Assign")}
         </Btn>
       </Row>
+      )}
     </>
   );
 }

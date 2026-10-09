@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { AlertGroup, AlertGroupPolicy } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, IconBtn, Kbd, LabelChip, Muted, Pills, Row, SearchBox, Section, Sev, Skeleton, Spacer, State, Strong, Tile, Toggle, Bar, cx, type Tone } from "../../ui/core";
 import { toast, Tooltip } from "../../ui/overlays";
@@ -13,8 +14,14 @@ import "./events.css";
 import { ChipSelect } from "../../ui/demo";
 import { useFirstSelection } from "../../ui/selection";
 
+type BulkAction = "claim" | "silence" | "investigate";
+type BulkItem = { id: string; outcome: string; investigation_id: string | null; proposal_id: string | null; error: string | null };
+
 export default function AlertsPage() {
   const { tx } = useI18n();
+  const nav = useNavigate();
+  const qc = useQueryClient();
+  const demo = API_MODE === "mock";
   const [state, setState] = useState<"firing" | "pending" | "silenced" | "resolved">("firing");
   const [q, setQ] = useState("");
   const [showInhibited, setShowInhibited] = useState(true);
@@ -45,12 +52,40 @@ export default function AlertsPage() {
     setChecked(new Set());
     toast(tx("{a}：{n} 组告警", "{a}: {n} alert groups", { a: label, n: ids.length }), { undo: () => setChecked(new Set(ids)) });
   };
+  /**
+   * Real claim / silence / investigate through POST /alert-groups/bulk. Each group answers on its own (207 when some
+   * fail); a silence is only a pending-review proposal, never an immediate silence.
+   */
+  const act = async (action: BulkAction, ids: string[]) => {
+    if (!ids.length) return;
+    try {
+      const r = await api<{ results: BulkItem[] }>("POST", "/alert-groups/bulk", { body: { action, ids } });
+      void qc.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/alert-groups") });
+      setChecked(new Set());
+      const ok = r.results.filter((x) => ["claimed", "already_claimed", "investigating", "already_investigating", "pending_approval"].includes(x.outcome));
+      const failed = r.results.filter((x) => !ok.includes(x));
+      const inv = ok.find((x) => x.investigation_id)?.investigation_id;
+      if (action === "investigate" && inv && ids.length === 1) return nav(`/canvas/${inv}`);
+      const done =
+        action === "claim"
+          ? tx("已认领 {n} 组", "Claimed {n} groups", { n: ok.length })
+          : action === "silence"
+            ? tx("已为 {n} 组提交静默提案，批准并执行前告警不会被静默", "Silence proposals submitted for {n} groups; nothing is silenced until approved and executed", { n: ok.length })
+            : tx("已为 {n} 组发起调查", "Investigations started for {n} groups", { n: ok.length });
+      const why = (o: string) =>
+        ({ not_connected: tx("静默来源未接入", "silencing isn't connected"), investigation_required: tx("需要先有开放的调查", "needs an open investigation"), conflict: tx("状态已变化", "state changed"), not_found: tx("告警组不存在或不可见", "group not found"), group_too_large: tx("告警组太大", "group too large") })[o] ?? o;
+      if (!failed.length) toast(done);
+      else toast(`${ok.length ? done + tx("；", "; ") : ""}${tx("{n} 组未完成：{w}", "{n} not done: {w}", { n: failed.length, w: [...new Set(failed.map((f) => f.error || why(f.outcome)))].join(tx("、", ", ")) })}`, { tone: ok.length ? undefined : "danger" });
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : tx("操作失败，请稍后重试", "That didn't work; try again later"), { tone: "danger" });
+    }
+  };
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest("input,textarea")) return;
       if (e.key === "Escape") setChecked(new Set());
       if (e.key === "x") setChecked((c) => toggle(c, focus));
-      if (e.key === "s" && checked.size) void bulk("silence", tx("批量静默 1 小时", "Silenced 1 h"));
+      if (e.key === "s" && checked.size) void (demo ? bulk("silence", tx("批量静默 1 小时", "Silenced 1 h")) : act("silence", [...checked]));
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
@@ -145,13 +180,13 @@ export default function AlertsPage() {
                       {g.owner && <PersonPeekLink name={g.owner} />}
                       <span className="hact v3-row" style={{ gap: 2 }}>
                         <Tooltip label={tx("发起调查", "Investigate")}>
-                          <IconBtn icon="branch" label={tx("发起调查", "Investigate")} size={26} color="var(--accent-text)" to="/canvas/INV-231" />
+                          {demo ? <IconBtn icon="branch" label={tx("发起调查", "Investigate")} size={26} color="var(--accent-text)" to="/canvas/INV-231" /> : <IconBtn icon="branch" label={tx("发起调查", "Investigate")} size={26} color="var(--accent-text)" onClick={() => void act("investigate", [g.id])} />}
                         </Tooltip>
-                        <Tooltip label={tx("静默", "Silence")}>
-                          <IconBtn icon="mute" label={tx("静默", "Silence")} size={26} onClick={() => toast(tx("已静默 1 小时", "Silenced for 1 h"), { undo: () => undefined })} />
+                        <Tooltip label={demo ? tx("静默", "Silence") : tx("提议静默", "Propose silence")}>
+                          <IconBtn icon="mute" label={tx("静默", "Silence")} size={26} onClick={() => (demo ? toast(tx("已静默 1 小时", "Silenced for 1 h"), { undo: () => undefined }) : void act("silence", [g.id]))} />
                         </Tooltip>
                         <Tooltip label={tx("认领", "Claim")}>
-                          <IconBtn icon="user" label={tx("认领", "Claim")} size={26} onClick={() => toast(tx("已认领", "Claimed"))} />
+                          <IconBtn icon="user" label={tx("认领", "Claim")} size={26} onClick={() => (demo ? toast(tx("已认领", "Claimed")) : void act("claim", [g.id]))} />
                         </Tooltip>
                       </span>
                     </div>
@@ -194,22 +229,42 @@ export default function AlertsPage() {
           </div>
           <div className={cx("bulk-bar", checked.size > 0 && "show")} role="toolbar" aria-label={tx("批量操作", "Bulk actions")}>
             <b>{tx("已选 {n} 组", "{n} selected", { n: checked.size })}</b>
-            <button type="button" onClick={() => bulk("merge", tx("已合并为事件", "Merged into an incident"))}>
-              <Icon name="merge" size={14} />
-              {tx("合并为事件", "Merge into incident")}
-            </button>
-            <button type="button" onClick={() => bulk("silence", tx("批量静默 1 小时", "Silenced 1 h"))}>
-              <Icon name="mute" size={14} />
-              {tx("批量静默", "Silence")}
-            </button>
-            <button type="button" onClick={() => bulk("assign", tx("已指派给 王晨", "Assigned to Wang Chen"))}>
-              <Icon name="user" size={14} />
-              {tx("指派给…", "Assign…")}
-            </button>
-            <Link to="/canvas/INV-231" className="primary">
-              <Icon name="branch" size={14} />
-              {tx("发起联合调查", "Joint investigation")}
-            </Link>
+            {demo ? (
+              <>
+                <button type="button" onClick={() => bulk("merge", tx("已合并为事件", "Merged into an incident"))}>
+                  <Icon name="merge" size={14} />
+                  {tx("合并为事件", "Merge into incident")}
+                </button>
+                <button type="button" onClick={() => bulk("silence", tx("批量静默 1 小时", "Silenced 1 h"))}>
+                  <Icon name="mute" size={14} />
+                  {tx("批量静默", "Silence")}
+                </button>
+                <button type="button" onClick={() => bulk("assign", tx("已指派给 王晨", "Assigned to Wang Chen"))}>
+                  <Icon name="user" size={14} />
+                  {tx("指派给…", "Assign…")}
+                </button>
+                <Link to="/canvas/INV-231" className="primary">
+                  <Icon name="branch" size={14} />
+                  {tx("发起联合调查", "Joint investigation")}
+                </Link>
+              </>
+            ) : (
+              <>
+                {/* The bulk contract supports claim, silence (as a proposal) and investigate; merge and assign have no endpoint. */}
+                <button type="button" onClick={() => void act("claim", [...checked])}>
+                  <Icon name="user" size={14} />
+                  {tx("认领", "Claim")}
+                </button>
+                <button type="button" onClick={() => void act("silence", [...checked])}>
+                  <Icon name="mute" size={14} />
+                  {tx("提议静默", "Propose silence")}
+                </button>
+                <button type="button" className="primary" onClick={() => void act("investigate", [...checked])}>
+                  <Icon name="branch" size={14} />
+                  {tx("发起调查", "Investigate")}
+                </button>
+              </>
+            )}
             <span className="sep" />
             <span className="hint">esc {tx("取消", "clear")}</span>
             <button type="button" aria-label={tx("取消选择", "Clear selection")} onClick={() => setChecked(new Set())}>

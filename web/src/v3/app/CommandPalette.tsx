@@ -5,7 +5,7 @@ import { create } from "zustand";
 import { AiAvatar, Badge, Btn, Dot, Icon, Kbd, LabelChip, Muted, Sev, Strong, Tile, type IconName } from "../ui/core";
 import { toast } from "../ui/overlays";
 import { useI18n } from "../i18n";
-import { api, useGet } from "../api/client";
+import { API_MODE, api, useGet } from "../api/client";
 import type { SearchHit, SearchResult } from "../api/types";
 import { usePreferences } from "./preferences";
 import { useAskAi } from "./AskAi";
@@ -240,7 +240,11 @@ export function CommandPalette() {
           toast(tx("已切换到预发环境（仅影响你的视图）", "Switched to staging (your view only)"));
         },
       },
-    ] as Item[]).filter((a) => match(a.text));
+    ] as Item[])
+      // The silence / investigate / open-service / environment shortcuts act on the sample service and only exist as
+      // sample data (the silence even writes); real mode keeps theme and language, the rest comes from search results.
+      .filter((a) => API_MODE === "mock" || a.id === "a-theme" || a.id === "a-lang")
+      .filter((a) => match(a.text));
     const hits: Item[] = (search.data?.hits ?? []).map((h: SearchHit) => ({
       id: `h-${h.kind}-${h.id}`,
       group: "results",
@@ -265,12 +269,12 @@ export function CommandPalette() {
       id: "ai",
       group: "ai",
       icon: <AiAvatar size={24} />,
-      label: q ? tx("问 AI：{q}", "Ask AI: {q}", { q }) : tx("问 AI：checkout-api 现在健康吗？", "Ask AI: is checkout-api healthy now?"),
+      label: q ? tx("问 AI：{q}", "Ask AI: {q}", { q }) : API_MODE === "mock" ? tx("问 AI：checkout-api 现在健康吗？", "Ask AI: is checkout-api healthy now?") : tx("问 AI", "Ask AI"),
       text: q,
       kbd: "Tab",
       run: () => {
         close();
-        openAi(q || tx("checkout-api 现在健康吗？", "Is checkout-api healthy now?"));
+        openAi(q || (API_MODE === "mock" ? tx("checkout-api 现在健康吗？", "Is checkout-api healthy now?") : ""));
       },
     };
     return [...actions, ...hits, ...recent, ai];

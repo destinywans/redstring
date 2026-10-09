@@ -1,6 +1,6 @@
 # V3 服务视图的告警覆盖声明
 
-`AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG` 指向服务端管理的 JSON 文件。未设置、`bindings` 为空，或请求中的服务缺少绑定时，服务目录和详情返回 `service_view_incomplete`（503）；不能把空的 `ops_incidents` 表解释为零告警。
+`AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG` 指向服务端管理的 JSON 文件。未设置、`bindings` 为空，或请求中的服务缺少绑定时，服务目录和详情照常返回，该服务的 `alerts` 为 `null`、`unavailable.alerts` 为 `not_configured`，可能被告警提升的状态也为未知；不能把空的 `ops_incidents` 表解释为零告警。读取后覆盖被撤销则整条返回 `503 service_source_changed`。
 
 ```json
 {

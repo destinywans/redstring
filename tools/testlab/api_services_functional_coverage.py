@@ -710,8 +710,14 @@ class Chain(readonly.Chain):
                          other_grants_preserved=True, cross_instance=True, each_recovered=True, external_reads=0))
 
     def missing_sources(self):
-        for path in ('/api/v1/services', self.detail):
-            self.reject_unchanged('admin', 'GET', path, want=503, code='service_view_incomplete', scenario='failure')
+        # PA-05: missing evidence is null with a reason, never a failed page or a guessed healthy state.
+        reasons = {'not_connected', 'not_configured', 'no_authorized_target', 'not_generated', 'unavailable', 'stale'}
+
+        def explicit_unknowns(items):
+            check(bool(items) and all(x.get('status') is not None or x.get('unavailable', {}).get('status') in reasons for x in items)
+                  and any(x.get('status') is None for x in items), 'missing service evidence must be null with a reason')
+        for path, items in (('/api/v1/services', lambda v: v.get('items', [])), (self.detail, lambda v: [v])):
+            self.reject_unchanged('admin', 'GET', path, scenario='failure', validate=lambda v, items=items: explicit_unknowns(items(v)))
         self.call('hidden', 'GET', '/api/v1/topology', environment='staging', scenario='failure',
                   validate=lambda v: check(v.get('complete_v3_dto') is False and v.get('source') == 'cmdb_resource_relations' and bool(v.get('nodes')) and
                         'complete_resource_coverage' in v.get('unavailable_fields', []) and all(x.get('environment_ids') == ['staging'] for x in v['nodes']), 'partial topology must preserve missing full coverage and environment'))

@@ -50272,9 +50272,9 @@
     },
     "/services": {
       "get": {
-        "summary": "Read complete source-backed authorized service catalog",
+        "summary": "Read the authorized service catalog with explicit unknowns",
         "operationId": "get_services",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Uses registered application/environment/team identity, reviewed Prometheus dashboard evidence, covered operational alerts, verified successful deployments and explicit connector targets. Status is derived from measured SLO burn and current critical alerts, not Kubernetes readiness. All required evidence must be present and current or the full request returns 503 service_view_incomplete. More than 50 authorized rows returns 422 result_limit; no partial counts or synthetic healthy state.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Uses registered application/environment/team identity, reviewed Prometheus dashboard evidence, covered operational alerts, verified successful deployments and explicit connector targets. Status is derived from measured SLO burn and current critical alerts, not Kubernetes readiness; a critical alert or a danger burn decides it alone, anything milder needs both inputs. Missing or ungranted evidence returns 200 with that field null and its path in the item unavailable map (not_connected, not_configured, no_authorized_target, not_generated, unavailable, stale); unknown is never zero, ok, empty or \"not on call\". KPIs and facets count known values only; a KPI with no known input is null with a reason. The status filter matches known statuses only and sorting puts unknown values last. More than 50 authorized rows returns 422 result_limit. Storage, policy or session failures return 503 service_view_unavailable; evidence that changes or is withdrawn between its read and the reply (metric source seal, alert coverage) returns 503 service_source_changed.",
         "responses": {
           "200": {
             "description": "Success",
@@ -50537,9 +50537,9 @@
     },
     "/services/{id}": {
       "get": {
-        "summary": "Read one complete authorized service detail",
+        "summary": "Read one authorized service detail with explicit unknowns",
         "operationId": "get_services_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. The opaque ID binds application and environment. Detail additionally requires authorized persisted investigation model text for the AI panel; changes come from successful deployments and dependencies from non-mock CMDB depends_on service relations. Unrepresentable required evidence returns 503 rather than placeholder data.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The opaque ID binds application and environment. The AI panel shows the authorized open investigation reply from the latest completed run within the last hour (older: stale; none: not_generated). Changes come from successful deployments; dependencies from non-mock CMDB depends_on service relations, and any relation that cannot be represented makes deps null rather than shorter. Each dependency carries its own status and unavailable map. Incident and dependency tab counts need events.view and resources.view; unknowns follow GET /services. 503 and 422 follow GET /services.",
         "responses": {
           "200": {
             "description": "Success",
@@ -57265,7 +57265,7 @@
       "get": {
         "summary": "Read explicit service/environment SLO configuration",
         "operationId": "get_services_id_slo",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Configuration only; does not assert measured SLO or window coverage. No explicit target/window configuration returns 503 slo_not_configured; initialize via PUT expected_revision=0. The opaque service ID binds application and environment; current services.view and human session are checked transactionally.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Configuration only; does not assert measured SLO or window coverage. Before the first save target and window are null with not_configured in unavailable and revision is 0; initialize via PUT expected_revision=0. The opaque service ID binds application and environment; current services.view and human session are checked transactionally.",
         "responses": {
           "200": {
             "description": "Success",
@@ -81568,6 +81568,17 @@
           "report_digest"
         ]
       },
+      "V3UnknownReason": {
+        "type": "string",
+        "enum": [
+          "not_connected",
+          "not_configured",
+          "no_authorized_target",
+          "not_generated",
+          "unavailable",
+          "stale"
+        ]
+      },
       "V3ServiceKpi": {
         "type": "object",
         "properties": {
@@ -81612,6 +81623,61 @@
           "series"
         ]
       },
+      "V3ServiceCatalogKpi": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tone": {
+            "type": "string",
+            "enum": [
+              "neutral",
+              "accent",
+              "ok",
+              "warn",
+              "danger",
+              "info"
+            ]
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "unknown": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Services left out of value because this input is unknown"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/V3UnknownReason"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "label",
+          "value",
+          "series",
+          "unknown"
+        ],
+        "description": "Counts only services whose input is known. When every service in the result has an unknown input, value is null and reason gives the most common reason."
+      },
       "V3ServiceBurn": {
         "type": "object",
         "properties": {
@@ -81655,38 +81721,81 @@
           "desc": {
             "type": "string"
           },
+          "tier": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "T0",
+                  "T1",
+                  "T2",
+                  "T3"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "team": {
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "oncall": {
-            "type": "string"
-          },
-          "tier": {
-            "type": "string",
-            "enum": [
-              "T0",
-              "T1",
-              "T2"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "status": {
-            "type": "string",
-            "enum": [
-              "ok",
-              "warn",
-              "danger"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "warn",
+                  "danger"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "slo": {
             "type": "object",
             "properties": {
               "target": {
-                "type": "string"
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "budget_left": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 100
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "additionalProperties": false,
@@ -81696,34 +81805,62 @@
             ]
           },
           "release": {
-            "type": "object",
-            "properties": {
-              "brand": {
-                "type": "string"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "brand": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "string"
+                  },
+                  "when": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "brand",
+                  "version",
+                  "when"
+                ]
               },
-              "version": {
-                "type": "string"
-              },
-              "when": {
-                "type": "string"
+              {
+                "type": "null"
               }
-            },
-            "additionalProperties": false,
-            "required": [
-              "brand",
-              "version",
-              "when"
             ]
           },
           "alerts": {
-            "type": "integer",
-            "minimum": 0
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "connectors": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unavailable": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/V3UnknownReason"
+            },
+            "description": "Field path (dot-separated) of each null value -> reason. Empty when every value is known."
           }
         },
         "additionalProperties": false,
@@ -81738,7 +81875,8 @@
           "slo",
           "release",
           "alerts",
-          "connectors"
+          "connectors",
+          "unavailable"
         ]
       },
       "V3ServiceFacet": {
@@ -81788,7 +81926,7 @@
           "kpis": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/V3ServiceKpi"
+              "$ref": "#/components/schemas/V3ServiceCatalogKpi"
             }
           },
           "items": {
@@ -81821,22 +81959,37 @@
             "type": "string"
           },
           "status": {
-            "type": "string",
-            "enum": [
-              "ok",
-              "warn",
-              "danger"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "warn",
+                  "danger"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "meta": {
             "type": "string"
+          },
+          "unavailable": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/V3UnknownReason"
+            },
+            "description": "Field path (dot-separated) of each null value -> reason. Empty when every value is known."
           }
         },
         "additionalProperties": false,
         "required": [
           "name",
           "status",
-          "meta"
+          "meta",
+          "unavailable"
         ]
       },
       "V3ServiceDetail": {
@@ -81848,34 +82001,52 @@
           "name": {
             "type": "string"
           },
-          "team": {
-            "type": "string"
-          },
           "desc": {
             "type": "string"
           },
           "tier": {
-            "type": "string",
-            "enum": [
-              "T0",
-              "T1",
-              "T2"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "T0",
+                  "T1",
+                  "T2",
+                  "T3"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "team": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "env": {
             "type": "string",
-            "enum": [
-              "prod",
-              "staging",
-              "test"
-            ]
+            "description": "Environment key of the selected V3 instance, e.g. prod, staging, test or dev"
           },
           "status": {
-            "type": "string",
-            "enum": [
-              "ok",
-              "warn",
-              "danger"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "warn",
+                  "danger"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "deeplinks": {
@@ -81902,53 +82073,95 @@
             }
           },
           "ai": {
-            "type": "object",
-            "properties": {
-              "text": {
-                "type": "string"
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string"
+                  },
+                  "investigation": {
+                    "type": "string"
+                  },
+                  "proposal": {
+                    "type": "string"
+                  },
+                  "meta": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "text",
+                  "investigation",
+                  "meta"
+                ]
               },
-              "investigation": {
-                "type": "string"
-              },
-              "proposal": {
-                "type": "string"
-              },
-              "meta": {
-                "type": "string"
+              {
+                "type": "null"
               }
-            },
-            "additionalProperties": false,
-            "required": [
-              "text",
-              "investigation",
-              "meta"
             ]
           },
           "signals": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/V3ServiceKpi"
-            }
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3ServiceKpi"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "slo": {
             "type": "object",
             "properties": {
               "availability": {
-                "type": "string"
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "target": {
-                "type": "string"
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "budget_left": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 100
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "burn": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/V3ServiceBurn"
-                }
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/V3ServiceBurn"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "note": {
                 "type": "string"
@@ -81964,59 +82177,117 @@
             ]
           },
           "changes": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "brand": {
-                  "type": "string"
-                },
-                "title": {
-                  "type": "string"
-                },
-                "meta": {
-                  "type": "string"
-                },
-                "tag": {
-                  "type": "string"
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "brand": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "meta": {
+                      "type": "string"
+                    },
+                    "tag": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "brand",
+                    "title",
+                    "meta"
+                  ]
                 }
               },
-              "additionalProperties": false,
-              "required": [
-                "brand",
-                "title",
-                "meta"
-              ]
-            }
+              {
+                "type": "null"
+              }
+            ]
           },
           "deps": {
-            "type": "object",
-            "properties": {
-              "upstream": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/V3ServiceDependency"
-                }
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "upstream": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/V3ServiceDependency"
+                    }
+                  },
+                  "downstream": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/V3ServiceDependency"
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "upstream",
+                  "downstream"
+                ]
               },
-              "downstream": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/V3ServiceDependency"
-                }
+              {
+                "type": "null"
               }
-            },
-            "additionalProperties": false,
-            "required": [
-              "upstream",
-              "downstream"
             ]
           },
           "tabs": {
             "type": "object",
+            "properties": {
+              "changes": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "deps": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "incidents": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "changes",
+              "deps",
+              "incidents"
+            ]
+          },
+          "unavailable": {
+            "type": "object",
             "additionalProperties": {
-              "type": "integer",
-              "minimum": 0
-            }
+              "$ref": "#/components/schemas/V3UnknownReason"
+            },
+            "description": "Field path (dot-separated) of each null value -> reason. Empty when every value is known."
           }
         },
         "additionalProperties": false,
@@ -82034,7 +82305,8 @@
           "slo",
           "changes",
           "deps",
-          "tabs"
+          "tabs",
+          "unavailable"
         ]
       },
       "V3Resilience": {
@@ -86829,31 +87101,53 @@
         "type": "object",
         "properties": {
           "target": {
-            "type": "string",
-            "enum": [
-              "99.5",
-              "99.9",
-              "99.95",
-              "99.99"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "99.5",
+                  "99.9",
+                  "99.95",
+                  "99.99"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "window": {
-            "type": "string",
-            "enum": [
-              "7d",
-              "30d"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "7d",
+                  "30d"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "revision": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 0
+          },
+          "unavailable": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/V3UnknownReason"
+            },
+            "description": "Field path (dot-separated) of each null value -> reason. Empty when every value is known."
           }
         },
         "additionalProperties": false,
         "required": [
           "target",
           "window",
-          "revision"
+          "revision",
+          "unavailable"
         ]
       },
       "V3TraceSavedView": {

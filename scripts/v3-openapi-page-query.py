@@ -1,10 +1,11 @@
 # Page v1.1 persistence and bounded server query extensions. Executed after
 # existing domain fragments. Query values never widen environment/module ACL.
-S['V3ServiceSLOSettings'] = obj({'target':string(enum=['99.5','99.9','99.95','99.99']),
-    'window':string(enum=['7d','30d']), 'revision':integer(minimum=1)},['target','window','revision'])
+S['V3ServiceSLOSettings'] = obj({'target':v3_svc_null(string(enum=['99.5','99.9','99.95','99.99'])),
+    'window':v3_svc_null(string(enum=['7d','30d'])), 'revision':integer(minimum=0),
+    'unavailable':v3_svc_unavailable()},['target','window','revision','unavailable'])
 v3_route('get','/services/{id}/slo','Read explicit service/environment SLO configuration',
     response=ref('V3ServiceSLOSettings'),
-    desc='Configuration only; does not assert measured SLO or window coverage. No explicit target/window configuration returns 503 slo_not_configured; initialize via PUT expected_revision=0. The opaque service ID binds application and environment; current services.view and human session are checked transactionally.')
+    desc='Configuration only; does not assert measured SLO or window coverage. Before the first save target and window are null with not_configured in unavailable and revision is 0; initialize via PUT expected_revision=0. The opaque service ID binds application and environment; current services.view and human session are checked transactionally.')
 v3_route('put','/services/{id}/slo','Update explicit service/environment SLO configuration',
     body=obj({'expected_revision':integer(minimum=0),'target':string(enum=['99.5','99.9','99.95','99.99']),
               'window':string(enum=['7d','30d'])},['expected_revision','target','window']),

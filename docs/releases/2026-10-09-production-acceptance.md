@@ -37,6 +37,7 @@
 
 ### 进展
 
+- **PA-05 服务目录与详情（后端）**：`GET /services`、`GET /services/{id}` 缺证据时不再整体 503（原 `service_view_incomplete` 已删除），改为 200 部分结果：缺的字段为 `null`，原因写进逐项 `unavailable`（`not_connected` / `not_configured` / `no_authorized_target` / `not_generated` / `unavailable` / `stale`），不把未知写成 0、ok、空列表或“未值班”。KPI 和 facet 只统计已知值，KPI 带被排除的 `unknown` 数，全部未知时为 `null` + `reason`；`status` 筛选只匹配已知状态，排序把未知放最后。读取期间来源封印或告警覆盖变化改报 `503 service_source_changed`，数据库/策略不可用仍为 `503 service_view_unavailable`，403/404/422 不变。`GET /services/{id}/slo` 首次保存前返回 200（target/window 为 `null`，revision 0），不再 `503 slo_not_configured`。契约顺带放开 `tier` 到 T0–T3、详情 `env` 为任意环境键。OpenAPI 与[服务目录与详情](../api/v3-service-views.md)已更新；v3serviceviews 数据库测试（含新登记服务无证据 → 200 + 原因、KPI 忽略未知）通过。前端类型和页面另行适配。
 - **PA-10 部分修复**：告警、规则、角色、Prompt 页改为数据加载后默认选第一项（`ui/selection.ts`）；事件页没有 ID 时显示当前列表的第一条。评测和通用接入页依赖 PA-20 的列表接口。
 - **数据接入**：两个实例都登记了三个服务（发现结果带 `resource_id`）；Prometheus、Loki、Tempo 连接器连通；遥测配置写好后，服务映射的指标、日志、链路都是“正常”。接入后干净页面从 0 升到 45 页（生产实例中文深色，108 页中）。
 

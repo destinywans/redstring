@@ -1,7 +1,7 @@
 import { test, expect, type Browser, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { INSTANCES, LOCAL } from "./support/env";
+import { INSTANCES, LOCAL, roleAccounts, signIn } from "./support/env";
 import { statePath } from "./support/global-setup";
 import { monitor } from "./support/monitor";
 
@@ -35,6 +35,8 @@ async function approverPage(browser: Browser, role: string) {
  * security panel; otherwise the same three API calls run in-page (the panel is covered separately).
  */
 async function registerPasskey(page: Page, label: string) {
+  // Changing a passkey needs a recent sign-in (403 passkey_recent_login_required otherwise).
+  await signIn(page, "prod", roleAccounts("prod")[label.split(" ").pop() ?? ""]);
   if (process.env.GOLDEN_UI_REGISTER) {
     await page.goto(origin + "/settings/account-security");
     await page.getByRole("button", { name: "添加" }).first().click();

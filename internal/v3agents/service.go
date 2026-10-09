@@ -58,6 +58,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"POST /api/v1/eval-datasets/{id}/items", "change", s.DatasetItem},
 		{"POST /api/v1/agent-runs/{id}/annotations", "change", s.AnnotateRun},
 		{"GET /api/v1/prompts/{id}/versions", "view", s.PromptVersions},
+		{"GET /api/v1/evals", "view", s.Evals},
 		{"GET /api/v1/evals/{id}", "view", s.EvalDetail},
 		{"POST /api/v1/evals", "change", s.CreateEval},
 		{"POST /api/v1/eval-cases", "change", s.CreateEvalCase},

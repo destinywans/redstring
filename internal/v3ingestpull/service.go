@@ -46,6 +46,8 @@ func writeError(w http.ResponseWriter, err error) {
 }
 
 func (s *Service) Register(api *httpapi.Server) {
+	api.Register("GET /api/v1/ingest/pull", "viewer", s.list)
+	api.MarkV3ObjectRoute("GET /api/v1/ingest/pull", "connectors", "view")
 	api.Register("GET /api/v1/ingest/pull/{id}", "viewer", s.get)
 	api.Register("POST /api/v1/ingest/pull/{id}/test", "viewer", s.test)
 	api.MarkV3ObjectRoute("GET /api/v1/ingest/pull/{id}", "connectors", "view")

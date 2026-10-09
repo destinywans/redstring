@@ -27,6 +27,9 @@ def v3_route(method, path, summary, *, body=None, response=None, status=200, que
 # null is never replaced by 0, false, an empty list, "healthy" or a placeholder.
 V3_UNAVAILABLE_REASONS = ['not_connected', 'not_configured', 'no_authorized_target', 'not_generated', 'unavailable', 'stale']
 def v3_nullable(schema): return {'oneOf': [schema, {'type': 'null'}]}
+# PA-09: a list that is empty because nothing is visible to the caller says so
+# instead of returning 403; null when the list is not empty for that reason.
+def v3_empty_reason(): return v3_nullable(string(enum=['no_authorized_target']))
 S['V3Unavailable'] = {'type': 'object', 'additionalProperties': string(enum=V3_UNAVAILABLE_REASONS),
     'description': 'Field path (dot-separated; [] marks a field of every array item) -> reason for each unknown '
         'field, which is null in the body. Empty when every field is proven. not_configured: no source or registration; '

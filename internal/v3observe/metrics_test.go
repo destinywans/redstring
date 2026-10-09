@@ -442,7 +442,13 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 	if _, err = db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='connectors' AND action='view'`); err != nil {
 		t.Fatal(err)
 	}
-	check(request("?service=app"), 403, "forbidden")
+	// A visible service without connectors.view keeps the page: only the
+	// metric blocks are unknown, and no source is looked up or read.
+	noSource := decode(request("?service=app"))
+	if noSource.KPIs != nil || noSource.Unavailable["kpis"] != "no_authorized_target" || noSource.Unavailable["slo"] != "no_authorized_target" ||
+		noSource.Window.ReleaseAt == nil {
+		t.Fatalf("missing connector grant: %+v", noSource)
+	}
 	check(request("?service=absent"), 403, "forbidden")
 	if calls.Load() != beforeCalls {
 		t.Fatal("provider called without connector grant")
@@ -484,10 +490,21 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 	close(release)
 	select {
 	case w = <-response:
-		check(w, 403, "forbidden")
+		// Grants evaluated before the read changed: nothing is returned.
+		check(w, 409, "metric_source_changed")
 	case <-time.After(10 * time.Second):
 		t.Fatal("revoked request stalled")
 	}
+	// Without events.view the markers are unknown; metrics are still served
+	// and alignment, which needs an incident, is refused.
+	mode.Store(0)
+	noEvents := decode(request("?service=app"))
+	if noEvents.KPIs == nil || noEvents.Window.ReleaseAt != nil || noEvents.Unavailable["window.release_at"] != "no_authorized_target" ||
+		noEvents.Unavailable["window.incident"] != "no_authorized_target" {
+		t.Fatalf("missing events grant: %+v", noEvents.Unavailable)
+	}
+	check(request("?service=app&align=true"), 403, "forbidden")
+	mode.Store(2)
 	if _, err = db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('admin','events','view','global','*') ON CONFLICT DO NOTHING`); err != nil {
 		t.Fatal(err)
 	}

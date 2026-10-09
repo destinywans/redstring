@@ -120,6 +120,9 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
  ('agent-app-dev','agent-app','dev','Dev'),('other-app-dev','other-app','dev','Dev')`,
 		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES
  ('agent-app','dev'),('other-app','dev')`,
+		// Migration 162 gives the built-in viewer role global agents.view;
+		// this test needs a viewer limited to one application.
+		`DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='agents'`,
 		`INSERT INTO rbac_roles(id,name) VALUES('agent-viewer','Agent Viewer')`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','dev'),

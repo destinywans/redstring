@@ -100,6 +100,9 @@ func TestEvalDetailPersistedReadAndRevocationHTTP(t *testing.T) {
  ('eval-app-dev','eval-app','dev','Dev'),('other-app-dev','other-app','dev','Dev')`,
 		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES
  ('eval-app','dev'),('other-app','dev')`,
+		// Migration 162 gives the built-in viewer role global agents.view;
+		// this test needs a reader limited to one application.
+		`DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='agents'`,
 		`INSERT INTO rbac_roles(id,name) VALUES('eval-reader','Eval Reader')`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','dev'),
@@ -194,6 +197,43 @@ func TestEvalDetailPersistedReadAndRevocationHTTP(t *testing.T) {
 	wantNotFound(t, get("absent-eval", "dev"))
 	wantNotFound(t, get("hidden-eval", "dev"))
 	wantNotFound(t, get("unaudited-eval", "dev"))
+	// The list shows exactly the experiments the detail route would open.
+	list := func(query, session string) map[string]any {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/evals"+query, nil)
+		r.Header.Set("X-AIOps-Environment", "dev")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: session})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		var body map[string]any
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &body) != nil {
+			t.Fatalf("eval list %s: status=%d body=%s", query, w.Code, w.Body.String())
+		}
+		return body
+	}
+	listed := list("", token)
+	items, _ := listed["items"].([]any)
+	if len(items) != 1 || listed["total"] != float64(1) || listed["empty_reason"] != nil ||
+		items[0].(map[string]any)["id"] != "visible-eval" || items[0].(map[string]any)["agent_name"] != "Eval Agent" ||
+		items[0].(map[string]any)["finished_at"] != nil || items[0].(map[string]any)["href"] != "/evals/visible-eval" {
+		t.Fatalf("eval list scope: %+v", listed)
+	}
+	if paged := list("?page=2&page_size=1", token); len(paged["items"].([]any)) != 0 || paged["total"] != float64(1) || paged["page"] != float64(2) {
+		t.Fatalf("eval list paging: %+v", paged)
+	}
+	if hidden := list("?agent_id=hidden-agent", token); len(hidden["items"].([]any)) != 0 || hidden["empty_reason"] != nil {
+		t.Fatalf("hidden agent filter: %+v", hidden)
+	}
+	if _, err = st.CreateUser(ctx, core.User{Email: "noagents@example.invalid", Name: "No Agents", Role: "viewer"}, "isolated-noagents-password"); err != nil {
+		t.Fatal(err)
+	}
+	_, noAgentsToken, err := st.Login(ctx, "noagents@example.invalid", "isolated-noagents-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if none := list("", noAgentsToken); len(none["items"].([]any)) != 0 || none["empty_reason"] != "no_authorized_target" {
+		t.Fatalf("no visible agent: %+v", none)
+	}
 	if got := get("visible-eval", "all"); got.Code != 200 {
 		t.Fatalf("all-selected readable detail status=%d body=%s", got.Code, got.Body.String())
 	}

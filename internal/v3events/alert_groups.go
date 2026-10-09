@@ -252,7 +252,7 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...st
 				Service: v.ApplicationID, SourceID: v.SourceID, Fingerprint: v.Fingerprint,
 				EnvironmentID: v.EnvironmentID, EnvironmentKey: v.EnvironmentKey,
 				CountKind: "persisted_incidents", State: "resolved", Since: v.StartsAt.UTC().Format(time.RFC3339Nano),
-				Notify: alertGroupNotify{Text: "平台无通知记录；外部通知状态未知", Scope: "platform_queue"},
+				Notify: alertGroupNotify{Text: text{}.notify(nil), Scope: "platform_queue"},
 				Badges: []badge{}, Instances: []alertGroupInstance{},
 				LocalGrouping: []string{"environment_id", "application_id", "source_id", "fingerprint"},
 				Partial:       true,
@@ -386,22 +386,7 @@ func latestLocalGroupNotifications(ctx context.Context, tx pgx.Tx, values []inci
 	return out, rows.Err()
 }
 
-func localNotificationText(status string) string {
-	switch status {
-	case "pending":
-		return "平台通知待发送；外部状态未知"
-	case "sending":
-		return "平台通知发送中；外部状态未知"
-	case "retrying":
-		return "平台通知重试中；外部状态未知"
-	case "failed":
-		return "平台通知发送失败；外部状态未知"
-	case "sent":
-		return "平台通知传输接口已接受；未确认接收人已读"
-	default:
-		return "平台通知状态未知"
-	}
-}
+func localNotificationText(status string) string { return text{}.notification(status) }
 
 func respondAlertGroupError(w http.ResponseWriter, err error) {
 	if errors.Is(err, errGroupingLabelUnavailable) {
@@ -515,6 +500,10 @@ func (s *Service) AlertGroups(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
+	t := textFor(r.Header.Get("Accept-Language"))
+	for i := range items {
+		items[i].Notify.Text = t.notify(items[i].Notify.Status)
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{
 		"items": items, "counts": counts, "partial": true,
@@ -615,15 +604,20 @@ func (s *Service) configuredGroupPolicyLabels(members []incidentRecord) (map[str
 	return maps.Clone(labels), "", nil
 }
 
-func applyObservedGroupPolicy(result *alertGroupPolicyResponse, observed v3alertmanager.GroupPolicyObservation) {
+func applyObservedGroupPolicy(result *alertGroupPolicyResponse, observed v3alertmanager.GroupPolicyObservation, language ...text) {
+	t := firstText(language)
+	timing := func(key, value string) groupPolicyTiming {
+		label, help := t.timing(key)
+		return groupPolicyTiming{Key: key, Label: label, Value: value, Help: help}
+	}
 	result.GroupBy = append([]string{}, observed.GroupBy...)
 	result.Receivers = append([]string{}, observed.Receivers...)
 	route := strings.Join(observed.Receivers, ", ")
 	result.Route = &route
 	result.Timing = []groupPolicyTiming{
-		{Key: "group_wait", Label: "分组等待", Value: observed.GroupWait, Help: "Alertmanager 当前配置的首次分组等待时间"},
-		{Key: "group_interval", Label: "分组间隔", Value: observed.GroupInterval, Help: "Alertmanager 当前配置的新告警通知间隔"},
-		{Key: "repeat_interval", Label: "重复间隔", Value: observed.RepeatInterval, Help: "Alertmanager 当前配置的重复通知间隔"},
+		timing("group_wait", observed.GroupWait),
+		timing("group_interval", observed.GroupInterval),
+		timing("repeat_interval", observed.RepeatInterval),
 	}
 	source := "configured_alertmanager"
 	at := observed.ObservedAt.UTC().Format(time.RFC3339Nano)
@@ -791,7 +785,7 @@ func (s *Service) AlertGroupPolicy(w http.ResponseWriter, r *http.Request) {
 		Partial: true, Unavailable: unavailable,
 	}
 	if observed != nil {
-		applyObservedGroupPolicy(&result, *observed)
+		applyObservedGroupPolicy(&result, *observed, textFor(r.Header.Get("Accept-Language")))
 	}
 	if err = activeAlertReadSession(r.Context(), tx, r); err != nil {
 		respondAlertGroupError(w, err)
@@ -800,6 +794,10 @@ func (s *Service) AlertGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	if err = tx.Commit(r.Context()); err != nil {
 		respondErr(w, err)
 		return
+	}
+	t := textFor(r.Header.Get("Accept-Language"))
+	for i := range result.Timeline {
+		result.Timeline[i].Text = t.notification(result.Timeline[i].Status)
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, http.StatusOK, result)

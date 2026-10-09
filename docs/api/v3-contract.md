@@ -26,6 +26,7 @@
 | 过滤 | 列表过滤用查询参数：`q`（搜索）、`filter` / `category` / `kind` 等枚举；数组参数重复键（`?k=a&k=b`） |
 | 写操作 | 模型只读取证。任何对外部系统的写动作都只生成**提案**，人工批准后由独立执行器执行；本契约中的 POST/PUT/PATCH 只修改平台自身配置或状态 |
 | 审计 | 所有写请求和 Agent 工具调用都写入审计（`GET /audit`） |
+| 空列表 | 列表因当前用户没有任何可见对象而为空时返回 200、空 `items` 和 `empty_reason: "no_authorized_target"`，不返回 403；其他情况 `empty_reason` 为 `null`。读取上游期间授权变化仍按失败关闭返回 403/409/503（2026-10-09 PA-09） |
 | 未知 | 缺少可选证据时读接口仍返回 200：受影响字段为 `null`，同时在 `unavailable` 中按字段路径给出原因，例如 `{"total": "not_configured", "security.factors": "unavailable"}`（`[]` 表示数组每项的字段）。原因只有六种：`not_configured`（没有来源或登记）、`not_connected`（没有接入集成）、`no_authorized_target`（当前用户没有可见目标）、`not_generated`（平台尚未产生或记录）、`unavailable`（已配置的来源失败或没有证明）、`stale`（证据已过期）。未知不能写成 0、空列表、正常或“未值班”；字段都已证明时 `unavailable` 是空对象。只有请求本身无法完成（唯一来源已配置但失败、存储失败、授权失败）才返回错误。2026-10-09 起适用于 `/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard`；`/home` 和 `/me` 沿用各自的 `availability`、`oncall_state` |
 | 环境 | 请求头 `X-AIOps-Environment: <环境 id> \| all`，取右上角的当前环境；列表、AI 取证范围和执行目标都按它过滤。`all` 只允许在非生产实例中使用，且只能查看，写请求要返回 `409 env_view_only`。生产实例只有 `prod` 一个环境，可以不带这个请求头 |
 
@@ -58,7 +59,7 @@
 | GET | `/me/watched-services` | | 本人明确关注的当前有权服务；状态来源不足时 `status: null` 并标注 `availability` | implemented |
 | GET | `/search` | `q` | 六类持久且当前有权对象的有界搜索，含受治理 Runbook；无真实最近访问记录 | implemented |
 | GET | `/mentions` | `q`, `kind` | 服务、事件、调查、有效人员、本人对话及 Runbook 的有界候选 | implemented |
-| GET | `/home` | | 有界授权快照；无来源的 AI 简报、值班与服务健康可空，附 `availability` | implemented |
+| GET | `/home` | | 有界授权快照；无来源的 AI 简报、值班与服务健康可空，附 `availability`。`alert_trend` 另带 `start`（RFC 3339，整秒 UTC）和 `step_seconds`（可为小数），前端按本地时区自行生成横轴；`labels` 仍是 UTC `HH:MM`，仅为兼容保留（PA-25） | implemented |
 | GET | `/mentions/{kind}/{id}/preview` | | 当前有权六类对象的有证据预览；Runbook 缺失观测项明示，其他类别明确不可用 | implemented |
 | GET | `/commands` | | `{ items: CommandItem[] }`；仅经配置和授权的斜杠文字建议，不执行命令 | implemented |
 | GET | `/models` | | `ModelCatalog`：当前用户可用的模型、接口类型、推理强度档位与默认值 | implemented |
@@ -90,7 +91,7 @@
 | --- | --- | --- | --- | --- |
 | GET | `/instance` | | `InstanceInfo`：`tier`（`production` \| `nonprod`）、`name`、`domain`、`environments[]`（id、名称、分组、集群、回收时间）、`default_env`，以及另一个平台的链接 `other` | implemented |
 | GET | `/integrations/lower-sources` | | `{ items: LowerSource[] }`，只有生产实例提供；非生产实例返回 404。仅返回服务端显式配置的来源元数据，不代表连接已验证 | implemented |
-| GET | `/config-sync` | | `{ direction: "import" \| "export", items: SyncItem[] }`：生产实例列出已合并候选，非生产实例列出本人已导出项 | implemented |
+| GET | `/config-sync` | | `{ direction: "import" \| "export", items: SyncItem[] }`：生产实例列出已合并候选，非生产实例列出本人已导出项。未配置配置仓库（`AIOPS_V3_CONFIG_SYNC_CONFIG`）或来源信任时返回 `501 config_repository_unavailable` / `config_source_trust_unavailable`，表示功能未接入而非故障，页面应显示“未接入” | implemented |
 | POST | `/config-sync/{id}/import` | `id=mr-<正整数 IID>`；只允许生产实例 | 验证已合并、签名且独立审核的四类配置并持久导入；不执行目标能力 | implemented |
 | POST | `/promotions` | `{ kind: template\|runbook\|alert_rule\|agent_version, id }`；单一非生产环境 | `{ mr, path }`：净化快照签名后写入独立配置仓库并发起 MR；生产实例返回 409 | implemented |
 
@@ -161,7 +162,7 @@
 | GET | `/incidents` | `status: active\|resolved\|all` | `{ items, counts }` | implemented |
 | GET | `/incidents/{id}` | | 当前授权的持久事件及人工时间线；手工事件另给状态修订与真实解决事件/时间，时长、指标与系统/AI 时间线未知 | implemented |
 | POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | implemented |
-| GET | `/alert-rules` | | `AlertRuleSummary[]` 与完整可见范围的 `all/firing/scheduled` 计数；仅展示服务端按 Prometheus 规则文件和组明确绑定到应用、标签和环境均匹配，且当前应用或其负责团队有 `alert_rules.view` 的规则；上游读取后复核负责人和授权，范围变化不返回旧列表。来源失败或超限明确报错，不返回部分计数；无可信周期来源时 `scheduled=0` | implemented |
+| GET | `/alert-rules` | | `AlertRuleSummary[]` 与完整可见范围的 `all/firing/scheduled` 计数；仅展示服务端按 Prometheus 规则文件和组明确绑定到应用、标签和环境均匹配，且当前应用或其负责团队有 `alert_rules.view` 的规则；上游读取后复核负责人和授权，范围变化不返回旧列表。来源失败或超限明确报错，不返回部分计数；无可信周期来源时 `scheduled=0`。当前用户没有可见应用时返回空列表和 `empty_reason: "no_authorized_target"`，不再 403（PA-09）；未配置规则来源时 `items`、`counts` 为 `null`，`unavailable` 为 `not_configured`，不再 503 | implemented |
 | GET | `/alert-rules/{id}` | | 当前受权 Prometheus 规则详情；编辑、通知和 AI 字段未知时可空 | implemented |
 | POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | implemented |
 | PUT | `/alert-rules/{id}` | 单环境、`Idempotency-Key`、`{ expected_version, observed_rule?, rule: { application_id, environment_id, group, name, expr, for, labels, annotations, mode: draft } }` | 当前受权且来源未漂移时导出新版本的不可部署 JSON 草稿，返回 `pending_review` 与经核对的 GitLab MR；不启用规则 | implemented |
@@ -232,7 +233,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/services/{id}/resilience` | | `Resilience`；仅在固定 HTTPS 五类完整来源配置且证据有效时返回 200，否则 503 | implemented |
 | POST | `/services/{id}/resilience/proposals` | `{ kind, params: { investigation_id, reason, desired } }` | 201 `{ proposal_id }`；仅保存人工审阅提案，不创建可执行动作或合并请求 | implemented |
 | GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | 无 `topology_v1` 目录项时为授权 CMDB 部分响应；配置经审查的精确来源后可返回完整 `Topology`，来源不全返回 503 | implemented |
-| GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard` + `unavailable`；单环境、单服务。唯一持久 Prometheus 目标和经审查的 `dashboard` 查询齐备且面板守恒时返回指标块；无来源时指标块为 `null`（`not_configured`），面板不完整为 `unavailable`；没有平台记录的发布/回滚/事件标记为 `null`（`not_generated`） | implemented |
+| GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard` + `unavailable`；单环境、单服务。唯一持久 Prometheus 目标和经审查的 `dashboard` 查询齐备且面板守恒时返回指标块；无来源时指标块为 `null`（`not_configured`），面板不完整为 `unavailable`；没有平台记录的发布/回滚/事件标记为 `null`（`not_generated`）。服务可见但缺环境 `connectors.view` 时指标块为 `null`、缺 `events.view` 时标记为 `null`，原因均为 `no_authorized_target`，不再整页 403（PA-09）；不可见或不存在的服务仍 403 | implemented |
 | POST | `/metrics/ask` | `{ service, view, range, question, request_id }`；`service` 为持久应用 ID，`view=request_rate\|http_p95_seconds`，`range=15m\|1h`，`request_id` 是 16–128 字符重试标识 | 首次接受为 201 `{ conversation_id }`；同一操作者同参数重试为 200，修改同一重试标识的内容返回 409。仅用当前有权的精确 Prometheus 来源快照；前端尚未发送必要字段 | implemented |
 | GET | `/traces` | `scope: app\|agent`, `view`, `q`（应用：有界 TraceQL 选择器；Agent：有界精确过滤）, `service` | 应用范围读取有界 Tempo 集合并逐条校验闭合；部署声明搜索完整（`tempo_search_fail_closed`）时返回完整 `TraceList`，否则返回已找到的 Trace、`partial: true`，总数/视图计数/分面/直方图/散点为 `null`（`not_configured`）；Agent 范围读取当前受权的持久已结束运行及已报告 Span；均带 `unavailable` | implemented |
 | GET | `/traces/{id}` | | 应用范围 `TraceView`：已存储且闭合的 Span 树、关键路径说明与服务调用图；无可靠关联时省略日志/链接 | implemented |
@@ -488,6 +489,8 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | POST | `/api-tokens/{id}/rotate` | | `{ id, secret_shown_once, old_expires_at }`；旧令牌最迟 24 小时后失效（不延长原有效期） | Webhook 与 API › 轮换 | v1.1·已实现 |
 | POST | `/webhooks` | `{ name, type: change\|alert\|incident, verify: hmac\|token }` | `503 webhook_registration_unavailable；可信入口/密钥来源待接入` | Webhook 与 API › 新建 Webhook | v1.1·待实现 |
 | POST | `/agent-tools` | `{ name, kind: read\|write, connector_id }`；写工具只能生成提案 | `{ id }`；登记后不授予任何 Agent | 工具与权限 › 登记工具 | v1.1·已实现 |
+| GET | `/evals` | `agent_id?`, `page`, `page_size`（默认 50，最多 100） | `{ items: [{ id, title, agent_id, agent_name, application_id, environment_id, baseline_version, candidate_version, status, execution_status, created_at, finished_at, href }], total, page, page_size, empty_reason, unavailable }`；只列详情页能打开的实验（同一来源审计与应用/团队授权），新到旧；超过 1000 条返回 413，按 `agent_id` 过滤 | 评测 › 实验列表（PA-20） | v1.1·已实现 |
+| GET | `/ingest/pull` | | `{ items: [{ id, name, application_id, environment_id, connector_id, connector_name, query_id, state: ready\|source_unavailable, href }], empty_reason, unavailable }`；来自服务端私有拉取配置，不含表达式、端点和凭据；未配置时 `items: null`（`not_configured`） | 通用接入 › 拉取来源列表（PA-20） | v1.1·已实现 |
 | GET | `/eval-datasets` | `agent_id?` | `{ items: [{ id, name, source, count }] }` | 评测 › 数据集 | v1.1·已实现 |
 | POST | `/eval-datasets` | `{ name, source: incidents\|runs\|manual }` | `{ id }` | 评测 › 新建数据集 | v1.1·已实现 |
 | POST | `/eval-datasets/{id}/items` | `{ run_id }` | `{ count }` | 运行详情 › 加入数据集 | v1.1·已实现 |

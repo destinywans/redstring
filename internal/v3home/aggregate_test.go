@@ -71,6 +71,11 @@ func TestTrendRangeUsesExactWindowAndTwentyFourBuckets(t *testing.T) {
 		if len(trend.Counts) != 24 || trend.Counts[0][0] != 1 || trend.Counts[1][0] != 1 || trend.Counts[23][0] != 1 {
 			t.Fatalf("%s incorrect boundary buckets: %+v", duration, trend.Counts)
 		}
+		// Clients label buckets from start + i*step in their own time zone.
+		if trend.Start != start.UTC().Format(time.RFC3339) || trend.StepSeconds != step.Seconds() ||
+			trend.Labels[1] != start.Add(step).UTC().Format("15:04") {
+			t.Fatalf("%s trend axis: start=%s step=%v labels=%v", duration, trend.Start, trend.StepSeconds, trend.Labels[:2])
+		}
 		total := 0
 		for _, bucket := range trend.Counts {
 			for _, count := range bucket {

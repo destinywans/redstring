@@ -10,9 +10,10 @@ import { DemoHost } from "../ui/demo";
 import { BrandMark } from "../ui/BrandMark";
 import { PageBoundary } from "../ui/PageBoundary";
 import { LoadError } from "../ui/unknown";
-import { API_MODE, SIGNED_IN_KEY, useGet } from "../api/client";
+import { API_MODE, ApiError, useGet } from "../api/client";
 import type { Me, WatchedService } from "../api/types";
 import { EnvSwitch, useInstanceLoader } from "./EnvSwitch";
+import NoAccessPage, { signOutToLogin } from "../features/auth/NoAccessPage";
 import { useEnv } from "./environment";
 import "./shell.css";
 
@@ -161,14 +162,7 @@ function AccountCard({ me }: { me?: Me }) {
   const signOut = () => {
     if (API_MODE === "mock") toast(tx("示意模式：不会真正退出登录", "Sample mode: you are not actually signed out"));
     else
-      void fetch("/api/v1/auth/logout", { method: "POST", credentials: "same-origin" }).finally(() => {
-        try {
-          localStorage.removeItem(SIGNED_IN_KEY);
-        } catch {
-          /* convenience only */
-        }
-        location.assign("/login");
-      });
+      signOutToLogin();
   };
   return (
     <MenuButton
@@ -292,6 +286,9 @@ export function Page({ crumbs, title, actions, children, ai = true, bodyClass, f
 
 export function Shell() {
   useInstanceLoader();
+  // A signed-in account without any environment gets 403 on /me and on every page: show that instead of the shell.
+  const meCheck = useGet<Me>("/me");
+  const noAccess = API_MODE !== "mock" && meCheck.error instanceof ApiError && meCheck.error.status === 403 && !meCheck.data;
   const { pathname } = useLocation();
   const { tx } = useI18n();
   const toggleAi = useAskAi((s) => s.toggle);
@@ -310,6 +307,7 @@ export function Shell() {
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [toggleAi]);
+  if (noAccess) return <NoAccessPage />;
   return (
     <div className={cx("v3 v3-shell", askClass)}>
       <a href="#v3-main" className="sr-only">

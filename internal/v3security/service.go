@@ -97,7 +97,20 @@ func (s *Service) snapshot(ctx context.Context, scope RuntimeScope) (RuntimeSnap
 	return snapshot, nil
 }
 
-func (s *Service) read(ctx context.Context, actor core.User, token, environmentID string) (RuntimeSnapshot, error) {
+// read returns the authority snapshot. Without a configured authority it
+// returns the "not_configured" reason instead, after the same authorization,
+// pending-operation and session checks; no field is then known.
+func (s *Service) read(ctx context.Context, actor core.User, token, environmentID string) (RuntimeSnapshot, string, error) {
+	snapshot, err := s.readSnapshot(ctx, actor, token, environmentID)
+	if errors.Is(err, errAuthorityNotConfigured) {
+		return RuntimeSnapshot{}, "not_configured", nil
+	}
+	return snapshot, "", err
+}
+
+var errAuthorityNotConfigured = errors.New("security runtime authority is not configured")
+
+func (s *Service) readSnapshot(ctx context.Context, actor core.User, token, environmentID string) (RuntimeSnapshot, error) {
 	scope, err := s.runtimeScope(environmentID)
 	if err != nil {
 		return RuntimeSnapshot{}, err
@@ -122,15 +135,21 @@ func (s *Service) read(ctx context.Context, actor core.User, token, environmentI
 	}
 	// The authority call is bounded. Holding the shared auth locks prevents a
 	// simultaneous revocation from committing before this response is ready.
-	snapshot, err := s.snapshot(ctx, scope)
-	if err != nil {
-		return RuntimeSnapshot{}, err
+	var snapshot RuntimeSnapshot
+	unconfigured := s.Authority == nil
+	if !unconfigured {
+		if snapshot, err = s.snapshot(ctx, scope); err != nil {
+			return RuntimeSnapshot{}, err
+		}
 	}
 	if err := store.LockActiveSession(ctx, tx, token, actor.ID); err != nil {
 		return RuntimeSnapshot{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return RuntimeSnapshot{}, err
+	}
+	if unconfigured {
+		return RuntimeSnapshot{}, errAuthorityNotConfigured
 	}
 	return snapshot, nil
 }

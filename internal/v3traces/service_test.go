@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,10 +19,16 @@ import (
 )
 
 type sourceStub struct {
-	calls  int
-	window connectors.TimeWindow
-	trace  connectors.CompleteTrace
-	after  func(context.Context) error
+	calls      int
+	window     connectors.TimeWindow
+	trace      connectors.CompleteTrace
+	after      func(context.Context) error
+	unattested bool
+}
+
+func (s *sourceStub) QueryObservedTraces(ctx context.Context, q connectors.CompleteTraceQuery) (connectors.TraceObservation, error) {
+	traces, err := s.QueryCompleteTraces(ctx, q)
+	return connectors.TraceObservation{Traces: traces, PopulationComplete: !s.unattested}, err
 }
 
 func (s *sourceStub) QueryCompleteTraces(ctx context.Context, q connectors.CompleteTraceQuery) ([]connectors.CompleteTrace, error) {
@@ -124,20 +131,54 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	}
 	assertError(request("/api/v1/traces?service=app"), 404, "not_found")
 	assertError(request("/api/v1/traces?service=missing"), 404, "not_found")
+	// Without any Tempo binding the unfiltered list states "not configured";
+	// it never returns an empty list that reads as "no traces".
+	w := request("/api/v1/traces?scope=app")
+	var unconfigured map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &unconfigured); err != nil || w.Code != 200 ||
+		string(unconfigured["total"]) != "null" || string(unconfigured["items"]) != "null" ||
+		string(unconfigured["histogram"]) != "null" || string(unconfigured["facets"]) != "null" ||
+		!json.Valid(unconfigured["unavailable"]) || !containsAll(string(unconfigured["unavailable"]), `"items":"not_configured"`, `"total":"not_configured"`) {
+		t.Fatalf("unconfigured trace list: status=%d body=%s", w.Code, w.Body.String())
+	}
+	assertError(request("/api/v1/traces/"+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), 503, "not_configured")
 	if source.calls != 0 {
 		t.Fatal("queried Tempo without a persisted binding")
 	}
 	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"tempo","resource":"registered-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
 		t.Fatal(err)
 	}
-	w := request("/api/v1/traces?service=app")
+	w = request("/api/v1/traces?service=app")
 	if w.Code != 200 {
 		t.Fatalf("list status=%d body=%s", w.Code, w.Body.String())
 	}
 	var list TraceList
-	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil || list.Total != 1 || len(list.Items) != 1 || len(list.Histogram.Counts) != 12 {
+	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil || list.Total != 1 || len(list.Items) != 1 || len(list.Histogram.Counts) != 12 ||
+		list.Unavailable == nil || len(list.Unavailable) != 0 {
 		t.Fatalf("incomplete list contract: %s error=%v", w.Body.String(), err)
 	}
+	// An unattested search keeps the closed traces it found but refuses every
+	// figure derived from that possibly incomplete population.
+	source.unattested = true
+	w = request("/api/v1/traces?service=app&view=all")
+	var observed struct {
+		Total       *int              `json:"total"`
+		Facets      []TraceFacet      `json:"facets"`
+		Histogram   *TraceHistogram   `json:"histogram"`
+		Scatter     []TraceScatter    `json:"scatter"`
+		Items       []TraceRow        `json:"items"`
+		Partial     bool              `json:"partial"`
+		Views       []map[string]any  `json:"views"`
+		Unavailable map[string]string `json:"unavailable"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &observed); err != nil || w.Code != 200 || observed.Total != nil ||
+		observed.Facets != nil || observed.Histogram != nil || observed.Scatter != nil || !observed.Partial ||
+		len(observed.Items) != 1 || observed.Items[0].ID != id || len(observed.Views) != 3 || observed.Views[0]["count"] != nil ||
+		observed.Unavailable["total"] != "not_configured" || observed.Unavailable["histogram"] != "not_configured" ||
+		observed.Unavailable["items"] != "" {
+		t.Fatalf("unattested list must keep traces and drop population figures: status=%d body=%s", w.Code, w.Body.String())
+	}
+	source.unattested = false
 	w = request("/api/v1/traces?service=app&source=tempo&range=6h")
 	if w.Code != 200 || source.window.End.Sub(source.window.Start) != 6*time.Hour {
 		t.Fatalf("requested window not passed upstream: %d %s %+v", w.Code, w.Body.String(), source.window)
@@ -194,4 +235,13 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	}
 	assertError(request("/api/v1/traces?service=app"), 403, "forbidden")
 	assertError(request("/api/v1/traces?service=app"), 404, "not_found")
+}
+
+func containsAll(value string, parts ...string) bool {
+	for _, part := range parts {
+		if !strings.Contains(value, part) {
+			return false
+		}
+	}
+	return true
 }

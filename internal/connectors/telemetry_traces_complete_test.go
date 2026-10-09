@@ -89,6 +89,23 @@ func TestCompleteTempoSearchSplitsAndReadsOnlyAuthorizedClosedTraces(t *testing.
 			t.Fatalf("lost stored trace provenance: %+v", trace)
 		}
 	}
+	observed, err := telemetry.QueryObservedTraces(context.Background(), CompleteTraceQuery{Resources: []string{"app"},
+		Window: TimeWindow{Start: base, End: base.Add(30 * time.Second)}})
+	if err != nil || !observed.PopulationComplete || len(observed.Traces) != 2 {
+		t.Fatalf("attested observation: %+v %v", observed, err)
+	}
+	// Without the deployment attestation the same closed traces are returned,
+	// but never as a complete population.
+	telemetry.config.TempoSearchFailClosed = false
+	if _, err := telemetry.QueryCompleteTraces(context.Background(), CompleteTraceQuery{Resources: []string{"app"},
+		Window: TimeWindow{Start: base, End: base.Add(30 * time.Second)}}); err == nil || err.(*TelemetryError).Kind != "configuration" {
+		t.Fatalf("unattested complete search was accepted: %v", err)
+	}
+	observed, err = telemetry.QueryObservedTraces(context.Background(), CompleteTraceQuery{Resources: []string{"app"},
+		Window: TimeWindow{Start: base, End: base.Add(30 * time.Second)}})
+	if err != nil || observed.PopulationComplete || len(observed.Traces) != 2 || len(observed.Traces[0].Spans) != 1 {
+		t.Fatalf("unattested observation: %+v %v", observed, err)
+	}
 }
 
 func TestCompleteTempoTraceRejectsUnboundOrOpenTree(t *testing.T) {

@@ -3,6 +3,10 @@
 
   python3 tools/acceptance/golden.py canvas|conversation [--keep]
 
+knowledge     bad-release drill → declare an incident from the firing alert (operator) →
+              timeline note → drill off → mitigated → resolved → postmortem draft and
+              save (admin) → runbook from the postmortem, dry run, submit → upload a
+              Markdown document, register it as a knowledge source, search.
 canvas        new investigation → question on the root node (model with read-only
               tools) → derive a child branch → question on the child → rename the
               child (layout version) → writeback preview → write the child's
@@ -25,7 +29,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from api import LOCAL, ORIGINS, call  # noqa: E402
+from api import LOCAL, ORIGINS, call, session_cookie  # noqa: E402
 from permissions import login  # noqa: E402
 
 OUT = LOCAL / 'e2e/golden'
@@ -195,14 +199,141 @@ def conversation(run):
     return cid
 
 
+LAB = Path.home() / 'Home/code/codex/aiops-test'
+
+
+def lab(*args):
+    import subprocess
+    r = subprocess.run(['python3', 'scripts/lab-faults.py', *args], cwd=LAB, capture_output=True, text=True, timeout=600)
+    return (r.stdout + r.stderr).strip().splitlines()[-2:]
+
+
+def app_id(name):
+    import base64
+    _, services = call('prod', 'GET', '/services')
+    for i in services['items']:
+        if i['name'] == name:
+            return i['id'], base64.urlsafe_b64decode(i['id'] + '=' * (-len(i['id']) % 4)).decode().split('\x00')[0]
+    raise SystemExit(f'no service {name}')
+
+
+def upload(cookie, filename, content, kind='file'):
+    boundary = secrets.token_hex(8)
+    body = (f'--{boundary}\r\nContent-Disposition: form-data; name="kind"\r\n\r\n{kind}\r\n'
+            f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{filename}"\r\n'
+            'Content-Type: text/markdown\r\n\r\n').encode() + content + f'\r\n--{boundary}--\r\n'.encode()
+    ctx = ssl.create_default_context(cafile=str(LOCAL / 'tls/cert.pem'))
+    req = urllib.request.Request(ORIGINS['prod'] + '/api/v1/uploads', body, method='POST', headers={
+        'Origin': ORIGINS['prod'], 'Cookie': cookie, 'X-AIOps-Environment': 'prod',
+        'Content-Type': f'multipart/form-data; boundary={boundary}', 'Idempotency-Key': secrets.token_hex(16)})
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=60) as r:
+            return r.status, json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read() or b'{}')
+
+
+def knowledge(run):
+    """Incident during a real bad-release drill → resolve → postmortem → runbook → knowledge source and search."""
+    operator = run.cookie
+    _, app = app_id('checkout-api')
+
+    def firing_ids():
+        _, groups = call('prod', 'GET', '/alert-groups', cookie=operator)
+        return [i['id'] for g in groups.get('items') or [] if g.get('service') == app and g.get('state') == 'firing'
+                for i in g.get('instances') or [] if i.get('state') == 'firing']
+
+    # Start clean: earlier checkout-api alerts must have resolved first.
+    started = time.time()
+    while firing_ids() and time.time() - started < 420:
+        time.sleep(15)
+    print('drill on:', lab('drill', 'bad-release', 'on'), flush=True)
+    alert, tried = None, set()
+    try:
+        started = time.time()
+        while time.time() - started < 360 and not alert:
+            for candidate in firing_ids():
+                if candidate in tried:
+                    continue
+                tried.add(candidate)
+                if call('prod', 'GET', f'/incidents/draft?alerts={candidate}', cookie=operator)[0] == 200:
+                    alert = candidate
+                    break
+            if not alert:
+                time.sleep(10)
+        run.steps.append({'step': 'firing checkout-api alert from the drill', 'alert': alert, 'seconds': round(time.time() - started), 'ok': bool(alert)})
+        print(f"{'ok ' if alert else 'FAIL'}  firing alert {alert} after {round(time.time() - started)} s", flush=True)
+        if not alert:
+            raise SystemExit(run.save())
+        draft = run.step('incident draft from the alert', 'GET', f'/incidents/draft?alerts={alert}')
+        run.note(draft={k: draft.get(k) for k in ('title', 'severity', 'services', 'env')})
+        created = run.step('declare the incident (operator)', 'POST', '/incidents', {
+            'title': draft.get('title') or 'checkout-api 5xx', 'severity': draft.get('severity') or 'P1',
+            'impact': '下单接口约一半请求返回 500', 'env': 'prod', 'services': [app], 'alert_ids': [alert],
+            'war_room': False, 'notify': False, 'status_page': False, 'open_canvas': False, 'participants': ['Operator']})
+        inc = created['id']
+        run.note(incident=inc)
+        run.step('timeline note', 'POST', f'/incidents/{inc}/timeline', {'text': '确认为坏发布导致 5xx，执行回滚（关闭演练）'})
+    finally:
+        print('drill off:', lab('drill', 'bad-release', 'off'), flush=True)
+    detail = run.step('incident detail', 'GET', f'/incidents/{inc}')
+    revision = detail.get('status_revision', detail.get('revision'))
+    run.note(status=detail.get('status'), revision=revision)
+    for target in ('mitigated', 'resolved'):
+        changed = run.step(f'incident → {target}', 'POST', f'/incidents/{inc}/status',
+                           {'status': target, 'expected_revision': revision, 'request_id': secrets.token_hex(16),
+                            'reason': '回滚完成，5xx 归零' if target == 'resolved' else '已回滚，观察中'})
+        revision = changed.get('revision', revision + 1 if isinstance(revision, int) else revision)
+    run.cookie = None  # admin from here on: the stored browser state (the admin signs in with MFA)
+    candidates = run.step('postmortem candidates (admin)', 'GET', '/postmortems/candidates')
+    found = [c for c in candidates.get('items') or [] if c.get('incident_id') == inc or c.get('id') == inc]
+    run.note(candidates=len(candidates.get('items') or []), includes_incident=bool(found))
+    pm_draft = run.step('postmortem draft', 'GET', f'/postmortems/draft?incident={inc}')
+    run.note(draft_keys=sorted(pm_draft.keys()))
+    pm = run.step('save the postmortem as draft', 'POST', '/postmortems', {
+        'incident_id': inc, 'source_revision': pm_draft.get('source_revision'),
+        'sections': pm_draft.get('sections') or [], 'actions': pm_draft.get('actions') or [], 'status': 'draft'})
+    pm_id = pm['id']
+    run.note(postmortem=pm_id)
+    run.step('publish the postmortem', 'POST', f'/postmortems/{pm_id}/publish', {})
+    # PA-63: only postmortems of incidents closed through an investigation can seed a runbook.
+    run.step('runbook draft from a manual-incident postmortem (PA-63)', 'GET',
+             f'/runbooks/draft?source=postmortem&from={pm_id}', ok=(200, 422))
+    doc = ('# checkout-api 坏发布回滚手册\n\n## 现象\n下单接口 5xx 比例超过 30%，order-api 同时报 5xx。\n\n'
+           '## 处置\n1. 确认最近一次发布的 ReplicaSet。\n2. 回滚到上一版本。\n3. 观察 5xx 归零后再关闭事件。\n').encode()
+    status, up = upload(session_cookie('prod', 'admin'), 'checkout-rollback.md', doc)
+    run.steps.append({'step': 'upload a markdown document (admin)', 'status': status, 'ok': status in (200, 201), 'upload': up})
+    print(f"{'ok ' if status in (200, 201) else 'FAIL'} {status}  upload a markdown document", flush=True)
+    if status not in (200, 201):
+        raise SystemExit(run.save())
+    rb_draft = run.step('runbook draft imported from the document', 'GET', f"/runbooks/draft?source=import&from={up['id']}")
+    run.note(steps=len(rb_draft.get('steps') or []), sha=bool(rb_draft.get('source_sha256')), title=rb_draft.get('title'))
+    steps = rb_draft.get('steps') or [{'title': '确认最近一次发布', 'kind': 'manual'}, {'title': '回滚到上一版本', 'kind': 'manual'}]
+    rb = run.step('save the runbook as draft', 'POST', '/runbooks', {
+        'title': 'checkout-api 坏发布回滚', 'source': 'import', 'from': up['id'],
+        'expected_source_sha256': rb_draft.get('source_sha256'), 'steps': steps, 'status': 'draft'})
+    rb_id = rb['id']
+    run.note(runbook=rb_id)
+    run.step('runbook dry run', 'POST', f'/runbooks/{rb_id}/dry-run', {})
+    run.step('submit the runbook for review', 'POST', f'/runbooks/{rb_id}/submit')
+    source = {'type': 'upload', 'url': up['url'], 'application_id': app}
+    run.step('probe the knowledge source', 'POST', '/knowledge-sources/test', source)
+    reg = run.step('register the knowledge source', 'POST', '/knowledge-sources', {
+        **source, 'name': '验收：checkout-api 回滚手册', 'spaces': [], 'schedule': 'manual', 'chunk': 'heading', 'inherit_acl': True})
+    run.note(source=reg)
+    hits = run.step('search the knowledge base', 'POST', '/knowledge/search', {'q': 'checkout-api 坏发布 回滚', 'top_k': 5})
+    run.note(hits=[(h.get('title'), h.get('score')) for h in (hits.get('hits') or [])][:5])
+    return inc
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('path', choices=['canvas', 'conversation'])
+    ap.add_argument('path', choices=['canvas', 'conversation', 'knowledge'])
     a = ap.parse_args()
     run = Run(a.path)
     accounts = json.loads((LOCAL / 'prod/secrets.json').read_text())['accounts']
     run.cookie = login('prod', accounts['operator'])
-    {'canvas': canvas, 'conversation': conversation}[a.path](run)
+    {'canvas': canvas, 'conversation': conversation, 'knowledge': knowledge}[a.path](run)
     print(run.save())
 
 

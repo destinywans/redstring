@@ -75,6 +75,7 @@
 | PA-60 | P3 | 中文界面下，对话失败的状态文字是英文（“Model reply failed”“Retry this message after checking the model connection.”） | 已转后端：按请求语言输出，或给代码由前端翻译 |
 | PA-61 | P2 | Kubernetes 采集源不可达超过 5 分钟后，`GET /topology` 仍是 200 且节点为空、不带任何不可用原因，资源与拓扑页变成一张没有提示的空图，分不清“集群没有资源”和“采集已失败”（5 分钟内则照常显示最近快照，属设计） | 已转后端与前端：拓扑带采集源最近成功时间与 `stale`/`unavailable` 原因，页面提示“Kubernetes 采集已 N 分钟未成功” |
 | PA-62 | P3 | 调查画布节点卡片把证据 ID（如 `EVD-5fc1…`）当成“N 条证据”的数字显示，文字溢出卡片边界；只回写过一次，根节点却显示“已回写 3”；回写预览的检查提示是英文 | 待转前端（计数与溢出）和后端（提示文字随请求语言） |
+| PA-63 | P2 | “从复盘起草 Runbook”只接受已发布且来自“经调查结案”的旧式事故的复盘（要求已关闭调查、调查报告和结案事件）；V3 手工事件（`INC-*`）的复盘永远不能作为 Runbook 来源，`GET /runbooks/draft?source=postmortem` 返回 `422 invalid_source`“Source was not found or is not accessible” | 已转后端：手工事件的已发布复盘（真实 resolved 状态事件为来源）也可起草 Runbook，来源摘要同样锁定；错误文案区分“未发布”和“来源类型不支持” |
 
 ### PA-05/PA-16 五个读接口
 

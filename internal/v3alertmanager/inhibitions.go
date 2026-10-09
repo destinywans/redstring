@@ -55,7 +55,7 @@ func (s *Service) Inhibitions(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, http.StatusServiceUnavailable, "silence_scope_unavailable", "Silence authorization is unavailable")
 		return
 	}
-	allowedApps, admin, readable, ok := s.inhibitionAccess(w, r, scope.EnvironmentIDs)
+	allowedApps, admin, readable, ok := s.inhibitionAccess(w, r, scope.EnvironmentIDs, true)
 	if !ok {
 		return
 	}
@@ -181,7 +181,7 @@ func (s *Service) Inhibitions(w http.ResponseWriter, r *http.Request) {
 	}
 	// Re-read current ownership and grants after the shared upstream access.
 	// A changed projection is never returned under an earlier grant.
-	currentApps, currentAdmin, currentReadable, ok := s.inhibitionAccess(w, r, scope.EnvironmentIDs)
+	currentApps, currentAdmin, currentReadable, ok := s.inhibitionAccess(w, r, scope.EnvironmentIDs, false)
 	if !ok {
 		return
 	}
@@ -203,7 +203,7 @@ func (s *Service) Inhibitions(w http.ResponseWriter, r *http.Request) {
 	// Configured rules have no trustworthy per-rule activity or hit source.
 	httpapi.WriteJSON(w, http.StatusPartialContent, map[string]any{"items": items, "partial": true,
 		"unavailable": []string{"activity", "hit_counts"}, "unavailable_environments": []string{}, "unscoped_present": unscopedPresent,
-		"config_revisions": revisions, "observed_at": observedAt})
+		"config_revisions": revisions, "observed_at": observedAt, "empty_reason": nil})
 }
 
 func redactedInhibitionMatchers(values []matcherView) []matcherView {
@@ -269,7 +269,9 @@ func inhibitionSessionCurrent(r *http.Request, s *Service) error {
 // Resolve current persisted application ownership before inspecting a shared
 // upstream. An environment-wide reader also needs the current manage grant
 // to see rules that can cross application boundaries.
-func (s *Service) inhibitionAccess(w http.ResponseWriter, r *http.Request, environments []string) (map[string]map[string]bool, map[string]bool, map[string]bool, bool) {
+// With firstRead, an empty readable scope is answered as an empty list
+// (PA-09); the recheck after the upstream read keeps failing closed.
+func (s *Service) inhibitionAccess(w http.ResponseWriter, r *http.Request, environments []string, firstRead bool) (map[string]map[string]bool, map[string]bool, map[string]bool, bool) {
 	if s.Catalog == nil || s.Access == nil {
 		httpapi.Error(w, http.StatusServiceUnavailable, "silence_scope_unavailable", "Silence authorization is unavailable")
 		return nil, nil, nil, false
@@ -334,6 +336,12 @@ func (s *Service) inhibitionAccess(w http.ResponseWriter, r *http.Request, envir
 		admin[env] = broadAllowed && grant
 		readable[env] = readable[env] || admin[env]
 		anyReadable = anyReadable || readable[env]
+	}
+	if !anyReadable && firstRead {
+		httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": []inhibitionView{}, "partial": false,
+			"unavailable": []string{}, "unavailable_environments": []string{}, "unscoped_present": false,
+			"config_revisions": map[string]string{}, "observed_at": map[string]string{}, "empty_reason": "no_authorized_target"})
+		return nil, nil, nil, false
 	}
 	if !anyReadable {
 		httpapi.Error(w, http.StatusForbidden, "forbidden", "Silence access is denied")

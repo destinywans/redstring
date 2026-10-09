@@ -42,9 +42,11 @@ v3_route('get','/inhibitions','Read authorized Alertmanager inhibition configura
         'unavailable':arr(string()),'unavailable_environments':arr(string()),
         'unscoped_present':v3_bool(),
         'config_revisions':{'type':'object','additionalProperties':string(pattern='^sha256:[a-f0-9]{64}$')},
-        'observed_at':{'type':'object','additionalProperties':string(format='date-time')}},
-        ['items','partial','unavailable','unavailable_environments','unscoped_present','config_revisions','observed_at']),status=206,
-    desc='Reads current environment-bound Alertmanager configuration. Only exactly scoped and currently authorized source/target rules are returned. Matcher values and receiver secrets are redacted. A single-environment response includes a quoted SHA-256 ETag over the exact observed config.original; config_revisions maps environments when multiple are selected. Activity and historical hit counts are null/unknown, even when no rule is visible. Application bindings and grants are rechecked after the upstream read. No rule is applied here.')
+        'observed_at':{'type':'object','additionalProperties':string(format='date-time')},
+        'empty_reason':v3_empty_reason()},
+        ['items','partial','unavailable','unavailable_environments','unscoped_present','config_revisions','observed_at','empty_reason']),status=206,
+    desc='Reads current environment-bound Alertmanager configuration. Only exactly scoped and currently authorized source/target rules are returned. Matcher values and receiver secrets are redacted. A single-environment response includes a quoted SHA-256 ETag over the exact observed config.original; config_revisions maps environments when multiple are selected. Activity and historical hit counts are null/unknown, even when no rule is visible. Application bindings and grants are rechecked after the upstream read. No rule is applied here. Nothing readable before the upstream read returns 200 with an empty list and empty_reason=no_authorized_target (PA-09); a scope that becomes unreadable during the read is still 403.')
+P['/inhibitions']['get']['responses']['200'] = P['/inhibitions']['get']['responses']['206']
 P['/inhibitions']['get']['responses']['503'] = {'description':'Inhibition source or authorization unavailable',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/inhibitions/preview','Simulate a bounded seven-day inhibition window',

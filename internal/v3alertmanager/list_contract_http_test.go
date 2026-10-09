@@ -98,6 +98,10 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 		return s
 	}
 	owned := makeSilence("owned", "test", "owned")
+	// A platform-created silence stores the creator's user ID upstream.
+	if err := db.QueryRow(ctx, `SELECT id FROM users WHERE email='viewer@example.invalid'`).Scan(&owned.CreatedBy); err != nil {
+		t.Fatal(err)
+	}
 	// A current catalog key also grants no ownership without an explicit binding.
 	unboundKey := makeSilence("unbound-key", "test", "unbound")
 	// A provider label equal to a persisted ID is not an implicit binding.
@@ -287,7 +291,8 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 		t.Fatalf("broad preview without environment grant status=%d body=%s", p.Code, p.Body.String())
 	}
 	w := request("test")
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `"id":"owned"`) || !strings.Contains(w.Body.String(), `"affects":1`) || !strings.Contains(w.Body.String(), `"active":1`) {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"id":"owned"`) || !strings.Contains(w.Body.String(), `"affects":1`) || !strings.Contains(w.Body.String(), `"active":1`) ||
+		!strings.Contains(w.Body.String(), `"creator":"Viewer"`) || !strings.Contains(w.Body.String(), `"empty_reason":null`) {
 		t.Fatalf("team visible status=%d body=%s", w.Code, w.Body.String())
 	}
 	for _, denied := range []string{"unbound-key", "unbound-id", "hidden", "archived", "wide", "regex", "cross", "conflict", "mixed-app-negative", "mixed-app-regex", "mixed-env-negative", "mixed-env-regex", "foreign", "stage"} {
@@ -309,14 +314,17 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 	if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='other' WHERE id='owned-id'`); err != nil {
 		t.Fatal(err)
 	}
-	w = request("test")
-	if w.Code != 403 || strings.Contains(w.Body.String(), `"counts"`) {
-		t.Fatalf("ownership change status=%d body=%s", w.Code, w.Body.String())
+	// Nothing readable before the upstream read is a known empty scope (PA-09).
+	emptyScope := func(got *httptest.ResponseRecorder, what string) {
+		t.Helper()
+		if got.Code != 200 || !strings.Contains(got.Body.String(), `"empty_reason":"no_authorized_target"`) ||
+			!strings.Contains(got.Body.String(), `"items":[]`) || strings.Contains(got.Body.String(), `"id":"owned"`) ||
+			strings.Contains(got.Body.String(), `"unscoped_present":true`) {
+			t.Fatalf("%s status=%d body=%s", what, got.Code, got.Body.String())
+		}
 	}
-	if got := inhibitions("test"); got.Code != 403 || strings.Contains(got.Body.String(), `"items"`) ||
-		strings.Contains(got.Body.String(), `"unscoped_present"`) {
-		t.Fatalf("revoked team inhibition scope status=%d body=%s", got.Code, got.Body.String())
-	}
+	emptyScope(request("test"), "ownership change")
+	emptyScope(inhibitions("test"), "revoked team inhibition scope")
 	if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='ops' WHERE id='owned-id'`); err != nil {
 		t.Fatal(err)
 	}
@@ -332,10 +340,7 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 			t.Fatal(err)
 		}
 	}
-	w = request("test")
-	if w.Code != 403 || strings.Contains(w.Body.String(), `"id":"owned"`) {
-		t.Fatalf("reassigned key gained old silence status=%d body=%s", w.Code, w.Body.String())
-	}
+	emptyScope(request("test"), "reassigned key gained old silence")
 	for _, statement := range []string{
 		`UPDATE applications SET key='new-owned', archived=true WHERE id='new-owner-id'`,
 		`UPDATE applications SET key='owned', archived=false WHERE id='owned-id'`,

@@ -227,9 +227,10 @@ func TestSilenceListScopesFiltersAndCountsObservedAlerts(t *testing.T) {
 			t.Fatalf("invalid state %s: %d", path, w.Code)
 		}
 	}
+	// Environment access itself is still denied by the middleware.
 	w = request(t, api, "/api/v1/silences", "staging")
 	if w.Code != 403 {
-		t.Fatalf("unauthorized environment: %d", w.Code)
+		t.Fatalf("unauthorized environment: %d %s", w.Code, w.Body.String())
 	}
 }
 
@@ -301,7 +302,8 @@ func TestTrulyBroadSilenceOnlySetsNonCountCoverageFlag(t *testing.T) {
 
 func TestSilenceListUnconfiguredAndFailedSources(t *testing.T) {
 	api := testServer(t, nil)
-	if w := request(t, api, "/api/v1/silences", "test"); w.Code != 503 || !strings.Contains(w.Body.String(), "alertmanager_unconfigured") {
+	if w := request(t, api, "/api/v1/silences", "test"); w.Code != 200 || !strings.Contains(w.Body.String(), `"items":null`) ||
+		!strings.Contains(w.Body.String(), `"items":"not_configured"`) {
 		t.Fatalf("unconfigured status=%d body=%s", w.Code, w.Body.String())
 	}
 	api = testServer(t, fakeSource{fail: map[string]bool{"test": true}})
@@ -456,9 +458,50 @@ func TestInhibitionDeniedBeforeSourceCapabilityCheck(t *testing.T) {
 			EnvironmentLabels:   map[string]string{"test": "environment"},
 			ApplicationBindings: map[string]map[string]string{"test": {"owned": "owned-id"}}}).Register(api)
 		w := request(t, api, "/api/v1/inhibitions", "test")
-		if w.Code != 403 || !strings.Contains(w.Body.String(), `"forbidden"`) ||
-			strings.Contains(w.Body.String(), "alertmanager") || strings.Contains(w.Body.String(), `"items"`) {
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"empty_reason":"no_authorized_target"`) ||
+			strings.Contains(w.Body.String(), "alertmanager") || !strings.Contains(w.Body.String(), `"items":[]`) {
 			t.Fatalf("denied inhibition source=%T status=%d body=%s", source, w.Code, w.Body.String())
 		}
+	}
+}
+
+func TestSilenceProjectionRemainingShareAndRFC3339Window(t *testing.T) {
+	s := silence(t, "s", "active", "test")
+	s.StartsAt = time.Date(2026, 10, 9, 8, 0, 0, 0, time.UTC)
+	s.EndsAt = s.StartsAt.Add(30 * time.Minute)
+	// 29 of 30 minutes left is a nearly full remaining share, not zero.
+	view := projectSilence(s, 0, s.StartsAt.Add(time.Minute), "en-US")
+	if view.Remaining == nil || view.Remaining.Pct != 97 || view.Remaining.Text != "29 m" ||
+		view.StartsAt != "2026-10-09T08:00:00Z" || view.EndsAt != "2026-10-09T08:30:00Z" {
+		t.Fatalf("projection: %+v %+v", view, view.Remaining)
+	}
+	if done := projectSilence(s, 0, s.EndsAt.Add(time.Minute), "en-US"); done.Remaining == nil || done.Remaining.Pct != 0 {
+		t.Fatalf("ended window: %+v", done.Remaining)
+	}
+}
+
+func TestRouteTreeWithoutEnvironmentBranchIsNotConfigured(t *testing.T) {
+	config := `route:
+  receiver: default
+  routes:
+    - receiver: other
+      matchers: ['environment="staging"']
+receivers: [{name: default}, {name: other}]
+`
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"config": map[string]string{"original": config}})
+	}))
+	defer provider.Close()
+	client, err := New(map[string]Endpoint{"test": {URL: provider.URL, AllowHTTP: true}}, provider.Client())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.ObserveRouteTree(t.Context(), "test", "environment")
+	if !errors.Is(err, ErrNoEnvironmentRoute) || !errors.Is(err, ErrGroupPolicyAmbiguous) {
+		t.Fatalf("missing environment branch: %v", err)
+	}
+	if _, err = client.ObserveRouteTree(t.Context(), "staging", "environment"); errors.Is(err, ErrNoEnvironmentRoute) {
+		t.Fatal("an unconfigured endpoint must not read as a missing route")
 	}
 }

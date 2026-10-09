@@ -166,9 +166,9 @@
 | GET | `/alert-rules/{id}` | | 当前受权 Prometheus 规则详情；编辑、通知和 AI 字段未知时可空 | implemented |
 | POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | implemented |
 | PUT | `/alert-rules/{id}` | 单环境、`Idempotency-Key`、`{ expected_version, observed_rule?, rule: { application_id, environment_id, group, name, expr, for, labels, annotations, mode: draft } }` | 当前受权且来源未漂移时导出新版本的不可部署 JSON 草稿，返回 `pending_review` 与经核对的 GitLab MR；不启用规则 | implemented |
-| GET | `/notification-routes` | 单一所选环境；需环境级 `alert_rules.view/manage` | 当前生效 Alertmanager 环境子树、`config_revision`/ETag、匿名接收方引用；频道目标、命中数及值班未知 | implemented |
-| GET | `/silences` | `state: active\|planned\|expired\|all` | 静默列表及当前可见记录计数；应用标签需在服务端显式绑定到当前环境的有效应用 ID，再按应用/团队授权判断；环境明确但应用范围较宽的静默仅环境级静默管理员可见；无精确环境或匹配器歧义的静默不展示，宽范围只报告覆盖标志 | implemented |
-| GET | `/inhibitions` | 当前所选环境与应用/团队可见范围 | 当前 Alertmanager 抑制配置的受权子集；匹配值脱敏，`active`/`hits_7d` 未知，返回 `206 partial` | implemented |
+| GET | `/notification-routes` | 单一所选环境；需环境级 `alert_rules.view/manage` | 当前生效 Alertmanager 环境子树、`config_revision`/ETag、匿名接收方引用；频道目标、命中数及值班未知；配置里没有该环境的精确分支时 `root`、`config_revision` 为 `null`，`root_unavailable: "not_configured"`，不再 503（PA-09） | implemented |
+| GET | `/silences` | `state: active\|planned\|expired\|all` | 静默列表及当前可见记录计数；应用标签需在服务端显式绑定到当前环境的有效应用 ID，再按应用/团队授权判断；环境明确但应用范围较宽的静默仅环境级静默管理员可见；无精确环境或匹配器歧义的静默不展示，宽范围只报告覆盖标志。读取前没有可读环境时返回空列表和 `empty_reason: "no_authorized_target"`，未配置 Alertmanager 时 `items`/`counts` 为 `null`（`not_configured`）；`creator` 为平台用户显示名，另给 RFC 3339 的 `starts_at`/`ends_at`，`remaining.pct` 改为剩余比例（PA-09、PA-37） | implemented |
+| GET | `/inhibitions` | 当前所选环境与应用/团队可见范围 | 当前 Alertmanager 抑制配置的受权子集；匹配值脱敏，`active`/`hits_7d` 未知，返回 `206 partial`；读取前没有可读范围时返回 200 空列表和 `empty_reason`（PA-09） | implemented |
 | POST | `/silences/preview` | `{ matchers: [{ k, op, v }] }`；单一环境 | `{ affects, sample }` | implemented |
 | POST | `/silences` | 单环境、开放调查、`Idempotency-Key`、`{ investigation_id, matchers: [{ name, op, value }], duration_seconds, comment }` | 严格私有来源、持久审批与独立 worker 就绪时 `202 pending_review` 提案回执、`effect=no_upstream_write`；默认关闭时 `501 not_connected` | implemented |
 | DELETE | `/silences/{id}` | 已由本系统确认创建的上游 UUID；`Idempotency-Key`、`{ investigation_id, reason }` | 精确归属及上游读回、审批与独立 worker 就绪时 `202 pending_review` 取消提案；默认关闭时 `501 not_connected` | implemented |

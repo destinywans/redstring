@@ -18,13 +18,16 @@ type routeTreeSource interface {
 }
 
 type routeTreeResponse struct {
-	EnvironmentID  string        `json:"environment_id"`
-	Source         string        `json:"source"`
-	ObservedAt     string        `json:"observed_at"`
-	ConfigRevision string        `json:"config_revision"`
-	Root           RouteTreeNode `json:"root"`
-	Partial        bool          `json:"partial"`
-	Unavailable    []string      `json:"unavailable"`
+	EnvironmentID  string         `json:"environment_id"`
+	Source         string         `json:"source"`
+	ObservedAt     string         `json:"observed_at"`
+	ConfigRevision *string        `json:"config_revision"`
+	Root           *RouteTreeNode `json:"root"`
+	Partial        bool           `json:"partial"`
+	Unavailable    []string       `json:"unavailable"`
+	// RootUnavailable is the reason Root is null: not_configured when the
+	// Alertmanager config has no exact branch for this environment (PA-09).
+	RootUnavailable *string `json:"root_unavailable"`
 }
 
 // NotificationRoutes reads a sanitized routing subtree from the currently
@@ -63,7 +66,8 @@ func (s *Service) NotificationRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	observation, err := source.ObserveRouteTree(r.Context(), env, envLabel)
-	if err != nil {
+	noRoute := errors.Is(err, ErrNoEnvironmentRoute)
+	if err != nil && !noRoute {
 		if errors.Is(err, ErrNotConfigured) {
 			httpapi.Error(w, http.StatusNotImplemented, "not_connected", "An environment-bound Alertmanager route source is not connected")
 		} else {
@@ -71,7 +75,7 @@ func (s *Service) NotificationRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if observation.ObservedAt.IsZero() || len(observation.ConfigSHA256) != 64 || s.EnvironmentLabels[env] != envLabel {
+	if !noRoute && (observation.ObservedAt.IsZero() || len(observation.ConfigSHA256) != 64) || s.EnvironmentLabels[env] != envLabel {
 		httpapi.Error(w, http.StatusServiceUnavailable, "route_scope_changed", "Routing scope changed during source read")
 		return
 	}
@@ -86,13 +90,22 @@ func (s *Service) NotificationRoutes(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	unavailable := []string{"matcher_values", "receiver_names", "receiver_targets", "channel_types", "hits_24h", "on_call", "escalation", "current_interval_activity"}
+	if noRoute {
+		// The configuration has no exact branch for this environment: a
+		// deployment state, not an outage. No revision is claimed for it.
+		reason := "not_configured"
+		httpapi.WriteJSON(w, http.StatusOK, routeTreeResponse{EnvironmentID: env, Source: "alertmanager",
+			ObservedAt: time.Now().UTC().Format(time.RFC3339Nano), Partial: true,
+			Unavailable: append([]string{"root"}, unavailable...), RootUnavailable: &reason})
+		return
+	}
 	revision := "sha256:" + observation.ConfigSHA256
 	w.Header().Set("ETag", `"`+revision+`"`)
+	root := observation.Root
 	httpapi.WriteJSON(w, http.StatusOK, routeTreeResponse{
 		EnvironmentID: env, Source: "alertmanager", ObservedAt: observation.ObservedAt.UTC().Format(time.RFC3339Nano),
-		ConfigRevision: revision,
-		Root:           observation.Root, Partial: true,
-		Unavailable: []string{"matcher_values", "receiver_names", "receiver_targets", "channel_types", "hits_24h", "on_call", "escalation", "current_interval_activity"},
+		ConfigRevision: &revision, Root: &root, Partial: true, Unavailable: unavailable,
 	})
 }
 

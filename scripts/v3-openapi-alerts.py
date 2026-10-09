@@ -334,13 +334,14 @@ S['V3NotificationRouteNode'] = obj({
      'repeat_interval','continue','conditional','children'])
 S['V3NotificationRouteTree'] = obj({
     'environment_id':string(),'source':string(enum=['alertmanager']),
-    'config_revision':string(pattern='^sha256:[a-f0-9]{64}$'),
-    'observed_at':string(format='date-time'),'root':ref('V3NotificationRouteNode'),
+    'config_revision':v3_nullable(string(pattern='^sha256:[a-f0-9]{64}$')),
+    'observed_at':string(format='date-time'),'root':v3_nullable(ref('V3NotificationRouteNode')),
+    'root_unavailable':v3_nullable(string(enum=['not_configured'])),
     'partial':v3_bool(),'unavailable':arr(string())},
-    ['environment_id','source','config_revision','observed_at','root','partial','unavailable'])
+    ['environment_id','source','config_revision','observed_at','root','root_unavailable','partial','unavailable'])
 v3_route('get','/notification-routes','Read the scoped active Alertmanager route tree',
     response=ref('V3NotificationRouteTree'),
-    desc='Requires exactly one selected environment and environment-wide alert_rules.view plus alert_rules.manage. Reads configured Alertmanager status and exposes only a subtree proven to be selected by one exact environment matcher. Ambiguous shared routing, missing source, malformed or over-limit configuration fail closed. Matcher values and receiver names are redacted to opaque per-revision receiver refs; receiver definitions, channel targets, credentials and raw YAML are excluded. The quoted config_revision is also returned as the ETag for a conditional draft request. Hit counts, on-call, escalation and current interval activity remain unavailable. Current session and grants are rechecked after the provider read. The frozen frontend expects channel targets and numeric hits and is not accepted.')
+    desc='Requires exactly one selected environment and environment-wide alert_rules.view plus alert_rules.manage. Reads configured Alertmanager status and exposes only a subtree proven to be selected by one exact environment matcher. When the configuration has no exact branch for the environment at all, root and config_revision are null with root_unavailable=not_configured and no ETag (PA-09). Ambiguous shared routing, a failed or missing source, malformed or over-limit configuration fail closed. Matcher values and receiver names are redacted to opaque per-revision receiver refs; receiver definitions, channel targets, credentials and raw YAML are excluded. The quoted config_revision is also returned as the ETag for a conditional draft request. Hit counts, on-call, escalation and current interval activity remain unavailable. Current session and grants are rechecked after the provider read. The frozen frontend expects channel targets and numeric hits and is not accepted.')
 P['/notification-routes']['get']['responses']['501'] = {'description':'No trusted environment route source is connected',
     'content':{'application/json':{'schema':ref('Error')}}}
 S['V3NotificationRouteDraftMatcher'] = obj({
@@ -384,23 +385,24 @@ P['/notification-routes/test']['post']['responses']['501'] = {'description':'Exa
 S['V3SilenceMatcher'] = obj(fieldnames('k v'), ['k','v'])
 S['V3SilencePreviewMatcher'] = obj({'k':string(pattern='^[a-zA-Z_][a-zA-Z0-9_]*$'),'op':string(enum=['=','!=','=~','!~']),
     'v':string(minLength=1,maxLength=256,description='The server enforces a 256 UTF-8 byte maximum.')}, ['k','op','v'])
-S['V3SilenceRemaining'] = obj({'pct':integer(minimum=0,maximum=100),'text':string()},['pct','text'])
+S['V3SilenceRemaining'] = obj({'pct':integer(minimum=0,maximum=100,description='Share of the window still remaining (PA-37).'),'text':string()},['pct','text'])
 S['V3SilenceRead'] = obj({**fieldnames('id window creator reason'),
+    'starts_at':string(format='date-time'),'ends_at':string(format='date-time'),
     'matchers':arr(ref('V3SilenceMatcher')),
     'state':string(enum=['active','planned','expired']),
     'remaining':ref('V3SilenceRemaining'),'affects':integer(minimum=0)},
-    ['id','matchers','state','window','affects','creator','reason'])
+    ['id','matchers','state','window','starts_at','ends_at','affects','creator','reason'])
 S['V3InhibitionRead'] = obj({'id':string(),'source':arr(ref('V3SilenceMatcher')),
     'target':arr(ref('V3SilenceMatcher')),'equal':arr(string()),'stat':string()},
     ['id','source','target','equal','stat'])
 v3_route('get','/silences','Read environment-scoped Alertmanager silences',
-    response=obj({'items':arr(ref('V3SilenceRead')),
-        'counts':obj({k:integer(minimum=0) for k in ['active','planned','expired']},['active','planned','expired']),
+    response=obj({'items':v3_nullable(arr(ref('V3SilenceRead'))),
+        'counts':v3_nullable(obj({k:integer(minimum=0) for k in ['active','planned','expired']},['active','planned','expired'])),
         'partial':v3_bool(),'unavailable_environments':arr(string()),
-        'unscoped_present':v3_bool()},
-        ['items','counts','partial','unavailable_environments','unscoped_present']),
+        'unscoped_present':v3_bool(),'empty_reason':v3_empty_reason(),'unavailable':ref('V3Unavailable')},
+        ['items','counts','partial','unavailable_environments','unscoped_present','empty_reason','unavailable']),
     query=[v3_query('state',string(enum=['active','planned','expired','all']))],
-    desc='Only provider silences with an exact positive non-regex environment matcher are returned. Application-scoped records also require an explicit server-owned application-label-to-persisted-ID binding to an active application in that environment and a current V3 application/team view grant. Exact environment silences with wider application scope require environment-wide silence view and manage grants. Ambiguous matchers are hidden. Affects comes from provider-observed alerts restricted to the authorized environment and application; counts cover the visible records. Broad records without exact environment binding are hidden and set unscoped_present for environment administrators (206). An authorized source failure, a duplicate visible ID or more than 500 visible records fails closed, without partial counts. Provider responses are bounded to 2 MiB.')
+    desc='Only provider silences with an exact positive non-regex environment matcher are returned. Application-scoped records also require an explicit server-owned application-label-to-persisted-ID binding to an active application in that environment and a current V3 application/team view grant. Exact environment silences with wider application scope require environment-wide silence view and manage grants. Ambiguous matchers are hidden. Affects comes from provider-observed alerts restricted to the authorized environment and application; counts cover the visible records. Broad records without exact environment binding are hidden and set unscoped_present for environment administrators (206). An authorized source failure, a duplicate visible ID or more than 500 visible records fails closed, without partial counts. Provider responses are bounded to 2 MiB. Nothing readable before the upstream read returns an empty list with empty_reason=no_authorized_target (PA-09); no configured Alertmanager returns items/counts null with not_configured. creator is the platform user display name when createdBy is a known user ID; window is display text, starts_at/ends_at are RFC 3339 for local rendering; remaining.pct is the remaining share of the window (PA-37).')
 P['/silences']['get']['responses']['206'] = P['/silences']['get']['responses']['200']
 v3_route('post','/silences/preview','Count currently matching Alertmanager alerts without creating a silence',
     body=obj({'matchers':{'type':'array','items':ref('V3SilencePreviewMatcher'),

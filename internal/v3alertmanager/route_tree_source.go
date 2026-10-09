@@ -110,7 +110,7 @@ func (c *Client) ObserveRouteTree(ctx context.Context, environment, environmentL
 		}
 	}
 	if selected < 0 {
-		return RouteTreeObservation{}, ErrGroupPolicyAmbiguous
+		return RouteTreeObservation{}, ErrNoEnvironmentRoute
 	}
 	branch := root.children[selected]
 	if branch.continueSiblings {

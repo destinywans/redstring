@@ -36007,7 +36007,7 @@
       "get": {
         "summary": "Read the scoped active Alertmanager route tree",
         "operationId": "get_notification_routes",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires exactly one selected environment and environment-wide alert_rules.view plus alert_rules.manage. Reads configured Alertmanager status and exposes only a subtree proven to be selected by one exact environment matcher. Ambiguous shared routing, missing source, malformed or over-limit configuration fail closed. Matcher values and receiver names are redacted to opaque per-revision receiver refs; receiver definitions, channel targets, credentials and raw YAML are excluded. The quoted config_revision is also returned as the ETag for a conditional draft request. Hit counts, on-call, escalation and current interval activity remain unavailable. Current session and grants are rechecked after the provider read. The frozen frontend expects channel targets and numeric hits and is not accepted.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires exactly one selected environment and environment-wide alert_rules.view plus alert_rules.manage. Reads configured Alertmanager status and exposes only a subtree proven to be selected by one exact environment matcher. When the configuration has no exact branch for the environment at all, root and config_revision are null with root_unavailable=not_configured and no ETag (PA-09). Ambiguous shared routing, a failed or missing source, malformed or over-limit configuration fail closed. Matcher values and receiver names are redacted to opaque per-revision receiver refs; receiver definitions, channel targets, credentials and raw YAML are excluded. The quoted config_revision is also returned as the ETag for a conditional draft request. Hit counts, on-call, escalation and current interval activity remain unavailable. Current session and grants are rechecked after the provider read. The frozen frontend expects channel targets and numeric hits and is not accepted.",
         "responses": {
           "200": {
             "description": "Success",
@@ -36365,7 +36365,7 @@
       "get": {
         "summary": "Read environment-scoped Alertmanager silences",
         "operationId": "get_silences",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only provider silences with an exact positive non-regex environment matcher are returned. Application-scoped records also require an explicit server-owned application-label-to-persisted-ID binding to an active application in that environment and a current V3 application/team view grant. Exact environment silences with wider application scope require environment-wide silence view and manage grants. Ambiguous matchers are hidden. Affects comes from provider-observed alerts restricted to the authorized environment and application; counts cover the visible records. Broad records without exact environment binding are hidden and set unscoped_present for environment administrators (206). An authorized source failure, a duplicate visible ID or more than 500 visible records fails closed, without partial counts. Provider responses are bounded to 2 MiB.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only provider silences with an exact positive non-regex environment matcher are returned. Application-scoped records also require an explicit server-owned application-label-to-persisted-ID binding to an active application in that environment and a current V3 application/team view grant. Exact environment silences with wider application scope require environment-wide silence view and manage grants. Ambiguous matchers are hidden. Affects comes from provider-observed alerts restricted to the authorized environment and application; counts cover the visible records. Broad records without exact environment binding are hidden and set unscoped_present for environment administrators (206). An authorized source failure, a duplicate visible ID or more than 500 visible records fails closed, without partial counts. Provider responses are bounded to 2 MiB. Nothing readable before the upstream read returns an empty list with empty_reason=no_authorized_target (PA-09); no configured Alertmanager returns items/counts null with not_configured. creator is the platform user display name when createdBy is a known user ID; window is display text, starts_at/ends_at are RFC 3339 for local rendering; remaining.pct is the remaining share of the window (PA-37).",
         "responses": {
           "200": {
             "description": "Success",
@@ -36375,32 +36375,46 @@
                   "type": "object",
                   "properties": {
                     "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3SilenceRead"
-                      }
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/V3SilenceRead"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "counts": {
-                      "type": "object",
-                      "properties": {
-                        "active": {
-                          "type": "integer",
-                          "minimum": 0
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "active": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "planned": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "expired": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "active",
+                            "planned",
+                            "expired"
+                          ]
                         },
-                        "planned": {
-                          "type": "integer",
-                          "minimum": 0
-                        },
-                        "expired": {
-                          "type": "integer",
-                          "minimum": 0
+                        {
+                          "type": "null"
                         }
-                      },
-                      "additionalProperties": false,
-                      "required": [
-                        "active",
-                        "planned",
-                        "expired"
                       ]
                     },
                     "partial": {
@@ -36414,6 +36428,22 @@
                     },
                     "unscoped_present": {
                       "type": "boolean"
+                    },
+                    "empty_reason": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no_authorized_target"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unavailable": {
+                      "$ref": "#/components/schemas/V3Unavailable"
                     }
                   },
                   "additionalProperties": false,
@@ -36422,7 +36452,9 @@
                     "counts",
                     "partial",
                     "unavailable_environments",
-                    "unscoped_present"
+                    "unscoped_present",
+                    "empty_reason",
+                    "unavailable"
                   ]
                 }
               }
@@ -36496,32 +36528,46 @@
                   "type": "object",
                   "properties": {
                     "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3SilenceRead"
-                      }
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/V3SilenceRead"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "counts": {
-                      "type": "object",
-                      "properties": {
-                        "active": {
-                          "type": "integer",
-                          "minimum": 0
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "active": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "planned": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "expired": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "additionalProperties": false,
+                          "required": [
+                            "active",
+                            "planned",
+                            "expired"
+                          ]
                         },
-                        "planned": {
-                          "type": "integer",
-                          "minimum": 0
-                        },
-                        "expired": {
-                          "type": "integer",
-                          "minimum": 0
+                        {
+                          "type": "null"
                         }
-                      },
-                      "additionalProperties": false,
-                      "required": [
-                        "active",
-                        "planned",
-                        "expired"
                       ]
                     },
                     "partial": {
@@ -36535,6 +36581,22 @@
                     },
                     "unscoped_present": {
                       "type": "boolean"
+                    },
+                    "empty_reason": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no_authorized_target"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unavailable": {
+                      "$ref": "#/components/schemas/V3Unavailable"
                     }
                   },
                   "additionalProperties": false,
@@ -36543,7 +36605,9 @@
                     "counts",
                     "partial",
                     "unavailable_environments",
-                    "unscoped_present"
+                    "unscoped_present",
+                    "empty_reason",
+                    "unavailable"
                   ]
                 }
               }
@@ -36852,7 +36916,7 @@
       "get": {
         "summary": "Read authorized Alertmanager inhibition configuration",
         "operationId": "get_inhibitions",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads current environment-bound Alertmanager configuration. Only exactly scoped and currently authorized source/target rules are returned. Matcher values and receiver secrets are redacted. A single-environment response includes a quoted SHA-256 ETag over the exact observed config.original; config_revisions maps environments when multiple are selected. Activity and historical hit counts are null/unknown, even when no rule is visible. Application bindings and grants are rechecked after the upstream read. No rule is applied here.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads current environment-bound Alertmanager configuration. Only exactly scoped and currently authorized source/target rules are returned. Matcher values and receiver secrets are redacted. A single-environment response includes a quoted SHA-256 ETag over the exact observed config.original; config_revisions maps environments when multiple are selected. Activity and historical hit counts are null/unknown, even when no rule is visible. Application bindings and grants are rechecked after the upstream read. No rule is applied here. Nothing readable before the upstream read returns 200 with an empty list and empty_reason=no_authorized_target (PA-09); a scope that becomes unreadable during the read is still 403.",
         "responses": {
           "206": {
             "description": "Success",
@@ -36898,6 +36962,19 @@
                         "type": "string",
                         "format": "date-time"
                       }
+                    },
+                    "empty_reason": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no_authorized_target"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "additionalProperties": false,
@@ -36908,7 +36985,8 @@
                     "unavailable_environments",
                     "unscoped_present",
                     "config_revisions",
-                    "observed_at"
+                    "observed_at",
+                    "empty_reason"
                   ]
                 }
               }
@@ -36970,6 +37048,80 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3InhibitionRead"
+                      }
+                    },
+                    "partial": {
+                      "type": "boolean"
+                    },
+                    "unavailable": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "unavailable_environments": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "unscoped_present": {
+                      "type": "boolean"
+                    },
+                    "config_revisions": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "pattern": "^sha256:[a-f0-9]{64}$"
+                      }
+                    },
+                    "observed_at": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string",
+                        "format": "date-time"
+                      }
+                    },
+                    "empty_reason": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no_authorized_target"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "partial",
+                    "unavailable",
+                    "unavailable_environments",
+                    "unscoped_present",
+                    "config_revisions",
+                    "observed_at",
+                    "empty_reason"
+                  ]
                 }
               }
             }
@@ -76388,15 +76540,42 @@
             ]
           },
           "config_revision": {
-            "type": "string",
-            "pattern": "^sha256:[a-f0-9]{64}$"
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "observed_at": {
             "type": "string",
             "format": "date-time"
           },
           "root": {
-            "$ref": "#/components/schemas/V3NotificationRouteNode"
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3NotificationRouteNode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "root_unavailable": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "not_configured"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "partial": {
             "type": "boolean"
@@ -76415,6 +76594,7 @@
           "config_revision",
           "observed_at",
           "root",
+          "root_unavailable",
           "partial",
           "unavailable"
         ]
@@ -76627,7 +76807,8 @@
           "pct": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 100
+            "maximum": 100,
+            "description": "Share of the window still remaining (PA-37)."
           },
           "text": {
             "type": "string"
@@ -76653,6 +76834,14 @@
           },
           "reason": {
             "type": "string"
+          },
+          "starts_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ends_at": {
+            "type": "string",
+            "format": "date-time"
           },
           "matchers": {
             "type": "array",
@@ -76682,6 +76871,8 @@
           "matchers",
           "state",
           "window",
+          "starts_at",
+          "ends_at",
           "affects",
           "creator",
           "reason"

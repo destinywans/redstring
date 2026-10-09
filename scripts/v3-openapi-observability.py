@@ -395,9 +395,6 @@ P['/changes/commits/{sha}']['get']['responses']['502'] = {
     'content':{'application/json':{'schema':ref('Error')}}}
 S['V3MetricProbe'] = obj({'status':string(enum=['observed','no_samples','not_registered','not_configured','unavailable','truncated']),
     'series':integer(minimum=0),'samples':integer(minimum=0)},['status','series','samples'])
-S['V3IncompleteMetrics'] = obj({'error':obj({'code':string(),'message':string()},['code','message']),
-    'service':string(),'environment_id':string(),'available':v3_map(ref('V3MetricProbe')),
-    'missing':arr(string())},['error','service','environment_id','available','missing'])
 _dashboard_points = {'type':'array','items':{'type':'number','minimum':0},'minItems':36,'maxItems':36}
 _dashboard_intensities = {'type':'array','items':{'type':'number','minimum':0,'maximum':1},'minItems':36,'maxItems':36}
 _dashboard_labels = {'type':'array','items':string(),'minItems':36,'maxItems':36}
@@ -412,38 +409,39 @@ S['V3MetricsBurn'] = obj({'window':string(),
 S['V3MetricsDashboard'] = obj({
     'window':obj({'labels':_dashboard_labels,
         'ticks':{'type':'array','items':string(),'minItems':5,'maxItems':5},
-        'release_at':integer(minimum=0,maximum=35),
-        'rollback_at':integer(minimum=0,maximum=35),
-        'incident':{'type':'array','items':integer(minimum=0,maximum=35),'minItems':2,'maxItems':2},
-        'incident_label':string()},
+        'release_at':v3_nullable(integer(minimum=0,maximum=35)),
+        'rollback_at':v3_nullable(integer(minimum=0,maximum=35)),
+        'incident':v3_nullable({'type':'array','items':integer(minimum=0,maximum=35),'minItems':2,'maxItems':2}),
+        'incident_label':v3_nullable(string())},
         ['labels','ticks','release_at','rollback_at','incident','incident_label']),
-    'kpis':{'type':'array','items':ref('V3MetricsKpi'),'minItems':5,'maxItems':5},
-    'requests':obj({'ok':_dashboard_points,'client':_dashboard_points,
-        'server':_dashboard_points},['ok','client','server']),
-    'slo':obj({'remaining':{'type':'number','minimum':0,'maximum':100},'availability':string(),'delta':string(),
+    'kpis':v3_nullable({'type':'array','items':ref('V3MetricsKpi'),'minItems':5,'maxItems':5}),
+    'requests':v3_nullable(obj({'ok':_dashboard_points,'client':_dashboard_points,
+        'server':_dashboard_points},['ok','client','server'])),
+    'slo':v3_nullable(obj({'remaining':{'type':'number','minimum':0,'maximum':100},'availability':string(),'delta':string(),
         'burn':{'type':'array','items':ref('V3MetricsBurn'),'minItems':3,'maxItems':3},
-        'note':string()},['remaining','availability','delta','burn','note']),
-    'latency':obj({'p50':_dashboard_points,'p95':_dashboard_points,
+        'note':string()},['remaining','availability','delta','burn','note'])),
+    'latency':v3_nullable(obj({'p50':_dashboard_points,'p95':_dashboard_points,
         'p99':_dashboard_points,
         'heat':{'type':'array','items':_dashboard_intensities,'minItems':8,'maxItems':8},
         'buckets':{'type':'array','items':string(),'minItems':8,'maxItems':8}},
-        ['p50','p95','p99','heat','buckets']),
-    'endpoints':{'type':'array','minItems':1,'maxItems':12,'items':obj({
-        'label':string(),'value':{'type':'number','minimum':0},'tone':_dashboard_tone},['label','value'])},
-    'instances':{'type':'array','minItems':1,'maxItems':12,'items':obj({
+        ['p50','p95','p99','heat','buckets'])),
+    'endpoints':v3_nullable({'type':'array','minItems':1,'maxItems':12,'items':obj({
+        'label':string(),'value':{'type':'number','minimum':0},'tone':_dashboard_tone},['label','value'])}),
+    'instances':v3_nullable({'type':'array','minItems':1,'maxItems':12,'items':obj({
         'label':string(),'values':_dashboard_points,'tone':_dashboard_tone},
-        ['label','values'])}},
-    ['window','kpis','requests','slo','latency','endpoints','instances'])
-v3_route('get','/metrics/dashboard','Read a complete scoped Prometheus metrics dashboard',
+        ['label','values'])}),
+    'unavailable':ref('V3Unavailable')},
+    ['window','kpis','requests','slo','latency','endpoints','instances','unavailable'])
+v3_route('get','/metrics/dashboard','Read a scoped Prometheus metrics dashboard with explicit unknowns',
     query=[v3_query('service'),v3_query('range',string(enum=['1h'])),v3_query('align',string(enum=['true','false']))],
     response=ref('V3MetricsDashboard'),
-    desc='Requires one selected environment, current services.view, environment connectors.view and incident events.view, exactly one persisted V3 Prometheus metric-resource binding, and an operator-reviewed exact-scope dashboard query. Distinct metric bindings return 409 ambiguous_binding. One bounded one-hour source read must cover the baseline plus 36 visible bin ends for every labeled panel. Request total must conserve 2xx/4xx/5xx and independently observed other statuses must be zero; SLO budget must agree with monthly availability and persisted request-based target; heat intensities must be normalized to 0..1. Empty, partial or conflicting data returns 503, never invented zeroes or trends. Release, rollback and incident markers require matching persisted success/event records within the window; absent evidence returns 503. These are independent timestamps, not proof that one rollback reversed the displayed release. Source, binding and authorization are rechecked after the external read and local marker reads. align requests an incident-anchored window; the frozen frontend currently does not send it and still hardcodes version, causal and analysis text that must be corrected before page acceptance.')
+    desc='Requires one selected environment, current services.view, environment connectors.view and incident events.view. The metric blocks need exactly one persisted V3 Prometheus metric-resource binding on an enabled connector with the query_metrics tool, and an operator-reviewed exact-scope dashboard query (AIOPS_V3_PROMETHEUS_QUERIES_CONFIG). Without that source or query the response is 200 with kpis, requests, latency, endpoints, instances and slo null and unavailable=not_configured; the legacy CMDB telemetry binding is not read. Distinct metric bindings return 409 ambiguous_binding; a failing provider is still 503. One bounded one-hour source read must cover the baseline plus 36 visible bin ends for every labeled panel. Request total must conserve 2xx/4xx/5xx and independently observed other statuses must be zero; heat intensities must be normalized to 0..1. Missing, partial or conflicting panels leave every metric block null with unavailable, never invented zeroes or trends. The SLO block also needs a persisted target strictly between 0 and 100 (else null, not_configured) and budget/burn panels that agree with it (else null, unavailable). Release, rollback and incident markers come from matching persisted success/event records within the window; a marker without a record is null with not_generated (the platform recorded no such event; external releases are not connected). These are independent timestamps, not proof that one rollback reversed the displayed release. Source, binding, SLO target, authorization and the Cookie session are rechecked after the external read and local marker reads, including for a not-configured response. align requests an incident-anchored window and returns 503 when no incident can anchor it.')
 for _parameter in P['/metrics/dashboard']['get']['parameters']:
     if _parameter['name'] == 'service':
         _parameter['required'] = True
 P['/metrics/dashboard']['get']['responses']['503'] = {
-    'description':'Complete V3 dashboard unavailable from configured source, complete series or persisted markers',
-    'content':{'application/json':{'schema':{'oneOf':[ref('Error'),ref('V3IncompleteMetrics')]}}}}
+    'description':'Configured metric provider, source lookup, SLO target read or persisted marker read failed',
+    'content':{'application/json':{'schema':ref('Error')}}}
 S['V3RegisteredMetricWindow'] = obj({'start':string(format='date-time'),
     'end':string(format='date-time'),'step_seconds':integer(minimum=30,maximum=30)},
     ['start','end','step_seconds'])
@@ -485,22 +483,18 @@ S['V3LogLine'] = obj({**fieldnames('time service message trace'),
     'level':string(enum=['ERROR','WARN','INFO'])})
 S['V3LogPattern'] = obj({'template':string(),'level':string(enum=['ERROR','WARN','INFO']),
     'count':string(),'trend':arr(integer())},['template','level','count','trend'])
-S['V3IncompleteLogs'] = obj({'error':obj({'code':string(),'message':string()},['code','message']),
-    'available':obj({'total':string(),'errors':string(),
-        'histogram':arr(arr(integer())),'items_sample':arr(ref('V3LogLine'))},
-        ['total','errors','histogram','items_sample']),
-    'missing':arr(string())},['error','available','missing'])
 v3_route('get','/logs','Search configured log provider',
-    response=obj({'total':string(),'errors':string(),'histogram':arr(arr(integer())),
-        'items':arr(ref('V3LogLine')),'patterns':arr(ref('V3LogPattern'))},
-        ['total','errors','histogram','items','patterns']),
+    response=obj({'total':v3_nullable(string()),'errors':v3_nullable(string()),'histogram':v3_nullable(arr(arr(integer()))),
+        'items':v3_nullable(arr(ref('V3LogLine'))),'patterns':v3_nullable(arr(ref('V3LogPattern'))),
+        'unavailable':ref('V3Unavailable')},
+        ['total','errors','histogram','items','patterns','unavailable']),
     query=[v3_query(x) for x in ['q','levels','service']] +
         [v3_query('provider',string(enum=['loki','elasticsearch']))],
-    desc='Requires explicit persisted service/environment/owner-team binding and current logs.view. A single provider may be selected when more than one source is bound; arbitrary endpoints or unbound sources are never accepted. A complete 200 requires exact full-window counts and complete pattern trends from the configured source, including an exact zero-match window, or an explicitly empty levels selection with no upstream query. Elasticsearch accepts only a registered message_template.keyword field or its existing categorize_text path on one concrete index. Configured Loki patterns require trusted top-level JSON level and message_template fields and a declared complete historical lookback covering the requested start. Missing, truncated, approximate or unavailable aggregations return 503 rather than inferring patterns from a bounded line sample. Distinct authorized bindings return 409 ambiguous_binding; changed source or grant is rechecked before response. More than 3 targets or other excessive authorized scope returns 422 scope_limit.')
-P['/logs']['get']['responses']['200']['description'] = 'Complete scoped LogSearch, including exact zero matches, or explicitly empty levels selection without an upstream query'
+    desc='Requires explicit persisted service/environment/owner-team binding and current logs.view. A single provider may be selected when more than one source is bound; arbitrary endpoints or unbound sources are never accepted. items are the bounded, level-checked lines (at most 100, newest first) from every selected source and level. total, errors and histogram are exact full-window counts only when every selected source proved them; patterns only when complete pattern counts and trends account for that total. Otherwise each is null and unavailable names it: not_configured when a Loki application has no registered loki_complete_lookback_seconds (counts) or loki_pattern_field (patterns), unavailable when a registered source did not prove them; items stay a sample either way. Loki counts need a declared lookback covering the requested start; Loki patterns also need trusted top-level JSON level and message_template fields. Elasticsearch accepts only a registered message_template.keyword field or its existing categorize_text path on one concrete index. No log binding for the scope returns 200 with every field null and not_configured. A failing source query is 503 telemetry_unavailable. Distinct authorized bindings return 409 ambiguous_binding; changed source or grant is rechecked before response. More than 3 targets or other excessive authorized scope returns 422 scope_limit.')
+P['/logs']['get']['responses']['200']['description'] = 'Scoped LogSearch with proven lines; counts and patterns are null with reasons when unproven, and every field is null when no source is bound'
 P['/logs']['get']['responses']['503'] = {
-    'description':'Complete log patterns unavailable or configured provider failed',
-    'content':{'application/json':{'schema':{'oneOf':[ref('Error'),ref('V3IncompleteLogs')]}}}}
+    'description':'A configured log provider failed or a selected binding references an unconfigured provider',
+    'content':{'application/json':{'schema':ref('Error')}}}
 S['V3TraceRow'] = obj({**fieldnames('id time op href'),
     'services':arr(string()),'duration_ms':v3_num(),'spans':integer(),'errors':integer(),
     **fieldnames('agent agent_id model tokens application_id environment_id'),
@@ -518,8 +512,18 @@ S['V3TraceList'] = obj({'scope':string(enum=['app','agent']),'total':integer(min
     'items':arr(ref('V3TraceRow')),
     'source':string(),'aggregation_scope':string(),'window_start_at':string(format='date-time'),
     'window_end_at':string(format='date-time'),'excluded_running':integer(minimum=0),
-    'partial':v3_bool(),'missing':arr(string()),'histogram_non_success_states':arr(string())},
-    ['scope','total','took','colors','facets','views','histogram','scatter','items'])
+    'partial':v3_bool(),'missing':arr(string()),'histogram_non_success_states':arr(string()),
+    'unavailable':ref('V3Unavailable')},
+    ['scope','total','took','colors','facets','views','histogram','scatter','items','unavailable'])
+# App scope without a completeness attestation (PA-05): closed traces only.
+S['V3ObservedTraceList'] = obj({'scope':string(enum=['app']),'total':{'type':'null'},'took':string(),
+    'colors':v3_map(string()),'facets':{'type':'null'},
+    'views':arr(obj({'id':string(),'label':string(),'count':{'type':'null'},'query':string()},
+        ['id','label','count','query'])),
+    'histogram':{'type':'null'},'scatter':{'type':'null'},
+    'items':v3_nullable(arr(ref('V3TraceRow'))),'partial':{'type':'boolean','const':True},
+    'unavailable':ref('V3Unavailable')},
+    ['scope','total','took','colors','facets','views','histogram','scatter','items','partial','unavailable'])
 S['V3TraceSpan'] = obj({**fieldnames('id service op'),'depth':integer(),'start':v3_num(),'end':v3_num(),
     'status':string(enum=['ok','error']),'critical':v3_bool(),
     'attrs':arr(obj(fieldnames('k v'),['k','v'])),
@@ -535,9 +539,9 @@ S['V3TraceView'] = obj({**fieldnames('id trace_id op time version flame_note'),
         'edges':arr(ref('V3TraceGraphEdge'))},['nodes','edges'])},
     ['id','trace_id','op','duration_ms','time','version','colors','spans','flame_note','graph'])
 v3_route('get','/traces','Query scoped traces',
-    response=ref('V3TraceList'),
+    response={'oneOf':[ref('V3TraceList'),ref('V3ObservedTraceList')]},
     query=[v3_query(x) for x in ['scope','view','service','q']],
-    desc='Requires persisted service/environment/owner-team Tempo binding and current traces.view. App scope exhausts a one-hour search by bounded window splitting; all 200 counts, facets, histogram and scatter refer to that full result set. At most 40 traces, 64 searches, 6 targets and 500 spans per trace; a reached cap returns 413 rather than a sampled 200. q accepts one bounded TraceQL span selector with simple comparisons and inner AND/OR, but no regex, pipeline or outer union. Complete counts require a server-attested fail-closed Tempo search configuration; otherwise 503. Agent scope instead reads the complete bounded set of currently authorized persisted terminal runs started in the database-clock last 24 hours, requiring both agents.view and traces.view. Current application and owner-team grant boundaries, Agent catalog relationships and Cookie session are checked in one transaction; up to 2000 qualifying runs and 20000 run/model identities, otherwise 413 without sampled counts. Running runs are excluded explicitly rather than assigned fabricated final duration. Optional service matches persisted app ID or key. Agent q accepts at most eight agent/model/status/version/trigger equality terms and duration comparisons joined by AND; unknown grammar returns 422. Token/model/cost or instrumentation coverage with no trusted report remain absent and listed as missing; span/error counts mean persisted reported rows only. Agent rows link to the separately authorized Agent run detail, not the Tempo detail route. Sources and grants are rechecked before response.')
+    desc='Requires persisted service/environment/owner-team Tempo binding and current traces.view. App scope exhausts a one-hour search by bounded window splitting and reads every found trace without a time bound as one closed parent tree. At most 40 traces, 64 searches, 6 targets and 500 spans per trace; a reached cap returns 413 rather than a sampled 200. q accepts one bounded TraceQL span selector with simple comparisons and inner AND/OR, but no regex, pipeline or outer union. Only a server-attested fail-closed Tempo search configuration (tempo_search_fail_closed) makes the found set a complete population: then the TraceList total, view counts, facets, histogram and scatter all refer to it and unavailable is empty. Without that attestation the response is V3ObservedTraceList: the closed traces found, partial=true, and total, views[].count, facets, histogram and scatter null with unavailable=not_configured; no count is inferred from them. With no Tempo binding for an unfiltered scope every field including items is null with not_configured; a service without an accessible source is 404. A failing Tempo source is 503. Agent scope instead reads the complete bounded set of currently authorized persisted terminal runs started in the database-clock last 24 hours, requiring both agents.view and traces.view, with an empty unavailable map. Current application and owner-team grant boundaries, Agent catalog relationships and Cookie session are checked in one transaction; up to 2000 qualifying runs and 20000 run/model identities, otherwise 413 without sampled counts. Running runs are excluded explicitly rather than assigned fabricated final duration. Optional service matches persisted app ID or key. Agent q accepts at most eight agent/model/status/version/trigger equality terms and duration comparisons joined by AND; unknown grammar returns 422. Token/model/cost or instrumentation coverage with no trusted report remain absent and listed as missing; span/error counts mean persisted reported rows only. Agent rows link to the separately authorized Agent run detail, not the Tempo detail route. Sources and grants are rechecked before response.')
 P['/traces']['get']['responses']['413'] = {
     'description':'Complete trace population exceeds the bounded query budget',
     'content':{'application/json':{'schema':ref('Error')}}}

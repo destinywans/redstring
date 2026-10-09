@@ -22,6 +22,17 @@ def v3_route(method, path, summary, *, body=None, response=None, status=200, que
             'name': 'X-AIOps-Environment', 'in': 'header', 'schema': string(),
             'description': 'Selected environment; all is a read-only non-production aggregate.'})
 
+# PA-05 (2026-10-09): a read with missing optional evidence returns 200, sets
+# the affected fields to null and names each one in an "unavailable" map. A
+# null is never replaced by 0, false, an empty list, "healthy" or a placeholder.
+V3_UNAVAILABLE_REASONS = ['not_connected', 'not_configured', 'no_authorized_target', 'not_generated', 'unavailable', 'stale']
+def v3_nullable(schema): return {'oneOf': [schema, {'type': 'null'}]}
+S['V3Unavailable'] = {'type': 'object', 'additionalProperties': string(enum=V3_UNAVAILABLE_REASONS),
+    'description': 'Field path (dot-separated; [] marks a field of every array item) -> reason for each unknown '
+        'field, which is null in the body. Empty when every field is proven. not_configured: no source or registration; '
+        'not_connected: no integration; no_authorized_target: nothing visible to this user; not_generated: the platform '
+        'has not produced or recorded it; unavailable: a configured source failed or did not prove it; stale: evidence expired.'}
+
 # Keep the execution order fixed: later definitions may refine earlier paths.
 # Each fragment runs in the build-openapi.py namespace and owns one V3 domain.
 from pathlib import Path

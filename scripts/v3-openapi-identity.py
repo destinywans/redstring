@@ -29,18 +29,25 @@ S['V3InstanceInfo'] = v3_object('name domain default_env', {
     'other': v3_object('label url domain')}, ['tier','name','domain','environments','default_env'])
 S['V3LowerSource'] = v3_object('id name brand env env_label purpose credential',
     required=['id','name','brand','env','env_label','purpose','credential'])
+# Null = unknown with its reason in unavailable (PA-16): contact verification,
+# the IdP-linked Feishu contact, organization rule, factor list and session
+# device come only from the identity evidence source; mfa_enabled from local
+# enrollment. Never false/empty/placeholder text for an unknown.
 S['V3ProfileView'] = v3_object('name display_name department title timezone', {
-    'contacts': arr(obj({'kind': string(enum=['email','phone','feishu']), **fieldnames('label value'), 'verified': v3_bool(), 'note': string()},
+    'contacts': arr(obj({'kind': string(enum=['email','phone','feishu']), **fieldnames('label value'), 'verified': v3_nullable(v3_bool()), 'note': string()},
                         ['kind','label','value','verified'])),
     'notifications': arr(obj({'event': string(), 'label': string(),
         'channels': obj({k:v3_bool() for k in ['feishu','email','sms','phone']}, ['feishu','email','sms','phone'])},
         ['event','label','channels'])),
-    'security': obj({'password_changed': string(), 'mfa_enabled': v3_bool(), 'org_rule': string(),
-        'factors': arr(obj({'kind':string(enum=['passkey','totp','recovery']), **fieldnames('name sub')},
-                            ['kind','name','sub'])),
-        'sessions': arr(obj({**fieldnames('id device sub'), 'current': v3_bool()}, ['id','device','sub'])),
-        'tokens': string()}, ['password_changed','mfa_enabled','org_rule','factors','sessions','tokens'])},
-    ['name','display_name','department','title','timezone','contacts','notifications','security'])
+    'security': obj({'password_changed': string(), 'mfa_enabled': v3_nullable(v3_bool()), 'org_rule': v3_nullable(string()),
+        'factors': v3_nullable(arr(obj({'kind':string(enum=['passkey','totp','recovery']), **fieldnames('name sub')},
+                            ['kind','name','sub']))),
+        'sessions': arr(obj({'id': string(), 'device': v3_nullable(string()), 'sub': string(), 'current': v3_bool()}, ['id','device','sub'])),
+        'tokens': string()}, ['password_changed','mfa_enabled','org_rule','factors','sessions','tokens']),
+    'unavailable': ref('V3Unavailable')},
+    ['name','display_name','department','title','timezone','contacts','notifications','security','unavailable'])
+# The PUT body is the GET view; echoing unavailable is optional and ignored.
+S['V3ProfileUpdate'] = dict(S['V3ProfileView'], required=[x for x in S['V3ProfileView']['required'] if x != 'unavailable'])
 S['V3ModelChoice'] = obj({'model': string(), 'reasoning': string()}, ['model'])
 S['V3ModelInfo'] = v3_object('id name provider brand connector cost note unavailable_reason', {
     'api': string(enum=['responses','chat_completions','messages']),

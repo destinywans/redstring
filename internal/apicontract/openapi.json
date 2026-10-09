@@ -22494,7 +22494,7 @@
       "get": {
         "summary": "Read personal profile",
         "operationId": "get_me_profile",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply.  Requires one selected authorized environment and a current human account/session. An operator-configured trusted HTTPS source must return a fresh, complete, exact instance/user/environment/contact/session-bound snapshot of contact verification, MFA enrollment and factors, organization rule, and device/login method for every active session. Factor types and counts must agree with the same-instance TOTP/passkey registrations used by GET /me. The account database supplies editable fields, notifications, password audit time and session expiry. Unknown, stale, incomplete or unconfigured evidence returns 503 identity_evidence_unavailable; no security state is guessed.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply.  Requires one selected authorized environment and a current human account/session. The account database supplies name, display name, department, title, timezone, stored email/phone, notifications, password audit time and every active session with its expiry; mfa_enabled comes from the same-instance TOTP/passkey enrollment as GET /me (null with not_configured when that is not configured). An operator-configured trusted HTTPS source adds contact verification, the IdP-linked Feishu contact, the organization rule, the factor list and each session's device and login method; its snapshot must be fresh, complete and bound to the exact instance/user/environment/contacts/sessions, and its factors must agree with local enrollment. Without that evidence those fields are null and unavailable names them: contacts[].verified, contacts.feishu, security.org_rule, security.factors, security.sessions[].device with not_configured (no source), unavailable (source failed or contradicted local enrollment) or stale (snapshot no longer covers the locked rows or expired). The read is still 200.",
         "responses": {
           "200": {
             "description": "Success",
@@ -22589,7 +22589,7 @@
       "put": {
         "summary": "Update personal profile",
         "operationId": "put_me_profile",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply.  Accepts one complete ProfileView in a selected authorized environment. Only name, display_name, title, timezone and notifications are editable; department, contacts and every security field must exactly match the current authoritative view. The source is called before database locks, then the transaction rechecks exact session, human account, environment.view, source freshness and the complete contact/session set before writing fields and a secret-free audit atomically. Unconfigured, stale or incomplete evidence returns 503 without a partial write. Production startup must inject both the trusted source and instance ID; a configured source has not yet been verified against a real provider.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply.  Accepts the complete ProfileView from GET in a selected authorized environment, including its nulls; an echoed unavailable map is ignored. Only name, display_name, title, timezone and notifications are editable; department, contacts and every security field, unknown ones included, must exactly match the current view or 422 invalid_settings is returned without a write. The evidence source, when configured, is called before database locks; the transaction rechecks exact session, human account and environment.view before writing fields and a secret-free audit atomically. Editable fields are local, so the write does not depend on the evidence source.",
         "responses": {
           "200": {
             "description": "Success",
@@ -22675,7 +22675,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/V3ProfileView"
+                "$ref": "#/components/schemas/V3ProfileUpdate"
               }
             }
           }
@@ -52543,9 +52543,9 @@
     },
     "/metrics/dashboard": {
       "get": {
-        "summary": "Read a complete scoped Prometheus metrics dashboard",
+        "summary": "Read a scoped Prometheus metrics dashboard with explicit unknowns",
         "operationId": "get_metrics_dashboard",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, current services.view, environment connectors.view and incident events.view, exactly one persisted V3 Prometheus metric-resource binding, and an operator-reviewed exact-scope dashboard query. Distinct metric bindings return 409 ambiguous_binding. One bounded one-hour source read must cover the baseline plus 36 visible bin ends for every labeled panel. Request total must conserve 2xx/4xx/5xx and independently observed other statuses must be zero; SLO budget must agree with monthly availability and persisted request-based target; heat intensities must be normalized to 0..1. Empty, partial or conflicting data returns 503, never invented zeroes or trends. Release, rollback and incident markers require matching persisted success/event records within the window; absent evidence returns 503. These are independent timestamps, not proof that one rollback reversed the displayed release. Source, binding and authorization are rechecked after the external read and local marker reads. align requests an incident-anchored window; the frozen frontend currently does not send it and still hardcodes version, causal and analysis text that must be corrected before page acceptance. source=prometheus selects the implemented provider; victoriametrics returns 503 metrics_source_not_connected rather than querying Prometheus.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, current services.view, environment connectors.view and incident events.view. The metric blocks need exactly one persisted V3 Prometheus metric-resource binding on an enabled connector with the query_metrics tool, and an operator-reviewed exact-scope dashboard query (AIOPS_V3_PROMETHEUS_QUERIES_CONFIG). Without that source or query the response is 200 with kpis, requests, latency, endpoints, instances and slo null and unavailable=not_configured; the legacy CMDB telemetry binding is not read. Distinct metric bindings return 409 ambiguous_binding; a failing provider is still 503. One bounded one-hour source read must cover the baseline plus 36 visible bin ends for every labeled panel. Request total must conserve 2xx/4xx/5xx and independently observed other statuses must be zero; heat intensities must be normalized to 0..1. Missing, partial or conflicting panels leave every metric block null with unavailable, never invented zeroes or trends. The SLO block also needs a persisted target strictly between 0 and 100 (else null, not_configured) and budget/burn panels that agree with it (else null, unavailable). Release, rollback and incident markers come from matching persisted success/event records within the window; a marker without a record is null with not_generated (the platform recorded no such event; external releases are not connected). These are independent timestamps, not proof that one rollback reversed the displayed release. Source, binding, SLO target, authorization and the Cookie session are rechecked after the external read and local marker reads, including for a not-configured response. align requests an incident-anchored window and returns 503 when no incident can anchor it. source=prometheus selects the implemented provider; victoriametrics returns 503 metrics_source_not_connected rather than querying Prometheus.",
         "responses": {
           "200": {
             "description": "Success",
@@ -52608,18 +52608,11 @@
             }
           },
           "503": {
-            "description": "Complete V3 dashboard unavailable from configured source, complete series or persisted markers",
+            "description": "Configured metric provider, source lookup, SLO target read or persisted marker read failed",
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/Error"
-                    },
-                    {
-                      "$ref": "#/components/schemas/V3IncompleteMetrics"
-                    }
-                  ]
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -52923,41 +52916,79 @@
       "get": {
         "summary": "Search configured log provider",
         "operationId": "get_logs",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team binding and current logs.view. A single provider may be selected when more than one source is bound; arbitrary endpoints or unbound sources are never accepted. A complete 200 requires exact full-window counts and complete pattern trends from the configured source, including an exact zero-match window, or an explicitly empty levels selection with no upstream query. Elasticsearch accepts only a registered message_template.keyword field or its existing categorize_text path on one concrete index. Configured Loki patterns require trusted top-level JSON level and message_template fields and a declared complete historical lookback covering the requested start. Missing, truncated, approximate or unavailable aggregations return 503 rather than inferring patterns from a bounded line sample. Distinct authorized bindings return 409 ambiguous_binding; changed source or grant is rechecked before response. More than 3 targets or other excessive authorized scope returns 422 scope_limit. source is a compatible alias for provider; both must agree. range changes the actual upstream window (default 30m). Existing provider max-window/lookback limits apply; excess returns503 without shrinking the requested window.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team binding and current logs.view. A single provider may be selected when more than one source is bound; arbitrary endpoints or unbound sources are never accepted. items are the bounded, level-checked lines (at most 100, newest first) from every selected source and level. total, errors and histogram are exact full-window counts only when every selected source proved them; patterns only when complete pattern counts and trends account for that total. Otherwise each is null and unavailable names it: not_configured when a Loki application has no registered loki_complete_lookback_seconds (counts) or loki_pattern_field (patterns), unavailable when a registered source did not prove them; items stay a sample either way. Loki counts need a declared lookback covering the requested start; Loki patterns also need trusted top-level JSON level and message_template fields. Elasticsearch accepts only a registered message_template.keyword field or its existing categorize_text path on one concrete index. No log binding for the scope returns 200 with every field null and not_configured. A failing source query is 503 telemetry_unavailable. Distinct authorized bindings return 409 ambiguous_binding; changed source or grant is rechecked before response. More than 3 targets or other excessive authorized scope returns 422 scope_limit. source is a compatible alias for provider; both must agree. range changes the actual upstream window (default 30m). Existing provider max-window limits apply and an excess returns 503 without shrinking the requested window; a window beyond the registered Loki lookback leaves counts and patterns null with unavailable.",
         "responses": {
           "200": {
-            "description": "Complete scoped LogSearch, including exact zero matches, or explicitly empty levels selection without an upstream query",
+            "description": "Scoped LogSearch with proven lines; counts and patterns are null with reasons when unproven, and every field is null when no source is bound",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
                     "total": {
-                      "type": "string"
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "errors": {
-                      "type": "string"
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "histogram": {
-                      "type": "array",
-                      "items": {
-                        "type": "array",
-                        "items": {
-                          "type": "integer"
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer"
+                            }
+                          }
+                        },
+                        {
+                          "type": "null"
                         }
-                      }
+                      ]
                     },
                     "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3LogLine"
-                      }
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/V3LogLine"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "patterns": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3LogPattern"
-                      }
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/V3LogPattern"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unavailable": {
+                      "$ref": "#/components/schemas/V3Unavailable"
                     }
                   },
                   "additionalProperties": false,
@@ -52966,7 +52997,8 @@
                     "errors",
                     "histogram",
                     "items",
-                    "patterns"
+                    "patterns",
+                    "unavailable"
                   ]
                 }
               }
@@ -53023,18 +53055,11 @@
             }
           },
           "503": {
-            "description": "Complete log patterns unavailable or configured provider failed",
+            "description": "A configured log provider failed or a selected binding references an unconfigured provider",
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
-                    {
-                      "$ref": "#/components/schemas/Error"
-                    },
-                    {
-                      "$ref": "#/components/schemas/V3IncompleteLogs"
-                    }
-                  ]
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -53123,14 +53148,21 @@
       "get": {
         "summary": "Query scoped traces",
         "operationId": "get_traces",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires persisted service/environment/owner-team Tempo binding and current traces.view. App scope exhausts a one-hour search by bounded window splitting; all 200 counts, facets, histogram and scatter refer to that full result set. At most 40 traces, 64 searches, 6 targets and 500 spans per trace; a reached cap returns 413 rather than a sampled 200. q accepts one bounded TraceQL span selector with simple comparisons and inner AND/OR, but no regex, pipeline or outer union. Complete counts require a server-attested fail-closed Tempo search configuration; otherwise 503. Agent scope instead reads the complete bounded set of currently authorized persisted terminal runs started in the database-clock last 24 hours, requiring both agents.view and traces.view. Current application and owner-team grant boundaries, Agent catalog relationships and Cookie session are checked in one transaction; up to 2000 qualifying runs and 20000 run/model identities, otherwise 413 without sampled counts. Running runs are excluded explicitly rather than assigned fabricated final duration. Optional service matches persisted app ID or key. Agent q accepts at most eight agent/model/status/version/trigger equality terms and duration comparisons joined by AND; unknown grammar returns 422. Token/model/cost or instrumentation coverage with no trusted report remain absent and listed as missing; span/error counts mean persisted reported rows only. Agent rows link to the separately authorized Agent run detail, not the Tempo detail route. Sources and grants are rechecked before response. App traces default 1h; range changes the actual complete-trace query. Only Tempo has a connected complete trace provider; requested Jaeger returns 503 trace_source_not_connected. Agent traces have no external source and reject source.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires persisted service/environment/owner-team Tempo binding and current traces.view. App scope exhausts a one-hour search by bounded window splitting and reads every found trace without a time bound as one closed parent tree. At most 40 traces, 64 searches, 6 targets and 500 spans per trace; a reached cap returns 413 rather than a sampled 200. q accepts one bounded TraceQL span selector with simple comparisons and inner AND/OR, but no regex, pipeline or outer union. Only a server-attested fail-closed Tempo search configuration (tempo_search_fail_closed) makes the found set a complete population: then the TraceList total, view counts, facets, histogram and scatter all refer to it and unavailable is empty. Without that attestation the response is V3ObservedTraceList: the closed traces found, partial=true, and total, views[].count, facets, histogram and scatter null with unavailable=not_configured; no count is inferred from them. With no Tempo binding for an unfiltered scope every field including items is null with not_configured; a service without an accessible source is 404. A failing Tempo source is 503. Agent scope instead reads the complete bounded set of currently authorized persisted terminal runs started in the database-clock last 24 hours, requiring both agents.view and traces.view, with an empty unavailable map. Current application and owner-team grant boundaries, Agent catalog relationships and Cookie session are checked in one transaction; up to 2000 qualifying runs and 20000 run/model identities, otherwise 413 without sampled counts. Running runs are excluded explicitly rather than assigned fabricated final duration. Optional service matches persisted app ID or key. Agent q accepts at most eight agent/model/status/version/trigger equality terms and duration comparisons joined by AND; unknown grammar returns 422. Token/model/cost or instrumentation coverage with no trusted report remain absent and listed as missing; span/error counts mean persisted reported rows only. Agent rows link to the separately authorized Agent run detail, not the Tempo detail route. Sources and grants are rechecked before response. App traces default 1h; range changes the actual complete-trace query. Only Tempo has a connected complete trace provider; requested Jaeger returns 503 trace_source_not_connected. Agent traces have no external source and reject source.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/V3TraceList"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/V3TraceList"
+                    },
+                    {
+                      "$ref": "#/components/schemas/V3ObservedTraceList"
+                    }
+                  ]
                 }
               }
             }
@@ -59444,7 +59476,7 @@
       "get": {
         "operationId": "get_v3_security",
         "summary": "Read effective security controls",
-        "description": "Requires an active human platform administrator with global workspace.manage and access to one selected environment. The response is a complete, fresh, scope-bound snapshot from the configured security authority. A persisted request, local default, mock, or incomplete authority snapshot is not returned as an effective policy.",
+        "description": "Requires an active human platform administrator with global workspace.manage and access to one selected environment. With a configured security authority the response is a complete, fresh, scope-bound snapshot with an empty unavailable map and an ETag. Without a configured authority (AIOPS_V3_SECURITY_AUTHORITY_URL) nothing local can prove the effective policy: the response is 200 with every SecurityView field null, unavailable=not_configured for each, and no ETag, so PUT cannot proceed. A persisted request, local default, mock, or incomplete authority snapshot is never returned as an effective policy. A configured authority that fails or returns an invalid snapshot is 503 security_authority_unavailable; an unresolved policy operation is 503 security_reconciliation_required. Authorization and the session are checked first in both cases.",
         "parameters": [
           {
             "$ref": "#/components/parameters/SelectedEnvironment"
@@ -59452,10 +59484,10 @@
         ],
         "responses": {
           "200": {
-            "description": "Complete effective SecurityView at the returned revision",
+            "description": "Complete effective SecurityView at the returned revision (with ETag), or the all-unknown view when no authority is configured (no ETag)",
             "headers": {
               "ETag": {
-                "description": "Strong runtime revision tag for If-Match",
+                "description": "Strong runtime revision tag for If-Match; absent for the all-unknown view",
                 "schema": {
                   "type": "string"
                 }
@@ -59464,7 +59496,14 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SecurityView"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/SecurityViewResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SecurityUnknownView"
+                    }
+                  ]
                 }
               }
             }
@@ -59483,7 +59522,7 @@
       "put": {
         "operationId": "put_v3_security",
         "summary": "Apply and verify editable security controls",
-        "description": "Requires an active human platform administrator with global workspace.manage, one selected environment, and an If-Match revision from GET. Accepts the complete frozen SecurityView. SSO providers, display labels, session idle/max, Vault, token TTL, and password policy are read-only and must equal the current effective snapshot. Editable fields are scim, mfa_policy, mfa_methods enabled flags by stable ID, approval_passkey, session.ip_allow, and session.new_device_notice. Success requires an authority apply receipt and a fresh complete readback proving the new controls are effective, then a durable local ledger and audit commit. An unknown external outcome is never reported as success.",
+        "description": "Requires an active human platform administrator with global workspace.manage, one selected environment, and an If-Match revision from GET. Accepts the complete SecurityView; an echoed unavailable map is accepted only when empty. SSO providers, display labels, session idle/max, Vault, token TTL, and password policy are read-only and must equal the current effective snapshot. Editable fields are scim, mfa_policy, mfa_methods enabled flags by stable ID, approval_passkey, session.ip_allow, and session.new_device_notice. Success requires an authority apply receipt and a fresh complete readback proving the new controls are effective, then a durable local ledger and audit commit. An unknown external outcome is never reported as success.",
         "parameters": [
           {
             "$ref": "#/components/parameters/SelectedEnvironment"
@@ -59503,7 +59542,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SecurityView"
+                "$ref": "#/components/schemas/SecurityViewInput"
               }
             }
           }
@@ -59522,7 +59561,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SecurityView"
+                  "$ref": "#/components/schemas/SecurityViewResponse"
                 }
               }
             }
@@ -64360,6 +64399,21 @@
           "groups"
         ]
       },
+      "V3Unavailable": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string",
+          "enum": [
+            "not_connected",
+            "not_configured",
+            "no_authorized_target",
+            "not_generated",
+            "unavailable",
+            "stale"
+          ]
+        },
+        "description": "Field path (dot-separated; [] marks a field of every array item) -> reason for each unknown field, which is null in the body. Empty when every field is proven. not_configured: no source or registration; not_connected: no integration; no_authorized_target: nothing visible to this user; not_generated: the platform has not produced or recorded it; unavailable: a configured source failed or did not prove it; stale: evidence expired."
+      },
       "V3Preferences": {
         "type": "object",
         "properties": {
@@ -64818,7 +64872,14 @@
                   "type": "string"
                 },
                 "verified": {
-                  "type": "boolean"
+                  "oneOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 },
                 "note": {
                   "type": "string"
@@ -64884,38 +64945,59 @@
                 "type": "string"
               },
               "mfa_enabled": {
-                "type": "boolean"
+                "oneOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "org_rule": {
-                "type": "string"
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "factors": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "kind": {
-                      "type": "string",
-                      "enum": [
-                        "passkey",
-                        "totp",
-                        "recovery"
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "passkey",
+                            "totp",
+                            "recovery"
+                          ]
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "sub": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "name",
+                        "sub"
                       ]
-                    },
-                    "name": {
-                      "type": "string"
-                    },
-                    "sub": {
-                      "type": "string"
                     }
                   },
-                  "additionalProperties": false,
-                  "required": [
-                    "kind",
-                    "name",
-                    "sub"
-                  ]
-                }
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "sessions": {
                 "type": "array",
@@ -64926,7 +65008,14 @@
                       "type": "string"
                     },
                     "device": {
-                      "type": "string"
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "sub": {
                       "type": "string"
@@ -64956,6 +65045,238 @@
               "sessions",
               "tokens"
             ]
+          },
+          "unavailable": {
+            "$ref": "#/components/schemas/V3Unavailable"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "display_name",
+          "department",
+          "title",
+          "timezone",
+          "contacts",
+          "notifications",
+          "security",
+          "unavailable"
+        ]
+      },
+      "V3ProfileUpdate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "phone",
+                    "feishu"
+                  ]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                },
+                "verified": {
+                  "oneOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "label",
+                "value",
+                "verified"
+              ]
+            }
+          },
+          "notifications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "event": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "channels": {
+                  "type": "object",
+                  "properties": {
+                    "feishu": {
+                      "type": "boolean"
+                    },
+                    "email": {
+                      "type": "boolean"
+                    },
+                    "sms": {
+                      "type": "boolean"
+                    },
+                    "phone": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "feishu",
+                    "email",
+                    "sms",
+                    "phone"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "event",
+                "label",
+                "channels"
+              ]
+            }
+          },
+          "security": {
+            "type": "object",
+            "properties": {
+              "password_changed": {
+                "type": "string"
+              },
+              "mfa_enabled": {
+                "oneOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "org_rule": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "factors": {
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "passkey",
+                            "totp",
+                            "recovery"
+                          ]
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "sub": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "name",
+                        "sub"
+                      ]
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sessions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "device": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "sub": {
+                      "type": "string"
+                    },
+                    "current": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "device",
+                    "sub"
+                  ]
+                }
+              },
+              "tokens": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "password_changed",
+              "mfa_enabled",
+              "org_rule",
+              "factors",
+              "sessions",
+              "tokens"
+            ]
+          },
+          "unavailable": {
+            "$ref": "#/components/schemas/V3Unavailable"
           }
         },
         "additionalProperties": false,
@@ -84152,53 +84473,6 @@
           "samples"
         ]
       },
-      "V3IncompleteMetrics": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string"
-              },
-              "message": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "code",
-              "message"
-            ]
-          },
-          "service": {
-            "type": "string"
-          },
-          "environment_id": {
-            "type": "string"
-          },
-          "available": {
-            "type": "object",
-            "additionalProperties": {
-              "$ref": "#/components/schemas/V3MetricProbe"
-            }
-          },
-          "missing": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "error",
-          "service",
-          "environment_id",
-          "available",
-          "missing"
-        ]
-      },
       "V3MetricsKpi": {
         "type": "object",
         "properties": {
@@ -84316,27 +84590,55 @@
                 "maxItems": 5
               },
               "release_at": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 35
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 35
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "rollback_at": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 35
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 35
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "incident": {
-                "type": "array",
-                "items": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 35
-                },
-                "minItems": 2,
-                "maxItems": 2
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 35
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "incident_label": {
-                "type": "string"
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "additionalProperties": false,
@@ -84350,219 +84652,264 @@
             ]
           },
           "kpis": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/V3MetricsKpi"
-            },
-            "minItems": 5,
-            "maxItems": 5
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3MetricsKpi"
+                },
+                "minItems": 5,
+                "maxItems": 5
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "requests": {
-            "type": "object",
-            "properties": {
-              "ok": {
-                "type": "array",
-                "items": {
-                  "type": "number",
-                  "minimum": 0
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "ok": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "minItems": 36,
+                    "maxItems": 36
+                  },
+                  "client": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "minItems": 36,
+                    "maxItems": 36
+                  },
+                  "server": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "minItems": 36,
+                    "maxItems": 36
+                  }
                 },
-                "minItems": 36,
-                "maxItems": 36
+                "additionalProperties": false,
+                "required": [
+                  "ok",
+                  "client",
+                  "server"
+                ]
               },
-              "client": {
-                "type": "array",
-                "items": {
-                  "type": "number",
-                  "minimum": 0
-                },
-                "minItems": 36,
-                "maxItems": 36
-              },
-              "server": {
-                "type": "array",
-                "items": {
-                  "type": "number",
-                  "minimum": 0
-                },
-                "minItems": 36,
-                "maxItems": 36
+              {
+                "type": "null"
               }
-            },
-            "additionalProperties": false,
-            "required": [
-              "ok",
-              "client",
-              "server"
             ]
           },
           "slo": {
-            "type": "object",
-            "properties": {
-              "remaining": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 100
-              },
-              "availability": {
-                "type": "string"
-              },
-              "delta": {
-                "type": "string"
-              },
-              "burn": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/V3MetricsBurn"
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "remaining": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  "availability": {
+                    "type": "string"
+                  },
+                  "delta": {
+                    "type": "string"
+                  },
+                  "burn": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/V3MetricsBurn"
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "note": {
+                    "type": "string"
+                  }
                 },
-                "minItems": 3,
-                "maxItems": 3
+                "additionalProperties": false,
+                "required": [
+                  "remaining",
+                  "availability",
+                  "delta",
+                  "burn",
+                  "note"
+                ]
               },
-              "note": {
-                "type": "string"
+              {
+                "type": "null"
               }
-            },
-            "additionalProperties": false,
-            "required": [
-              "remaining",
-              "availability",
-              "delta",
-              "burn",
-              "note"
             ]
           },
           "latency": {
-            "type": "object",
-            "properties": {
-              "p50": {
-                "type": "array",
-                "items": {
-                  "type": "number",
-                  "minimum": 0
-                },
-                "minItems": 36,
-                "maxItems": 36
-              },
-              "p95": {
-                "type": "array",
-                "items": {
-                  "type": "number",
-                  "minimum": 0
-                },
-                "minItems": 36,
-                "maxItems": 36
-              },
-              "p99": {
-                "type": "array",
-                "items": {
-                  "type": "number",
-                  "minimum": 0
-                },
-                "minItems": 36,
-                "maxItems": 36
-              },
-              "heat": {
-                "type": "array",
-                "items": {
-                  "type": "array",
-                  "items": {
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 1
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "p50": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "minItems": 36,
+                    "maxItems": 36
                   },
-                  "minItems": 36,
-                  "maxItems": 36
+                  "p95": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "minItems": 36,
+                    "maxItems": 36
+                  },
+                  "p99": {
+                    "type": "array",
+                    "items": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "minItems": 36,
+                    "maxItems": 36
+                  },
+                  "heat": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "minItems": 36,
+                      "maxItems": 36
+                    },
+                    "minItems": 8,
+                    "maxItems": 8
+                  },
+                  "buckets": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 8,
+                    "maxItems": 8
+                  }
                 },
-                "minItems": 8,
-                "maxItems": 8
+                "additionalProperties": false,
+                "required": [
+                  "p50",
+                  "p95",
+                  "p99",
+                  "heat",
+                  "buckets"
+                ]
               },
-              "buckets": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "minItems": 8,
-                "maxItems": 8
+              {
+                "type": "null"
               }
-            },
-            "additionalProperties": false,
-            "required": [
-              "p50",
-              "p95",
-              "p99",
-              "heat",
-              "buckets"
             ]
           },
           "endpoints": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 12,
-            "items": {
-              "type": "object",
-              "properties": {
-                "label": {
-                  "type": "string"
-                },
-                "value": {
-                  "type": "number",
-                  "minimum": 0
-                },
-                "tone": {
-                  "type": "string",
-                  "enum": [
-                    "neutral",
-                    "accent",
-                    "ok",
-                    "warn",
-                    "danger",
-                    "info"
+            "oneOf": [
+              {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 12,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "tone": {
+                      "type": "string",
+                      "enum": [
+                        "neutral",
+                        "accent",
+                        "ok",
+                        "warn",
+                        "danger",
+                        "info"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "label",
+                    "value"
                   ]
                 }
               },
-              "additionalProperties": false,
-              "required": [
-                "label",
-                "value"
-              ]
-            }
+              {
+                "type": "null"
+              }
+            ]
           },
           "instances": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 12,
-            "items": {
-              "type": "object",
-              "properties": {
-                "label": {
-                  "type": "string"
-                },
-                "values": {
-                  "type": "array",
-                  "items": {
-                    "type": "number",
-                    "minimum": 0
+            "oneOf": [
+              {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 12,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "values": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      "minItems": 36,
+                      "maxItems": 36
+                    },
+                    "tone": {
+                      "type": "string",
+                      "enum": [
+                        "neutral",
+                        "accent",
+                        "ok",
+                        "warn",
+                        "danger",
+                        "info"
+                      ]
+                    }
                   },
-                  "minItems": 36,
-                  "maxItems": 36
-                },
-                "tone": {
-                  "type": "string",
-                  "enum": [
-                    "neutral",
-                    "accent",
-                    "ok",
-                    "warn",
-                    "danger",
-                    "info"
+                  "additionalProperties": false,
+                  "required": [
+                    "label",
+                    "values"
                   ]
                 }
               },
-              "additionalProperties": false,
-              "required": [
-                "label",
-                "values"
-              ]
-            }
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unavailable": {
+            "$ref": "#/components/schemas/V3Unavailable"
           }
         },
         "additionalProperties": false,
@@ -84573,7 +84920,8 @@
           "slo",
           "latency",
           "endpoints",
-          "instances"
+          "instances",
+          "unavailable"
         ]
       },
       "V3RegisteredMetricWindow": {
@@ -84782,72 +85130,6 @@
           "level",
           "count",
           "trend"
-        ]
-      },
-      "V3IncompleteLogs": {
-        "type": "object",
-        "properties": {
-          "error": {
-            "type": "object",
-            "properties": {
-              "code": {
-                "type": "string"
-              },
-              "message": {
-                "type": "string"
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "code",
-              "message"
-            ]
-          },
-          "available": {
-            "type": "object",
-            "properties": {
-              "total": {
-                "type": "string"
-              },
-              "errors": {
-                "type": "string"
-              },
-              "histogram": {
-                "type": "array",
-                "items": {
-                  "type": "array",
-                  "items": {
-                    "type": "integer"
-                  }
-                }
-              },
-              "items_sample": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/V3LogLine"
-                }
-              }
-            },
-            "additionalProperties": false,
-            "required": [
-              "total",
-              "errors",
-              "histogram",
-              "items_sample"
-            ]
-          },
-          "missing": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "additionalProperties": false,
-        "required": [
-          "error",
-          "available",
-          "missing"
         ]
       },
       "V3TraceRow": {
@@ -85108,6 +85390,9 @@
             "items": {
               "type": "string"
             }
+          },
+          "unavailable": {
+            "$ref": "#/components/schemas/V3Unavailable"
           }
         },
         "additionalProperties": false,
@@ -85120,7 +85405,101 @@
           "views",
           "histogram",
           "scatter",
-          "items"
+          "items",
+          "unavailable"
+        ]
+      },
+      "V3ObservedTraceList": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "app"
+            ]
+          },
+          "total": {
+            "type": "null"
+          },
+          "took": {
+            "type": "string"
+          },
+          "colors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "facets": {
+            "type": "null"
+          },
+          "views": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "null"
+                },
+                "query": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "label",
+                "count",
+                "query"
+              ]
+            }
+          },
+          "histogram": {
+            "type": "null"
+          },
+          "scatter": {
+            "type": "null"
+          },
+          "items": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3TraceRow"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "partial": {
+            "type": "boolean",
+            "const": true
+          },
+          "unavailable": {
+            "$ref": "#/components/schemas/V3Unavailable"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "scope",
+          "total",
+          "took",
+          "colors",
+          "facets",
+          "views",
+          "histogram",
+          "scatter",
+          "items",
+          "partial",
+          "unavailable"
         ]
       },
       "V3TraceSpan": {
@@ -87088,6 +87467,88 @@
           "vault",
           "token_ttl",
           "password_policy"
+        ],
+        "additionalProperties": false
+      },
+      "SecurityViewResponse": {
+        "description": "SecurityView from a valid authority snapshot; every field is proven, so unavailable is empty",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SecurityView"
+          }
+        ],
+        "properties": {
+          "unavailable": {
+            "type": "object",
+            "maxProperties": 0
+          }
+        },
+        "required": [
+          "unavailable"
+        ],
+        "unevaluatedProperties": false
+      },
+      "SecurityViewInput": {
+        "description": "PUT body: the complete SecurityView; the GET unavailable map may be echoed only when empty",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SecurityView"
+          }
+        ],
+        "properties": {
+          "unavailable": {
+            "type": "object",
+            "maxProperties": 0
+          }
+        },
+        "unevaluatedProperties": false
+      },
+      "SecurityUnknownView": {
+        "description": "No security authority is configured: every field is null and unavailable gives not_configured for each (merged V3Unavailable reasons)",
+        "type": "object",
+        "properties": {
+          "sso": {
+            "type": "null"
+          },
+          "scim": {
+            "type": "null"
+          },
+          "mfa_policy": {
+            "type": "null"
+          },
+          "mfa_methods": {
+            "type": "null"
+          },
+          "approval_passkey": {
+            "type": "null"
+          },
+          "session": {
+            "type": "null"
+          },
+          "vault": {
+            "type": "null"
+          },
+          "token_ttl": {
+            "type": "null"
+          },
+          "password_policy": {
+            "type": "null"
+          },
+          "unavailable": {
+            "$ref": "#/components/schemas/V3Unavailable"
+          }
+        },
+        "required": [
+          "sso",
+          "scim",
+          "mfa_policy",
+          "mfa_methods",
+          "approval_passkey",
+          "session",
+          "vault",
+          "token_ttl",
+          "password_policy",
+          "unavailable"
         ],
         "additionalProperties": false
       }

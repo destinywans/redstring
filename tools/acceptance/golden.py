@@ -7,6 +7,10 @@ knowledge     bad-release drill → declare an incident from the firing alert (o
               timeline note → drill off → mitigated → resolved → postmortem draft and
               save (admin) → runbook from the postmortem, dry run, submit → upload a
               Markdown document, register it as a knowledge source, search.
+agents        admin: create agent → prompt v1/v2 → versions with pinned execution config
+              (replay same hash, change refused) → first stable rollout with reason →
+              governed run (viewer refused) → level above the environment cap refused →
+              canary without/with override → rollback → eval → run feedback → guardrails.
 settings      admin: API token issue → Bearer read in scope / refused out of scope → rotate
               (old and new valid) → revoke; workspace PUT with current/stale/no ETag;
               notification and AI preferences round trip; audit export and detail.
@@ -443,14 +447,80 @@ def settings(run):
     run.note(unavailable=sec.get('unavailable'))
 
 
+def agents(run):
+    """Admin: agent lifecycle with a real governed run; the viewer is refused; level capped by the environment."""
+    run.cookie = None
+    _, app = app_id('checkout-api')
+    suffix = time.strftime('%m%d%H%M')
+    agent_id = f'acceptance-triage-{suffix}'
+    models = run.step('model list', 'GET', '/models')
+    model_id = next((m.get('id') for m in models.get('items') or models.get('models') or [] if m.get('id')), None)
+    run.note(model=model_id)
+    run.step('create agent (paused, L0)', 'POST', '/agents', {'id': agent_id, 'application_id': app, 'name': f'验收分诊 {suffix}',
+                                                             'summary': '只读分诊：一句话判断服务是否健康'})
+    prompt = run.step('create prompt v1', 'POST', '/prompts', {'agent_id': agent_id, 'name': f'triage-{suffix}',
+                      'text': '你是值班分诊助手。只根据用户给出的信息作答，不编造数据；无法判断时直说缺什么证据。回答一句话。'})
+    pid = prompt.get('id')
+    run.note(prompt=pid)
+    run.step('prompt v2', 'POST', f'/prompts/{pid}/versions', {'text': '你是值班分诊助手。只根据给出的信息作答；先说结论再说依据，一句话。'})
+    versions = run.step('prompt versions', 'GET', f'/prompts/{pid}/versions')
+    run.note(count=len(versions.get('items') or []))
+    config = {'model_id': model_id, 'prompt_id': pid, 'prompt_version': 1, 'tool_names': [], 'max_model_calls': 2,
+              'max_tool_calls': 0, 'max_input_bytes': 8192, 'max_output_bytes': 16384, 'max_output_tokens': 512, 'timeout_seconds': 60}
+    for version, prompt_version in (('v1', 1), ('v2', 2)):
+        run.step(f'register agent version {version}', 'POST', f'/agents/{agent_id}/versions',
+                 {'version': version, 'artifact_ref': f'git:acceptance/triage@{version}'})
+        run.step(f'pin execution config {version}', 'PUT', f'/agents/{agent_id}/versions/{version}/execution',
+                 dict(config, prompt_version=prompt_version))
+    run.step('same config replays', 'PUT', f'/agents/{agent_id}/versions/v1/execution', config)
+    run.step('changed config is refused', 'PUT', f'/agents/{agent_id}/versions/v1/execution', dict(config, max_output_tokens=256), ok=(409,))
+    detail = run.step('agent detail', 'GET', f'/agents/{agent_id}')
+    revision = detail.get('revision')
+    run.note(revision=revision)
+    rolled = run.step('first stable rollout (admin reason)', 'POST', f'/agents/{agent_id}/rollout',
+                      {'to': 'v1', 'percent': 100, 'expected_revision': revision, 'override': True,
+                       'override_reason': '验收：首次稳定发布，人工确认'})
+    revision = rolled.get('revision', revision)
+    if not isinstance(revision, int):
+        revision = run.step('agent detail after rollout', 'GET', f'/agents/{agent_id}').get('revision')
+    result = run.step('governed agent run', 'POST', f'/agents/{agent_id}/runs',
+                      {'input': 'checkout-api 刚才 5 分钟内 5xx 比例从 0 升到 48%，随后发布被回滚，现在是 0。它现在健康吗？'})
+    run.note(run={k: result.get(k) for k in ('id', 'status', 'state', 'version', 'model', 'prompt_version')},
+             answer=str(result.get('answer') or result.get('result') or '')[:300])
+    rid = result.get('id') or result.get('run_id')
+    viewer = login('prod', json.loads((LOCAL / 'prod/secrets.json').read_text())['accounts']['viewer'])
+    status, _ = call('prod', 'POST', f'/agents/{agent_id}/runs', {'input': 'viewer probe'}, cookie=viewer)
+    run.steps.append({'step': 'viewer cannot run the agent', 'status': status, 'ok': status in (403, 404)})
+    print(f"{'ok ' if status in (403, 404) else 'FAIL'} {status}  viewer cannot run the agent", flush=True)
+    revision = run.step('agent detail', 'GET', f'/agents/{agent_id}').get('revision')
+    run.step('level above the environment cap (L0) is refused', 'PATCH', f'/agents/{agent_id}/level',
+             {'level': 'L1', 'expected_revision': revision}, ok=(403, 409, 422))
+    run.step('canary without an eval gate is refused', 'POST', f'/agents/{agent_id}/rollout',
+             {'to': 'v2', 'percent': 10, 'expected_revision': revision}, ok=(409, 422, 428))
+    canary = run.step('canary with an audited override', 'POST', f'/agents/{agent_id}/rollout',
+                      {'to': 'v2', 'percent': 10, 'expected_revision': revision, 'override': True, 'override_reason': '验收：灰度 10%'})
+    revision = run.step('agent detail', 'GET', f'/agents/{agent_id}').get('revision')
+    run.step('rollback', 'POST', f'/agents/{agent_id}/rollback', {'expected_revision': revision})
+    evaluation = run.step('create an eval (v1 vs v2)', 'POST', '/evals', {'agent_id': agent_id, 'title': '验收 v1 对 v2',
+                                                                          'baseline_version': 'v1', 'candidate_version': 'v2'})
+    run.note(eval=evaluation)
+    runs = run.step('agent runs list', 'GET', '/agent-runs')
+    if rid:
+        run.step('feedback on the run', 'POST', f'/agent-runs/{rid}/feedback', {'vote': 'up'})
+        run.step('annotate the run', 'POST', f'/agent-runs/{rid}/annotations', {'score': 4, 'note': '结论正确，依据充分'})
+    guard = run.step('register guardrail deny_sensitive_content', 'POST', '/guardrails', {'name': 'deny_sensitive_content'}, ok=(200, 201, 409))
+    listed = run.step('guardrails', 'GET', '/guardrails')
+    run.note(items=[(g.get('name'), g.get('enabled'), g.get('mandatory')) for g in listed.get('items') or []][:6])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('path', choices=['canvas', 'conversation', 'knowledge', 'settings'])
+    ap.add_argument('path', choices=['canvas', 'conversation', 'knowledge', 'settings', 'agents'])
     a = ap.parse_args()
     run = Run(a.path)
     accounts = json.loads((LOCAL / 'prod/secrets.json').read_text())['accounts']
     run.cookie = login('prod', accounts['operator'])
-    {'canvas': canvas, 'conversation': conversation, 'knowledge': knowledge, 'settings': settings}[a.path](run)
+    {'canvas': canvas, 'conversation': conversation, 'knowledge': knowledge, 'settings': settings, 'agents': agents}[a.path](run)
     print(run.save())
 
 

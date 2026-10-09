@@ -124,6 +124,7 @@
 
 ### 进展
 
+- **阶段 2：Agent 运行台黄金路径**（`golden.py agents`，管理员）27/27：新建 Agent（暂停、L0）→ Prompt v1/v2 → 登记版本 v1/v2 并固定执行配置（同配置重放同哈希，改配置 `409 execution_config_immutable`）→ 首次稳定发布需管理员理由 → 正式运行（DeepSeek，只读，答案经 `GET /agent-runs/{id}/result` 读取：“仅凭 5xx 回到 0 不能判定健康”，列出还需的证据）→ 只读成员运行 403 → 等级超过环境上限 `409 agent_level_cap` → 无评测门禁灰度 `409 eval_gate_unverified`，审计放行后可灰度 → 回滚 → 新建评测（v1 对 v2，待执行）→ 运行反馈与标注 → 登记护栏 `deny_sensitive_content`。护栏描述为英文（同 PA-60）。
 - **阶段 2：设置黄金路径**（`golden.py settings`，管理员）22/22：API 令牌签发（TTL 为秒数）后只能 Bearer 读 `GET /connectors`，读服务或写连接器 401；列表不含明文；轮换后新旧密钥都可用，吊销后立即 401（测试令牌已全部吊销）；工作区 `PUT` 当前 ETag 200、旧 ETag 412、缺 `If-Match` 428；通知与 AI 偏好往返保存；审计导出返回下载地址，详情 `chain_ok: true`；安全策略在未配置权威时九项均 `not_configured`。
 - **阶段 2：知识黄金路径（进行中）**（`golden.py knowledge`）：坏发布演练中告警约 90–110 秒触发，运维从告警起草并宣告人工事件、记时间线，关闭演练后事件经“已缓解”到“已解决”；管理员起草复盘，作者自己发布被拒（`403 self_review_forbidden`，正确）；草稿复盘无法推进（PA-65）；手工事件的复盘不能起草 Runbook（PA-63）。
 - **PA-52/53/55/56/57 部署验证（6ffa67a）**：权限矩阵重跑两个实例 0 条不一致；只读成员现在能进入应用（截图 `pa55-viewer-*`），但带合法请求体提静默、改 Agent 上限、新建对话、批准、驳回均被拒绝；变更审批员驳回提案 200（PA-57），审批员和只读成员读通知路由树 200（PA-56）。合并后 `internal/v3conversation` 的 `TestConversationListRealMigrationGrantAndPinyin` 失败（撤销环境授权后仍可见，疑与迁移 167 相关），已转后端。

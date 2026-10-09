@@ -83,7 +83,7 @@ func writeToolRound(w http.ResponseWriter, api, text string, call bool, round in
 		stop := "end_turn"
 		if call {
 			stop = "tool_use"
-			sse(w, map[string]any{"type": "content_block_start", "index": 1, "content_block": map[string]any{"type": "tool_use", "id": id, "name": "read_health", "input": map[string]any{"query": "status"}}})
+			sse(w, map[string]any{"type": "content_block_start", "index": 1, "content_block": map[string]any{"type": "tool_use", "id": id, "name": "read_health", "input": map[string]any{"query": fmt.Sprintf("status-%d", round)}}})
 		}
 		sse(w, map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": stop}})
 		sse(w, map[string]any{"type": "message_stop"})
@@ -101,7 +101,7 @@ func writeToolRound(w http.ResponseWriter, api, text string, call bool, round in
 			sse(w, map[string]any{"type": "response.output_text.delta", "output_index": 0, "delta": chunk})
 		}
 		if call {
-			output = append(output, map[string]any{"type": "function_call", "id": id, "call_id": id, "name": "read_health", "arguments": `{"query":"status"}`})
+			output = append(output, map[string]any{"type": "function_call", "id": id, "call_id": id, "name": "read_health", "arguments": fmt.Sprintf(`{"query":"status-%d"}`, round)})
 		}
 		sse(w, map[string]any{"type": "response.completed", "response": map[string]any{"status": "completed", "output": output}})
 	case "ollama":
@@ -109,7 +109,7 @@ func writeToolRound(w http.ResponseWriter, api, text string, call bool, round in
 			ollamaFrame(w, map[string]any{"message": map[string]any{"role": "assistant", "content": chunk}, "done": false})
 		}
 		if call {
-			ollamaFrame(w, map[string]any{"message": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"function": map[string]any{"name": "read_health", "arguments": map[string]any{"query": "status"}}}}}, "done": false})
+			ollamaFrame(w, map[string]any{"message": map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"function": map[string]any{"name": "read_health", "arguments": map[string]any{"query": fmt.Sprintf("status-%d", round)}}}}}, "done": false})
 		}
 		ollamaFrame(w, map[string]any{"done": true, "done_reason": "stop"})
 	default:
@@ -120,7 +120,7 @@ func writeToolRound(w http.ResponseWriter, api, text string, call bool, round in
 		delta := map[string]any{}
 		if call {
 			stop = "tool_calls"
-			delta["tool_calls"] = []any{map[string]any{"index": 0, "id": id, "function": map[string]any{"name": "read_health", "arguments": `{"query":"status"}`}}}
+			delta["tool_calls"] = []any{map[string]any{"index": 0, "id": id, "function": map[string]any{"name": "read_health", "arguments": fmt.Sprintf(`{"query":"status-%d"}`, round)}}}
 		}
 		openChunk(w, delta, stop)
 		fmt.Fprint(w, "data: [DONE]\n\n")

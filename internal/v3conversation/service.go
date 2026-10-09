@@ -163,7 +163,8 @@ type Message struct {
 	Streaming   bool              `json:"streaming,omitempty"`
 	State       string            `json:"state,omitempty"`
 	// FinishReason is max_output_tokens for an assistant reply cut at the
-	// model's output limit (PA-46); its answer is kept and can be continued.
+	// model's output limit (PA-46), or evidence_limit for one given after the
+	// evidence-tool limit closed the tools (PA-52); the answer is kept.
 	FinishReason string `json:"finish_reason,omitempty"`
 }
 
@@ -670,7 +671,7 @@ func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assi
 		event["finish_reason"] = finishReason
 	}
 	if runErr != nil {
-		state, errText = "failed", runErr.Error()
+		state, errText = "failed", replyErrorText(runErr)
 		if errors.Is(runErr, ErrForbidden) {
 			// A grant can be revoked after streaming began. Remove replayable model
 			// output and discard the in-memory answer before recording the failure.
@@ -747,6 +748,29 @@ func (s *Service) finishLocked(ctx context.Context, tx pgx.Tx, conv, reply, assi
 		return err
 	}
 	return nil
+}
+
+// evidenceLimitPart tells the reader that the answer came after the
+// evidence-tool limit (PA-52), in the language of the request.
+func evidenceLimitPart(english bool) map[string]any {
+	if english {
+		return map[string]any{"type": "status", "text": "Answered at the evidence limit",
+			"detail": "This reply used all of its evidence reads, so the model answered from the evidence it had. Ask a narrower follow-up to check what is still open."}
+	}
+	return map[string]any{"type": "status", "text": "取证次数已达上限，已基于现有证据作答",
+		"detail": "本次回复的取证次数已用完，模型根据已获取的证据作答。可以针对尚未核实的部分继续追问。"}
+}
+
+// replyErrorText gives a failed reply a readable reason instead of a bare
+// context error (PA-52).
+func replyErrorText(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "reply_timeout: the reply exceeded its time limit"
+	case errors.Is(err, context.Canceled):
+		return "reply_canceled: the reply stopped before it finished, for example on a service shutdown or an expired lease"
+	}
+	return err.Error()
 }
 
 // truncatedPart tells the reader that the answer stopped at the output
@@ -957,10 +981,20 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 	}
 	answer, runErr := s.runtime.Run(ctx, inference.Request{RunID: reply, AttemptID: reply, BranchID: conv, EnvironmentID: env, ModelID: model.ID, Reasoning: reasoning, Messages: msgs, Tools: tools}, emit)
 	// PA-46: an answer cut at the output limit is kept and completes; the
-	// user can ask the model to continue from it.
+	// user can ask the model to continue from it. PA-52: so is an answer the
+	// model gave after the evidence-tool limit closed its tools.
 	finishReason := ""
-	if errors.Is(runErr, inference.ErrOutputTruncated) && answer != "" {
-		runErr, finishReason = nil, "max_output_tokens"
+	var notes []map[string]any
+	if answer != "" && (errors.Is(runErr, inference.ErrOutputTruncated) || errors.Is(runErr, inference.ErrEvidenceLimitReached)) {
+		if errors.Is(runErr, inference.ErrEvidenceLimitReached) {
+			finishReason = "evidence_limit"
+			notes = append(notes, evidenceLimitPart(english))
+		}
+		if errors.Is(runErr, inference.ErrOutputTruncated) {
+			finishReason = "max_output_tokens"
+			notes = append(notes, truncatedPart(english))
+		}
+		runErr = nil
 	}
 	if runErr != nil {
 		parts[0] = textPart(streamed.String())
@@ -1009,8 +1043,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		}
 		parts = append(parts, marshal(part))
 	}
-	if finishReason != "" {
-		part := truncatedPart(english)
+	for _, part := range notes {
 		if err := s.appendEvent(ctx, conv, reply, claimID, map[string]any{"type": "part.added", "message_id": assistant, "part": part}); err != nil {
 			s.failTurn(conv, reply, claimID, assistant, parts, err)
 			return

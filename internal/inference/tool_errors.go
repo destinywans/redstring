@@ -24,6 +24,8 @@ const (
 	ToolNotPermitted      = "not_permitted"
 	ToolNotConfigured     = "not_configured"
 	ToolSourceUnavailable = "source_unavailable"
+	// ToolEvidenceLimit answers a call after the run's tool budget is used.
+	ToolEvidenceLimit = "evidence_limit"
 )
 
 func (e *ToolError) Error() string { return e.Code + ": " + e.Message }

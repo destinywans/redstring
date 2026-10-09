@@ -26,6 +26,9 @@ type providerModel struct {
 	history         []Message
 	calls, maxCalls int
 	steps           *stepLog
+	// budget counts evidence reads; when it is used up, or on the last
+	// allowed model call, the call is made without tools (PA-52).
+	budget *toolBudget
 }
 
 func (p *providerModel) outputTokenLimit() int {
@@ -63,6 +66,23 @@ func (p *providerModel) GenerateContent(ctx context.Context, req *model.LLMReque
 			yield(nil, errors.New("model call budget exhausted"))
 			return
 		}
+		// PA-52: with the evidence budget used, or on the last allowed call,
+		// the model answers from what it has instead of the run failing.
+		closing := ""
+		if requestHasTools(req) {
+			if p.budget.closed() {
+				closing = evidenceLimitNote
+			} else if p.calls == p.maxCalls {
+				closing = lastStepNote
+			}
+		}
+		if closing != "" {
+			req = withSystemNote(req, closing)
+		}
+		api := p.provider.API
+		if p.provider.Kind == "claude" {
+			api = "messages"
+		}
 		body, path, err := p.request(req)
 		if err != nil {
 			yield(nil, err)
@@ -99,6 +119,9 @@ func (p *providerModel) GenerateContent(ctx context.Context, req *model.LLMReque
 					return
 				}
 			}
+		}
+		if closing != "" {
+			disableTools(body, api)
 		}
 		resp, err := post(ctx, p.client, p.provider, path, body)
 		if err != nil {

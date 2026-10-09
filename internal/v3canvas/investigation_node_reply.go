@@ -121,6 +121,12 @@ func (s *Service) investigationNodeMessage(w http.ResponseWriter, r *http.Reques
 		Tools: tools, MaxCalls: maxCalls, MaxToolCalls: maxInvestigationToolCalls, TimeoutSeconds: int(nodeRunTimeout.Seconds()),
 	}, collected.handle)
 	stop()
+	// PA-52 (and PA-46): an answer given after the evidence-tool limit closed
+	// the tools, or cut at the output limit, is kept with a note for readers.
+	if answer != "" && (errors.Is(runErr, inference.ErrEvidenceLimitReached) || errors.Is(runErr, inference.ErrOutputTruncated)) {
+		answer += replyLimitNote(r.Header.Get("Accept-Language"), runErr)
+		runErr = nil
+	}
 	evidence, evidenceErr := collected.finish()
 	if runErr == nil {
 		runErr = evidenceErr
@@ -455,4 +461,26 @@ func (s *Service) failInvestigationReply(id, reason string) {
 		return
 	}
 	_ = tx.Commit(ctx)
+}
+
+// replyLimitNote marks a stored answer that ended at a run limit, in the
+// language of the request (English for "en", Chinese otherwise).
+func replyLimitNote(acceptLanguage string, notice error) string {
+	english := strings.HasPrefix(strings.ToLower(strings.TrimSpace(acceptLanguage)), "en")
+	note := ""
+	if errors.Is(notice, inference.ErrEvidenceLimitReached) {
+		if english {
+			note += "\n\n> Note: this reply used all of its evidence reads; the conclusions rest only on the evidence above."
+		} else {
+			note += "\n\n> 注：本次回复的取证次数已达上限，以上结论只基于已获取的证据。"
+		}
+	}
+	if errors.Is(notice, inference.ErrOutputTruncated) {
+		if english {
+			note += "\n\n> Note: the answer reached the model's output limit and was cut off."
+		} else {
+			note += "\n\n> 注：回答达到模型输出长度上限，已截断。"
+		}
+	}
+	return note
 }

@@ -2,6 +2,9 @@ package inference
 
 import (
 	"encoding/json"
+	"math"
+	"strconv"
+	"time"
 	"unicode/utf8"
 
 	"google.golang.org/adk/v2/model"
@@ -13,8 +16,11 @@ import (
 // in each cut result that it sees a preview or only the title.
 const (
 	evidencePreviewBytes = 800
-	evidenceTrimmedNote  = "Evidence trimmed to fit the model input budget; only a preview remains. The complete evidence is stored with this reply."
-	evidenceOmittedNote  = "Evidence omitted to fit the model input budget; only its title and source remain. The complete evidence is stored with this reply."
+	evidenceTrimmedNote  = "Evidence trimmed to fit the model input budget; only a preview remains. The complete evidence is stored with this reply, and calling the same tool with the same input again returns this same result."
+	evidenceOmittedNote  = "Evidence omitted to fit the model input budget; only its title and source remain. The complete evidence is stored with this reply, and calling the same tool with the same input again returns this same result."
+	// PA-52: a byte prefix of metric samples looked like missing data and
+	// made the model re-read; a metric result is summarized per series.
+	metricSummaryNote = "Metric evidence summarized to fit the model input budget: each series keeps its labels, point count, first and last value and time, min, max and change. The complete samples are stored with this reply; calling the same tool with the same input again returns this same data, so do not re-read it."
 )
 
 // fitEvidence returns a copy of req whose tool results are cut, oldest first,
@@ -77,6 +83,13 @@ func cutEvidence(response map[string]any, preview bool) map[string]any {
 	}
 	content, _ := response["content"].(string)
 	if preview {
+		if kind, _ := response["kind"].(string); kind == "metrics" {
+			if summary, ok := summarizeMetricContent(content); ok {
+				out["summary"] = summary
+				out["trimmed"] = metricSummaryNote
+				return out
+			}
+		}
 		out["content"] = previewText(content, evidencePreviewBytes)
 		out["trimmed"] = evidenceTrimmedNote
 	} else {
@@ -112,4 +125,66 @@ func (p *providerModel) requestTokens(req *model.LLMRequest) (int, any, string, 
 		return 0, nil, "", err
 	}
 	return EstimateTokens(string(encoded)), body, path, nil
+}
+
+// summarizeMetricContent condenses a metric result into per-series statistics:
+// labels, point count, first and last value and time, min, max and change.
+// ok is false for content without a series list.
+func summarizeMetricContent(content string) (map[string]any, bool) {
+	var parsed map[string]json.RawMessage
+	if json.Unmarshal([]byte(content), &parsed) != nil {
+		return nil, false
+	}
+	var series []struct {
+		Index   int               `json:"index"`
+		Labels  map[string]string `json:"labels"`
+		Samples []struct {
+			Timestamp float64 `json:"timestamp"`
+			Value     string  `json:"value"`
+		} `json:"samples"`
+	}
+	if raw, ok := parsed["series"]; !ok || json.Unmarshal(raw, &series) != nil {
+		return nil, false
+	}
+	out := map[string]any{}
+	for _, field := range []string{"service", "query_id", "meaning", "status", "environment_id", "truncated", "incomplete"} {
+		if value, ok := parsed[field]; ok {
+			out[field] = value
+		}
+	}
+	round := func(v float64) float64 { return math.Round(v*1e6) / 1e6 }
+	at := func(ts float64) string { return time.Unix(int64(ts), 0).UTC().Format(time.RFC3339) }
+	summaries := make([]map[string]any, 0, len(series))
+	for _, line := range series {
+		item := map[string]any{"points": len(line.Samples)}
+		if line.Index > 0 {
+			item["index"] = line.Index
+		}
+		if len(line.Labels) > 0 {
+			item["labels"] = line.Labels
+		}
+		var first, last, low, high float64
+		var firstAt, lastAt float64
+		defined := 0
+		for _, sample := range line.Samples {
+			v, err := strconv.ParseFloat(sample.Value, 64)
+			if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
+				continue
+			}
+			if defined == 0 {
+				first, low, high, firstAt = v, v, v, sample.Timestamp
+			}
+			last, lastAt = v, sample.Timestamp
+			low, high = math.Min(low, v), math.Max(high, v)
+			defined++
+		}
+		if defined > 0 {
+			item["first"], item["last"], item["min"], item["max"] = round(first), round(last), round(low), round(high)
+			item["change"] = round(last - first)
+			item["first_at"], item["last_at"] = at(firstAt), at(lastAt)
+		}
+		summaries = append(summaries, item)
+	}
+	out["series"] = summaries
+	return out, true
 }

@@ -548,11 +548,11 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 	if steps.prefix == "" {
 		steps.prefix = "attempt"
 	}
-	model := &providerModel{provider: p, client: r.cfg.HTTPClient, history: append([]Message(nil), req.Messages[:len(req.Messages)-1]...), maxCalls: maxCalls, steps: steps, reasoning: req.Reasoning}
+	budget := newToolBudget(maxTools)
+	model := &providerModel{provider: p, client: r.cfg.HTTPClient, history: append([]Message(nil), req.Messages[:len(req.Messages)-1]...), maxCalls: maxCalls, steps: steps, reasoning: req.Reasoning, budget: budget}
 	if len(req.Tools) > 16 {
 		return "", errors.New("too many evidence tools")
 	}
-	var toolCalls int
 	ts := make([]tool.Tool, 0, len(req.Tools))
 	seen := map[string]bool{}
 	for _, read := range req.Tools {
@@ -563,18 +563,27 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 		t, err := functiontool.New(functiontool.Config{Name: read.Name, Description: read.Description}, func(tc agent.Context, args struct {
 			Query string `json:"query" jsonschema:"Read-only investigation query"`
 		}) (ev Evidence, err error) {
-			step := steps.start(tc, "tool", read.Name, args.Query)
-			defer func() { steps.finish(step, ev.Title, err) }()
-			mu.Lock()
-			toolCalls++
-			overBudget := toolCalls > maxTools
-			mu.Unlock()
-			if overBudget {
-				cancel()
-				return Evidence{}, errors.New("evidence tool budget exhausted")
+			// PA-52: an identical repeat is answered from memory, without a
+			// read or a count; past the budget a call gets a coded answer
+			// and the next model call has no tools, instead of canceling.
+			key := readKey(read.Name, args.Query)
+			if earlier, ok := budget.remembered(key); ok {
+				if earlier.err != nil {
+					return Evidence{}, earlier.err
+				}
+				return repeatEvidence(earlier), nil
 			}
+			call, ok := budget.take()
+			if !ok {
+				return Evidence{}, errEvidenceLimit
+			}
+			step := steps.start(tc, "tool", read.Name, args.Query)
+			defer func() {
+				steps.finish(step, ev.Title, err)
+				budget.remember(key, call, ev, err)
+			}()
 			if len(args.Query) > 8192 {
-				return Evidence{}, errors.New("evidence query exceeds 8 KiB")
+				return Evidence{}, NewToolError(ToolInvalidInput, "the query exceeds 8 KiB")
 			}
 			started := ToolInvocation{Name: read.Name, StepID: step.ID, Status: "started"}
 			if err = send(Event{Type: "tool_invocation", StepID: step.ID, Invocation: &started}); err != nil {
@@ -692,8 +701,15 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 	if !finalAnswer {
 		return "", errors.New("model returned no final answer")
 	}
+	var notices []error
 	if truncated {
-		return answer.String(), ErrOutputTruncated
+		notices = append(notices, ErrOutputTruncated)
+	}
+	if budget.closed() {
+		notices = append(notices, ErrEvidenceLimitReached)
+	}
+	if len(notices) > 0 {
+		return answer.String(), errors.Join(notices...)
 	}
 	return answer.String(), nil
 }

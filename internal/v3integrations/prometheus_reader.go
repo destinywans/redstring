@@ -76,9 +76,7 @@ func NewPrometheusReader(db *pgxpool.Pool, tier string, resolver CredentialResol
 	}
 	copied := make(map[PrometheusQueryKey]string, len(catalog))
 	for key, expression := range catalog {
-		if key.ConnectorID == "" || key.ApplicationID == "" || key.EnvironmentID == "" ||
-			!prometheusResourceID.MatchString(key.ResourceID) || !prometheusQueryID.MatchString(key.QueryID) ||
-			strings.TrimSpace(expression) != expression || expression == "" || len(expression) > 2048 {
+		if !PrometheusQueryValid(key, expression) {
 			return nil, metricReadError("invalid_catalog")
 		}
 		copied[key] = expression

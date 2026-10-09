@@ -7,6 +7,13 @@ knowledge     bad-release drill → declare an incident from the firing alert (o
               timeline note → drill off → mitigated → resolved → postmortem draft and
               save (admin) → runbook from the postmortem, dry run, submit → upload a
               Markdown document, register it as a knowledge source, search.
+agents        admin: create agent → prompt v1/v2 → versions with pinned execution config
+              (replay same hash, change refused) → first stable rollout with reason →
+              governed run (viewer refused) → level above the environment cap refused →
+              canary without/with override → rollback → eval → run feedback → guardrails.
+settings      admin: API token issue → Bearer read in scope / refused out of scope → rotate
+              (old and new valid) → revoke; workspace PUT with current/stale/no ETag;
+              notification and AI preferences round trip; audit export and detail.
 canvas        new investigation → question on the root node (model with read-only
               tools) → derive a child branch → question on the child → rename the
               child (layout version) → writeback preview → write the child's
@@ -233,10 +240,42 @@ def upload(cookie, filename, content, kind='file'):
         return e.code, json.loads(e.read() or b'{}')
 
 
-def knowledge(run):
-    """Incident during a real bad-release drill → resolve → postmortem → runbook → knowledge source and search."""
+RESOURCES = ['conversation', 'events', 'alert_rules', 'silences', 'proposals', 'runbooks', 'knowledge', 'services',
+             'connectors', 'agents', 'identity', 'audit', 'resources']
+
+
+def ensure_knowledge_reviewer():
+    """D9: a second person must publish a postmortem (self review is refused) and only admin holds
+    knowledge.manage built in, so a custom global role gives approver2 knowledge/runbook manage."""
+    matrix = [{'resource': r, 'grants': [1, 0, 0, 0, 1 if r in ('knowledge', 'runbooks') else 0]} for r in RESOURCES]
+    status, body = call('prod', 'POST', '/roles', {'id': 'custom-knowledge-reviewer', 'name': '知识审核',
+                                                   'description': '审核并发布复盘与 Runbook（验收 D9）',
+                                                   'scopes': [{'kind': 'global', 'id': '*'}], 'matrix': matrix})
+    if status not in (200, 201):
+        raise SystemExit(f'create role: {status} {body}')
+    accounts = json.loads((LOCAL / 'prod/secrets.json').read_text())['accounts']
+    _, members = call('prod', 'GET', '/members')
+    mid = next(m['id'] for m in members['items'] if m.get('email') == accounts['approver2']['email'])
+    _, access = call('prod', 'GET', f'/members/{mid}/access')
+    current = {r['id']: str(r['matrix_revision']) for r in access['roles'] if r.get('origin') == 'direct'}
+    if 'custom-knowledge-reviewer' not in current:
+        headers = {}
+        call('prod', 'GET', '/roles/custom-knowledge-reviewer', headers_out=headers)
+        current['custom-knowledge-reviewer'] = headers.get('X-Role-Matrix-Revision', '1')
+        status, body = call('prod', 'PUT', f'/members/{mid}/access', {'expected_revision': access['revision'],
+                            'role_ids': sorted(current), 'role_revisions': current, 'enabled': True})
+        if status != 200:
+            raise SystemExit(f'assign role: {status} {body}')
+    return login('prod', accounts['approver2'])
+
+
+def knowledge(run, incident=None):
+    """Incident during a real bad-release drill → resolve → postmortem → runbook → knowledge source and search.
+    With an already resolved incident id, start at the postmortem."""
     operator = run.cookie
     _, app = app_id('checkout-api')
+    if incident:
+        return knowledge_after_incident(run, incident, app)
 
     def firing_ids():
         _, groups = call('prod', 'GET', '/alert-groups', cookie=operator)
@@ -284,18 +323,33 @@ def knowledge(run):
                            {'status': target, 'expected_revision': revision, 'request_id': secrets.token_hex(16),
                             'reason': '回滚完成，5xx 归零' if target == 'resolved' else '已回滚，观察中'})
         revision = changed.get('revision', revision + 1 if isinstance(revision, int) else revision)
+    return knowledge_after_incident(run, inc, app)
+
+
+def knowledge_after_incident(run, inc, app):
     run.cookie = None  # admin from here on: the stored browser state (the admin signs in with MFA)
     candidates = run.step('postmortem candidates (admin)', 'GET', '/postmortems/candidates')
     found = [c for c in candidates.get('items') or [] if c.get('incident_id') == inc or c.get('id') == inc]
     run.note(candidates=len(candidates.get('items') or []), includes_incident=bool(found))
     pm_draft = run.step('postmortem draft', 'GET', f'/postmortems/draft?incident={inc}')
     run.note(draft_keys=sorted(pm_draft.keys()))
-    pm = run.step('save the postmortem as draft', 'POST', '/postmortems', {
+    # PA-65: a draft postmortem can never move to review, so the author submits for review directly.
+    # Review needs text in every section: the author writes the parts evidence cannot fill.
+    sections = [dict(sec, text=sec.get('text') or f"（作者补充）{sec.get('title')}：坏发布使 /checkout 约一半请求返回 500，"
+                     "order-api 随之报 5xx；回滚后 5xx 归零。") for sec in pm_draft.get('sections') or []]
+    run.note(empty_sections=sum(1 for sec in pm_draft.get('sections') or [] if not (sec.get('text') or '').strip()),
+             sections=len(sections))
+    actions = (pm_draft.get('actions') or []) + [{'text': '发布流水线增加 5xx 比例自动回滚门禁', 'owner': 'Operator', 'due': '2026-10-31'}]
+    pm = run.step('submit the postmortem for review', 'POST', '/postmortems', {
         'incident_id': inc, 'source_revision': pm_draft.get('source_revision'),
-        'sections': pm_draft.get('sections') or [], 'actions': pm_draft.get('actions') or [], 'status': 'draft'})
+        'sections': sections, 'actions': actions, 'status': 'review'})
     pm_id = pm['id']
     run.note(postmortem=pm_id)
-    run.step('publish the postmortem', 'POST', f'/postmortems/{pm_id}/publish', {})
+    # The author may not publish their own postmortem (403 self_review_forbidden, checked below).
+    run.step('author cannot publish own postmortem', 'POST', f'/postmortems/{pm_id}/publish', {}, ok=(403,))
+    run.cookie = ensure_knowledge_reviewer()
+    run.step('reviewer (approver2, custom role) publishes the postmortem', 'POST', f'/postmortems/{pm_id}/publish', {})
+    run.cookie = None
     # PA-63: only postmortems of incidents closed through an investigation can seed a runbook.
     run.step('runbook draft from a manual-incident postmortem (PA-63)', 'GET',
              f'/runbooks/draft?source=postmortem&from={pm_id}', ok=(200, 422))
@@ -326,14 +380,164 @@ def knowledge(run):
     return inc
 
 
+def bearer(method, path, token, body=None):
+    ctx = ssl.create_default_context(cafile=str(LOCAL / 'tls/cert.pem'))
+    headers = {'Authorization': f'Bearer {token}', 'X-AIOps-Environment': 'prod', 'Origin': ORIGINS['prod']}
+    data = None
+    if body is not None:
+        data, headers['Content-Type'] = json.dumps(body).encode(), 'application/json'
+        headers['Idempotency-Key'] = secrets.token_hex(16)
+    req = urllib.request.Request(ORIGINS['prod'] + '/api/v1' + path, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+def settings(run):
+    """Admin: API token issue/use/rotate/revoke, workspace ETag writes, personal preferences, audit export."""
+    run.cookie = None  # admin (stored browser state)
+    issued = run.step('issue an API token (1 day, connectors:view)', 'POST', '/api-tokens',
+                      {'name': 'acceptance-probe', 'scopes': ['connectors:view'], 'ttl': 86400})
+    token, tid = issued.get('secret_shown_once'), issued.get('id')
+    run.note(id=tid, secret_returned=bool(token))
+    listed = run.step('token list hides the secret', 'GET', '/api-tokens')
+    raw = json.dumps(listed)
+    run.note(secret_in_list=bool(token) and token in raw)
+    if token and token in raw:
+        run.steps[-1]['ok'] = False
+    checks = {'bearer GET /connectors': (bearer('GET', '/connectors', token), {200}),
+              'bearer GET /services (out of scope)': (bearer('GET', '/services', token), {401, 403}),
+              'bearer POST /connectors (write)': (bearer('POST', '/connectors', token, {}), {401, 403, 405})}
+    rotated = run.step('rotate the token', 'POST', f'/api-tokens/{tid}/rotate', {})
+    new = rotated.get('secret_shown_once')
+    checks['old secret still valid after rotate'] = (bearer('GET', '/connectors', token), {200})
+    checks['new secret valid'] = (bearer('GET', '/connectors', new), {200})
+    new_id = rotated.get('id') or tid
+    run.step('revoke the rotated token', 'DELETE', f'/api-tokens/{new_id}', ok=(200, 204))
+    checks['new secret refused after revoke'] = (bearer('GET', '/connectors', new), {401, 403})
+    for name, (status, expected) in checks.items():
+        run.steps.append({'step': name, 'status': status, 'ok': status in expected})
+        print(f"{'ok ' if status in expected else 'FAIL'} {status}  {name}", flush=True)
+    headers = {}
+    status, workspace = call('prod', 'GET', '/workspace', headers_out=headers)
+    etag = headers.get('ETag') or headers.get('Etag')
+    run.steps.append({'step': 'workspace read with ETag', 'status': status, 'etag': bool(etag), 'ok': status == 200 and bool(etag)})
+    body = {k: workspace.get(k) for k in ('name', 'slug', 'timezone', 'locale', 'week_start', 'retention_days', 'data_region', 'brand')}
+    def put_workspace(if_match):
+        extra = {} if if_match is None else {'If-Match': if_match}
+        ctx = ssl.create_default_context(cafile=str(LOCAL / 'tls/cert.pem'))
+        hdr = {'Origin': ORIGINS['prod'], 'Cookie': session_cookie('prod', 'admin'), 'X-AIOps-Environment': 'prod',
+               'Content-Type': 'application/json', 'Idempotency-Key': secrets.token_hex(16), **extra}
+        req = urllib.request.Request(ORIGINS['prod'] + '/api/v1/workspace', json.dumps(body).encode(), method='PUT', headers=hdr)
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+                return r.status, r.headers.get('ETag')
+        except urllib.error.HTTPError as e:
+            return e.code, None
+    s1, new_etag = put_workspace(etag)
+    s2, _ = put_workspace(etag)
+    s3, _ = put_workspace(None)
+    for name, status, expected in (('workspace PUT with current ETag', s1, {200}), ('workspace PUT with stale ETag', s2, {412}),
+                                   ('workspace PUT without If-Match', s3, {428})):
+        run.steps.append({'step': name, 'status': status, 'ok': status in expected})
+        print(f"{'ok ' if status in expected else 'FAIL'} {status}  {name}", flush=True)
+    before = run.step('notification settings', 'GET', '/me/notification-settings')
+    digest = 'weekly' if before.get('digest') != 'weekly' else 'daily'
+    after = run.step('change the digest', 'PUT', '/me/notification-settings', {'digest': digest})
+    run.note(saved=after.get('digest') == digest)
+    run.step('restore the digest', 'PUT', '/me/notification-settings', {'digest': before.get('digest') or 'off'})
+    ai = run.step('AI preferences', 'GET', '/me/ai-preferences')
+    run.step('save AI preferences unchanged', 'PUT', '/me/ai-preferences', ai)
+    exported = run.step('audit export', 'POST', '/audit/export', {'filter': 'all'})
+    run.note(url=exported.get('url'))
+    audit = run.step('audit list', 'GET', '/audit?filter=user')
+    first = (audit.get('items') or [{}])[0]
+    detail = run.step('audit detail with hash-chain check', 'GET', f"/audit/{first.get('id')}")
+    run.note(chain={k: detail.get(k) for k in ('chain', 'hash_chain', 'verified', 'integrity') if k in detail})
+    sec = run.step('security policy view (no authority configured)', 'GET', '/security')
+    run.note(unavailable=sec.get('unavailable'))
+
+
+def agents(run):
+    """Admin: agent lifecycle with a real governed run; the viewer is refused; level capped by the environment."""
+    run.cookie = None
+    _, app = app_id('checkout-api')
+    suffix = time.strftime('%m%d%H%M')
+    agent_id = f'acceptance-triage-{suffix}'
+    models = run.step('model list', 'GET', '/models')
+    model_id = next((m.get('id') for m in models.get('items') or models.get('models') or [] if m.get('id')), None)
+    run.note(model=model_id)
+    run.step('create agent (paused, L0)', 'POST', '/agents', {'id': agent_id, 'application_id': app, 'name': f'验收分诊 {suffix}',
+                                                             'summary': '只读分诊：一句话判断服务是否健康'})
+    prompt = run.step('create prompt v1', 'POST', '/prompts', {'agent_id': agent_id, 'name': f'triage-{suffix}',
+                      'text': '你是值班分诊助手。只根据用户给出的信息作答，不编造数据；无法判断时直说缺什么证据。回答一句话。'})
+    pid = prompt.get('id')
+    run.note(prompt=pid)
+    run.step('prompt v2', 'POST', f'/prompts/{pid}/versions', {'text': '你是值班分诊助手。只根据给出的信息作答；先说结论再说依据，一句话。'})
+    versions = run.step('prompt versions', 'GET', f'/prompts/{pid}/versions')
+    run.note(count=len(versions.get('items') or []))
+    config = {'model_id': model_id, 'prompt_id': pid, 'prompt_version': 1, 'tool_names': [], 'max_model_calls': 2,
+              'max_tool_calls': 0, 'max_input_bytes': 8192, 'max_output_bytes': 16384, 'max_output_tokens': 512, 'timeout_seconds': 60}
+    for version, prompt_version in (('v1', 1), ('v2', 2)):
+        run.step(f'register agent version {version}', 'POST', f'/agents/{agent_id}/versions',
+                 {'version': version, 'artifact_ref': f'git:acceptance/triage@{version}'})
+        run.step(f'pin execution config {version}', 'PUT', f'/agents/{agent_id}/versions/{version}/execution',
+                 dict(config, prompt_version=prompt_version))
+    run.step('same config replays', 'PUT', f'/agents/{agent_id}/versions/v1/execution', config)
+    run.step('changed config is refused', 'PUT', f'/agents/{agent_id}/versions/v1/execution', dict(config, max_output_tokens=256), ok=(409,))
+    detail = run.step('agent detail', 'GET', f'/agents/{agent_id}')
+    revision = detail.get('revision')
+    run.note(revision=revision)
+    rolled = run.step('first stable rollout (admin reason)', 'POST', f'/agents/{agent_id}/rollout',
+                      {'to': 'v1', 'percent': 100, 'expected_revision': revision, 'override': True,
+                       'override_reason': '验收：首次稳定发布，人工确认'})
+    revision = rolled.get('revision', revision)
+    if not isinstance(revision, int):
+        revision = run.step('agent detail after rollout', 'GET', f'/agents/{agent_id}').get('revision')
+    result = run.step('governed agent run', 'POST', f'/agents/{agent_id}/runs',
+                      {'input': 'checkout-api 刚才 5 分钟内 5xx 比例从 0 升到 48%，随后发布被回滚，现在是 0。它现在健康吗？'})
+    run.note(run={k: result.get(k) for k in ('id', 'status', 'state', 'version', 'model', 'prompt_version')},
+             answer=str(result.get('answer') or result.get('result') or '')[:300])
+    rid = result.get('id') or result.get('run_id')
+    viewer = login('prod', json.loads((LOCAL / 'prod/secrets.json').read_text())['accounts']['viewer'])
+    status, _ = call('prod', 'POST', f'/agents/{agent_id}/runs', {'input': 'viewer probe'}, cookie=viewer)
+    run.steps.append({'step': 'viewer cannot run the agent', 'status': status, 'ok': status in (403, 404)})
+    print(f"{'ok ' if status in (403, 404) else 'FAIL'} {status}  viewer cannot run the agent", flush=True)
+    revision = run.step('agent detail', 'GET', f'/agents/{agent_id}').get('revision')
+    run.step('level above the environment cap (L0) is refused', 'PATCH', f'/agents/{agent_id}/level',
+             {'level': 'L1', 'expected_revision': revision}, ok=(403, 409, 422))
+    run.step('canary without an eval gate is refused', 'POST', f'/agents/{agent_id}/rollout',
+             {'to': 'v2', 'percent': 10, 'expected_revision': revision}, ok=(409, 422, 428))
+    canary = run.step('canary with an audited override', 'POST', f'/agents/{agent_id}/rollout',
+                      {'to': 'v2', 'percent': 10, 'expected_revision': revision, 'override': True, 'override_reason': '验收：灰度 10%'})
+    revision = run.step('agent detail', 'GET', f'/agents/{agent_id}').get('revision')
+    run.step('rollback', 'POST', f'/agents/{agent_id}/rollback', {'expected_revision': revision})
+    evaluation = run.step('create an eval (v1 vs v2)', 'POST', '/evals', {'agent_id': agent_id, 'title': '验收 v1 对 v2',
+                                                                          'baseline_version': 'v1', 'candidate_version': 'v2'})
+    run.note(eval=evaluation)
+    runs = run.step('agent runs list', 'GET', '/agent-runs')
+    if rid:
+        run.step('feedback on the run', 'POST', f'/agent-runs/{rid}/feedback', {'vote': 'up'})
+        run.step('annotate the run', 'POST', f'/agent-runs/{rid}/annotations', {'score': 4, 'note': '结论正确，依据充分'})
+    guard = run.step('register guardrail deny_sensitive_content', 'POST', '/guardrails', {'name': 'deny_sensitive_content'}, ok=(200, 201, 409))
+    listed = run.step('guardrails', 'GET', '/guardrails')
+    run.note(items=[(g.get('name'), g.get('enabled'), g.get('mandatory')) for g in listed.get('items') or []][:6])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('path', choices=['canvas', 'conversation', 'knowledge'])
+    ap.add_argument('path', choices=['canvas', 'conversation', 'knowledge', 'settings', 'agents'])
+    ap.add_argument('--incident', help='knowledge: resume at the postmortem of this resolved incident')
     a = ap.parse_args()
     run = Run(a.path)
     accounts = json.loads((LOCAL / 'prod/secrets.json').read_text())['accounts']
     run.cookie = login('prod', accounts['operator'])
-    {'canvas': canvas, 'conversation': conversation, 'knowledge': knowledge}[a.path](run)
+    if a.path == 'knowledge' and a.incident:
+        knowledge(run, a.incident)
+    else:
+        {'canvas': canvas, 'conversation': conversation, 'knowledge': knowledge, 'settings': settings, 'agents': agents}[a.path](run)
     print(run.save())
 
 

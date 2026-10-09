@@ -6,7 +6,7 @@ import { statePath } from "./support/global-setup";
 
 /**
  * Ad-hoc screenshots for review: SHOT_ROUTES="/a,/b" SHOT_INSTANCE=prod SHOT_LOCALE=zh-CN SHOT_THEME=light,
- * optional SHOT_TAG to prefix the file names (e.g. a fault-injection run).
+ * optional SHOT_TAG to prefix the file names (e.g. a fault-injection run) and SHOT_ROLE (default admin).
  * Images go to .local/acceptance/e2e/shots/.
  */
 const routes = (process.env.SHOT_ROUTES ?? "").split(",").filter(Boolean);
@@ -14,10 +14,11 @@ const instance = (process.env.SHOT_INSTANCE ?? "prod") as InstanceName;
 const locale = process.env.SHOT_LOCALE ?? "zh-CN";
 const theme = process.env.SHOT_THEME ?? "light";
 const tag = process.env.SHOT_TAG ? `${process.env.SHOT_TAG}-` : "";
+const role = process.env.SHOT_ROLE ?? "admin";
 const OUT = resolve(LOCAL, "e2e/shots");
 mkdirSync(OUT, { recursive: true });
 
-test.use({ storageState: statePath(instance, "admin"), viewport: { width: 1440, height: 1000 } });
+test.use({ storageState: statePath(instance, role), viewport: { width: 1440, height: 1000 } });
 for (const route of routes) {
   test(`shot ${route}`, async ({ page }) => {
     await page.addInitScript((c) => localStorage.setItem("aiops-v3-preferences", JSON.stringify(c)), { locale, theme });

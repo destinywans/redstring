@@ -209,3 +209,9 @@ export function LoadError({ error, source, title, icon }: { error: unknown; sour
     />
   );
 }
+
+/** Suffixes of `<prefix>.<id>` keys in an `unavailable` map, e.g. the missing panels "signals.p99" → ["p99"]. */
+export const missingParts = (map: Record<string, string> | null | undefined, prefix: string) =>
+  Object.keys(map ?? {})
+    .filter((k) => k.startsWith(prefix + "."))
+    .map((k) => k.slice(prefix.length + 1));

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import { useEnv } from "../../app/environment";
-import { PageUnavailable, PartialBanner, Unavailable, unknownLabels } from "../../ui/unknown";
+import { PageUnavailable, PartialBanner, Unavailable, UnknownValue, missingParts, unknownLabels } from "../../ui/unknown";
 import type { MetricsDashboard, ServiceSloSettings } from "../../api/types";
 import { AiAvatar, Badge, Bar, Brand, Btn, Card, Chip, Cite, Col, Icon, IconBtn, LabelChip, Legend, Muted, Panel, Row, Segmented, Skeleton, Spacer, Strong, TextLink, cx, type Tone } from "../../ui/core";
 import { KBand } from "../../ui/data";
@@ -82,6 +82,9 @@ export default function MetricsPage() {
     instances: tx("实例", "instances"),
   });
   const sloTarget = demo ? "99.9" : sloCfg?.target ?? null;
+  // Without the heatmap panel (latency.heat null, PA-41) the latency chart falls back to percentiles.
+  const latMode = lat === "heat" && !(d.latency?.heat && d.latency?.buckets) ? "pct" : lat;
+  const KPI_LABEL: Record<string, string> = { rps: tx("请求量", "Requests"), err: tx("错误率", "Error rate"), p99: tx("P99 延迟", "P99 latency"), wait: tx("等待", "Wait"), cpu: tx("CPU", "CPU") };
   const editSlo = async () => {
     const v = await openForm({
       title: tx("SLO 设置 · {s}", "SLO settings · {s}", { s: service }),
@@ -163,6 +166,13 @@ export default function MetricsPage() {
               {d.kpis.map((k) => (
                 <KBand key={k.id} label={k.label} value={k.value} unit={k.unit} sub={k.sub} tone={k.tone as Tone} values={k.series} delta={k.delta} deltaGood={k.delta_good} style={{ flex: "1 1 0" }} />
               ))}
+              {/* Panels the server couldn't prove come back as kpis.<id> (PA-41). */}
+              {missingParts(u, "kpis").map((id) => (
+                <Card key={id} className="v3-kpi" style={{ flex: "1 1 0" }}>
+                  <Muted>{KPI_LABEL[id] ?? id}</Muted>
+                  <UnknownValue reason={u[`kpis.${id}`]} source="Prometheus" />
+                </Card>
+              ))}
             </div>
           ) : (
             <Card>
@@ -203,6 +213,13 @@ export default function MetricsPage() {
                     <span className="tnum" style={{ color: "var(--danger)", fontSize: "var(--fs-sub)" }}>{d.slo.delta}</span>
                   </Col>
                 </Row>
+                {missingParts(u, "slo.burn").map((w) => (
+                  <Row key={w} gap={8}>
+                    <Muted>{tx("{w} 燃烧速率", "{w} burn", { w })}</Muted>
+                    <Spacer />
+                    <UnknownValue reason={u[`slo.burn.${w}`]} source="Prometheus" />
+                  </Row>
+                ))}
                 {d.slo.burn.map((b) => (
                   <Row key={b.window} gap={8}>
                     <Muted>{b.window}</Muted>
@@ -229,7 +246,7 @@ export default function MetricsPage() {
               style={{ flex: "2 1 0" }}
               right={
                 <Row gap={4}>
-                  {d.latency && <Segmented label={tx("延迟图表类型", "Latency chart")} value={lat} onChange={setLat} options={[{ value: "heat" as const, label: tx("热力图", "Heatmap") }, { value: "pct" as const, label: tx("分位线", "Percentiles") }, ...(demo ? [{ value: "box" as const, label: tx("箱线图", "Box plot") }] : [])]} />}
+                  {d.latency && <Segmented label={tx("延迟图表类型", "Latency chart")} value={latMode} onChange={setLat} options={[...(d.latency.heat && d.latency.buckets ? [{ value: "heat" as const, label: tx("热力图", "Heatmap") }] : []), { value: "pct" as const, label: tx("分位线", "Percentiles") }, ...(demo ? [{ value: "box" as const, label: tx("箱线图", "Box plot") }] : [])]} />}
                   {demo && <IconBtn icon="pin" label={tx("钉到调查", "Pin to investigation")} size={24} />}
                 </Row>
               }
@@ -238,8 +255,8 @@ export default function MetricsPage() {
                 <Unavailable reason={u.latency} source="Prometheus" title={tx("延迟分布", "Latency distribution")} icon="activity" />
               ) : (
               <>
-              <div style={{ height: 176 }} key={lat} className="anim-fade">
-                {lat === "heat" && (
+              <div style={{ height: 176 }} key={latMode} className="anim-fade">
+                {latMode === "heat" && d.latency.heat && d.latency.buckets && (
                   <div style={{ position: "relative" }}>
                     <Heatmap matrix={d.latency.heat} height={160} rowLabels={d.latency.buckets} />
                     <div style={{ position: "absolute", left: 56, right: 0, top: 0 }}>
@@ -247,7 +264,7 @@ export default function MetricsPage() {
                     </div>
                   </div>
                 )}
-                {lat === "pct" && (
+                {latMode === "pct" && (
                   <Lines
                     series={[{ name: "P50", values: d.latency.p50, color: "var(--c1)" }, { name: "P95", values: d.latency.p95, color: "var(--c5)" }, { name: "P99", values: d.latency.p99, color: "var(--c3)" }]}
                     height={160}
@@ -260,9 +277,9 @@ export default function MetricsPage() {
                     sync={sync}
                   />
                 )}
-                {lat === "box" && demo && <BoxPlot stats={stats} height={150} max={2000} />}
+                {latMode === "box" && demo && <BoxPlot stats={stats} height={150} max={2000} />}
               </div>
-              <Axis labels={w.ticks} style={{ paddingLeft: lat === "heat" ? 56 : 0 }} />
+              <Axis labels={w.ticks} style={{ paddingLeft: latMode === "heat" ? 56 : 0 }} />
               <Row gap={8} style={{ marginTop: 8 }}>
                 <Muted size={11.5}>{demo ? tx("热力图颜色越深表示该耗时区间的请求越多；发布后请求整体上移到 500 ms – 1 s。", "Darker cells mean more requests in that latency bucket; after the release requests shift to 500 ms – 1 s.") : tx("热力图颜色越深表示该耗时区间的请求越多。", "Darker cells mean more requests in that latency bucket.")}</Muted>
                 <Spacer />

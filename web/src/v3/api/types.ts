@@ -580,7 +580,8 @@ export type MetricsDashboard = {
   kpis: Kpi[] | null;
   requests: { ok: number[]; client: number[]; server: number[] } | null;
   slo: { remaining: number; availability: string; delta: string; burn: { window: string; value: string; tone: Tone; pct: number }[]; note: string } | null;
-  latency: { p50: number[]; p95: number[]; p99: number[]; heat: number[][]; buckets: string[] } | null;
+  /** heat/buckets are null when only the percentile panels are proven (PA-41). */
+  latency: { p50: number[]; p95: number[]; p99: number[]; heat: number[][] | null; buckets: string[] | null } | null;
   endpoints: { label: string; value: number; tone?: Tone }[] | null;
   instances: { label: string; values: number[]; tone?: Tone }[] | null;
   unavailable: Unavailable;

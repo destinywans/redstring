@@ -3,7 +3,7 @@ import { Page } from "../../app/Shell";
 import { API_MODE, useGet } from "../../api/client";
 import type { Resilience, ServiceDependency, ServiceDetail } from "../../api/types";
 import { Badge, Bar, Brand, Btn, Card, Col, Dot, Empty, Icon, Muted, Num, Panel, Row, Skeleton, Spacer, State, Strong, TextLink, Tile, type Tone } from "../../ui/core";
-import { LoadError, PartialBanner, Unavailable, UnknownValue, anyReason, unknownLabels } from "../../ui/unknown";
+import { LoadError, PartialBanner, Unavailable, UnknownValue, anyReason, missingParts, unknownLabels } from "../../ui/unknown";
 import { KBand } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
@@ -36,6 +36,7 @@ function BurnRow({ label, value, tone, pct }: { label: string; value: string; to
 
 export default function ServiceDetailPage() {
   const { tx } = useI18n();
+  const SIGNAL_LABEL: Record<string, string> = { rps: tx("请求量", "Requests"), err: tx("错误率", "Error rate"), p99: tx("P99 延迟", "P99 latency"), wait: tx("等待", "Wait"), cpu: tx("CPU", "CPU") };
   const { data: s, error } = useService();
   if (!s)
     return (
@@ -91,6 +92,13 @@ export default function ServiceDetailPage() {
             {s.signals.map((k) => (
               <KBand key={k.id} label={k.label} value={k.value} unit={k.unit} sub={k.sub} tone={k.tone as Tone} values={k.series} delta={k.delta} deltaGood={k.delta_good} style={{ flex: "1 1 0" }} />
             ))}
+            {/* Panels the server couldn't prove are listed as signals.<id> (PA-41); show them as unknown, not as missing cards. */}
+            {missingParts(u, "signals").map((id) => (
+              <Card key={id} className="v3-kpi" style={{ flex: "1 1 0" }}>
+                <Muted>{SIGNAL_LABEL[id] ?? id}</Muted>
+                <UnknownValue reason={u[`signals.${id}`]} source="Prometheus" />
+              </Card>
+            ))}
           </div>
         ) : (
           <Card>
@@ -129,7 +137,16 @@ export default function ServiceDetailPage() {
                       <UnknownValue reason={u["slo.burn"]} source="Prometheus" />
                     </Row>
                   ) : (
-                    s.slo.burn.map((b) => <BurnRow key={b.window} label={b.window} value={b.value} tone={b.tone} pct={b.pct} />)
+                    <>
+                      {s.slo.burn.map((b) => <BurnRow key={b.window} label={b.window} value={b.value} tone={b.tone} pct={b.pct} />)}
+                      {missingParts(u, "slo.burn").map((w) => (
+                        <Row key={w} gap={8}>
+                          <Muted>{tx("{w} 燃烧速率", "{w} burn", { w })}</Muted>
+                          <Spacer />
+                          <UnknownValue reason={u[`slo.burn.${w}`]} source="Prometheus" />
+                        </Row>
+                      ))}
+                    </>
                   )}
                   {s.slo.note && <Muted size={11.5}>{s.slo.note}</Muted>}
                 </Col>

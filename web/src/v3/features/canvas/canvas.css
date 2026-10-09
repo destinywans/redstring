@@ -565,3 +565,15 @@
   max-height: 220px;
   overflow: auto;
 }
+/* Evidence count badges stay inside the card (PA-62). */
+.cv-refs {
+  min-width: 0;
+  max-width: 100%;
+}
+.cv-refs .v3-badge {
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

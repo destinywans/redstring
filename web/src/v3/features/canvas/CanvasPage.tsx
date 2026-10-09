@@ -81,6 +81,7 @@ function NodeCard({
   onAsk,
   k = 1,
   flash,
+  writebacks = 0,
 }: {
   n: CanvasNode;
   selected: boolean;
@@ -91,6 +92,8 @@ function NodeCard({
   k?: number;
   /** Briefly highlighted (a node that just appeared). */
   flash?: boolean;
+  /** Writebacks into this node, counted from its children (real nodes report none yet). */
+  writebacks?: number;
 }) {
   const { tx } = useI18n();
   const [q, setQ] = useState("");
@@ -169,17 +172,20 @@ function NodeCard({
           {n.summary ? <Markdown text={n.summary} /> : n.status === "running" && <Muted>{tx("AI 正在分析这个分支…", "The AI is working on this branch…")}</Muted>}
           {n.series && <Lines series={[{ values: n.series, color: "var(--c3)", fill: "var(--c3s)" }]} height={50} grid={2} hover={false} />}
           {n.evidence_refs && (
-            <Row gap={4} wrap>
-              {n.kind === "root" ? (
+            <Row gap={4} wrap className="cv-refs">
+              {/* Real refs are evidence IDs: the card shows how many, never the IDs themselves (PA-62). */}
+              {n.kind === "root" || !demo ? (
                 <>
                   <Badge>
                     <Icon name="file" size={11} />
-                    {tx("{n} 条证据", "{n} evidence", { n: n.evidence_refs[0] })}
+                    {tx("{n} 条证据", "{n} evidence", { n: demo ? n.evidence_refs[0] : n.evidence_refs.length })}
                   </Badge>
-                  <Badge tone="accent">
-                    <Icon name="writeback" size={11} />
-                    {tx("已回写 3", "3 written back")}
-                  </Badge>
+                  {n.kind === "root" && (demo || writebacks > 0) && (
+                    <Badge tone="accent">
+                      <Icon name="writeback" size={11} />
+                      {demo ? tx("已回写 3", "3 written back") : tx("已回写 {n}", "{n} written back", { n: writebacks })}
+                    </Badge>
+                  )}
                 </>
               ) : (
                 n.evidence_refs.map((r) => <Badge key={r}>{r}</Badge>)
@@ -333,7 +339,14 @@ function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin }: { n:
                 <div className="cv-writeback">
                   <Row gap={6}>
                     <Icon name="check" size={13} color="var(--ok)" />
-                    <span style={{ color: "var(--accent-text)" }}>{tx("「调用量为什么翻三倍」的 2 条结论已回写到主线 v7", "2 conclusions from “Why did calls triple?” were written back to main v7")}</span>
+                    <span style={{ color: "var(--accent-text)" }}>
+                      {demo
+                        ? tx("「调用量为什么翻三倍」的 2 条结论已回写到主线 v7", "2 conclusions from “Why did calls triple?” were written back to main v7")
+                        : kids
+                            .filter((k) => k.writeback)
+                            .map((k) => tx("「{t}」已回写到 {v}", "“{t}” written back to {v}", { t: k.title, v: k.writeback!.version }))
+                            .join(tx("；", "; "))}
+                    </span>
                   </Row>
                   <Btn h={24} onClick={onWriteback}>
                     {tx("查看回写记录", "View writeback")}
@@ -870,6 +883,7 @@ export default function CanvasPage() {
               <NodeCard
                 key={n.id}
                 n={n}
+                writebacks={nodes.filter((c) => c.writeback?.to === n.id).length}
                 flash={flashIds.has(n.id)}
                 selected={sel === n.id}
                 onSelect={() => setSel(n.id)}

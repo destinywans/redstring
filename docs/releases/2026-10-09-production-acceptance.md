@@ -74,12 +74,15 @@
 | PA-59 | P2 | 数据库不可用时，所有已登录请求都返回 `401 unauthorized`（`httpapi.Register` 把 `Store.Session` 的任何错误都当成会话过期），前端会把用户当作登出；数据库恢复后同一会话又能用 | 后端已修（源码，待部署验证）：路由入口 `Register` 与 V3 环境中间件只在会话不存在、过期、被撤销或账号停用时返回 401，其余查询错误返回 `503 session_store_unavailable`；对话发送的会话复核遇到存储错误返回 `503 conversation_unavailable` 而不是 403；审批身份检查原本已区分（`503 proposal_approval_unavailable`）。前端需把 `503 session_store_unavailable` 当作暂时不可用：保持登录与当前页，提示稍后重试 |
 | PA-60 | P3 | 中文界面下，对话失败的状态文字是英文（“Model reply failed”“Retry this message after checking the model connection.”） | 后端已修（源码，待部署验证）：对话状态块新增可选 `code`（`reply_failed`/`reply_interrupted`/`evidence_limit`/`output_truncated`），文字按发起回复那次请求的 `Accept-Language` 输出（中文默认：模型回复失败 / 回复中断）；后端重启导致的租约到期恢复没有请求，文字用中文并带 `reply_interrupted`，前端可按 `code` 翻译。读取详情时补出的失败状态按本次请求语言；改动前已存的英文失败块不改写，前端可按文字 `Model reply failed` 兼容 |
 | PA-61 | P2 | Kubernetes 采集源不可达超过 5 分钟后，`GET /topology` 仍是 200 且节点为空、不带任何不可用原因，资源与拓扑页变成一张没有提示的空图，分不清“集群没有资源”和“采集已失败”（5 分钟内则照常显示最近快照，属设计） | 已转后端与前端：拓扑带采集源最近成功时间与 `stale`/`unavailable` 原因，页面提示“Kubernetes 采集已 N 分钟未成功” |
-| PA-62 | P3 | 调查画布节点卡片把证据 ID（如 `EVD-5fc1…`）当成“N 条证据”的数字显示，文字溢出卡片边界；只回写过一次，根节点却显示“已回写 3”；回写预览的检查提示是英文 | 待转前端（计数与溢出）和后端（提示文字随请求语言） |
+| PA-62 | P3 | 调查画布节点卡片把证据 ID（如 `EVD-5fc1…`）当成“N 条证据”的数字显示，文字溢出卡片边界；只回写过一次，根节点却显示“已回写 3”；回写预览的检查提示是英文 | 前端已修（e7f7685，截图 `pa62-*`）：卡片显示“N 条证据”、不溢出，去掉写死的“已回写 3”；根节点回写计数需后端提供每节点回写来源字段；检查提示英文已转后端 |
 | PA-63 | P2 | “从复盘起草 Runbook”只接受已发布且来自“经调查结案”的旧式事故的复盘（要求已关闭调查、调查报告和结案事件）；V3 手工事件（`INC-*`）的复盘永远不能作为 Runbook 来源，`GET /runbooks/draft?source=postmortem` 返回 `422 invalid_source`“Source was not found or is not accessible” | 后端已修（源码，待部署验证）：`GET /runbooks/draft?source=postmortem` 与 `POST /runbooks` 接受手工事件的已发布复盘，要求事件仍由复盘记录的 resolved 状态事件解决，并对复盘、事件和该状态事件加共享锁；来源摘要仍是章节与行动的哈希。先授权再说明原因：有权读取但未发布为 `422 source_not_published`，事件已重开或来源事件变化为 `422 source_not_current`，来源类型不支持为 `422 source_kind_unsupported`（目前只有 ops/case 两类，均支持）；找不到或无权仍是 `invalid_source`。前端可按这三个代码给出对应提示 |
 | PA-64 | P2 | 界面不按权限收起写入口：只读成员的首页仍显示可点击的“发起调查”、可发送的输入框等，点了才 403；`GET /me` 只返回角色名（`["viewer"]`），前端无法判断自定义角色的实际权限 | 后端已修（源码，待部署验证）：`GET/PATCH /me` 新增必有字段 `permissions`，即所选各环境的 `模块代码 → 动作 → all/scoped/conditional`（全局或整个环境为 all；只覆盖部分应用/团队为 scoped，具体对象仍可能拒绝；批准恒为 conditional），按 V3 策略的环境查看门槛与范围规则计算，应用授权只计入映射到该环境的应用。键用模块代码（与路由权限一致，如 conversation、canvas、events、proposals、knowledge），不是矩阵的 13 个资源行。前端按 D10 对缺少的动作禁用入口并提示所需权限，scoped 时可保持可用并以服务端结果为准 |
 | PA-65 | P2 | 复盘以“草稿”保存后是死路：没有编辑或“提交审核”的接口，发布要求状态为 `review`（`409 invalid_state`），同一事件也不能再起草（`404 Incident is not eligible`），只能永远停在草稿 | 后端已修（源码，待部署验证）：新增 `GET /postmortems/{id}`（内容、`revision` 与 ETag；草稿/待审只对作者和知识管理员可见）和 `PATCH /postmortems/{id}`（必须带 `If-Match`，缺少为 428、过期为 `412 postmortem_revision_conflict`；只能改草稿的 `sections`/`actions`，`status: review` 即提交审核，要求每章节有内容且事件来源未变；编辑写 `postmortem.updated`、提交写 `postmortem.submitted` 审计；需要该应用的知识管理权）。事件已有复盘时 `GET /postmortems/draft` 改为 `409 postmortem_exists` 并带 `postmortem_id`。迁移 `168_v3_postmortem_revision.sql` 增加修订号列，现有业务库未执行。前端：草稿用 GET 读取、PATCH 保存并提交审核，起草遇到 409 时跳到已有复盘 |
 | PA-66 | P2 | 上传文本登记为知识源并手动同步后（`document_count: 1`、`keyword_content_persisted: true`），证据仍是 `index: null`、`semantic_index_unavailable`（向量模型 bge-m3 已配置可用），`POST /knowledge/search` 无命中且返回 `degraded: false`，用户以为“没有相关资料”；从文档导入的 Runbook 3 个编号步骤只得到 1 步 | 后端已修（源码，待部署验证）：已同步的上传知识源按最近一次读取进入关键词检索，可见性与证据校验相同（登记未删除且绑定未变、文档与观测和上传内容哈希一致、上传未撤销、属主有效、应用/环境/团队与知识查看授权）；上传源没有向量索引，向量检索仍只覆盖知识文档，这一缺口写入契约。检索响应新增必有字段 `corpora`，逐个语料说明关键词/向量是 `searched`、`unavailable`、`not_indexed` 还是 `not_searched`；飞书等外部读取器和 Git Markdown 源目前标为未检索。附带：从 Markdown 导入起草 Runbook 时，顶层编号列表（至少两项，代码块内的编号不算）每项拆成一个只读复核步骤，原文逐字保留，其他情况仍为一个步骤 |
 | PA-67 | P2 | 集成中心“覆盖度”把三个服务的日志、链路都标为“缺失：未登记精确来源”，而日志页、链路页和 AI 日志工具都能正常读取（经 `AIOPS_TELEMETRY_CONFIG` 的旧绑定）；覆盖度只认 V3 显式目标，是 PA-19 两套登记在界面上的直接表现 | 随 PA-19 后续步骤（读取方切换到统一目录）处理；在此之前覆盖度应注明“另有旧绑定在用” |
+| PA-68 | P3 | PA-52 的指标序列摘要只给最小/最大/最新值，不带极值出现的时间，AI 无法把错误率脉冲和节点 CPU 爬升对齐，只能说“时间对齐不可得”；另外工具没有 Pod 级 CPU/内存查询（实验未采集 cAdvisor），节点压力无法归因到具体容器 | 待转后端：摘要带极值时间（RFC 3339）；Pod 级资源查询随 PA-51 后续扩展（需实验侧采集 kubelet/cAdvisor） |
+| PA-69 | P3 | 个人资料的会话列表不标出当前会话，设备为空，一个账号可积累二十多个活动会话，用户无法判断该撤销哪一个（可能撤掉自己当前的会话） | 待转后端与前端：标记当前会话，按最近活动排序 |
+| PA-70 | P1 | 生产实例出现真实 Agent（评分、用量等字段为 `null`）后，“Agent 生命周期”页整页崩溃：`PageBoundary: Cannot read properties of null (reading 'toFixed')`（第一轮回归对拍） | 已转前端：可空数字按“未知”显示，不调用 `toFixed` |
 
 ### PA-05/PA-16 五个读接口
 
@@ -99,15 +102,13 @@
 
 ### 续跑待办
 
-用户 2026-10-10 01:10 离开前要求按计划不停推进，选择题自行决定并记录在下一节，用量限额恢复后自动继续（会话内每 30 分钟的续跑提示）。按顺序：
+用户 2026-10-10 01:10 离开前要求按计划不停推进，选择题自行决定并记录在下一节，用量限额恢复后自动继续（会话内每 30 分钟的续跑提示）。状态更新于 02:20：
 
-1. 后端交付 PA-52/53 后合并部署，重跑节点压力（问题不写服务名）和消费者停止，核对指标时间与取证上限行为。
-2. 阶段 3 权限矩阵：`tools/acceptance/permissions.py` 跑两个实例，不一致的登记缺陷；界面抽查只读成员的写入口是否隐藏或禁用。
-3. 阶段 3 环境隔离：非生产 `all` 视图写操作应为 `409 env_view_only`；两个实例数据互不可见；生产实例只有 `prod`。
-4. 阶段 3 故障与恢复：依次停实验 Loki、Prometheus、Tempo、ES，模型不可达，验收 PG 重启，后端在流式输出中重启；看页面提示与自动恢复。
-5. 阶段 3 输入边界：超长输入、重复提交（幂等键）、并发修改 409、上传超限 413。
-6. 阶段 2 剩余黄金路径：画布派生分支、固定证据、结论回写；对话 `@` 上下文、`/` 命令、附件、流式中断恢复；复盘起草发布、Runbook 新建与导入、知识源同步与检索；变更（GitLab）；集成中心；Agent 运行台；设置（令牌、安全、审计）。
-7. 阶段 5：全量回归（对拍、全部 Playwright、受影响 Go 测试、契约检查），发布最终验收报告。
+- 已完成：阶段 1 对拍；阶段 2 黄金路径（登录与会话、告警闭环、画布、对话、知识、Agent 运行台、集成中心、设置；变更与发布按 D11 记缺来源）；阶段 3 权限矩阵、环境隔离、输入边界、数据源与产品故障；阶段 4 六个演练（含修复后重跑）。
+- 进行中：`python3 tools/acceptance/regress.py --with-golden-api --tag baseline-1`（第一轮回归基线）。
+- 等后端（会话“资料/安全/日志/链路/指标改为部分数据”）：v3conversation 测试失败、PA-59、PA-64、PA-58、PA-61、PA-65、PA-63、PA-66、PA-60/62 文案、PA-68、PA-69。交付后：合并 → 受影响 Go 测试 → `go build` + `acceptance.py restart` → 针对性验证 → 把前端部分（PA-58、PA-61、PA-64、PA-69）发给前端会话。
+- 等前端（会话“前端真实模式页面适配”）：PA-62。交付后合并、`VITE_API_MODE=http pnpm --dir web exec vite build --outDir "$PWD/.local/acceptance/web" --emptyOutDir`、截图核对。
+- 全部修复到位后：`regress.py --with-golden-api`、`golden.py knowledge`、`faults.py` 五项、`outage.py` 四项、至少一个演练重跑；然后发布最终验收报告（Artifact）。
 
 ### 自主决定（待 review）
 
@@ -122,11 +123,16 @@
 | D8 | 10-10 02:00 | 验收查询目录里 `error_rate`/`错误率` 的分子改为 `(… or vector(0))`；为生产实例配置 3 条 `/` 文字命令（`/健康检查`、`/告警分诊`、`/派生假设`） | 原表达式在没有 5xx 时分子为空，AI 只能回答“无样本”；改后无 5xx 时为 0，无流量时仍为无样本，不把未知当 0。命令目录未配置时 `GET /commands` 是 503，属缺配置 |
 | D9 | 10-10 02:20 | 新建全局自定义角色 `custom-knowledge-reviewer`（全部资源查看，知识与 Runbook 管理）分配给 approver2，用来发布复盘 | 复盘作者不能自己发布（`403 self_review_forbidden`，正确），而内置角色只有平台管理员有知识管理权，单管理员的工作区无人可发布；同时覆盖了自定义角色流程 |
 | D10 | 10-10 02:25 | PA-64 的界面处理定为“禁用并提示所需权限”，不隐藏入口 | 用户能看到功能存在并知道向谁申请；沿用现有禁用样式，不新增版式 |
-| D11 | 10-10 02:10 | “变更与发布（GitLab）”黄金路径本轮记为缺来源，与 Kubernetes 回滚（PA-08）同一轮再做 | 验收环境没有原生交付来源；唯一在跑的 GitLab 属后端 testlab，按约定不改其数据；拉起 aiops-test 的 GitLab 并接通交付链路工作量大，且回滚轮同样需要 |
+| D11 | 10-10 02:10 | “变更与发布（GitLab）”黄金路径本轮记为缺来源，与 Kubernetes 回滚（PA-08）同一轮再做；第三种 V3 执行动作“启用告警规则”（`POST /alert-rules` `mode: enabled`）同样要求私有 GitOps 目标，一并归入该轮（静默创建、静默取消两种执行动作已闭环） | 验收环境没有原生交付来源；唯一在跑的 GitLab 属后端 testlab，按约定不改其数据；拉起 aiops-test 的 GitLab 并接通交付链路工作量大，且回滚轮同样需要 |
 | D5 | 10-10 00:53 | 节点压力重跑时问题里故意不写服务名 | 验证 PA-50 的服务发现，真实值班提问常常只给告警名 |
 
 ### 进展
 
+- **PA-58/59/60/63/64 部署验证（1abcbf6）**：数据库停 20 秒期间全部为 `503 session_store_unavailable`，22 秒自动恢复（PA-59）；`/home` 关注项带 `alert_state`、新增 `firing_services`（当前 0）（PA-58 后端）；`/me` 返回各环境有效权限，只读成员只有查看权（PA-64 后端）；模型不可达时中文显示“模型回复失败”（PA-60）；已发布的手工事件复盘能起草 4 步 Runbook（PA-63；标题与说明仍为英文，归入文案类）。PA-58、PA-64 前端部分已转前端会话。合并后 `v3postmortems`、`v3topology` 各有一个测试失败（只读成员可见范围扩大相关），已转后端。
+- **第一轮回归基线（d6da972 前端前构建）**：12/15 项通过——对拍 216 次加载 210 干净、1 类未捕获异常（PA-70）；生产权限矩阵误报 1 条（运行结果仅发起人可读，脚本已改）；批准与静默界面用例当时因缺参数被跳过（已在回归中串联：抽屉提议 → 两人通行密钥批准 → 执行器写入实验 Alertmanager，单独复跑通过）。环境 25/25、输入 12/12、认证 10/10、四条 API 黄金路径通过。
+- **阶段 2：登录与会话**（`tools/acceptance/auth.py`）10/10：不存在的邮箱与错误密码返回同一个 `401 invalid_credentials`；会话 Cookie 为 `HttpOnly; Secure; SameSite=Strict`、12 小时；能按会话撤销自己的其他会话（被撤销的立即 401）；登出后旧 Cookie 401；连续失败第 6–7 次起 `429`，1 分钟后可正常登录。会话列表问题见 PA-69。
+- **PA-52/53 验证（6ffa67a，节点压力重跑，问题不写服务名）**：AI 先 `list_services`，取证 30 次后正常作答（不再被取消）；时间换算正确（把 17:59:47 的 500 对应到同时段的坏发布注入并判断与节点压力无关）。结论：只有 worker1 饱和（CPU 0.01→0.9999、可用内存 0.80→0.11），worker2 正常，三个服务延迟、错误率、在线、重启、积压均无实质影响；明确说明缺 Pod 级资源查询因而不能归因，建议的 cordon/drain 注明需走审批。见 PA-68。
+- **黄金邀请用例按 D6 更新**：受邀只读成员登录后直接进入应用；管理员授予运维人员后，受邀者会话被撤销须重新登录（合同如此），重新登录后 `/me` 含 `operator`。旧用例在授权后断言“无访问提示消失”，实际可能只是被踢回登录页而“假通过”。无访问页本身暂无端到端覆盖。
 - **阶段 2：集成中心**：三个连接器（Loki、Prometheus、Tempo）测试均 `ok`（1 ms 内），状态由“未验证”变为“正常”；服务映射 3 行、覆盖度 3 行；映射发现 `source_state: not_configured`（无发现来源，正确）；覆盖度与实际能力不一致见 PA-67。变更与发布记为缺来源（D11）。
 - **阶段 2：Agent 运行台黄金路径**（`golden.py agents`，管理员）27/27：新建 Agent（暂停、L0）→ Prompt v1/v2 → 登记版本 v1/v2 并固定执行配置（同配置重放同哈希，改配置 `409 execution_config_immutable`）→ 首次稳定发布需管理员理由 → 正式运行（DeepSeek，只读，答案经 `GET /agent-runs/{id}/result` 读取：“仅凭 5xx 回到 0 不能判定健康”，列出还需的证据）→ 只读成员运行 403 → 等级超过环境上限 `409 agent_level_cap` → 无评测门禁灰度 `409 eval_gate_unverified`，审计放行后可灰度 → 回滚 → 新建评测（v1 对 v2，待执行）→ 运行反馈与标注 → 登记护栏 `deny_sensitive_content`。护栏描述为英文（同 PA-60）。
 - **阶段 2：设置黄金路径**（`golden.py settings`，管理员）22/22：API 令牌签发（TTL 为秒数）后只能 Bearer 读 `GET /connectors`，读服务或写连接器 401；列表不含明文；轮换后新旧密钥都可用，吊销后立即 401（测试令牌已全部吊销）；工作区 `PUT` 当前 ETag 200、旧 ETag 412、缺 `If-Match` 428；通知与 AI 偏好往返保存；审计导出返回下载地址，详情 `chain_ok: true`；安全策略在未配置权威时九项均 `not_configured`。

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -808,6 +809,20 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	}
 	events.GroupPolicySource = alertmanagerSource
 	events.GroupPolicyBindings = alertmanagerPolicyBindings
+	// PA-47: a silenced alert's resolved notification is never delivered, so
+	// firing incidents from the reviewed sources are reconciled against
+	// Alertmanager. AIOPS_V3_ALERT_RECONCILE_SECONDS=0 turns this off.
+	if alertmanagerSource != nil && len(alertmanagerPolicyBindings) > 0 {
+		interval, err := alertReconcileInterval(os.Getenv("AIOPS_V3_ALERT_RECONCILE_SECONDS"))
+		if err != nil {
+			return err
+		}
+		if interval > 0 {
+			reconciler := &v3events.AlertReconciler{DB: s.DB, Source: alertmanagerSource,
+				Bindings: alertmanagerPolicyBindings, Interval: interval}
+			go reconciler.Run(ctx)
+		}
+	}
 	events.RegisterNew(api)
 	events.RegisterV3Incidents(api)
 	events.RegisterPageOperations(api)
@@ -1026,4 +1041,17 @@ func rejectLegacyOnV3Database(ctx context.Context, s *store.Store) error {
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+// alertReconcileInterval reads AIOPS_V3_ALERT_RECONCILE_SECONDS: empty is 60,
+// 0 disables reconciliation, otherwise 15 to 3600 seconds.
+func alertReconcileInterval(value string) (time.Duration, error) {
+	if value == "" {
+		return time.Minute, nil
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds < 0 || (seconds > 0 && (seconds < 15 || seconds > 3600)) {
+		return 0, fmt.Errorf("AIOPS_V3_ALERT_RECONCILE_SECONDS must be 0 or 15 to 3600")
+	}
+	return time.Duration(seconds) * time.Second, nil
 }

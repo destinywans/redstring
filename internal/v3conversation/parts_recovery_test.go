@@ -121,7 +121,7 @@ func TestEmptyFinalRetainsStreamedTextInFailedDetail(t *testing.T) {
 		AuthorizeBackgroundTurn:   func(context.Context, string, string) error { return nil },
 		AuthorizeBackgroundTurnTx: func(context.Context, pgx.Tx, string, string) error { return nil },
 	})
-	svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session")
+	svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session", false)
 	var raw []byte
 	var state string
 	if err := db.QueryRow(ctx, `SELECT parts,state FROM v3_conversation_messages WHERE id='a'`).Scan(&raw, &state); err != nil {
@@ -167,7 +167,7 @@ func assertFailedDeltaDoesNotPersistUnsentText(t *testing.T, runtime inference.R
 		AuthorizeBackgroundTurn:   func(context.Context, string, string) error { return nil },
 		AuthorizeBackgroundTurnTx: func(context.Context, pgx.Tx, string, string) error { return nil },
 	})
-	svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session")
+	svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session", false)
 	var raw []byte
 	var state string
 	if err := db.QueryRow(ctx, `SELECT parts,state FROM v3_conversation_messages WHERE id='a'`).Scan(&raw, &state); err != nil {

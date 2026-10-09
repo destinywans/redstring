@@ -251,7 +251,7 @@ func (s *Service) send(w http.ResponseWriter, r *http.Request) {
 		msg, reply, err = s.startTurn(r.Context(), id, u.ID, env, u.Name, store.Hash(cookie.Value), in, model, links)
 		if err == nil {
 			// The request's context ends with the HTTP response. A bounded worker owns the reply.
-			go s.runTurn(id, reply, model, in.Reasoning, cookie.Value)
+			go s.runTurn(id, reply, model, in.Reasoning, cookie.Value, englishRequest(r))
 			write(w, 202, map[string]any{"message": msg, "reply_id": reply})
 			return
 		}

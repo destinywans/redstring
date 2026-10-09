@@ -75,6 +75,9 @@ type alertGroup struct {
 	LocalGrouping  []string             `json:"local_grouping"`
 	Partial        bool                 `json:"partial"`
 	Unavailable    []string             `json:"unavailable"`
+	// upstream holds the reconciled Alertmanager states of firing members
+	// (PA-47); they become localized badges.
+	upstream map[string]bool
 }
 
 type alertGroupAccumulator struct {
@@ -293,6 +296,12 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...st
 				ID: v.ID, State: v.AlertStatus, Duration: duration(v.StartsAt, now),
 			})
 		}
+		if kind := upstreamBadge(v, now); v.AlertStatus == "firing" && kind != "" {
+			if g.group.upstream == nil {
+				g.group.upstream = map[string]bool{}
+			}
+			g.group.upstream[kind] = true
+		}
 		if v.StartsAt.Before(g.earliest) {
 			g.earliest = v.StartsAt
 			g.group.Since = v.StartsAt.UTC().Format(time.RFC3339Nano)
@@ -503,6 +512,7 @@ func (s *Service) AlertGroups(w http.ResponseWriter, r *http.Request) {
 	t := textFor(r.Header.Get("Accept-Language"))
 	for i := range items {
 		items[i].Notify.Text = t.notify(items[i].Notify.Status)
+		items[i].Badges = append(items[i].Badges, t.upstreamBadges(items[i].upstream)...)
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, http.StatusOK, map[string]any{

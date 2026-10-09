@@ -62,6 +62,8 @@ type MetricsQuestionLookup struct {
 }
 
 type MetricsQuestionInput struct {
+	// English selects the language of status notes added to the reply.
+	English          bool
 	Owner            core.User
 	SessionToken     string
 	EnvironmentID    string
@@ -257,7 +259,7 @@ func (s *Service) StartMetricsQuestion(ctx context.Context, in MetricsQuestionIn
 	if err := tx.Commit(ctx); err != nil {
 		return MetricsQuestionResult{}, err
 	}
-	go s.runTurn(conversationID, replyID, selectedModel, "", in.SessionToken)
+	go s.runTurn(conversationID, replyID, selectedModel, "", in.SessionToken, in.English)
 	return MetricsQuestionResult{ConversationID: conversationID, ReplyID: replyID}, nil
 }
 

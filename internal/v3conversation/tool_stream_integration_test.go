@@ -62,7 +62,7 @@ func TestRealRuntimeToolStreamCompletesAndEntersNextTurnContext(t *testing.T) {
 			}}}, nil
 		},
 	})
-	svc.runTurn("c", "r", runtime.Models()[0], "", "test-session")
+	svc.runTurn("c", "r", runtime.Models()[0], "", "test-session", false)
 	ctx := context.Background()
 	var replyState, messageState, saved, streamed string
 	if err := db.QueryRow(ctx, `SELECT r.state,m.state,m.parts->0->>'markdown'

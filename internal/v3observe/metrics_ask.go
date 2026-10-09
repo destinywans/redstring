@@ -121,6 +121,7 @@ func (s *Service) metricsAsk(w http.ResponseWriter, r *http.Request) {
 	// service places it in private model context and persists its exact source.
 	started, startErr := s.MetricsConversation.StartMetricsQuestion(ctx, v3conversation.MetricsQuestionInput{
 		Owner: user, SessionToken: cookie.Value, EnvironmentID: env,
+		English: strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Accept-Language"))), "en"),
 		Source: v3conversation.MetricsSource{
 			ApplicationID: result.ApplicationID, BindingID: result.BindingID,
 			ConnectorID: result.ConnectorID, ResourceID: result.ResourceID,

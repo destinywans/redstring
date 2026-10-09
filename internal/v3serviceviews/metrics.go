@@ -32,20 +32,23 @@ type Burn struct {
 	Pct    int    `json:"pct"`
 }
 
+// KPI is one golden signal. Series holds null for a bin without a value
+// (PA-44): no traffic for the error ratio, a gap in a latency panel.
 type KPI struct {
-	ID     string    `json:"id"`
-	Label  string    `json:"label"`
-	Value  string    `json:"value"`
-	Unit   string    `json:"unit,omitempty"`
-	Sub    string    `json:"sub,omitempty"`
-	Tone   string    `json:"tone,omitempty"`
-	Series []float64 `json:"series"`
+	ID     string     `json:"id"`
+	Label  string     `json:"label"`
+	Value  string     `json:"value"`
+	Unit   string     `json:"unit,omitempty"`
+	Sub    string     `json:"sub,omitempty"`
+	Tone   string     `json:"tone,omitempty"`
+	Series []*float64 `json:"series"`
 }
 
 // Metrics is the projection of one reviewed dashboard result. A partial
 // panel set is accepted (PA-41): each field that needs an absent panel is left
-// empty and named in Missing with not_configured. Status and SLO use only the
-// panels they need; nothing absent is replaced with zero.
+// empty and named in Missing with not_configured, and a field whose panel has
+// no value in the current bin with not_generated (PA-44). Status and SLO use
+// only the panels they need; nothing absent is replaced with zero.
 type Metrics struct {
 	// Status is the observed SLO burn signal, not a Kubernetes readiness
 	// claim. Empty when the 1 h burn or the monthly availability is absent.
@@ -118,19 +121,20 @@ func projectServiceMetrics(p v3metricpanels.Set, target float64, captured time.T
 		availability := fmt.Sprintf("%.3f%%", *slo.Availability)
 		out.Availability = &availability
 	} else {
-		out.Missing["slo.availability"] = reasonNotConfigured
+		out.Missing["slo.availability"] = slo.Reasons[v3metricpanels.FieldAvailability]
 	}
 	if slo.BudgetLeft != nil {
 		out.BudgetLeft = slo.BudgetLeft
 	} else {
-		out.Missing["slo.budget_left"] = reasonNotConfigured
+		out.Missing["slo.budget_left"] = slo.Reasons[v3metricpanels.FieldBudgetLeft]
 	}
 	for _, burn := range []struct {
-		window, key string
-		value       *float64
-	}{{"1 h", "1h", slo.Burn1h}, {"6 h", "6h", slo.Burn6h}, {"3 d", "3d", slo.Burn3d}} {
+		window, key, field string
+		value              *float64
+	}{{"1 h", "1h", v3metricpanels.FieldBurn1h, slo.Burn1h}, {"6 h", "6h", v3metricpanels.FieldBurn6h, slo.Burn6h},
+		{"3 d", "3d", v3metricpanels.FieldBurn3d, slo.Burn3d}} {
 		if burn.value == nil {
-			out.Missing["slo.burn."+burn.key] = reasonNotConfigured
+			out.Missing["slo.burn."+burn.key] = slo.Reasons[burn.field]
 			continue
 		}
 		out.Burn = append(out.Burn, serviceBurn(burn.window, *burn.value))
@@ -143,15 +147,23 @@ func projectServiceMetrics(p v3metricpanels.Set, target float64, captured time.T
 		} else if oneHour >= 1 || budget < 50 {
 			out.Status = "warn"
 		}
+	} else if slo.Burn1h == nil {
+		out.Missing["status"] = slo.Reasons[v3metricpanels.FieldBurn1h]
 	} else {
-		out.Missing["status"] = reasonNotConfigured
+		out.Missing["status"] = slo.Reasons[v3metricpanels.FieldBudgetLeft]
 	}
 	last := v3metricpanels.Points - 1
 	// Labels are English here; the detail handler relabels them in the
-	// request language by signal ID.
+	// request language by signal ID. A signal without a current value is
+	// unknown (not_generated); its series keeps the other bins.
 	signal := func(id, unit, format string, series []float64) {
+		if !v3metricpanels.Defined(series[last]) {
+			out.Missing["signals."+id] = v3metricpanels.ReasonNoCurrentData
+			return
+		}
 		label, sub := english.signal(id)
-		out.Signals = append(out.Signals, KPI{ID: id, Label: label, Value: fmt.Sprintf(format, series[last]), Unit: unit, Sub: sub, Series: series})
+		out.Signals = append(out.Signals, KPI{ID: id, Label: label, Value: fmt.Sprintf(format, series[last]), Unit: unit, Sub: sub,
+			Series: v3metricpanels.Nullable(series)})
 	}
 	if requests {
 		signal("rps", "/s", "%.2f", rate)

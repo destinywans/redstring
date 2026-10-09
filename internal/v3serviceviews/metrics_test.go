@@ -2,6 +2,7 @@ package v3serviceviews
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -121,9 +122,11 @@ func TestReadMetricsRejectsIncompleteOrContradictoryEvidence(t *testing.T) {
 				}
 			}
 		},
-		"missing baseline": func(e *v3integrations.PrometheusMetricEvidence) { e.Series[0].Samples = e.Series[0].Samples[1:] },
+		"repeated time": func(e *v3integrations.PrometheusMetricEvidence) {
+			e.Series[0].Samples[4].Timestamp = e.Series[0].Samples[3].Timestamp
+		},
 		"off-grid":         func(e *v3integrations.PrometheusMetricEvidence) { e.Series[0].Samples[3].Timestamp++ },
-		"not finite":       func(e *v3integrations.PrometheusMetricEvidence) { e.Series[0].Samples[3].Value = "NaN" },
+		"not finite":       func(e *v3integrations.PrometheusMetricEvidence) { e.Series[0].Samples[3].Value = "+Inf" },
 		"unexpected label": func(e *v3integrations.PrometheusMetricEvidence) { e.Series[0].Labels["secret"] = "value" },
 		"wrong total": func(e *v3integrations.PrometheusMetricEvidence) {
 			for i := range e.Series {
@@ -244,5 +247,48 @@ func TestReadMetricsAcceptsPartialPanelSets(t *testing.T) {
 	noTotal := read(withoutPanels(serviceFixture(now), v3metricpanels.RequestsTotal))
 	if strings.Contains(signals(noTotal), "rps") || noTotal.Missing["signals.err"] != "not_configured" {
 		t.Fatalf("requests without total: %+v", noTotal)
+	}
+}
+
+// PA-44: an outage in the last bins (no traffic, no latency quantile) keeps
+// the service's status and SLO; only the values without a current sample are
+// unknown, and the series show the gaps as null.
+func TestReadMetricsKeepsStatusThroughAnOutage(t *testing.T) {
+	now := time.Date(2026, 9, 29, 8, 30, 15, 0, time.UTC)
+	evidence := serviceFixture(now)
+	for i := range evidence.Series {
+		line := &evidence.Series[i]
+		switch line.Labels["panel"] {
+		case "requests_2xx", "requests_4xx", "requests_5xx", "requests_total":
+			for j := metricPoints - 5; j <= metricPoints; j++ {
+				line.Samples[j].Value = "0"
+			}
+		case "latency_p50_ms", "latency_p95_ms", "latency_p99_ms":
+			line.Samples = line.Samples[:metricPoints-4] // the last five bins are missing
+		case "connection_wait_p95_ms":
+			line.Samples = append(line.Samples[:20], line.Samples[25:]...) // a gap earlier in the hour
+		}
+	}
+	reader := &metricsReaderStub{evidence: evidence}
+	got, err := ReadMetrics(t.Context(), reader, httpapi.V3EnvironmentScope{}, core.User{}, "checkout", "app", "dev", 99.9, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]KPI{}
+	for _, signal := range got.Signals {
+		ids[signal.ID] = signal
+	}
+	rps, ok := ids["rps"]
+	if got.Status == "" || got.Availability == nil || len(got.Burn) != 3 || !ok || rps.Value != "0.00" ||
+		got.Missing["signals.err"] != "not_generated" || got.Missing["signals.p99"] != "not_generated" ||
+		ids["wait"].Value == "" || ids["wait"].Series[20] != nil || ids["wait"].Series[18] == nil || ids["cpu"].Value == "" {
+		t.Fatalf("outage projection: status=%q missing=%v signals=%v", got.Status, got.Missing, ids)
+	}
+	if rps.Series[metricPoints-1] == nil || *rps.Series[metricPoints-1] != 0 || rps.Series[0] == nil {
+		t.Fatalf("zero traffic must stay 0 in the series: %v", rps.Series[metricPoints-2:])
+	}
+	raw, _ := json.Marshal(got.Signals)
+	if !strings.Contains(string(raw), "null") {
+		t.Fatalf("gaps must serialize as null: %s", raw)
 	}
 }

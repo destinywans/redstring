@@ -25878,7 +25878,7 @@
       "post": {
         "summary": "Start a durable assistant reply",
         "operationId": "post_conversations_id_messages",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. A nonblank text or at least one attachment is required; attachment-only requests may omit text. A second concurrent reply is rejected with 409. The user message, canonical Upload references, selected model/reasoning, acceptance audit and private image/PDF byte snapshots are durable in one transaction before 202. Persisted uploads are rechecked in that transaction for exact owner, environment, reference metadata, MIME and bytes. Paste and safe UTF-8 .txt/.log/.conf/.toml/.md/.csv/.json/.yaml/.yml files enter a private bounded text snapshot (16 KiB source, 32 KiB snapshot). A link is fetched before acceptance only when it is public HTTPS Markdown with at most 1000 URL bytes, no query or fragment, and port 443; SSRF-protected fetch rejects private addresses, redirects and unsupported content. The default fetcher rejects a response above its 128 KiB ingress cap as unreadable (422); fetched content exceeding the stricter 16 KiB turn source limit returns 413. The fetched body is frozen in the private text snapshot and never refetched for a model retry or later turn. Upload storage accepts broader HTTP/HTTPS URLs, so an uploaded link can still be rejected at send. Internal Grafana/Kibana/GitLab links are not parsed through connector credentials and return 422 when not publicly readable Markdown. PNG/JPEG/GIF/WebP images and PDFs are supplied as bounded media input on explicitly capable OpenAI Responses models (8 MiB aggregate raw bytes across the replayed conversation). An incapable model or unsupported type returns 422 before a turn is created, including when switching models with prior media in history. Invalid references or unsupported link content return 422; excessive accepted attachment source/snapshot, media bytes or known text budget return 413; a genuine link fetch failure returns 503 before a turn exists. All turns precheck saved history plus the new message before 202; image/PDF token cost and the full system/tool request remain provider-authoritative and can still fail after acceptance. Start and terminal writes recheck the persisted owner, environment, initiating session and current V3 conversation authorization in their transactions. A revoked terminal turn drops partial output rather than saving it. SSE reply_id pins durable event replay; failures persist a terminal status and release the conversation for a new turn. Provider usage in message.completed.run is optional and must not be inferred when unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A nonblank text or at least one attachment is required; attachment-only requests may omit text. A second concurrent reply is rejected with 409. The user message, canonical Upload references, selected model/reasoning, acceptance audit and private image/PDF byte snapshots are durable in one transaction before 202. Persisted uploads are rechecked in that transaction for exact owner, environment, reference metadata, MIME and bytes. Paste and safe UTF-8 .txt/.log/.conf/.toml/.md/.csv/.json/.yaml/.yml files enter a private bounded text snapshot (16 KiB source, 32 KiB snapshot). A link is fetched before acceptance only when it is public HTTPS Markdown with at most 1000 URL bytes, no query or fragment, and port 443; SSRF-protected fetch rejects private addresses, redirects and unsupported content. The default fetcher rejects a response above its 128 KiB ingress cap as unreadable (422); fetched content exceeding the stricter 16 KiB turn source limit returns 413. The fetched body is frozen in the private text snapshot and never refetched for a model retry or later turn. Upload storage accepts broader HTTP/HTTPS URLs, so an uploaded link can still be rejected at send. Internal Grafana/Kibana/GitLab links are not parsed through connector credentials and return 422 when not publicly readable Markdown. PNG/JPEG/GIF/WebP images and PDFs are supplied as bounded media input on explicitly capable OpenAI Responses models (8 MiB aggregate raw bytes across the replayed conversation). An incapable model or unsupported type returns 422 before a turn is created, including when switching models with prior media in history. Invalid references or unsupported link content return 422; excessive accepted attachment source/snapshot, media bytes or known text budget return 413; a genuine link fetch failure returns 503 before a turn exists. All turns precheck saved history plus the new message before 202; image/PDF token cost and the full system/tool request remain provider-authoritative and can still fail after acceptance. Start and terminal writes recheck the persisted owner, environment, initiating session and current V3 conversation authorization in their transactions. A revoked terminal turn drops partial output rather than saving it. SSE reply_id pins durable event replay; failures persist a terminal status and release the conversation for a new turn. Provider usage in message.completed.run is optional and must not be inferred when unavailable. Evidence that would exceed the model input budget after tool calls is trimmed, oldest first, in the model request only (each trimmed result says so) instead of failing the turn (PA-45). A reply cut at the model output limit is completed, not failed: it keeps the streamed answer, adds a status part in the request language and carries finish_reason=max_output_tokens on message.completed and the message (PA-46).",
         "responses": {
           "202": {
             "description": "Success",
@@ -34291,7 +34291,7 @@
       "get": {
         "summary": "Read incident-backed alert groups",
         "operationId": "get_alert_groups",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. A bounded local aggregation by persisted environment ID, application ID, webhook source ID and alert fingerprint, not an Alertmanager group. Count means persisted incident occurrences; source_id and fingerprint are stored identities. Incident fields come from one statement snapshot, without locking all incident rows against concurrent claims. Only currently authorized events.view records are included; current app/environment/team/session and grant locks remain through commit. Notification rows must match the captured incident application and environment or the read fails closed. Unknown current values, metric series, inhibition and provider grouping are null or named in unavailable. Notify reports only the latest local platform queue transport state and never claims upstream delivery. Counts are before state filtering; silenced count is null because exact silence state is unknown. state=silenced or show_inhibited=false returns 503 rather than a false empty result. Severity accepts repeated form keys. More than 5000 selected incidents returns 503 instead of incomplete totals. Frozen frontend assumes non-null instance metrics and cannot yet render this nullable response. Explicit group_by performs local display grouping from persisted labels with application/environment implicit boundaries. Missing requested label fails503. IDs begin viewgroup: and are not accepted by exact-source bulk actions/policy; actionable=false. Omitted group_by preserves previous exact-source grouping and IDs.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. A bounded local aggregation by persisted environment ID, application ID, webhook source ID and alert fingerprint, not an Alertmanager group. PA-47: for webhook sources reviewed for an environment Alertmanager (source_ids), a background reconciler (AIOPS_V3_ALERT_RECONCILE_SECONDS, default 60, 0 off) resolves firing incidents whose fingerprint is gone upstream or replaced by a later occurrence, with an audit row, because a silence suppresses the resolved notification; it records silenced/inhibited state for the rest, shown as localized badges while fresh (5 minutes) and as an unverified badge once stale. A failed upstream read changes nothing. Count means persisted incident occurrences; source_id and fingerprint are stored identities. Incident fields come from one statement snapshot, without locking all incident rows against concurrent claims. Only currently authorized events.view records are included; current app/environment/team/session and grant locks remain through commit. Notification rows must match the captured incident application and environment or the read fails closed. Unknown current values, metric series, inhibition and provider grouping are null or named in unavailable. Notify reports only the latest local platform queue transport state and never claims upstream delivery. Counts are before state filtering; silenced count is null because exact silence state is unknown. state=silenced or show_inhibited=false returns 503 rather than a false empty result. Severity accepts repeated form keys. More than 5000 selected incidents returns 503 instead of incomplete totals. Frozen frontend assumes non-null instance metrics and cannot yet render this nullable response. Explicit group_by performs local display grouping from persisted labels with application/environment implicit boundaries. Missing requested label fails503. IDs begin viewgroup: and are not accepted by exact-source bulk actions/policy; actionable=false. Omitted group_by preserves previous exact-source grouping and IDs.",
         "responses": {
           "200": {
             "description": "Success",
@@ -51052,7 +51052,7 @@
       "get": {
         "summary": "Read one authorized service detail with explicit unknowns",
         "operationId": "get_services_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. The opaque ID binds application and environment. The AI panel shows the authorized open investigation reply from the latest completed run within the last hour (older: stale; none: not_generated). Changes come from successful deployments; dependencies from non-mock CMDB depends_on service relations, and any relation that cannot be represented makes deps null rather than shorter. Each dependency carries its own status and unavailable map. Incident and dependency tab counts need events.view and resources.view; unknowns follow GET /services. 503 and 422 follow GET /services. The reviewed dashboard query may return a subset of panels (PA-41): status and slo.budget_left need slo_burn_1h and slo_month_availability_pct; slo.availability needs the latter; slo.burn lists only present windows (slo.burn.<1h|6h|3d>); signals lists only present signals (signals.<rps|err|p99|wait|cpu>; rps/err need requests_2xx/4xx/5xx/total). Each absent one is named in unavailable with not_configured; an empty list is null with slo.burn or signals.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The opaque ID binds application and environment. The AI panel shows the authorized open investigation reply from the latest completed run within the last hour (older: stale; none: not_generated). Changes come from successful deployments; dependencies from non-mock CMDB depends_on service relations, and any relation that cannot be represented makes deps null rather than shorter. Each dependency carries its own status and unavailable map. Incident and dependency tab counts need events.view and resources.view; unknowns follow GET /services. 503 and 422 follow GET /services. The reviewed dashboard query may return a subset of panels (PA-41): status and slo.budget_left need slo_burn_1h and slo_month_availability_pct; slo.availability needs the latter; slo.burn lists only present windows (slo.burn.<1h|6h|3d>); signals lists only present signals (signals.<rps|err|p99|wait|cpu>; rps/err need requests_2xx/4xx/5xx/total). Each absent one is named in unavailable with not_configured; an empty list is null with slo.burn or signals. A missing or NaN sample is a gap (PA-44): it is null in a signal series, zero traffic is 0 with a null error ratio, and a value without a sample in the current bin is named with not_generated instead of failing the reply.",
         "responses": {
           "200": {
             "description": "Success",
@@ -53058,7 +53058,7 @@
       "get": {
         "summary": "Read a scoped Prometheus metrics dashboard with explicit unknowns",
         "operationId": "get_metrics_dashboard",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and current services.view on the persisted service; a hidden or absent service is 403. Without environment connectors.view the metric blocks are null with unavailable=no_authorized_target and no source is looked up; without incident events.view the markers are null with no_authorized_target and align returns 403 (PA-09: a visible service is not a page-level 403). The three grants are rechecked as a set before responding; a change returns 409 metric_source_changed. The metric blocks need exactly one persisted V3 Prometheus metric-resource binding on an enabled connector with the query_metrics tool, and an operator-reviewed exact-scope dashboard query (AIOPS_V3_PROMETHEUS_QUERIES_CONFIG). Without that source or query the response is 200 with kpis, requests, latency, endpoints, instances and slo null and unavailable=not_configured; the legacy CMDB telemetry binding is not read. Distinct metric bindings return 409 ambiguous_binding; a failing provider is still 503. One bounded one-hour source read must cover the baseline plus 36 visible bin ends for every returned panel. The reviewed query may return any subset of the known panels (PA-41): requests and the rps/err KPIs need requests_2xx/4xx/5xx/total (classes must sum to the total; requests_other must be zero when present); latency needs p50/p95/p99 (latency.heat and buckets also need all eight latency_heat rows); each other KPI, endpoints and instances need their own panel; the SLO block needs slo_month_availability_pct and a persisted target strictly between 0 and 100, and lists only the present burn windows. A block, KPI or burn window whose panels are absent is null or omitted and named in unavailable with not_configured (kpis.<id>, slo.burn.<1h|6h|3d>, latency.heat); nothing absent becomes zero. A malformed series, unknown panel, partial heat map or contradiction between present panels leaves every metric block null with unavailable; budget or burn panels that contradict the requests leave only slo null with unavailable. Release, rollback and incident markers come from matching persisted success/event records within the window; a marker without a record is null with not_generated (the platform recorded no such event; external releases are not connected). These are independent timestamps, not proof that one rollback reversed the displayed release. Source, binding, SLO target, authorization and the Cookie session are rechecked after the external read and local marker reads, including for a not-configured response. align requests an incident-anchored window and returns 503 when no incident can anchor it. source=prometheus selects the implemented provider; victoriametrics returns 503 metrics_source_not_connected rather than querying Prometheus.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and current services.view on the persisted service; a hidden or absent service is 403. Without environment connectors.view the metric blocks are null with unavailable=no_authorized_target and no source is looked up; without incident events.view the markers are null with no_authorized_target and align returns 403 (PA-09: a visible service is not a page-level 403). The three grants are rechecked as a set before responding; a change returns 409 metric_source_changed. The metric blocks need exactly one persisted V3 Prometheus metric-resource binding on an enabled connector with the query_metrics tool, and an operator-reviewed exact-scope dashboard query (AIOPS_V3_PROMETHEUS_QUERIES_CONFIG). Without that source or query the response is 200 with kpis, requests, latency, endpoints, instances and slo null and unavailable=not_configured; the legacy CMDB telemetry binding is not read. Distinct metric bindings return 409 ambiguous_binding; a failing provider is still 503. One bounded one-hour source read returns 36 visible bins per panel; a missing or NaN sample is a gap (PA-44): its bin is null in the series, zero traffic is 0 with a null error ratio, and a KPI, endpoint or SLO value without a sample in the current bin is omitted or null with not_generated. The reviewed query may return any subset of the known panels (PA-41): requests and the rps/err KPIs need requests_2xx/4xx/5xx/total (classes must sum to the total; requests_other must be zero when present); latency needs p50/p95/p99 (latency.heat and buckets also need all eight latency_heat rows); each other KPI, endpoints and instances need their own panel; the SLO block needs slo_month_availability_pct and a persisted target strictly between 0 and 100, and lists only the present burn windows. A block, KPI or burn window whose panels are absent is null or omitted and named in unavailable with not_configured (kpis.<id>, slo.burn.<1h|6h|3d>, latency.heat); nothing absent becomes zero. A malformed series, unknown panel, partial heat map or contradiction between present panels leaves every metric block null with unavailable; budget or burn panels that contradict the requests leave only slo null with unavailable. Release, rollback and incident markers come from matching persisted success/event records within the window; a marker without a record is null with not_generated (the platform recorded no such event; external releases are not connected). These are independent timestamps, not proof that one rollback reversed the displayed release. Source, binding, SLO target, authorization and the Cookie session are rechecked after the external read and local marker reads, including for a not-configured response. align requests an incident-anchored window and returns 503 when no incident can anchor it. source=prometheus selects the implemented provider; victoriametrics returns 503 metrics_source_not_connected rather than querying Prometheus.",
         "responses": {
           "200": {
             "description": "Success",
@@ -67688,6 +67688,12 @@
               "running",
               "failed"
             ]
+          },
+          "finish_reason": {
+            "type": "string",
+            "enum": [
+              "max_output_tokens"
+            ]
           }
         },
         "additionalProperties": false,
@@ -67785,6 +67791,12 @@
               },
               "run": {
                 "$ref": "#/components/schemas/V3ConversationRun"
+              },
+              "finish_reason": {
+                "type": "string",
+                "enum": [
+                  "max_output_tokens"
+                ]
               }
             },
             "additionalProperties": false,
@@ -82702,7 +82714,14 @@
           "series": {
             "type": "array",
             "items": {
-              "type": "number"
+              "oneOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           }
         },
@@ -85560,8 +85579,15 @@
           "series": {
             "type": "array",
             "items": {
-              "type": "number",
-              "minimum": 0
+              "oneOf": [
+                {
+                  "type": "number",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "minItems": 36,
             "maxItems": 36
@@ -85716,8 +85742,15 @@
                   "ok": {
                     "type": "array",
                     "items": {
-                      "type": "number",
-                      "minimum": 0
+                      "oneOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "minItems": 36,
                     "maxItems": 36
@@ -85725,8 +85758,15 @@
                   "client": {
                     "type": "array",
                     "items": {
-                      "type": "number",
-                      "minimum": 0
+                      "oneOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "minItems": 36,
                     "maxItems": 36
@@ -85734,8 +85774,15 @@
                   "server": {
                     "type": "array",
                     "items": {
-                      "type": "number",
-                      "minimum": 0
+                      "oneOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "minItems": 36,
                     "maxItems": 36
@@ -85802,8 +85849,15 @@
                   "p50": {
                     "type": "array",
                     "items": {
-                      "type": "number",
-                      "minimum": 0
+                      "oneOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "minItems": 36,
                     "maxItems": 36
@@ -85811,8 +85865,15 @@
                   "p95": {
                     "type": "array",
                     "items": {
-                      "type": "number",
-                      "minimum": 0
+                      "oneOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "minItems": 36,
                     "maxItems": 36
@@ -85820,8 +85881,15 @@
                   "p99": {
                     "type": "array",
                     "items": {
-                      "type": "number",
-                      "minimum": 0
+                      "oneOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "minItems": 36,
                     "maxItems": 36
@@ -85833,9 +85901,16 @@
                         "items": {
                           "type": "array",
                           "items": {
-                            "type": "number",
-                            "minimum": 0,
-                            "maximum": 1
+                            "oneOf": [
+                              {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           },
                           "minItems": 36,
                           "maxItems": 36
@@ -85933,8 +86008,15 @@
                     "values": {
                       "type": "array",
                       "items": {
-                        "type": "number",
-                        "minimum": 0
+                        "oneOf": [
+                          {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
                       },
                       "minItems": 36,
                       "maxItems": 36

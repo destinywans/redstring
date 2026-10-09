@@ -73,18 +73,31 @@ func (p *providerModel) GenerateContent(ctx context.Context, req *model.LLMReque
 			// Count the known textual request bytes and bound media separately
 			// before the call; counting base64 bytes as text would reject ordinary
 			// valid images while pretending to know their token cost.
-			budgetBody := body
-			if p.provider.API == "responses" {
-				budgetBody = redactInlineMediaForBudget(body)
-			}
-			encoded, e := json.Marshal(budgetBody)
+			tokens, _, _, e := p.requestTokens(req)
 			if e != nil {
 				yield(nil, e)
 				return
 			}
-			if EstimateTokens(string(encoded)) > p.provider.InputBudget {
-				yield(nil, errors.New("model input budget exhausted; context or tool result is too large"))
-				return
+			if tokens > p.provider.InputBudget {
+				// PA-45: evidence already gathered must not fail the turn. Cut
+				// the oldest tool results in this request (each tells the model
+				// it was cut) until the request fits, then answer.
+				fitted, _, e := fitEvidence(req, func(candidate *model.LLMRequest) (bool, error) {
+					n, _, _, err := p.requestTokens(candidate)
+					return n <= p.provider.InputBudget, err
+				})
+				if e != nil {
+					yield(nil, e)
+					return
+				}
+				if fitted == nil {
+					yield(nil, errors.New("model input budget exhausted; context or tool result is too large"))
+					return
+				}
+				if body, path, err = p.request(fitted); err != nil {
+					yield(nil, err)
+					return
+				}
 			}
 		}
 		resp, err := post(ctx, p.client, p.provider, path, body)
@@ -418,7 +431,7 @@ func parseOpenAI(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 	if err != nil {
 		return err
 	}
-	if finish != "stop" && finish != "tool_calls" {
+	if finish != "stop" && finish != "tool_calls" && (finish != "length" || len(calls) > 0) {
 		return fmt.Errorf("model response incomplete: finish reason %s", finish)
 	}
 	parts := []*genai.Part{}
@@ -441,7 +454,36 @@ func parseOpenAI(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 		}
 		parts = append(parts, &genai.Part{FunctionCall: &genai.FunctionCall{ID: c.ID, Name: c.Function.Name, Args: args}})
 	}
+	if finish == "length" {
+		return yieldTruncated(parts, usage, yield)
+	}
 	yield(finalResponse(parts, usage), nil)
+	return nil
+}
+
+// errTruncatedOutput marks a reply cut at the output limit before any text.
+var errTruncatedOutput = errors.New("model response incomplete: output limit reached")
+
+// yieldTruncated ends a text answer cut at the output token limit (PA-46):
+// the text so far is a final response with FinishReason MAX_TOKENS. A
+// response that was calling tools is still incomplete, because its arguments
+// may be cut too, and so is one without text.
+func yieldTruncated(parts []*genai.Part, usage *genai.GenerateContentResponseUsageMetadata, yield func(*model.LLMResponse, error) bool) error {
+	text := false
+	for _, part := range parts {
+		if part.FunctionCall != nil {
+			return errTruncatedOutput
+		}
+		text = text || (part.Text != "" && !part.Thought)
+	}
+	if !text {
+		return errTruncatedOutput
+	}
+	response := finalResponse(parts, usage)
+	response.FinishReason = genai.FinishReasonMaxTokens
+	if !yield(response, nil) {
+		return errConsumerStopped
+	}
 	return nil
 }
 func partial(s string) *model.LLMResponse {
@@ -526,7 +568,7 @@ func parseClaude(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 	if err != nil {
 		return err
 	}
-	if reason != "end_turn" && reason != "tool_use" {
+	if reason != "end_turn" && reason != "tool_use" && reason != "max_tokens" {
 		return fmt.Errorf("Claude response incomplete: %s", reason)
 	}
 	parts := []*genai.Part{}
@@ -555,6 +597,9 @@ func parseClaude(r io.Reader, yield func(*model.LLMResponse, error) bool) error 
 	var usage *genai.GenerateContentResponseUsageMetadata
 	if reported {
 		usage = &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: input, CandidatesTokenCount: output, TotalTokenCount: input + output}
+	}
+	if reason == "max_tokens" {
+		return yieldTruncated(parts, usage, yield)
 	}
 	yield(finalResponse(parts, usage), nil)
 	return nil

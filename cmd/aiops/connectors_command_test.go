@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -148,5 +149,18 @@ func TestConnectorsCommandImportFlow(t *testing.T) {
 	}
 	if code, _ := run("import-legacy", "-apply", "-plan", planPath, "-actor", "admin@example.invalid"); code != 1 {
 		t.Fatal("a stale plan was applied twice")
+	}
+}
+
+func TestAlertReconcileInterval(t *testing.T) {
+	for value, want := range map[string]time.Duration{"": time.Minute, "0": 0, "15": 15 * time.Second, "3600": time.Hour} {
+		if got, err := alertReconcileInterval(value); err != nil || got != want {
+			t.Fatalf("%q: %v %v", value, got, err)
+		}
+	}
+	for _, value := range []string{"5", "3601", "-1", "1m"} {
+		if _, err := alertReconcileInterval(value); err == nil {
+			t.Fatalf("%q accepted", value)
+		}
 	}
 }

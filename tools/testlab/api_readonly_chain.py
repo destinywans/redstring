@@ -219,7 +219,8 @@ class Contract:
         self.main = set()
         for line in (Path(root) / 'docs/api/v3-contract.md').read_text().splitlines():
             match = re.match(r'^\| (GET|POST|PUT|PATCH|DELETE) \| `([^`]+)` \|', line)
-            if match:
+            # v1.1 page-interaction rows are tracked separately from the frozen 166-route contract.
+            if match and 'v1.1·' not in line:
                 self.main.add(match.groups())
         if len(self.main) != 166:
             raise Blocked('expected current 166-route main contract')

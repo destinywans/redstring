@@ -116,6 +116,61 @@ type Proposal struct {
 	ProposedAt string `json:"proposed_at"`
 	Content
 	Discussion []CommentItem `json:"discussion"`
+	// Execution is null until a second approval allocates an execution
+	// (PA-36); its status and upstream ID come from the executor's records.
+	Execution *ProposalExecution `json:"execution"`
+}
+
+// ProposalExecution is a read-only projection of the approval decision and
+// the independent executor's current record. Null fields are listed in
+// Unavailable: not_generated until the executor has recorded them.
+type ProposalExecution struct {
+	ExecutionID string            `json:"execution_id"`
+	ApprovedAt  string            `json:"approved_at"`
+	ActionKind  string            `json:"action_kind"`
+	Status      *string           `json:"status"`
+	UpstreamID  *string           `json:"upstream_id"`
+	Unavailable map[string]string `json:"unavailable"`
+}
+
+// executionTx reads the decision and, for supported action kinds, the
+// executor's state. A proposal without a decision has no execution yet.
+func executionTx(ctx context.Context, tx pgx.Tx, proposalID string) (*ProposalExecution, error) {
+	var out ProposalExecution
+	var approved time.Time
+	err := tx.QueryRow(ctx, `SELECT execution_id,action_kind,approved_at FROM v3_proposal_approval_decisions WHERE proposal_id=$1`,
+		proposalID).Scan(&out.ExecutionID, &out.ActionKind, &approved)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out.ApprovedAt = approved.UTC().Format(time.RFC3339)
+	out.Unavailable = map[string]string{}
+	var status, upstream *string
+	switch out.ActionKind {
+	case "alertmanager.silence.create", "alertmanager.silence.cancel":
+		err = tx.QueryRow(ctx, `SELECT state,upstream_id FROM v3_silence_execution_claims WHERE proposal_id=$1`, proposalID).Scan(&status, &upstream)
+	case "prometheus.alert_rule.enable":
+		var state string
+		err = tx.QueryRow(ctx, `SELECT state FROM v3_alert_rule_enable_executions WHERE proposal_id=$1 AND execution_id=$2`,
+			proposalID, out.ExecutionID).Scan(&state)
+		status = &state
+	default:
+		err = pgx.ErrNoRows
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+	out.Status, out.UpstreamID = status, upstream
+	if out.Status == nil {
+		out.Unavailable["status"] = "not_generated"
+	}
+	if out.UpstreamID == nil {
+		out.Unavailable["upstream_id"] = "not_generated"
+	}
+	return &out, nil
 }
 
 // NewProposal is accepted only from an in-process trusted producer. The
@@ -434,7 +489,12 @@ func detailTx(ctx context.Context, tx pgx.Tx, v record) (Proposal, error) {
 		}
 		out.Discussion = append(out.Discussion, CommentItem{Author: author, Time: at.UTC().Format(time.RFC3339), Text: body})
 	}
-	return out, rows.Err()
+	if err = rows.Err(); err != nil {
+		return Proposal{}, err
+	}
+	rows.Close()
+	out.Execution, err = executionTx(ctx, tx, v.ID)
+	return out, err
 }
 
 // Row locks hold account, scope, and grant changes until commit. Session

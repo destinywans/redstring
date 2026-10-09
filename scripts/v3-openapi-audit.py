@@ -2,7 +2,10 @@
 # sealed from migration time; pre-migration history is not independently proven.
 S['V3AuditEntry'] = obj({**fieldnames('id time action target source'),
     'actor':obj({'kind':string(enum=['user','agent','system']),'name':string()},['kind','name']),
-    'result':string(enum=['ok','blocked','failed'])},
+    # pending: a lifecycle step whose final outcome is a later row. null: an
+    # outcome this server cannot classify; unavailable.result says so (PA-42).
+    'result':{'type':['string','null'],'enum':['ok','pending','blocked','failed',None]},
+    'unavailable':ref('V3Unavailable')},
     ['id','time','actor','action','target','result','source'])
 S['V3AuditView'] = obj({'items':arr(ref('V3AuditEntry')),
     'counts':v3_map(integer()),'volume':arr(arr(integer())),'next_cursor':string()},

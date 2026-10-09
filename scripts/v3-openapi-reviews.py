@@ -9,12 +9,17 @@ S['V3Proposal'] = obj({**fieldnames('id title impact proposed_by investigation_i
     'evidence':arr(obj({'n':integer(),'icon':string(),'title':string(),'desc':string(),
         'series':arr(v3_num())},['n','icon','title','desc'])),
     'verification':arr(string()),'checklist':arr(string()),
-    'discussion':arr(ref('V3ProposalComment'))},
+    'discussion':arr(ref('V3ProposalComment')),
+    # PA-36: null until a second approval allocates an execution.
+    'execution':v3_nullable(obj({'execution_id':string(),'approved_at':string(format='date-time'),
+        'action_kind':string(),'status':{'type':['string','null']},'upstream_id':{'type':['string','null']},
+        'unavailable':ref('V3Unavailable')},
+        ['execution_id','approved_at','action_kind','status','upstream_id','unavailable']))},
     ['id','title','status','risk','impact','reversible','proposed_by','proposed_at',
      'investigation_id','target','diff','method','evidence','verification',
-     'verification_note','checklist','requirement','discussion'])
+     'verification_note','checklist','requirement','discussion','execution'])
 v3_route('get','/proposals/{id}','Read a scoped V3 proposal review record',response=ref('V3Proposal'),
-    desc='Only records created by a trusted V3 producer can appear; existing rollback action_plans are not relabeled.')
+    desc='Only records created by a trusted V3 producer can appear; existing rollback action_plans are not relabeled. execution is null until the second approval; then it carries the decision execution_id and approved_at, and status/upstream_id from the independent executor record (silence: reserved, dispatching, unknown, confirmed, expired, manual_review; alert rule: the enable execution state), null with not_generated until the executor has recorded them (PA-36).')
 v3_route('post','/proposals/{id}/comments','Append an audited proposal comment',
     body=obj({'text':string()},['text']),response=ref('V3ProposalComment'),status=201,
     query=[{'name':'Idempotency-Key','in':'header','schema':string(maxLength=128)}],

@@ -54,6 +54,28 @@ func (c DatabaseCatalog) Applications(ctx context.Context, environments []string
 	return apps, rows.Err()
 }
 
+// UserNames maps platform user IDs to display names. Only IDs of existing
+// users are returned; anything else stays the caller's raw value.
+func (c DatabaseCatalog) UserNames(ctx context.Context, ids []string) (map[string]string, error) {
+	names := map[string]string{}
+	if c.DB == nil || len(ids) == 0 {
+		return names, nil
+	}
+	rows, err := c.DB.Query(ctx, `SELECT id,COALESCE(NULLIF(v3_display_name,''),name) FROM users WHERE id=ANY($1::text[])`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		names[id] = name
+	}
+	return names, rows.Err()
+}
+
 // A broad silence needs an environment-wide administrative grant. An app or
 // team scoped manage grant never promotes its holder to environment admin.
 func (c DatabaseCatalog) EnvironmentAdmin(ctx context.Context, user core.User, env string) (bool, error) {

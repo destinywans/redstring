@@ -3,6 +3,7 @@ package v3alertmanager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
@@ -28,6 +29,10 @@ var (
 	ErrGroupPolicyUnavailable = errors.New("Alertmanager group policy unavailable")
 	ErrGroupPolicyInvalid     = errors.New("invalid Alertmanager group policy")
 	ErrGroupPolicyAmbiguous   = errors.New("Alertmanager group policy cannot be determined exactly")
+	// ErrNoEnvironmentRoute is the ambiguous case where the root has no exact
+	// environment branch at all. Callers that only test for ambiguity are
+	// unaffected; the route-tree read reports it as not configured.
+	ErrNoEnvironmentRoute = fmt.Errorf("%w: no exact environment route", ErrGroupPolicyAmbiguous)
 )
 
 const (

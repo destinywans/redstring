@@ -145,14 +145,17 @@ const visibleCTE = `WITH visible AS (
 const filterWhere = ` WHERE ($3='all' OR actor_kind=$3)
  AND aiops_search_match(concat_ws(' ',actor_id,actor_name,action,target,outcome,changes->>'run_id'),$4)`
 
+// entry.Result is null for an outcome this server cannot classify; the row
+// stays listed and Unavailable says why (PA-42), so one row never hides the log.
 type entry struct {
-	ID     string `json:"id"`
-	Time   string `json:"time"`
-	Actor  actor  `json:"actor"`
-	Action string `json:"action"`
-	Target string `json:"target"`
-	Result string `json:"result"`
-	Source string `json:"source"`
+	ID          string            `json:"id"`
+	Time        string            `json:"time"`
+	Actor       actor             `json:"actor"`
+	Action      string            `json:"action"`
+	Target      string            `json:"target"`
+	Result      *string           `json:"result"`
+	Source      string            `json:"source"`
+	Unavailable map[string]string `json:"unavailable,omitempty"`
 }
 type actor struct {
 	Kind string `json:"kind"`
@@ -164,8 +167,12 @@ func resultKind(outcome string) (string, error) {
 	// These values record a successful request or a persisted lifecycle event.
 	// "accepted" and "pending_manual_cleanup" do not mean the downstream work
 	// completed; the action name retains that distinction in the audit row.
-	case "success", "succeeded", "ok", "completed", "accepted", "test_accepted", "recorded", "pending_manual_cleanup":
+	case "success", "succeeded", "ok", "completed", "accepted", "test_accepted", "recorded", "pending_manual_cleanup", "no_change":
 		return "ok", nil
+	// A lifecycle step whose final outcome is recorded by a later row, such as
+	// a reserved or dispatching silence or a requested export.
+	case "pending":
+		return "pending", nil
 	case "blocked", "denied", "rejected", "duplicate", "invalid_event":
 		return "blocked", nil
 	case "failed", "failure", "error", "unknown":
@@ -236,15 +243,17 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		if err = actorKind(kind); err != nil {
 			break
 		}
-		var result string
-		result, err = resultKind(outcome)
-		if err != nil {
-			break
+		row := entry{ID: strconv.FormatInt(id, 10), Time: at.UTC().Format(time.RFC3339), Action: action, Target: target, Source: "management_audit"}
+		if result, mapErr := resultKind(outcome); mapErr == nil {
+			row.Result = &result
+		} else {
+			row.Unavailable = map[string]string{"result": "unavailable"}
 		}
 		if name == "" {
 			name = actorID
 		}
-		items = append(items, entry{ID: strconv.FormatInt(id, 10), Time: at.UTC().Format(time.RFC3339), Actor: actor{Kind: kind, Name: name}, Action: action, Target: target, Result: result, Source: "management_audit"})
+		row.Actor = actor{Kind: kind, Name: name}
+		items = append(items, row)
 	}
 	if err == nil {
 		err = rows.Err()

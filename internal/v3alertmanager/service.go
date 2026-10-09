@@ -3,6 +3,7 @@ package v3alertmanager
 import (
 	"context"
 	"errors"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -64,19 +65,32 @@ type Service struct {
 }
 
 type silenceView struct {
-	ID        string              `json:"id"`
-	Matchers  []map[string]string `json:"matchers"`
-	State     string              `json:"state"`
-	Window    string              `json:"window"`
-	Remaining *remainingView      `json:"remaining,omitempty"`
-	Affects   int                 `json:"affects"`
-	Creator   string              `json:"creator"`
-	Reason    string              `json:"reason"`
+	ID       string              `json:"id"`
+	Matchers []map[string]string `json:"matchers"`
+	State    string              `json:"state"`
+	// Window is display text in the silence's own offset; StartsAt/EndsAt
+	// are RFC 3339 so clients can show the viewer's time zone (PA-37).
+	Window    string         `json:"window"`
+	StartsAt  string         `json:"starts_at"`
+	EndsAt    string         `json:"ends_at"`
+	Remaining *remainingView `json:"remaining,omitempty"`
+	Affects   int            `json:"affects"`
+	// Creator is the platform user's display name when Alertmanager's
+	// createdBy is a known user ID, otherwise the upstream value.
+	Creator string `json:"creator"`
+	Reason  string `json:"reason"`
 }
 
+// remainingView.Pct is the share of the window still remaining (0..100).
 type remainingView struct {
 	Pct  int    `json:"pct"`
 	Text string `json:"text"`
+}
+
+// creatorNameCatalog resolves platform user IDs to display names for the
+// silence creator column. It is optional; unknown IDs keep the raw value.
+type creatorNameCatalog interface {
+	UserNames(context.Context, []string) (map[string]string, error)
 }
 
 func (s *Service) Register(api *httpapi.Server) {
@@ -117,7 +131,10 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s == nil || s.Source == nil {
-		httpapi.Error(w, http.StatusServiceUnavailable, "alertmanager_unconfigured", "Alertmanager is not configured")
+		// No Alertmanager is a deployment state: the list is unknown.
+		httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": nil, "counts": nil, "partial": false,
+			"unavailable_environments": []string{}, "unscoped_present": false, "empty_reason": nil,
+			"unavailable": map[string]string{"items": "not_configured", "counts": "not_configured"}})
 		return
 	}
 	if s.Catalog == nil || s.Access == nil {
@@ -201,7 +218,11 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		anyReadable = anyReadable || canRead
 	}
 	if !anyReadable {
-		httpapi.Error(w, http.StatusForbidden, "forbidden", "Silence access is denied")
+		// Nothing readable before any upstream read: a known empty scope.
+		httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": []silenceView{},
+			"counts": map[string]int{"active": 0, "planned": 0, "expired": 0}, "partial": false,
+			"unavailable_environments": []string{}, "unscoped_present": false,
+			"empty_reason": "no_authorized_target", "unavailable": map[string]string{}})
 		return
 	}
 	now := time.Now()
@@ -280,6 +301,19 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+	if names, ok := s.Catalog.(creatorNameCatalog); ok && len(items) > 0 {
+		ids := make([]string, 0, len(items))
+		for _, item := range items {
+			ids = append(ids, item.Creator)
+		}
+		if resolved, nameErr := names.UserNames(r.Context(), ids); nameErr == nil {
+			for i := range items {
+				if name := resolved[items[i].Creator]; name != "" {
+					items[i].Creator = name
+				}
+			}
+		}
+	}
 	status := http.StatusOK
 	if unscopedPresent {
 		status = http.StatusPartialContent
@@ -287,7 +321,8 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	// A foreign exact-environment record never changes the response status or
 	// coverage flag. Truly broad records only set a boolean, never a count.
 	httpapi.WriteJSON(w, status, map[string]any{"items": items, "counts": counts, "partial": status == http.StatusPartialContent,
-		"unavailable_environments": []string{}, "unscoped_present": unscopedPresent})
+		"unavailable_environments": []string{}, "unscoped_present": unscopedPresent, "empty_reason": nil,
+		"unavailable": map[string]string{}})
 }
 
 func containsSilenceEnvironment(values []string, wanted string) bool {
@@ -415,7 +450,8 @@ func projectSilence(s Silence, affects int, now time.Time, language string) sile
 		matchers = append(matchers, map[string]string{"k": matcher.Name, "v": value})
 	}
 	view := silenceView{ID: s.ID, Matchers: matchers, State: state,
-		Window:  s.StartsAt.Format("2006-01-02 15:04 -07:00") + " – " + s.EndsAt.Format("2006-01-02 15:04 -07:00"),
+		Window:   s.StartsAt.Format("2006-01-02 15:04 -07:00") + " – " + s.EndsAt.Format("2006-01-02 15:04 -07:00"),
+		StartsAt: s.StartsAt.UTC().Format(time.RFC3339), EndsAt: s.EndsAt.UTC().Format(time.RFC3339),
 		Creator: s.CreatedBy, Reason: s.Comment}
 	if state != "active" {
 		return view
@@ -423,7 +459,7 @@ func projectSilence(s Silence, affects int, now time.Time, language string) sile
 	view.Affects = affects
 	duration := s.EndsAt.Sub(s.StartsAt)
 	if duration > 0 {
-		pct := int(100 * now.Sub(s.StartsAt).Seconds() / duration.Seconds())
+		pct := int(math.Round(100 * s.EndsAt.Sub(now).Seconds() / duration.Seconds()))
 		if pct < 0 {
 			pct = 0
 		} else if pct > 100 {

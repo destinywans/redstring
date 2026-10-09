@@ -336,6 +336,10 @@ func TestCanvasCreateRegisteredRoutePersistsAndAuthorizes(t *testing.T) {
  VALUES('canvas-create-env','canvas','change','environment','dev')`); err != nil {
 		t.Fatal(err)
 	}
+	// PA-35: an environment-wide grantee is told the service is invalid; an
+	// application-scoped user above still gets 403 for unknown and hidden alike.
+	assert(request(freshEnvToken, "dev", `{"title":"Unknown app","kind":"investigation","services":["app-unknown"]}`), 422, "invalid_service")
+	assert(request(freshEnvToken, "dev", `{"title":"Archived app","kind":"investigation","services":["app-archived"]}`), 422, "invalid_service")
 	called := 0
 	fake := &canvasDraftFakeRunner{run: func(req inference.Request) (string, error) {
 		called++

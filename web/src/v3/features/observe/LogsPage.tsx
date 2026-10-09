@@ -1,26 +1,31 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, useGet } from "../../api/client";
-import { Unavailable, errorReason } from "../../ui/unknown";
+import { Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
 import type { LogLine, LogSearch } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, Input, Muted, Num, Row, Spacer, Strong, Tile, Toggle, cx } from "../../ui/core";
 import { StackedBars, Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./observe.css";
-import { RangeChip, openExternal, ChipSelect } from "../../ui/demo";
+import { RangeChip, openExternal, ChipSelect, useRanges } from "../../ui/demo";
 
 const LV = { ERROR: "danger", WARN: "warn", INFO: "neutral" } as const;
 
 export default function LogsPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  const service = params.get("service") ?? undefined;
+  const [range, setRange] = useState("30m");
+  const rangeLabel = useRanges().find((r) => r.value === range)?.label ?? range;
   const [query, setQuery] = useState(API_MODE === "mock" ? 'service:"checkout-api" and level:(error or warn)' : "");
   const [applied, setApplied] = useState("");
   const [levels, setLevels] = useState<Set<LogLine["level"]>>(new Set(["ERROR", "WARN", "INFO"]));
   const [live, setLive] = useState(false);
   const [extra, setExtra] = useState<LogLine[]>([]);
-  const { data, error, isFetching } = useGet<LogSearch>("/logs", { q: applied, levels: [...levels].join(",") });
+  const { data, error, isFetching } = useGet<LogSearch>("/logs", { q: applied, levels: [...levels].join(","), service, range });
+  const u = data?.unavailable ?? {};
   useEffect(() => {
     // The demo fakes a live tail; real mode has no streaming source yet, so nothing is invented.
     if (!live || API_MODE !== "mock") return;
@@ -39,13 +44,15 @@ export default function LogsPage() {
       return n;
     });
   const rows = [...extra.filter((e) => levels.has(e.level)), ...(data?.items ?? [])];
+  // items is null only when no log source is bound at all.
+  const noSource = !!data && data.items === null;
   return (
     <Page
       flush
       crumbs={[tx("资源与观测", "Resources"), tx("日志", "Logs")]}
       actions={
         <>
-          <RangeChip defaultValue="30m" />
+          <RangeChip value={range} onChange={setRange} />
           {API_MODE === "mock" && <Btn icon="external" onClick={() => openExternal("Kibana", `https://kibana.example.internal/app/discover#/?_a=(query:(language:kuery,query:'${encodeURIComponent(query)}'))`)}>{tx("在 Kibana 中打开", "Open in Kibana")}</Btn>}
         </>
       }
@@ -70,7 +77,13 @@ export default function LogsPage() {
             <Card style={{ padding: "10px 14px" }}>
               <Row gap={8}>
                 <Strong>{tx("日志量", "Volume")}</Strong>
-                <Muted size={11.5}>{data ? tx("共 {a} 条 · 错误 {b}", "{a} lines · {b} errors", { a: data.total, b: data.errors }) : error ? "—" : "…"}</Muted>
+                {data ? (
+                  <Muted size={11.5}>
+                    {tx("共", "Total")} {data.total ?? <UnknownValue reason={u.total} source="Loki" />} {tx("条 · 错误", "lines · errors")} {data.errors ?? <UnknownValue reason={u.errors} source="Loki" />}
+                  </Muted>
+                ) : (
+                  <Muted size={11.5}>{error ? "—" : "…"}</Muted>
+                )}
                 <Spacer />
                 {(["ERROR", "WARN", "INFO"] as const).map((l) => (
                   <Chip key={l} active={levels.has(l)} onClick={() => toggle(l)}>
@@ -79,13 +92,27 @@ export default function LogsPage() {
                   </Chip>
                 ))}
               </Row>
-              {data && <StackedBars data={data.histogram} colors={["var(--c3)", "var(--c4)", "var(--c5s)"]} height={70} names={["ERROR", "WARN", "INFO"]} gap={3} />}
+              {data?.histogram ? (
+                <StackedBars data={data.histogram} colors={["var(--c3)", "var(--c4)", "var(--c5s)"]} height={70} names={["ERROR", "WARN", "INFO"]} gap={3} />
+              ) : (
+                data && (
+                  <Row gap={6} style={{ height: 40 }}>
+                    <Muted size={11.5}>{tx("日志量分布", "Volume over time")}</Muted>
+                    <UnknownValue reason={u.histogram} source="Loki" />
+                  </Row>
+                )
+              )}
             </Card>
             {error && !isFetching && (
               <Card>
                 <Unavailable reason={errorReason(error)} source="Loki" desc={error instanceof ApiError && error.status === 422 ? error.message : undefined} />
               </Card>
             )}
+            {noSource ? (
+              <Card>
+                <Unavailable reason={u.items} source={tx("日志来源", "a log source")} icon="file" />
+              </Card>
+            ) : (
             <Card style={{ overflow: "hidden" }}>
               <table className="v3-table logs-table">
                 <thead>
@@ -113,9 +140,17 @@ export default function LogsPage() {
                       <td>{r.trace && <button type="button" className="v3-iconbtn" style={{ width: 24, height: 24 }} aria-label={tx("查看链路", "View trace")} onClick={() => nav(`/traces/${r.trace}`)}><Icon name="branch" size={14} color="var(--accent-text)" /></button>}</td>
                     </tr>
                   ))}
+                  {data && !rows.length && (
+                    <tr>
+                      <td colSpan={5} className="muted" style={{ textAlign: "center", padding: 24 }}>
+                        {tx("这个时间范围内没有匹配的日志", "No matching lines in this range")}
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </Card>
+            )}
           </div>
         </div>
         <aside className="aside" style={{ width: 360 }}>
@@ -123,11 +158,16 @@ export default function LogsPage() {
             <Tile icon="sparkles" tone="accent" />
             <Col gap={0}>
               <Strong size={13.5}>{tx("日志模式", "Log patterns")}</Strong>
-              <Muted size={11.5}>{tx("AI 把相似日志聚成模板 · 最近 30 分钟", "AI clusters similar lines into templates · last 30 min")}</Muted>
+              <Muted size={11.5}>{tx("把相似日志聚成模板 · {r}", "Similar lines clustered into templates · {r}", { r: rangeLabel })}</Muted>
             </Col>
           </Row>
+          {data && data.patterns === null && (
+            <div style={{ padding: 16 }}>
+              <Unavailable reason={u.patterns} source={tx("日志模式", "log patterns")} icon="sparkles" />
+            </div>
+          )}
           <ul className="log-patterns">
-            {data?.patterns.map((p) => (
+            {data?.patterns?.map((p) => (
               <li key={p.template} className={cx(p.new && "new")}>
                 <Row gap={6}>
                   <Badge tone={LV[p.level]} mono>

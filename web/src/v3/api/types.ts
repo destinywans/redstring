@@ -490,21 +490,31 @@ export type Topology = {
   detail: null | { id: string; name: string; meta: string; brand: string; conns: { used: number; max: number }; from_service: { used: number; max: number; service: string }; wait: number[]; health: { k: string; v: string }[]; owner: string; dependents: string; source: string };
   unavailable_fields?: string[];
 };
+/**
+ * GET /metrics/dashboard. Markers are null when no platform record falls in the window (not_generated); every metric
+ * block is null without a reviewed Prometheus source and query (not_configured) or when the panels don't add up (unavailable).
+ */
 export type MetricsDashboard = {
-  window: { labels: string[]; ticks: string[]; release_at: number; rollback_at: number; incident: [number, number]; incident_label: string };
-  kpis: Kpi[];
-  requests: { ok: number[]; client: number[]; server: number[] };
-  slo: { remaining: number; availability: string; delta: string; burn: { window: string; value: string; tone: Tone; pct: number }[]; note: string };
-  latency: { p50: number[]; p95: number[]; p99: number[]; heat: number[][]; buckets: string[] };
-  endpoints: { label: string; value: number; tone?: Tone }[];
-  instances: { label: string; values: number[]; tone?: Tone }[];
+  window: { labels: string[]; ticks: string[]; release_at: number | null; rollback_at: number | null; incident: [number, number] | null; incident_label: string | null };
+  kpis: Kpi[] | null;
+  requests: { ok: number[]; client: number[]; server: number[] } | null;
+  slo: { remaining: number; availability: string; delta: string; burn: { window: string; value: string; tone: Tone; pct: number }[]; note: string } | null;
+  latency: { p50: number[]; p95: number[]; p99: number[]; heat: number[][]; buckets: string[] } | null;
+  endpoints: { label: string; value: number; tone?: Tone }[] | null;
+  instances: { label: string; values: number[]; tone?: Tone }[] | null;
+  unavailable: Unavailable;
 };
 export type TraceSummary = { id: string; op: string; duration_ms: number; spans: number; error: boolean; time: string };
 export type Span = { id: string; depth: number; service: string; op: string; start: number; end: number; status: "ok" | "error"; label?: string; attrs?: { k: string; v: string }[]; error?: string };
 export type TraceSearch = { points: { t: number; ms: number; error: boolean; id?: string }[]; release_at: number; items: TraceSummary[] };
 export type TraceDetail = { id: string; op: string; duration_ms: number; spans: Span[]; time: string };
 export type LogLine = { time: string; level: "ERROR" | "WARN" | "INFO"; service: string; message: string; trace?: string };
-export type LogSearch = { total: string; errors: string; histogram: number[][]; items: LogLine[]; patterns: { template: string; level: LogLine["level"]; count: string; trend: number[]; new?: boolean }[] };
+export type LogPattern = { template: string; level: LogLine["level"]; count: string; trend: number[]; new?: boolean };
+/**
+ * GET /logs: proven lines; counts, histogram and patterns are null with reasons when unproven, and `items` is
+ * null too when no log source is bound at all (every key not_configured).
+ */
+export type LogSearch = { total: string | null; errors: string | null; histogram: number[][] | null; items: LogLine[] | null; patterns: LogPattern[] | null; unavailable: Unavailable };
 export type Pipeline = { id: string; brand: string; ref: string; service: string; title: string; trigger: string; status: "success" | "failed" | "running" | "canceled"; stages: ("ok" | "danger" | "accent" | "neutral")[]; duration: string; time: string };
 export type ChangesView = {
   kpis: Kpi[];
@@ -880,16 +890,23 @@ export type CanvasDoc = {
 /* ---------------- v4: traces (application + agent) ---------------- */
 export type TraceFacet = { key: string; label: string; items: { value: string; count: number; color?: string; tone?: Tone }[] };
 export type TraceRow = { id: string; time: string; op: string; services: string[]; duration_ms: number; spans: number; errors: number; tokens?: string; cost?: string; agent?: string; model?: string; href: string };
+/**
+ * GET /traces. A complete list has every field; the observed list (`partial: true`) only proves the closed traces it
+ * found, so total, facets, histogram, scatter and view counts are null with reasons, and items is null too without a
+ * trace source binding.
+ */
 export type TraceList = {
   scope: "app" | "agent";
-  total: number;
+  total: number | null;
   took: string;
   colors: Record<string, string>;
-  facets: TraceFacet[];
-  views: { id: string; label: string; count?: number; query: string }[];
-  histogram: { counts: [number, number][]; axis: string[] };
-  scatter: { x: number; y: number; error: boolean; id?: string }[];
-  items: TraceRow[];
+  facets: TraceFacet[] | null;
+  views: { id: string; label: string; count?: number | null; query: string }[];
+  histogram: { counts: [number, number][]; axis: string[] } | null;
+  scatter: { x: number; y: number; error: boolean; id?: string }[] | null;
+  items: TraceRow[] | null;
+  partial?: boolean;
+  unavailable: Unavailable;
 };
 export type TraceSpan = {
   id: string;

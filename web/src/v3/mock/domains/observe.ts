@@ -233,6 +233,7 @@ mock("GET", "/metrics/dashboard", ({ query }) => {
       { label: "7f9c-4", values: pod(14, 35), tone: "danger" }, { label: "7f9c-5", values: pod(15, 9, REL + 3), tone: "warn" }, { label: "7f9c-6", values: series(N, 12, 3, 10, 16) },
     ],
     service: query.service ?? "checkout-api",
+    unavailable: {},
   };
 });
 mock("POST", "/metrics/ask", () => ({ conversation_id: "C-320" }));
@@ -267,6 +268,7 @@ mock("GET", "/logs", ({ query }) => {
       { template: "slow request <*> <*>s", level: "WARN", count: "2,406", trend: [2, 2, 3, 2, 3, 8, 12, 13, 12, 13] },
       { template: "payment authorize ok order=<*>", level: "INFO", count: "18,220", trend: [20, 21, 20, 22, 21, 18, 17, 17, 18, 17] },
     ],
+    unavailable: {},
   };
 });
 

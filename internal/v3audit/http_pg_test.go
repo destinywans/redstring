@@ -213,6 +213,36 @@ func TestAuditRegisteredHTTPScopesListAndVerifiedDetail(t *testing.T) {
 	if body := w.Body.String(); !strings.Contains(body, "部署变更") || strings.Contains(body, "triage_test") || strings.Contains(body, "hidden_other") || strings.Contains(body, "private-test-value") {
 		t.Fatalf("incorrect scoped CSV: %q", body)
 	}
+	// A lifecycle row is "pending" and an unclassifiable outcome degrades only
+	// its own row to a null result (PA-42) instead of failing the whole log.
+	var pendingID, oddID int64
+	for _, row := range []struct {
+		id      *int64
+		outcome string
+	}{{&pendingID, "pending"}, {&oddID, "half_done"}} {
+		if err := s.DB.QueryRow(ctx, `INSERT INTO management_audit(actor_id,actor_kind,action,target,outcome,changes)
+		 VALUES('audit-admin','system','v3.silence_create.dispatching','silence',$1,'{"environment_id":"dev"}') RETURNING id`, row.outcome).Scan(row.id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w = request(token, "dev", "/api/v1/audit")
+	assertStatus(w, http.StatusOK)
+	var lifecycle struct {
+		Items []entry `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &lifecycle); err != nil || len(lifecycle.Items) != 4 {
+		t.Fatalf("lifecycle rows: %s", w.Body.String())
+	}
+	if odd := lifecycle.Items[0]; odd.ID != strconv.FormatInt(oddID, 10) || odd.Result != nil || odd.Unavailable["result"] != "unavailable" {
+		t.Fatalf("unmapped row: %+v", odd)
+	}
+	if pending := lifecycle.Items[1]; pending.ID != strconv.FormatInt(pendingID, 10) || pending.Result == nil || *pending.Result != "pending" || pending.Unavailable != nil {
+		t.Fatalf("pending row: %+v", pending)
+	}
+	w = request(token, "dev", "/api/v1/audit?result=pending")
+	if err := json.Unmarshal(w.Body.Bytes(), &lifecycle); err != nil || w.Code != 200 || len(lifecycle.Items) != 1 {
+		t.Fatalf("pending filter: %d %s", w.Code, w.Body.String())
+	}
 	if _, err := s.DB.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='audit' AND action='view'`); err != nil {
 		t.Fatal(err)
 	}

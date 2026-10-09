@@ -20,13 +20,14 @@ func TestAuditFilterAndOutcomeMapping(t *testing.T) {
 		"success": "ok", "succeeded": "ok", "completed": "ok", "accepted": "ok",
 		"recorded": "ok", "pending_manual_cleanup": "ok", "test_accepted": "ok",
 		"denied": "blocked", "duplicate": "blocked", "invalid_event": "blocked", "failed": "failed",
+		"pending": "pending", "no_change": "ok",
 	} {
 		got, err := resultKind(value)
 		if err != nil || got != want {
 			t.Fatalf("outcome %q = %q, %v", value, got, err)
 		}
 	}
-	if _, err := resultKind("pending"); err == nil {
+	if _, err := resultKind("half_done"); err == nil {
 		t.Fatal("unknown outcome silently mapped")
 	}
 }

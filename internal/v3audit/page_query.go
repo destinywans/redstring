@@ -33,7 +33,7 @@ func parseAuditPage(r *http.Request) (auditPageQuery, error) {
 	if e != nil {
 		return out, e
 	}
-	mapping := map[string][]string{"ok": {"success", "succeeded", "ok", "completed", "accepted", "test_accepted", "recorded", "pending_manual_cleanup"}, "blocked": {"blocked", "denied", "rejected", "duplicate", "invalid_event"}, "failed": {"failed", "failure", "error", "unknown"}}
+	mapping := map[string][]string{"ok": {"success", "succeeded", "ok", "completed", "accepted", "test_accepted", "recorded", "pending_manual_cleanup", "no_change"}, "pending": {"pending"}, "blocked": {"blocked", "denied", "rejected", "duplicate", "invalid_event"}, "failed": {"failed", "failure", "error", "unknown"}}
 	out.outcomes = []string{}
 	for _, result := range results {
 		values, ok := mapping[result]

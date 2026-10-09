@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
 	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
@@ -44,6 +46,7 @@ type metricToolInput struct {
 
 type metricToolSeries struct {
 	Index   int                       `json:"index"`
+	Labels  map[string]string         `json:"labels,omitempty"`
 	Samples []connectors.MetricSample `json:"samples"`
 }
 
@@ -51,6 +54,7 @@ type metricToolEvidence struct {
 	Service       string                `json:"service"`
 	EnvironmentID string                `json:"environment_id"`
 	QueryID       string                `json:"query_id"`
+	Meaning       string                `json:"meaning,omitempty"`
 	Window        connectors.TimeWindow `json:"window"`
 	CapturedAt    time.Time             `json:"captured_at"`
 	Status        string                `json:"status"`
@@ -72,38 +76,104 @@ func NewServiceMetricsTool(opts ServiceMetricsToolOptions) (inference.EvidenceTo
 		return inference.EvidenceTool{}, false
 	}
 	return inference.EvidenceTool{
-		Name:        "read_service_metrics",
-		Description: "Read actual Prometheus samples for one registered service in this conversation's environment. Set the query string to JSON such as {\"service\":\"exact-service-key\",\"query_id\":\"error_rate\"}. Allowed query IDs: request_rate, error_rate (5xx share of requests), http_p95_seconds, instances_up. Each is an operator-reviewed expression; a missing one is reported unavailable. No PromQL, URL or time range. Empty results are not health evidence.",
+		Name: "read_service_metrics",
+		Description: "Read actual Prometheus samples (last 15 minutes) for one registered service in this conversation's environment. " +
+			"Set the query string to JSON such as {\"service\":\"exact-service-key\",\"query_id\":\"error_rate\"}. " +
+			"Each service has its own operator-reviewed query IDs; list_services shows them. Common IDs: " + knownMetricQueryHelp() + ". " +
+			"No PromQL, URL or time range. Errors start with a code: unknown_service (wrong or unreadable key), not_configured " +
+			"(no metrics source or that query_id for this service), source_unavailable (Prometheus failed; retry later). Empty results are not health evidence.",
 		Read: func(ctx context.Context, input string) (inference.Evidence, error) {
 			return readServiceMetrics(ctx, opts, input)
 		},
 	}, true
 }
 
-// serviceMetricQueries are the standard RED/availability query IDs an operator may define
-// per service in the telemetry configuration; the expressions themselves stay server-side.
-var serviceMetricQueries = map[string]bool{"request_rate": true, "error_rate": true, "http_p95_seconds": true, "instances_up": true}
+// metricQuery documents a well-known query ID (PA-51): what it measures and
+// which series labels the model may see. The expression itself is only in the
+// reviewed per-service catalog (prometheus_queries of AIOPS_TELEMETRY_CONFIG).
+type metricQuery struct {
+	meaning string
+	labels  []string
+}
+
+var knownMetricQueries = map[string]metricQuery{
+	"request_rate":                {"requests per second", nil},
+	"error_rate":                  {"5xx share of requests", nil},
+	"http_p95_seconds":            {"p95 request latency in seconds", nil},
+	"instances_up":                {"instances reporting up", nil},
+	"node_cpu_busy_ratio":         {"CPU busy ratio (0-1) of each node running this service", []string{"node"}},
+	"node_memory_available_ratio": {"available memory ratio (0-1) of each node running this service", []string{"node"}},
+	"pod_restarts":                {"container restarts in the window per pod", []string{"pod", "container"}},
+	"pod_terminated_reason":       {"1 for the last termination reason of each pod container, such as OOMKilled", []string{"pod", "container", "reason"}},
+	"consumer_lag":                {"consumer group lag in messages per topic", []string{"consumergroup", "topic"}},
+	"messages_consumed_rate":      {"messages consumed per second per topic", []string{"consumergroup", "topic"}},
+}
+
+var knownMetricQueryOrder = []string{"request_rate", "error_rate", "http_p95_seconds", "instances_up", "node_cpu_busy_ratio",
+	"node_memory_available_ratio", "pod_restarts", "pod_terminated_reason", "consumer_lag", "messages_consumed_rate"}
+
+func knownMetricQueryHelp() string {
+	parts := make([]string, 0, len(knownMetricQueryOrder))
+	for _, id := range knownMetricQueryOrder {
+		help := id + " (" + knownMetricQueries[id].meaning
+		if labels := knownMetricQueries[id].labels; len(labels) > 0 {
+			help += "; labels " + strings.Join(labels, ", ")
+		}
+		parts = append(parts, help+")")
+	}
+	return strings.Join(parts, ", ")
+}
+
+// metricQueryID is the shape of any catalog query ID; whether it exists for a
+// service is decided by the catalog, not by this list.
+var metricQueryID = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+
+// metricLabelValue bounds a label value shown to the model.
+var metricLabelValue = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$`)
+
+// metricQueryIDs lists the query IDs a service resource has, when the
+// telemetry source can tell; ok is false when it cannot.
+func metricQueryIDs(telemetry any, resource string) ([]string, bool) {
+	lister, ok := telemetry.(interface{ MetricQueryIDs(string) []string })
+	if !ok {
+		return nil, false
+	}
+	return lister.MetricQueryIDs(resource), true
+}
+
+func metricsInputError() error {
+	return inference.NewToolError(inference.ToolInvalidInput,
+		`expected JSON {"service":"exact-service-key","query_id":"error_rate"}; list_services shows the keys and query IDs you can read`)
+}
+
+func metricsUnavailable(detail string) error {
+	return inference.NewToolError(inference.ToolSourceUnavailable, "service metrics are temporarily unavailable ("+detail+"); retry later")
+}
 
 func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, input string) (inference.Evidence, error) {
-	const unavailable = "service metrics unavailable"
 	if len(input) == 0 || len(input) > 512 {
-		return inference.Evidence{}, errors.New(unavailable)
+		return inference.Evidence{}, metricsInputError()
 	}
 	var request metricToolInput
 	decoder := json.NewDecoder(strings.NewReader(input))
 	decoder.DisallowUnknownFields()
 	if decoder.Decode(&request) != nil || decoder.Decode(new(any)) != io.EOF ||
-		!metricServiceKey.MatchString(request.Service) ||
-		!serviceMetricQueries[request.QueryID] {
-		return inference.Evidence{}, errors.New(unavailable)
+		!metricServiceKey.MatchString(request.Service) || !metricQueryID.MatchString(request.QueryID) {
+		return inference.Evidence{}, metricsInputError()
 	}
 	user, err := opts.CurrentUser(ctx, opts.OwnerID)
 	if err != nil || user.ID != opts.OwnerID || user.Disabled {
-		return inference.Evidence{}, errors.New(unavailable)
+		return inference.Evidence{}, metricsUnavailable("the conversation owner could not be verified")
 	}
 	profile, err := opts.LookupService(ctx, user, opts.EnvironmentID, request.Service)
-	if err != nil || profile.Key != request.Service || profile.Environment != opts.EnvironmentID || !auditTargetID.MatchString(profile.ID) {
-		return inference.Evidence{}, errors.New(unavailable)
+	if errors.Is(err, store.ErrNotFound) {
+		return inference.Evidence{}, inference.ErrUnknownService
+	}
+	if err != nil {
+		return inference.Evidence{}, metricsUnavailable("service catalog")
+	}
+	if profile.Key != request.Service || profile.Environment != opts.EnvironmentID || !auditTargetID.MatchString(profile.ID) {
+		return inference.Evidence{}, inference.ErrUnknownService
 	}
 	// The authorized service key must have exactly one persisted Prometheus
 	// binding in this environment. Ambiguity is an error, never a broader query.
@@ -114,7 +184,7 @@ func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, inp
  JOIN LATERAL jsonb_to_recordset(e.bindings) AS b(kind text, resource text) ON b.kind='prometheus'
  WHERE a.key=$1 AND NOT a.archived AND b.resource<>'' LIMIT 2`, request.Service, opts.EnvironmentID)
 	if err != nil {
-		return inference.Evidence{}, errors.New(unavailable)
+		return inference.Evidence{}, metricsUnavailable("binding lookup")
 	}
 	var bindings []string
 	var appID string
@@ -129,25 +199,49 @@ func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, inp
 		err = rows.Err()
 	}
 	rows.Close()
-	if err != nil || len(bindings) != 1 {
-		return inference.Evidence{}, errors.New(unavailable)
+	if err != nil {
+		return inference.Evidence{}, metricsUnavailable("binding lookup")
+	}
+	switch len(bindings) {
+	case 0:
+		return inference.Evidence{}, inference.NewToolError(inference.ToolNotConfigured, "no metrics source is configured for service "+request.Service)
+	case 1:
+	default:
+		return inference.Evidence{}, inference.NewToolError(inference.ToolNotConfigured, "service "+request.Service+" has more than one metrics source; an administrator must keep one")
 	}
 	if opts.SourceCompare != nil {
 		opts.SourceCompare.ObserveLegacy(v3telemetry.Use{ApplicationID: appID, EnvironmentID: opts.EnvironmentID, Provider: "prometheus", Resource: bindings[0]})
 	}
+	if ids, known := metricQueryIDs(opts.Telemetry, bindings[0]); known && !slices.Contains(ids, request.QueryID) {
+		configured := "none"
+		if len(ids) > 0 {
+			configured = strings.Join(ids, ", ")
+		}
+		return inference.Evidence{}, inference.NewToolError(inference.ToolNotConfigured,
+			"query_id "+request.QueryID+" is not configured for service "+request.Service+"; configured: "+configured)
+	}
 	window := connectors.TimeWindow{Start: time.Now().UTC().Truncate(time.Second).Add(-15 * time.Minute), StepSeconds: 30}
 	window.End = window.Start.Add(15 * time.Minute)
 	result, err := opts.Telemetry.QueryMetrics(ctx, bindings[0], request.QueryID, window)
-	if err != nil || result.Source.Failure != nil {
-		return inference.Evidence{}, errors.New(unavailable)
+	if err == nil && result.Source.Failure != nil {
+		err = result.Source.Failure
+	}
+	if err != nil {
+		var telemetryErr *connectors.TelemetryError
+		if errors.As(err, &telemetryErr) && (telemetryErr.Kind == "configuration" || telemetryErr.Kind == "scope") {
+			return inference.Evidence{}, inference.NewToolError(inference.ToolNotConfigured,
+				"query_id "+request.QueryID+" is not configured for service "+request.Service)
+		}
+		return inference.Evidence{}, metricsUnavailable("Prometheus query failed")
 	}
 	if (result.Source.ApplicationID != "" && result.Source.ApplicationID != bindings[0]) ||
 		(result.Source.QueryID != "" && result.Source.QueryID != request.QueryID) {
-		return inference.Evidence{}, errors.New(unavailable)
+		return inference.Evidence{}, metricsUnavailable("unexpected source response")
 	}
 	// The connector may return up to 100 series. Bound model context and avoid
 	// exposing configured PromQL, endpoint URLs, credential metadata or labels
-	// that could include arbitrary provider content.
+	// that could include arbitrary provider content. Only the reviewed labels
+	// of a well-known query (such as node) are kept, with bounded values.
 	evidence := metricToolEvidence{
 		Service: request.Service, EnvironmentID: opts.EnvironmentID,
 		QueryID: request.QueryID, Window: window, CapturedAt: result.Source.CapturedAt,
@@ -155,8 +249,12 @@ func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, inp
 		Truncated:  result.LimitReached || len(result.Series) > 8,
 		Incomplete: len(result.Source.Warnings) > 0,
 	}
+	if known, ok := knownMetricQueries[request.QueryID]; ok {
+		evidence.Meaning = known.meaning
+	}
 	for index, series := range result.Series[:min(len(result.Series), 8)] {
-		line := metricToolSeries{Index: index + 1, Samples: series.Samples[:min(len(series.Samples), 32)]}
+		line := metricToolSeries{Index: index + 1, Samples: series.Samples[:min(len(series.Samples), 32)],
+			Labels: reviewedMetricLabels(request.QueryID, series.Labels)}
 		if len(series.Samples) > 32 {
 			evidence.Truncated = true
 		}
@@ -170,10 +268,34 @@ func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, inp
 	}
 	content, err := json.Marshal(evidence)
 	if err != nil || len(content) > 32<<10 {
-		return inference.Evidence{}, errors.New(unavailable)
+		return inference.Evidence{}, metricsUnavailable("result too large")
 	}
 	return inference.Evidence{
 		Kind: "metrics", Title: "Prometheus samples: " + request.Service + " / " + request.QueryID,
 		Content: string(content), Source: "prometheus", TargetID: profile.ID,
 	}, nil
+}
+
+// reviewedMetricLabels keeps only the documented labels of a well-known query;
+// a value outside the bounded identifier shape is shown as "unrecognized".
+func reviewedMetricLabels(queryID string, labels map[string]string) map[string]string {
+	names := knownMetricQueries[queryID].labels
+	if len(names) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	for _, name := range names {
+		value, ok := labels[name]
+		if !ok {
+			continue
+		}
+		if !metricLabelValue.MatchString(value) {
+			value = "unrecognized"
+		}
+		out[name] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

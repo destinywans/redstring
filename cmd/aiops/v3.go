@@ -649,7 +649,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	}
 	readTools := v3ReadTools{
 		DB: s.DB, Models: toolModels, CurrentUser: currentToolUser,
-		LookupService: catalog.LookupServiceEvidence, Access: policy, Telemetry: telemetry,
+		LookupService: catalog.LookupServiceEvidence, ListServices: catalog.ListServiceEvidence, Access: policy, Telemetry: telemetry,
 		SourceCompare: sourceCompare,
 		KnowledgeTool: func(actorID, applicationID, environmentID string) (inference.EvidenceTool, bool) {
 			return v3knowledge.NewKnowledgeEvidenceTool(v3knowledge.KnowledgeEvidenceToolOptions{

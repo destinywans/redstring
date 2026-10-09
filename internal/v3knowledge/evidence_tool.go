@@ -13,6 +13,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/knowledge"
 	"github.com/wans/aiops-canvas/internal/rbac"
+	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // KnowledgeEvidenceToolOptions are bound by the server from a persisted turn,
@@ -47,7 +48,12 @@ type indexedKnowledgeEvidence struct {
 	Boundary      string                    `json:"boundary"`
 }
 
-var errKnowledgeEvidenceUnavailable = errors.New("indexed knowledge unavailable")
+// Knowledge tool errors carry a code the model can act on (PA-50).
+var (
+	errKnowledgeEvidenceUnavailable = inference.NewToolError(inference.ToolSourceUnavailable, "knowledge search is temporarily unavailable; retry later")
+	errKnowledgeQuery               = inference.NewToolError(inference.ToolInvalidInput, "pass a short search phrase of at most 500 characters")
+	errKnowledgeNotPermitted        = inference.NewToolError(inference.ToolNotPermitted, "you may view this service but not its knowledge")
+)
 
 // NewKnowledgeEvidenceTool is opt-in. The V3 composition root binds it to a
 // currently authorized service or investigation's exact application/environment;
@@ -80,7 +86,9 @@ func knowledgeEvidenceUser(ctx context.Context, opts KnowledgeEvidenceToolOption
 		return core.User{}, errKnowledgeEvidenceUnavailable
 	}
 	decision := rbac.V3Decision{Module: "knowledge", Action: "view", ApplicationID: opts.ApplicationID, EnvironmentID: opts.EnvironmentID}
-	if opts.Service.Policy.Authorize(ctx, user, decision) != nil {
+	if err := opts.Service.Policy.Authorize(ctx, user, decision); errors.Is(err, store.ErrForbidden) {
+		return core.User{}, errKnowledgeNotPermitted
+	} else if err != nil {
 		return core.User{}, errKnowledgeEvidenceUnavailable
 	}
 	return user, nil
@@ -89,7 +97,7 @@ func knowledgeEvidenceUser(ctx context.Context, opts KnowledgeEvidenceToolOption
 func readKnowledgeEvidence(ctx context.Context, opts KnowledgeEvidenceToolOptions, query string) (inference.Evidence, error) {
 	query = strings.TrimSpace(query)
 	if query == "" || len(query) > 1000 || utf8.RuneCountInString(query) > 500 || !utf8.ValidString(query) {
-		return inference.Evidence{}, errKnowledgeEvidenceUnavailable
+		return inference.Evidence{}, errKnowledgeQuery
 	}
 	if _, err := knowledgeEvidenceUser(ctx, opts); err != nil {
 		return inference.Evidence{}, err

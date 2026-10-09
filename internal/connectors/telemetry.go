@@ -299,6 +299,43 @@ func (t *Telemetry) Registration() TelemetryConfig {
 	return c
 }
 
+// MetricQueryIDs lists the reviewed Prometheus query IDs registered for a
+// resource, sorted; nil without Prometheus or without that resource. Only the
+// IDs leave this package, never the expressions.
+func (t *Telemetry) MetricQueryIDs(resource string) []string {
+	if t == nil || t.prometheus == nil {
+		return nil
+	}
+	a, ok := t.config.Applications[resource]
+	if !ok || len(a.PrometheusQueries) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(a.PrometheusQueries))
+	for id := range a.PrometheusQueries {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+// LogsRegistered reports whether provider (loki or elasticsearch) has a
+// registered scope for resource.
+func (t *Telemetry) LogsRegistered(provider, resource string) bool {
+	if t == nil {
+		return false
+	}
+	a, ok := t.config.Applications[resource]
+	switch {
+	case !ok:
+		return false
+	case provider == "loki":
+		return t.loki != nil && len(a.LokiLabels) > 0
+	case provider == "elasticsearch":
+		return t.elasticsearch != nil && a.ElasticsearchIndex != "" && len(a.ElasticsearchFilters) > 0
+	}
+	return false
+}
+
 func newTelemetryClient(c TelemetryEndpoint, timeout int) (*telemetryClient, error) {
 	u, e := url.Parse(c.URL)
 	if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(c.AllowHTTP && u.Scheme == "http")) {

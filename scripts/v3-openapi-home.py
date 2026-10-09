@@ -7,8 +7,10 @@ S['V3HomeKPI'] = obj({'id': string(), 'label': string(), 'value': string(),
 S['V3HomeAttention'] = obj({'id': string(), 'severity': {'type': ['string', 'null'],
     'enum': ['P1', 'P2', 'P3', 'P4', None]}, 'service': string(), 'env': string(),
     'symptom': string(), 'meta': string(), 'ai': {'type': ['string', 'null'],
-    'enum': ['done', 'running', None]}, 'owner': string(), 'href': string()},
-    ['id', 'severity', 'service', 'env', 'symptom', 'meta', 'ai', 'href'])
+    'enum': ['done', 'running', None]}, 'owner': string(), 'href': string(),
+    'alert_state': {'type': ['string', 'null'], 'enum': ['firing', 'resolved', None],
+        'description': 'Current alert state of the incident; null when the source reports neither. Resolved incidents stay listed until claimed (PA-58, D7).'}},
+    ['id', 'severity', 'service', 'env', 'symptom', 'meta', 'ai', 'href', 'alert_state'])
 S['V3HomeService'] = obj({'id': string(), 'name': string(), 'env': string(),
     'tier': {'type': ['string', 'null'], 'enum': ['T0', 'T1', 'T2', None]},
     'status': {'type': ['string', 'null'], 'enum': ['ok', 'warn', 'danger', None]},
@@ -44,9 +46,11 @@ S['V3HomeSummary'] = obj({
     'alert_trend': {'anyOf': [ref('V3HomeAlertTrend'), {'type': 'null'}]},
     'activity': arr(ref('V3HomeActivity')),
     'recent': arr(ref('V3HomeRecent')),
+    'firing_services': {'type': ['integer', 'null'], 'minimum': 0,
+        'description': 'Distinct visible services with a firing, non-suspected alert; null without an events grant (PA-58, D7).'},
     'availability': {'type': 'object', 'additionalProperties': string()},
 }, ['greeting', 'briefing', 'suggestions', 'kpis', 'attention', 'todos',
-    'services', 'alert_trend', 'activity', 'recent', 'availability'])
+    'services', 'alert_trend', 'activity', 'recent', 'firing_services', 'availability'])
 v3_route('get', '/home', 'Read the authenticated scoped home summary',
     response=ref('V3HomeSummary'),
     desc='Uses an active session and a bounded consistent snapshot of application '

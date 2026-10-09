@@ -17,6 +17,7 @@ import (
 
 type incident struct {
 	id, title, summary, severity, status, alertStatus, owner, appID, env string
+	suspected                                                            bool
 	starts, updated                                                      time.Time
 }
 
@@ -81,11 +82,19 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 		out.Attention = append(out.Attention, Attention{ID: row.id, Severity: frontendSeverity(row.severity),
 			Service: serviceName(targets, row.appID, row.env), Env: row.env,
 			Symptom: cleanTitle(row.title), Meta: t.incidentMeta(row), AI: nil,
-			Owner: row.owner, Href: "/alerts/" + row.id})
+			Owner: row.owner, Href: "/alerts/" + row.id, AlertState: alertState(row.alertStatus)})
 	}
 	pending := len(proposals)
 	out.Greeting.Summary = t.summary(len(active), pending, eventViews > 0, proposalViews > 0)
 	if eventViews > 0 {
+		firing := map[[2]string]bool{}
+		for _, row := range incidents {
+			if row.alertStatus == "firing" && !row.suspected {
+				firing[[2]string{row.appID, row.env}] = true
+			}
+		}
+		count := len(firing)
+		out.FiringServices = &count
 		out.KPIs = append(out.KPIs, KPI{ID: "incidents", Label: t.pick("可见未解决事件", "Visible open incidents"), Value: strconv.Itoa(len(active)), Series: []float64{}})
 		out.Availability["incidents"] = "persisted_scoped"
 	} else {
@@ -116,6 +125,14 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 	}
 	if err := s.recentConversations(ctx, tx, user, envs, out, now.Add(-duration)); err != nil {
 		return err
+	}
+	return nil
+}
+
+func alertState(status string) *string {
+	switch status {
+	case "firing", "resolved":
+		return &status
 	}
 	return nil
 }
@@ -224,7 +241,7 @@ func serviceName(targets []target, app, env string) string {
 
 func loadIncidents(ctx context.Context, tx pgx.Tx, row target) ([]incident, error) {
 	rows, err := tx.Query(ctx, `SELECT i.id,i.title,i.summary,i.severity,i.status,i.alert_status,
-	 COALESCE(u.name,''),i.starts_at,i.updated_at
+	 i.suspected,COALESCE(u.name,''),i.starts_at,i.updated_at
 	 FROM ops_incidents i
 	 JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id
 	 AND e.key=$2 AND NOT e.archived
@@ -236,7 +253,7 @@ func loadIncidents(ctx context.Context, tx pgx.Tx, row target) ([]incident, erro
 	out := []incident{}
 	for rows.Next() {
 		v := incident{appID: row.AppID, env: row.Env}
-		if err = rows.Scan(&v.id, &v.title, &v.summary, &v.severity, &v.status, &v.alertStatus, &v.owner, &v.starts, &v.updated); err != nil {
+		if err = rows.Scan(&v.id, &v.title, &v.summary, &v.severity, &v.status, &v.alertStatus, &v.suspected, &v.owner, &v.starts, &v.updated); err != nil {
 			break
 		}
 		out = append(out, v)

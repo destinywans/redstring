@@ -66221,6 +66221,18 @@
           },
           "href": {
             "type": "string"
+          },
+          "alert_state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "firing",
+              "resolved",
+              null
+            ],
+            "description": "Current alert state of the incident; null when the source reports neither. Resolved incidents stay listed until claimed (PA-58, D7)."
           }
         },
         "additionalProperties": false,
@@ -66232,7 +66244,8 @@
           "symptom",
           "meta",
           "ai",
-          "href"
+          "href",
+          "alert_state"
         ]
       },
       "V3HomeService": {
@@ -66604,6 +66617,14 @@
               "$ref": "#/components/schemas/V3HomeRecent"
             }
           },
+          "firing_services": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Distinct visible services with a firing, non-suspected alert; null without an events grant (PA-58, D7)."
+          },
           "availability": {
             "type": "object",
             "additionalProperties": {
@@ -66623,6 +66644,7 @@
           "alert_trend",
           "activity",
           "recent",
+          "firing_services",
           "availability"
         ]
       },

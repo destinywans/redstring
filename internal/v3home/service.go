@@ -61,6 +61,10 @@ type Attention struct {
 	AI       *string `json:"ai"`
 	Owner    string  `json:"owner,omitempty"`
 	Href     string  `json:"href"`
+	// AlertState is the incident's current alert state, firing or resolved,
+	// or null when the source reports neither (PA-58). Resolved incidents
+	// stay listed until claimed (D7).
+	AlertState *string `json:"alert_state"`
 }
 
 type ServiceItem struct {
@@ -104,17 +108,20 @@ type AlertTrend struct {
 }
 
 type Summary struct {
-	Greeting     Greeting          `json:"greeting"`
-	Briefing     any               `json:"briefing"`
-	Suggestions  []any             `json:"suggestions"`
-	KPIs         []KPI             `json:"kpis"`
-	Attention    []Attention       `json:"attention"`
-	Todos        []any             `json:"todos"`
-	Services     []ServiceItem     `json:"services"`
-	AlertTrend   any               `json:"alert_trend"`
-	Activity     []Activity        `json:"activity"`
-	Recent       []Recent          `json:"recent"`
-	Availability map[string]string `json:"availability"`
+	Greeting    Greeting      `json:"greeting"`
+	Briefing    any           `json:"briefing"`
+	Suggestions []any         `json:"suggestions"`
+	KPIs        []KPI         `json:"kpis"`
+	Attention   []Attention   `json:"attention"`
+	Todos       []any         `json:"todos"`
+	Services    []ServiceItem `json:"services"`
+	AlertTrend  any           `json:"alert_trend"`
+	Activity    []Activity    `json:"activity"`
+	Recent      []Recent      `json:"recent"`
+	// FiringServices counts the distinct visible services with a firing,
+	// non-suspected alert; null without an events grant (PA-58, D7).
+	FiringServices *int              `json:"firing_services"`
+	Availability   map[string]string `json:"availability"`
 }
 
 type target struct {

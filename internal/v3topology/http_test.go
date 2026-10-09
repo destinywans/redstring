@@ -61,6 +61,8 @@ func TestTopologyHTTPExcludesMissingAndDoesNotBorrowLinkedResourceTeam(t *testin
 	for _, statement := range []string{
 		`INSERT INTO teams(id,name) VALUES('resource-owner','Resource Owner'),('app-owner','Application Owner')`,
 		`INSERT INTO rbac_roles(id,name) VALUES('resource-team-reader','Resource Team Reader')`,
+		// Replace the viewer's global environment grant (PA-55) with dev only.
+		`DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='environment'`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','dev'),
  ('resource-team-reader','resources','view','team','resource-owner')`,

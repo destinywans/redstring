@@ -1,7 +1,7 @@
 package v3settings
 
 import (
-	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,15 +11,11 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-func TestProfileWithoutIdentityAuthorityServesOnlyLocalFacts(t *testing.T) {
+func TestProfileRoutesKeepUnknownIdentityEvidenceUnavailable(t *testing.T) {
 	s := isolatedPreferencesStore(t)
 	ctx := t.Context()
 	password := "isolated-profile-evidence-password"
 	if _, err := s.DB.Exec(ctx, `UPDATE users SET password_hash=$1 WHERE id='one'`, store.PasswordHash(password)); err != nil {
-		t.Fatal(err)
-	}
-	// The built-in viewer carries no environment; grant the one environment this test reads.
-	if _, err := s.DB.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('viewer','environment','view','environment','dev') ON CONFLICT DO NOTHING`); err != nil {
 		t.Fatal(err)
 	}
 	_, token, err := s.Login(ctx, "one@example.invalid", password)
@@ -38,65 +34,54 @@ func TestProfileWithoutIdentityAuthorityServesOnlyLocalFacts(t *testing.T) {
 	request := func(method, path, body string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, strings.NewReader(body))
 		r.Header.Set("X-AIOps-Environment", "dev")
-		r.Header.Set("Accept-Language", "en-US")
 		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
 		return w
 	}
-
-	// Without an instance boundary the local factors cannot be read: still unavailable.
-	if w := request(http.MethodGet, "/api/v1/me/profile", ""); w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), `"code":"identity_evidence_unavailable"`) {
-		t.Fatalf("unbound profile: status=%d body=%s", w.Code, w.Body.String())
-	}
-
-	service.ProfileInstanceID = "instance-a"
-	service.MeEvidence.MFAInstanceID = "instance-a"
-	service.MeEvidence.PasskeyRPID = "prod.example.invalid"
-	w := request(http.MethodGet, "/api/v1/me/profile", "")
-	if w.Code != http.StatusOK {
-		t.Fatalf("local profile: status=%d body=%s", w.Code, w.Body.String())
-	}
-	var got profileView
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Name != "One" || !got.Partial || len(got.Contacts) != 1 || got.Contacts[0].Verified != nil || got.Security.OrgRule != nil {
-		t.Fatalf("local profile invented identity evidence: %+v", got)
-	}
-	if got.Security.MFAEnabled == nil || *got.Security.MFAEnabled || len(got.Security.Factors) != 0 {
-		t.Fatalf("local MFA state must follow this instance's enrollments: %+v", got.Security)
-	}
-	if len(got.Security.Sessions) != 1 || !got.Security.Sessions[0].Current || got.Security.Sessions[0].Device != nil {
-		t.Fatalf("local sessions must leave the device unknown: %+v", got.Security.Sessions)
-	}
-	for _, field := range []string{"contacts.verified", "security.org_rule", "security.sessions.device"} {
-		if !strings.Contains(strings.Join(got.UnavailableFields, ","), field) {
-			t.Fatalf("unavailable_fields misses %s: %v", field, got.UnavailableFields)
+	for _, tc := range []struct {
+		method string
+		body   string
+	}{
+		{http.MethodGet, ""},
+		{http.MethodPut, `{"name":"Changed","display_name":"Changed","department":"","title":"","timezone":"UTC","contacts":[],"notifications":[]}`},
+	} {
+		w := request(tc.method, "/api/v1/me/profile", tc.body)
+		if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), `"code":"identity_evidence_unavailable"`) {
+			t.Fatalf("%s profile: status=%d body=%s", tc.method, w.Code, w.Body.String())
+		}
+		if strings.Contains(w.Body.String(), `"mfa_enabled"`) || strings.Contains(w.Body.String(), `"verified"`) {
+			t.Fatalf("%s profile exposed unsupported identity state: %s", tc.method, w.Body.String())
 		}
 	}
-
-	// Saving edits only the account's own fields; the unknowns go back as they came.
-	got.Name, got.Title = "One Renamed", "SRE"
-	body, _ := json.Marshal(got)
-	if w := request(http.MethodPut, "/api/v1/me/profile", string(body)); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"name":"One Renamed"`) {
-		t.Fatalf("local profile save: status=%d body=%s", w.Code, w.Body.String())
+	var name string
+	if err := s.DB.QueryRow(ctx, `SELECT name FROM users WHERE id='one'`).Scan(&name); err != nil || name != "One" {
+		t.Fatalf("unavailable PUT modified user: name=%q err=%v", name, err)
 	}
 	var auditCount int
-	if err := s.DB.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id='one' AND action='v3.profile.updated'`).Scan(&auditCount); err != nil || auditCount != 1 {
-		t.Fatalf("profile update audit count=%d err=%v", auditCount, err)
+	if err := s.DB.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE actor_id='one' AND action='v3.profile.updated'`).Scan(&auditCount); err != nil || auditCount != 0 {
+		t.Fatalf("unavailable PUT recorded a profile update: count=%d err=%v", auditCount, err)
 	}
 
-	// Claiming a verification the instance cannot know is rejected.
-	verified := true
-	got.Contacts[0].Verified = &verified
-	body, _ = json.Marshal(got)
-	if w := request(http.MethodPut, "/api/v1/me/profile", string(body)); w.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("forged verification: status=%d body=%s", w.Code, w.Body.String())
+	// Exercise the private projection through authenticated middleware. It may
+	// gather known account fields, but a caller must receive an error until the
+	// missing evidence can satisfy the frozen ProfileView contract.
+	var partial profileView
+	var projectionErr error
+	api.Register("GET /__profile_evidence_probe", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		partial, projectionErr = service.getProfile(r)
+		respond(w, partial, projectionErr)
+	})
+	api.MarkV3Route("GET /__profile_evidence_probe", "", "")
+	w := request(http.MethodGet, "/__profile_evidence_probe", "")
+	if w.Code != http.StatusServiceUnavailable || !errors.Is(projectionErr, errIdentityUnavailable) {
+		t.Fatalf("private projection: status=%d err=%v body=%s", w.Code, projectionErr, w.Body.String())
 	}
-	var name string
-	if err := s.DB.QueryRow(ctx, `SELECT name FROM users WHERE id='one'`).Scan(&name); err != nil || name != "One Renamed" {
-		t.Fatalf("rejected PUT changed the account: name=%q err=%v", name, err)
+	if partial.Name != "One" || partial.Security.MFAEnabled != nil || partial.Security.Factors != nil || len(partial.Contacts) != 1 || partial.Contacts[0].Verified != nil {
+		t.Fatalf("private projection fabricated identity evidence: %+v", partial)
+	}
+	if len(partial.Security.Sessions) != 1 || !partial.Security.Sessions[0].Current || partial.Security.Sessions[0].Device != "设备信息未记录" {
+		t.Fatalf("private projection fabricated session device: %+v", partial.Security.Sessions)
 	}
 }
 

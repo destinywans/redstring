@@ -192,22 +192,6 @@ func (s *httpProfileEvidenceSource) Snapshot(ctx context.Context, requested Prof
 	return snapshot, nil
 }
 
-// profileArrayFieldsHave reports whether every item carries the keys, null allowed.
-func profileArrayFieldsHave(data json.RawMessage, keys ...string) bool {
-	var items []map[string]json.RawMessage
-	if err := strictProfileJSON(data, &items); err != nil || items == nil {
-		return false
-	}
-	for _, item := range items {
-		for _, key := range keys {
-			if _, ok := item[key]; !ok {
-				return false
-			}
-		}
-	}
-	return true
-}
-
 func profileArrayFieldsPresent(data json.RawMessage, required ...string) bool {
 	var items []map[string]json.RawMessage
 	if err := strictProfileJSON(data, &items); err != nil || items == nil {

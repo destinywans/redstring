@@ -226,7 +226,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/services` | `q`, `tier`, `team`, `status` | `ServiceCatalog`；列出当前有权查看的全部登记服务，没有当前证据的字段为 `null`，`unknown` 按字段给原因（未配置、未接入、无权查看来源、尚未产生、暂时不可用）；指标数只计已知值并注明未知个数（2026-10-09 PA-05，详情页仍要求完整证据） | implemented |
+| GET | `/services` | `q`, `tier`, `team`, `status` | `ServiceCatalog`；仅完整来源、当前有权服务，缺项返回 503 | implemented |
 | GET | `/services/{id}` | | `ServiceDetail`；按持久服务身份汇集指标、告警、发布、依赖与当前调查 | implemented |
 | GET | `/services/{id}/resilience` | | `Resilience`；仅在固定 HTTPS 五类完整来源配置且证据有效时返回 200，否则 503 | implemented |
 | POST | `/services/{id}/resilience/proposals` | `{ kind, params: { investigation_id, reason, desired } }` | 201 `{ proposal_id }`；仅保存人工审阅提案，不创建可执行动作或合并请求 | implemented |
@@ -397,8 +397,8 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/me/profile` | 单一所选环境；需当前真人账号、活动会话与环境查看权 | 配置受信身份来源时，来源完整覆盖联系人验证、MFA 因子和全部活动会话设备/登录方式才返回完整 `ProfileView`，来源过期或不全 503；未配置来源时返回 `partial: true` 的本实例事实，联系人验证、组织 MFA 规则和会话设备为 `null` 并列入 `unavailable_fields`（2026-10-09 PA-16） | implemented |
-| PUT | `/me/profile` | 单一所选环境、完整 `ProfileView`（`partial`/`unavailable_fields` 可省略）；仅姓名、显示名、职务、时区和通知可编辑 | 同事务复核当前证据（如已配置）、会话及权限后保存可编辑字段与审计；联系人、部门和安全字段（含 `null`）须与当前视图一致，不可借完整提交改写 | implemented |
+| GET | `/me/profile` | 单一所选环境；需当前真人账号、活动会话与环境查看权 | 受信身份来源完整覆盖联系人验证、MFA 因子和全部活动会话设备/登录方式时返回持久资料 `ProfileView`；缺证据 503 | implemented |
+| PUT | `/me/profile` | 单一所选环境、完整 `ProfileView`；仅姓名、显示名、职务、时区和通知可编辑 | 同事务复核当前证据、会话及权限后保存可编辑字段与审计；联系人、部门和安全字段不可借完整提交改写 | implemented |
 | DELETE | `/me/sessions/{id}` | | 204 | implemented |
 | GET | `/members` | `filter: all\|admin\|no_mfa\|disabled`, `q`；`no_mfa` 缺证据时 503 | 当前受权持久成员与角色；登录、MFA、组与目录来源未知时可空 | implemented |
 | POST | `/members/invitations` | `{ email, role?: "viewer" }` | `{ ok: true }`；仅 SMTP relay 接受且状态落库后成功 | implemented |

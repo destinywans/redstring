@@ -1,25 +1,17 @@
-# Read-only service pages. The catalog lists partial rows with explicit unknowns; the detail
-# still fails the whole request on incomplete evidence. Configured metadata alone never
-# becomes a healthy status or SLO measurement.
+# Read-only service pages. An incomplete required field fails the whole request;
+# configured metadata alone never becomes a healthy status or SLO measurement.
 S['V3ServiceKpi'] = obj({'id':string(),'label':string(),'value':string(),
     'unit':string(),'sub':string(),'tone':string(enum=['neutral','accent','ok','warn','danger','info']),
     'series':arr({'type':'number'})},['id','label','value','series'])
 S['V3ServiceBurn'] = obj({'window':string(),'value':string(),
     'tone':string(enum=['ok','warn','danger']),'pct':integer(minimum=0,maximum=100)},
     ['window','value','tone','pct'])
-# Catalog rows are partial (PA-05, 2026-10-09): a registered service is always listed; a value
-# without current evidence is null and unknown[field] gives the reason. Never zero or healthy.
-_reasons = ['not_configured','not_connected','no_authorized_target','not_generated','unavailable']
-S['V3ServiceSummary'] = obj({**fieldnames('id name desc'),
-    'team':{'type':['string','null']},'oncall':{'type':['string','null']},
-    'tier':{'type':['string','null'],'enum':['T0','T1','T2',None]},
-    'status':{'type':['string','null'],'enum':['ok','warn','danger',None]},
-    'slo':obj({'target':{'type':['string','null']},'budget_left':{'type':['number','null'],'minimum':0,'maximum':100}},['target','budget_left']),
-    'release':{'oneOf':[obj(fieldnames('brand version when'),['brand','version','when']),{'type':'null'}]},
-    'alerts':{'type':['integer','null'],'minimum':0},'connectors':arr(string()),
-    'unknown':{'type':'object','additionalProperties':string(enum=_reasons),
-               'propertyNames':{'enum':['tier','team','oncall','status','slo','alerts','release']}}},
-    ['id','name','desc','tier','team','oncall','status','slo','release','alerts','connectors','unknown'])
+S['V3ServiceSummary'] = obj({**fieldnames('id name desc team oncall'),
+    'tier':string(enum=['T0','T1','T2']),'status':string(enum=['ok','warn','danger']),
+    'slo':obj({'target':string(),'budget_left':{'type':'number','minimum':0,'maximum':100}},['target','budget_left']),
+    'release':obj(fieldnames('brand version when'),['brand','version','when']),
+    'alerts':integer(minimum=0),'connectors':arr(string())},
+    ['id','name','desc','tier','team','oncall','status','slo','release','alerts','connectors'])
 S['V3ServiceFacet'] = obj({'key':string(),'title':string(),
     'items':arr(obj({'label':string(),'count':integer(minimum=0),'on':v3_bool()},['label','count','on']))},
     ['key','title','items'])
@@ -46,10 +38,10 @@ S['V3ServiceDetail'] = obj({**fieldnames('id name team desc'),
         'downstream':arr(ref('V3ServiceDependency'))},['upstream','downstream']),
     'tabs':v3_map(integer(minimum=0))},
     ['id','name','tier','team','env','status','desc','deeplinks','ai','signals','slo','changes','deps','tabs'])
-v3_route('get','/services','Read the authorized service catalog with per-field unknowns',
+v3_route('get','/services','Read complete source-backed authorized service catalog',
     response=ref('V3ServiceCatalog'),
     query=[v3_query(x) for x in ['q','tier','team','status']],
-    desc='Lists every registered application/environment the caller may view (services.view). Health and SLO come only from a live read of the one reviewed Prometheus target (needs connectors.view); alert counts only from the reviewed covering source (needs events.view); release only from verified successful deployments. Any value without that evidence is null and unknown[field] names why (not_configured, not_connected, no_authorized_target, not_generated, unavailable); a source that changes during the read is discarded as unavailable. Status is measured SLO burn raised by firing alerts, or danger from a covered firing critical alert alone; never Kubernetes readiness. KPIs count known values and their sub says how many are unknown. Grants, persisted rows and every source actually read are rechecked before reply (403/503 on change). More than 50 authorized rows returns 422 result_limit.')
+    desc='Uses registered application/environment/team identity, reviewed Prometheus dashboard evidence, covered operational alerts, verified successful deployments and explicit connector targets. Status is derived from measured SLO burn and current critical alerts, not Kubernetes readiness. All required evidence must be present and current or the full request returns 503 service_view_incomplete. More than 50 authorized rows returns 422 result_limit; no partial counts or synthetic healthy state.')
 v3_route('get','/services/{id}','Read one complete authorized service detail',
     response=ref('V3ServiceDetail'),
     desc='The opaque ID binds application and environment. Detail additionally requires authorized persisted investigation model text for the AI panel; changes come from successful deployments and dependencies from non-mock CMDB depends_on service relations. Unrepresentable required evidence returns 503 rather than placeholder data.')

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
+import { serviceApplicationId } from "../../api/ids";
 import type { CanvasKind, CanvasStatus, CanvasSummary, CanvasTemplateOption, CanvasThumb } from "../../api/types";
 import { AvatarGroup, Badge, Btn, Chip, Field, Icon, Input, Muted, Pills, Row, SearchBox, Skeleton, Spacer, Textarea, Tile, Toggle, cx, type IconName, type Tone } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
@@ -185,12 +186,21 @@ export function NewCanvasDialog({ open, onClose, initialKind = "plan", initialSe
     }
     setBusy(true);
     try {
-      const r = await api<{ id: string; href: string }>("POST", "/canvases", { body: { title, kind, template_id: tpl, goal, ai_draft: draft, services: svcs } });
+      // The API takes application IDs; catalog service IDs carry the application (base64url application NUL environment).
+      const services = API_MODE === "mock" ? svcs : [...new Set(svcs.map((sv) => serviceApplicationId(sv) ?? sv))];
+      const r = await api<{ id: string; href: string }>("POST", "/canvases", { body: { title, kind, template_id: tpl, goal, ai_draft: draft, services } });
       toast(draft ? tx("画布已创建，AI 正在起草初始节点", "Canvas created — the AI is drafting the first nodes") : tx("画布已创建", "Canvas created"));
       onClose();
       nav(r.href);
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : tx("创建失败，请稍后重试", "Couldn't create it; try again later"), { tone: "danger" });
+      toast(
+        e instanceof ApiError && e.code === "invalid_service"
+          ? tx("所选服务在当前环境没有启用，换一个服务或切换环境。", "A chosen service isn't active in this environment; pick another or switch environments.")
+          : e instanceof ApiError
+            ? e.message
+            : tx("创建失败，请稍后重试", "Couldn't create it; try again later"),
+        { tone: "danger" },
+      );
     } finally {
       setBusy(false);
     }

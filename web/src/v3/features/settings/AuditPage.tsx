@@ -8,6 +8,7 @@ import { DataTable } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { StackedBars } from "../../charts";
 import { useI18n } from "../../i18n";
+import { UnknownValue } from "../../ui/unknown";
 import "./settings.css";
 import { ChipSelect, useFacet, RangeChip } from "../../ui/demo";
 
@@ -18,9 +19,10 @@ export default function AuditPage() {
   const [sel, setSel] = useState<string | null>(null);
   const { data } = useGet<AuditView>("/audit", { filter, q });
   const fAct = useFacet(data?.items, (a) => a.action);
-  const fRes = useFacet(data?.items, (a) => a.result);
+  const fRes = useFacet(data?.items, (a) => a.result ?? "unknown");
   const exp = useSend<void, { url: string }>("POST", "/audit/export");
-  const res = (r: AuditEntry["result"]) => (r === "ok" ? ([tx("成功", "OK"), "ok"] as const) : r === "blocked" ? ([tx("已拦截", "Blocked"), "warn"] as const) : ([tx("失败", "Failed"), "danger"] as const));
+  const res = (r: AuditEntry["result"] | "unknown") =>
+    r === "ok" ? ([tx("成功", "OK"), "ok"] as const) : r === "pending" ? ([tx("进行中", "Pending"), "accent"] as const) : r === "blocked" ? ([tx("已拦截", "Blocked"), "warn"] as const) : r === "failed" ? ([tx("失败", "Failed"), "danger"] as const) : ([tx("未知", "Unknown"), "neutral"] as const);
   const { data: d } = useGet<AuditDetail>(sel ? `/audit/${sel}` : null);
   return (
     <Page
@@ -49,7 +51,7 @@ export default function AuditPage() {
               />
               <SearchBox placeholder={tx("搜索操作者、对象或运行 ID", "Actor, object or run ID")} value={q} onChange={setQ} width={260} />
               <ChipSelect label={tx("操作", "Action")} {...fAct.props} />
-              <ChipSelect label={tx("结果", "Result")} {...fRes.props} options={fRes.props.options.map((o) => ({ ...o, label: res(o.value as AuditEntry["result"])[0] }))} />
+              <ChipSelect label={tx("结果", "Result")} {...fRes.props} options={fRes.props.options.map((o) => ({ ...o, label: res(o.value as AuditEntry["result"] | "unknown")[0] }))} />
               <Spacer />
               <RangeChip defaultValue="7d" />
             </Row>
@@ -87,7 +89,7 @@ export default function AuditPage() {
                   },
                   { key: "action", header: tx("操作", "Action"), width: "17%", render: (a) => <span style={{ fontSize: "var(--fs-sm)" }}>{a.action}</span> },
                   { key: "target", header: tx("对象", "Object"), width: "27%", render: (a) => <span className="ellipsis muted" style={{ fontSize: "var(--fs-sub)" }}>{a.target}</span> },
-                  { key: "result", header: tx("结果", "Result"), render: (a) => <State tone={res(a.result)[1]}>{res(a.result)[0]}</State> },
+                  { key: "result", header: tx("结果", "Result"), render: (a) => (a.result === null ? <UnknownValue reason={a.unavailable?.result} label={tx("结果未知", "Result unknown")} /> : <State tone={res(a.result)[1]}>{res(a.result)[0]}</State>) },
                   { key: "source", header: tx("来源", "Source"), render: (a) => <Muted>{a.source}</Muted> },
                 ]}
               />

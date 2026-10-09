@@ -15,7 +15,10 @@ export default function ReviewPage() {
   const { id = "" } = useParams();
   const { tx } = useI18n();
   const nav = useNavigate();
-  const { data: p, refetch } = useGet<Proposal>(id ? `/proposals/${id}` : null);
+  // After approval, poll briefly until the executor records its status and the upstream ID.
+  const { data: p, refetch } = useGet<Proposal>(id ? `/proposals/${id}` : null, undefined, {
+    refetchInterval: (q) => (q.state.data?.execution && !q.state.data.execution.status ? 3000 : false),
+  });
   const [approving, setApproving] = useState(false);
   const [checks, setChecks] = useState<Set<number>>(new Set());
   const [note, setNote] = useState("");
@@ -152,6 +155,26 @@ export default function ReviewPage() {
               <Icon name="shield" size={14} color="var(--muted)" style={{ marginTop: 1 }} />
               <Muted>{tx("批准后由独立执行器执行，AI 自身没有写权限；批准记录写入审计日志。", "An independent executor runs it after approval; the AI has no write access. Approvals are audited.")}</Muted>
             </Row>
+            {p.execution && (
+              <Col gap={6} className="anim-fade" style={{ padding: "10px 12px", borderRadius: 8, background: "var(--sunken)" }}>
+                <Row gap={8}>
+                  <Icon name="play" size={14} color="var(--accent-text)" />
+                  <b style={{ fontSize: "var(--fs-sm)" }}>{tx("执行", "Execution")}</b>
+                  <Spacer />
+                  {p.execution.status ? (
+                    <Badge tone={/confirm|succeed|done|ok/i.test(p.execution.status) ? "ok" : /fail|error/i.test(p.execution.status) ? "danger" : "accent"}>{p.execution.status}</Badge>
+                  ) : (
+                    <Row gap={6}>
+                      <span className="v3-spinner spin" style={{ color: "var(--accent)" }} />
+                      <Muted size={11.5}>{tx("等待执行器记录…", "Waiting for the executor to record it…")}</Muted>
+                    </Row>
+                  )}
+                </Row>
+                <KV k={tx("批准于", "Approved")} kw={64}>{new Date(p.execution.approved_at).toLocaleString()}</KV>
+                <KV k={tx("执行 ID", "Execution")} kw={64}><span className="mono">{p.execution.execution_id}</span></KV>
+                {p.execution.upstream_id && <KV k={tx("上游 ID", "Upstream ID")} kw={64}><span className="mono">{p.execution.upstream_id}</span></KV>}
+              </Col>
+            )}
           </Col>
           <Col gap={12} style={{ padding: 16, borderTop: "1px solid var(--border)" }}>
             <Row gap={8}>

@@ -341,7 +341,10 @@ export type RouteNode = {
   continue?: boolean;
   children: RouteNode[];
 };
-export type Silence = { id: string; matchers: { k: string; v: string }[]; state: "active" | "planned" | "expired"; window: string; remaining?: { pct: number; text: string }; affects: number; creator: string; reason: string };
+/** starts_at / ends_at are RFC 3339 (render the window from them); remaining.pct is the remaining share. */
+export type Silence = { id: string; matchers: { k: string; v: string }[]; state: "active" | "planned" | "expired"; window: string; starts_at?: string; ends_at?: string; remaining?: { pct: number; text: string }; affects: number; creator: string; reason: string };
+/** GET /silences: items/counts null without Alertmanager (unavailable says why); [] + empty_reason when nothing is visible. */
+export type SilenceList = { items: Silence[] | null; counts: { active: number; planned: number; expired: number } | null; empty_reason: EmptyReason; unavailable: Unavailable };
 export type Inhibition = { id: string; source: { k: string; v: string }[]; target: { k: string; v: string }[]; equal: string[]; active: boolean; stat: string };
 
 /* ---------------- proposals & executions ---------------- */
@@ -364,6 +367,8 @@ export type Proposal = {
   checklist: string[];
   requirement: string;
   discussion: { author: string; ai?: boolean; time: string; text: string }[];
+  /** Null until the second approval; status/upstream_id stay null (not_generated) until the executor records them. */
+  execution?: { execution_id: string; approved_at: string; action_kind: string; status: string | null; upstream_id: string | null; unavailable: Unavailable } | null;
 };
 export type Execution = {
   id: string;
@@ -858,7 +863,8 @@ export type SecurityView = {
 /** GET /security without a configured authority: every field null (not_configured) and no ETag, so it can't be saved. */
 export type SecurityUnknownView = { [K in Exclude<keyof SecurityView, "unavailable">]: null } & { unavailable: Unavailable };
 export type SecurityRead = SecurityView | SecurityUnknownView;
-export type AuditEntry = { id: string; time: string; actor: { kind: "user" | "agent" | "system"; name: string }; action: string; target: string; result: "ok" | "blocked" | "failed"; source: string };
+/** result "pending" = a lifecycle step whose outcome is a later row; null = unclassifiable (see unavailable.result). */
+export type AuditEntry = { id: string; time: string; actor: { kind: "user" | "agent" | "system"; name: string }; action: string; target: string; result: "ok" | "pending" | "blocked" | "failed" | null; source: string; unavailable?: Unavailable };
 export type AuditView = {
   items: AuditEntry[];
   counts: Record<"all" | "user" | "agent" | "system", number>;

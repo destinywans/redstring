@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import { useEnv } from "../../app/environment";
-import type { Inhibition, Silence } from "../../api/types";
+import type { EmptyReason, Inhibition, Silence, SilenceList } from "../../api/types";
 import { Avatar, Badge, Bar, Btn, Card, CardHead, Col, Icon, IconBtn, Input, LabelChip, Muted, Num, Pills, Row, SearchBox, Section, Spacer, State, Strong, Tabs, Textarea, Tile, type Tone, Mono } from "../../ui/core";
 import { DataTable } from "../../ui/data";
 import { toast } from "../../ui/overlays";
@@ -23,6 +23,7 @@ const readSubmitted = (): SubmittedSilence[] => {
 };
 import "./events.css";
 import { SampleOnly } from "../../ui/demo";
+import { Unavailable } from "../../ui/unknown";
 
 type Preview = { kind: "idle" } | { kind: "loading" } | { kind: "ok"; affects: number; sample: string[] } | { kind: "error"; text: string };
 const OPS = ["=", "!=", "=~", "!~"];
@@ -43,8 +44,10 @@ export default function SilencesPage() {
   const [q, setQ] = useState("");
   const [tab, setTab] = useState("silences");
   const [ended, setEnded] = useState<Set<string>>(new Set());
-  const list = useGet<{ items: Silence[]; counts: Record<string, number> }>("/silences", { state });
-  const inhib = useGet<{ items: Inhibition[] }>("/inhibitions");
+  const list = useGet<SilenceList>("/silences", { state });
+  const inhib = useGet<{ items: Inhibition[]; empty_reason?: EmptyReason }>("/inhibitions");
+  // items null = no Alertmanager connected; [] with empty_reason = nothing visible to you (PA-09).
+  const noAlertmanager = !!list.data && list.data.items === null;
   const [matchers, setMatchers] = useState(API_MODE === "mock" ? [{ k: "service", op: "=", v: "checkout-api" }, { k: "alertname", op: "=", v: "DownstreamTimeout" }] : [{ k: "application", op: "=", v: "" }]);
   const [duration, setDuration] = useState("1h");
   const [inhibitOpen, setInhibitOpen] = useCreateParam("inhibit");
@@ -126,7 +129,7 @@ export default function SilencesPage() {
       {real && <SilenceProposalDrawer open={proposing} onClose={() => setProposing(false)} onSubmitted={remember} />}
       {real && <ExpireSilenceDialog silenceId={expiring} onClose={() => setExpiring(null)} onSubmitted={() => qc.invalidateQueries({ predicate: (x) => x.queryKey[0] === "/silences" })} />}
       <NewInhibitDrawer open={inhibitOpen} onClose={() => setInhibitOpen(false)} />
-      <Tabs value={tab} onChange={setTab} options={[{ value: "silences", label: tx("静默", "Silences"), count: list.data?.counts.active }, { value: "inhibit", label: tx("抑制规则", "Inhibition"), count: inhib.data?.items.length }, { value: "windows", label: tx("维护窗口", "Maintenance"), count: API_MODE === "mock" ? 2 : undefined }]} />
+      <Tabs value={tab} onChange={setTab} options={[{ value: "silences", label: tx("静默", "Silences"), count: list.data?.counts?.active }, { value: "inhibit", label: tx("抑制规则", "Inhibition"), count: inhib.data?.items.length }, { value: "windows", label: tx("维护窗口", "Maintenance"), count: API_MODE === "mock" ? 2 : undefined }]} />
       <div className="v3-split">
         <div className="main">
           <div className="v3-content">
@@ -134,7 +137,7 @@ export default function SilencesPage() {
             {tab === "silences" && (
               <>
             <Row gap={8}>
-              <Pills value={state} onChange={setState} options={[{ value: "active", label: tx("生效中", "Active"), count: list.data?.counts.active }, { value: "planned", label: tx("计划中", "Planned"), count: list.data?.counts.planned }, { value: "expired", label: tx("已过期", "Expired"), count: list.data?.counts.expired }]} />
+              <Pills value={state} onChange={setState} options={[{ value: "active", label: tx("生效中", "Active"), count: list.data?.counts?.active }, { value: "planned", label: tx("计划中", "Planned"), count: list.data?.counts?.planned }, { value: "expired", label: tx("已过期", "Expired"), count: list.data?.counts?.expired }]} />
               <SearchBox placeholder={tx("按标签搜索静默", "Search by label")} value={q} onChange={setQ} />
             </Row>
             {real && state === "active" && submitted.length > 0 && (
@@ -165,22 +168,26 @@ export default function SilencesPage() {
               </Card>
             )}
             <Card style={{ overflow: "hidden" }}>
+              {noAlertmanager ? (
+                <Unavailable reason={list.data?.unavailable.items} source="Alertmanager" title={tx("未接入告警管理器", "Alertmanager isn't connected")} icon="mute" />
+              ) : (
               <DataTable
                 rows={rows}
                 loading={list.isLoading}
+                empty={list.data?.empty_reason ? tx("没有你能查看的静默。", "No silences you can view.") : undefined}
                 rowKey={(s) => s.id}
                 rowHeight={48}
                 columns={[
                   { key: "m", header: tx("匹配条件", "Matchers"), width: "30%", render: (s) => <Row gap={4} wrap>{s.matchers.map((m) => <LabelChip key={m.k} k={m.k} v={m.v} />)}</Row> },
                   { key: "s", header: tx("状态", "State"), render: (s) => <State tone={STATE[s.state][0]}>{STATE[s.state][1]}</State> },
-                  { key: "w", header: tx("时间", "Window"), render: (s) => <Muted>{localWindow(s.window)?.text ?? s.window}</Muted> },
+                  { key: "w", header: tx("时间", "Window"), render: (s) => <Muted>{silenceWindow(s)?.text ?? s.window}</Muted> },
                   {
                     key: "r",
                     header: tx("剩余", "Remaining"),
                     render: (s) => {
-                      // The bar follows the window's own timestamps; the server's pct can lag behind them.
-                      const w = localWindow(s.window);
-                      const pct = w && s.state === "active" ? Math.max(0, Math.min(100, (100 * (w.end - Date.now())) / Math.max(1, w.end - w.start))) : s.remaining?.pct;
+                      // remaining.pct is the remaining share; older servers sent 0, so fall back to the window's timestamps.
+                      const w = silenceWindow(s);
+                      const pct = s.starts_at ? s.remaining?.pct : w && s.state === "active" ? Math.max(0, Math.min(100, (100 * (w.end - Date.now())) / Math.max(1, w.end - w.start))) : s.remaining?.pct;
                       return s.remaining ? <Row gap={6}><Bar pct={pct ?? 0} width={70} height={4} /><Muted size={11.5}>{s.remaining.text}</Muted></Row> : <Muted>—</Muted>;
                     },
                   },
@@ -200,6 +207,7 @@ export default function SilencesPage() {
                   }} /></span> },
                 ]}
               />
+              )}
             </Card>
               </>
             )}
@@ -207,6 +215,11 @@ export default function SilencesPage() {
             <Card>
               <CardHead title={tx("抑制规则", "Inhibition rules")} right={<Btn kind="ghost" icon="plus" h={26} onClick={() => setInhibitOpen(true)}>{tx("新建抑制规则", "New rule")}</Btn>} />
               <ul>
+                {inhib.data && !inhib.data.items.length && (
+                  <li className="inhibit-row">
+                    <Muted>{inhib.data.empty_reason ? tx("没有你能查看的抑制规则。", "No inhibition rules you can view.") : tx("还没有抑制规则。", "No inhibition rules yet.")}</Muted>
+                  </li>
+                )}
                 {inhib.data?.items.map((r) => (
                   <li key={r.id} className="inhibit-row">
                     <Col gap={3}>
@@ -300,6 +313,21 @@ export default function SilencesPage() {
  * The server writes the window as "YYYY-MM-DD HH:MM ±HH:MM – YYYY-MM-DD HH:MM ±HH:MM" (in UTC on the acceptance
  * instances); show it in the viewer's time zone. Sample windows are free text and are left as they are.
  */
+/** The window from starts_at / ends_at (RFC 3339), falling back to parsing the older window text. */
+function silenceWindow(s: Silence) {
+  if (s.starts_at && s.ends_at) {
+    const a = Date.parse(s.starts_at);
+    const b = Date.parse(s.ends_at);
+    if (!Number.isNaN(a) && !Number.isNaN(b)) return { start: a, end: b, text: windowText(a, b) };
+  }
+  return localWindow(s.window);
+}
+function windowText(a: number, b: number) {
+  const day = (t: number) => new Date(t).toLocaleDateString([], { month: "2-digit", day: "2-digit" });
+  const time = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  return day(a) === day(b) ? `${day(a)} ${time(a)} – ${time(b)}` : `${day(a)} ${time(a)} – ${day(b)} ${time(b)}`;
+}
+
 function localWindow(value: string) {
   const parts = value.split(" – ").map((p) => p.trim().match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) ([+-]\d{2}:\d{2})$/));
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;

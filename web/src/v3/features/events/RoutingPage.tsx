@@ -8,6 +8,7 @@ import { useCreateParam } from "../../ui/forms";
 import { NewRouteDrawer } from "./CreateDrawers";
 import "./events.css";
 import { AddChip, SampleOnly } from "../../ui/demo";
+import { Unavailable } from "../../ui/unknown";
 
 const CH_ICON: Record<string, string> = { feishu: "feishu", dingtalk: "dingtalk", slack: "slack" };
 
@@ -60,11 +61,12 @@ export default function RoutingPage() {
   const { tx } = useI18n();
   const [creating, setCreating] = useCreateParam("route");
   const [tab, setTab] = useState("tree");
-  const { data, error } = useGet<{ root: RouteNode }>("/notification-routes");
+  // root is null (root_unavailable: not_configured) when no route branch matches this environment exactly.
+  const { data, error } = useGet<{ root: RouteNode | null; root_unavailable?: "not_configured" | null; config_revision?: string | null }>("/notification-routes");
   const [sel, setSel] = useState<RouteNode | null>(null);
   const [labels, setLabels] = useState(API_MODE === "mock" ? "service=checkout-api, env=prod, team=trade, severity=P1" : "");
   const [result, setResult] = useState<{ path: string[]; receivers: string } | null>(null);
-  const cur = sel ?? data?.root.children[0]?.children[0];
+  const cur = sel ?? data?.root?.children[0]?.children[0];
   const test = async () => setResult(await api("POST", "/notification-routes/test", { body: { labels } }));
   return (
     <Page flush error={!data ? error : undefined} errorSource="Alertmanager" crumbs={[tx("事件与告警", "Events"), tx("通知与路由", "Routing")]} actions={<Btn kind="primary" icon="plus" onClick={() => setCreating(true)}>{tx("新建路由", "New route")}</Btn>}>
@@ -73,7 +75,17 @@ export default function RoutingPage() {
       <div className="v3-split">
         <div className="main">
           <div className="v3-content">
-            {tab !== "tree" ? <RoutingTab tab={tab} root={data?.root} /> : !data ? <Skeleton h={400} /> : <Tree n={data.root} sel={cur?.id ?? ""} onSel={setSel} />}
+            {tab !== "tree" ? (
+              <RoutingTab tab={tab} root={data?.root ?? undefined} />
+            ) : !data ? (
+              <Skeleton h={400} />
+            ) : !data.root ? (
+              <Card>
+                <Unavailable reason={data.root_unavailable ?? "not_configured"} source={tx("这个环境的通知路由", "routing for this environment")} title={tx("这个环境还没有通知路由", "No routing for this environment")} desc={tx("Alertmanager 的路由树里没有只匹配这个环境的分支，所以这里不显示也不能编辑。", "Alertmanager's routing tree has no branch that matches exactly this environment, so nothing is shown or editable here.")} icon="bell" />
+              </Card>
+            ) : (
+              <Tree n={data.root} sel={cur?.id ?? ""} onSel={setSel} />
+            )}
             <Card style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
               <Row gap={8}>
                 <Icon name="play" size={14} color="var(--accent-text)" />

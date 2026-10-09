@@ -51386,7 +51386,7 @@
       "get": {
         "summary": "List explicitly bound external service targets",
         "operationId": "get_services_id_external_targets",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires services.view for the persisted application or team and connectors.view for its environment. At most 100 targets per service and environment; older application binding JSON is not inferred or copied. No endpoint or credentials are returned.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires services.view for the persisted application or team and connectors.view for its environment. At most 100 targets per service and environment; older application binding JSON is not inferred at read time. The PA-19 operator import may add reviewed log_stream, log_index, trace_service and metric_resource targets, which are listed too. No endpoint or credentials are returned.",
         "responses": {
           "200": {
             "description": "Success",

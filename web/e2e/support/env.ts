@@ -25,8 +25,16 @@ export function admin(instance: InstanceName): Account {
   return { email: s.admin_email, password: s.admin_password };
 }
 
+/** Role accounts created by tools/acceptance/accounts.py (invite → accept → assign); empty when not set up. */
+export function roleAccounts(instance: InstanceName): Record<string, Account> {
+  const s = JSON.parse(readFileSync(resolve(LOCAL, instance, "secrets.json"), "utf8"));
+  const out: Record<string, Account> = {};
+  for (const [name, a] of Object.entries((s.accounts ?? {}) as Record<string, Account>)) out[name] = { email: a.email, password: a.password };
+  return out;
+}
+
 /**
- * v3 has no login page yet, so sign in through the API from inside the page:
+ * Sign in through the API from inside the page (the login page itself is covered by its own spec):
  * the request goes through Chromium's network stack (host-resolver rules, TLS pinning, Secure cookies).
  */
 export async function signIn(page: Page, instance: InstanceName, account: Account) {

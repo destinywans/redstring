@@ -9,6 +9,7 @@ acceptance certificate. Prints status and JSON; never prints cookies.
 """
 import argparse
 import json
+import secrets
 import socket
 import ssl
 import sys
@@ -30,7 +31,7 @@ def session_cookie(instance, role):
     return '; '.join(f"{c['name']}={c['value']}" for c in state['cookies'])
 
 
-def call(instance, method, path, body=None, env=None, role='admin', cookie=None, locale='zh-CN'):
+def call(instance, method, path, body=None, env=None, role='admin', cookie=None, locale='zh-CN', headers_out=None, idempotency_key=None):
     ctx = ssl.create_default_context(cafile=str(LOCAL / 'tls/cert.pem'))
     headers = {'Accept-Language': locale, 'Origin': ORIGINS[instance], 'Cookie': cookie or session_cookie(instance, role)}
     if env != '':
@@ -39,9 +40,13 @@ def call(instance, method, path, body=None, env=None, role='admin', cookie=None,
     if body is not None:
         data = json.dumps(body).encode()
         headers['Content-Type'] = 'application/json'
+    if method != 'GET':
+        headers['Idempotency-Key'] = idempotency_key or secrets.token_hex(16)
     req = urllib.request.Request(ORIGINS[instance] + '/api/v1' + path, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=60) as r:
+            if headers_out is not None:
+                headers_out.update(r.headers.items())
             raw = r.read()
             return r.status, json.loads(raw) if raw else None
     except urllib.error.HTTPError as e:

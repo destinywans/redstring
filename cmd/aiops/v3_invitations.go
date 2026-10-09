@@ -42,6 +42,7 @@ func configureV3Invitations(info v3Instance, api *httpapi.Server) (*v3admin.Invi
 	}
 	sender, err := v3admin.NewSMTPInvitationSender(v3admin.SMTPInvitationConfig{
 		Host: host, Port: 465, From: from, Username: username, Password: password,
+		CAFile: os.Getenv("AIOPS_V3_INVITATION_SMTP_CA_FILE"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("invalid SMTP invitation configuration")

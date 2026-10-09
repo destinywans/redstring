@@ -30922,6 +30922,140 @@
         ]
       }
     },
+    "/ingest/pull": {
+      "get": {
+        "summary": "List registered metric Pull sources",
+        "operationId": "get_ingest_pull",
+        "description": "Minimum role: viewer with connectors.view and services.view. V3 instance and environment scope apply. Lists the sources of the private server Pull configuration in the selected environments (all is allowed for this read) that GET /ingest/pull/{id} would open: services.view on the application or owner team and environment connectors.view, checked with the Cookie session in one transaction. No PromQL, endpoint, credential reference or upstream call. state is ready when the bound enabled connector with query_metrics and the exact metric_resource target can serve a preview, otherwise source_unavailable (connector_name null). Without any configured source items is null with unavailable=not_configured; configured but none visible gives an empty list with empty_reason=no_authorized_target.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/V3PullListItem"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "empty_reason": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no_authorized_target"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unavailable": {
+                      "$ref": "#/components/schemas/V3Unavailable"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "empty_reason",
+                    "unavailable"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "ingest"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/ingest/pull/{id}": {
       "get": {
         "summary": "Read one authorized registered metric Pull and a live bounded preview",
@@ -34946,7 +35080,7 @@
       "get": {
         "summary": "Read complete authorized alert rule summaries",
         "operationId": "get_alert_rules",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result. Counts describe the complete authorized result. Missing configuration, upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result (403/503). Counts describe the complete authorized result. When no application is visible to the caller before any provider read, the list is empty with empty_reason=no_authorized_target (PA-09) instead of 403. Without a configured rule provider or group bindings, items and counts are null with unavailable=not_configured instead of 503. Upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35438,7 +35572,7 @@
       "get": {
         "summary": "Read provider-observed alert rule summaries",
         "operationId": "get_alert_rules_observed",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint, not the V3 AlertRule DTO. Rule groups require explicit server-side application/environment binding, matching provider labels and current application or owner-team alert_rules.view. Scope and grants are rechecked after provider reads; changed scope does not return old summaries. Unconfigured sources return 503; partial source failure returns 206.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint, not the V3 AlertRule DTO. Rule groups require explicit server-side application/environment binding, matching provider labels and current application or owner-team alert_rules.view. Scope and grants are rechecked after provider reads; changed scope does not return old summaries. No visible application returns an empty list with empty_reason=no_authorized_target; unconfigured sources return items/counts null with unavailable=not_configured; partial source failure returns 206.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35448,16 +35582,30 @@
                   "type": "object",
                   "properties": {
                     "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3ObservedAlertRuleSummary"
-                      }
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/V3ObservedAlertRuleSummary"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "counts": {
-                      "type": "object",
-                      "additionalProperties": {
-                        "type": "integer"
-                      }
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "partial": {
                       "type": "boolean"
@@ -35467,6 +35615,22 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "empty_reason": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no_authorized_target"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unavailable": {
+                      "$ref": "#/components/schemas/V3Unavailable"
                     }
                   },
                   "additionalProperties": false
@@ -35542,16 +35706,30 @@
                   "type": "object",
                   "properties": {
                     "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3ObservedAlertRuleSummary"
-                      }
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/V3ObservedAlertRuleSummary"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "counts": {
-                      "type": "object",
-                      "additionalProperties": {
-                        "type": "integer"
-                      }
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "partial": {
                       "type": "boolean"
@@ -35561,6 +35739,22 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "empty_reason": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no_authorized_target"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unavailable": {
+                      "$ref": "#/components/schemas/V3Unavailable"
                     }
                   },
                   "additionalProperties": false
@@ -46396,6 +46590,173 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "get": {
+        "summary": "List saved evaluation experiments",
+        "operationId": "get_evals",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Newest first. Lists exactly the experiments GET /evals/{id} would open: the Agent is in the selected environments and an active application scope, the immutable creation audit matches that environment, and agents.view holds on the application or its owner team, rechecked per row in one locked transaction together with the Cookie session. Metadata only; metrics, cases and outputs stay on the detail and execution routes. total counts the visible set. More than 1000 matching experiments returns 413 eval_list_too_large (filter by agent_id). When nothing is listed and no Agent is visible to the caller, empty_reason is no_authorized_target.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3EvalListItem"
+                      }
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "page": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "page_size": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    },
+                    "empty_reason": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no_authorized_target"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unavailable": {
+                      "$ref": "#/components/schemas/V3Unavailable"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items",
+                    "total",
+                    "page",
+                    "page_size",
+                    "empty_reason",
+                    "unavailable"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "evals"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
       }
     },
     "/eval-cases/{id}": {
@@ -52545,7 +52906,7 @@
       "get": {
         "summary": "Read a scoped Prometheus metrics dashboard with explicit unknowns",
         "operationId": "get_metrics_dashboard",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, current services.view, environment connectors.view and incident events.view. The metric blocks need exactly one persisted V3 Prometheus metric-resource binding on an enabled connector with the query_metrics tool, and an operator-reviewed exact-scope dashboard query (AIOPS_V3_PROMETHEUS_QUERIES_CONFIG). Without that source or query the response is 200 with kpis, requests, latency, endpoints, instances and slo null and unavailable=not_configured; the legacy CMDB telemetry binding is not read. Distinct metric bindings return 409 ambiguous_binding; a failing provider is still 503. One bounded one-hour source read must cover the baseline plus 36 visible bin ends for every labeled panel. Request total must conserve 2xx/4xx/5xx and independently observed other statuses must be zero; heat intensities must be normalized to 0..1. Missing, partial or conflicting panels leave every metric block null with unavailable, never invented zeroes or trends. The SLO block also needs a persisted target strictly between 0 and 100 (else null, not_configured) and budget/burn panels that agree with it (else null, unavailable). Release, rollback and incident markers come from matching persisted success/event records within the window; a marker without a record is null with not_generated (the platform recorded no such event; external releases are not connected). These are independent timestamps, not proof that one rollback reversed the displayed release. Source, binding, SLO target, authorization and the Cookie session are rechecked after the external read and local marker reads, including for a not-configured response. align requests an incident-anchored window and returns 503 when no incident can anchor it. source=prometheus selects the implemented provider; victoriametrics returns 503 metrics_source_not_connected rather than querying Prometheus.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and current services.view on the persisted service; a hidden or absent service is 403. Without environment connectors.view the metric blocks are null with unavailable=no_authorized_target and no source is looked up; without incident events.view the markers are null with no_authorized_target and align returns 403 (PA-09: a visible service is not a page-level 403). The three grants are rechecked as a set before responding; a change returns 409 metric_source_changed. The metric blocks need exactly one persisted V3 Prometheus metric-resource binding on an enabled connector with the query_metrics tool, and an operator-reviewed exact-scope dashboard query (AIOPS_V3_PROMETHEUS_QUERIES_CONFIG). Without that source or query the response is 200 with kpis, requests, latency, endpoints, instances and slo null and unavailable=not_configured; the legacy CMDB telemetry binding is not read. Distinct metric bindings return 409 ambiguous_binding; a failing provider is still 503. One bounded one-hour source read must cover the baseline plus 36 visible bin ends for every labeled panel. Request total must conserve 2xx/4xx/5xx and independently observed other statuses must be zero; heat intensities must be normalized to 0..1. Missing, partial or conflicting panels leave every metric block null with unavailable, never invented zeroes or trends. The SLO block also needs a persisted target strictly between 0 and 100 (else null, not_configured) and budget/burn panels that agree with it (else null, unavailable). Release, rollback and incident markers come from matching persisted success/event records within the window; a marker without a record is null with not_generated (the platform recorded no such event; external releases are not connected). These are independent timestamps, not proof that one rollback reversed the displayed release. Source, binding, SLO target, authorization and the Cookie session are rechecked after the external read and local marker reads, including for a not-configured response. align requests an incident-anchored window and returns 503 when no incident can anchor it. source=prometheus selects the implemented provider; victoriametrics returns 503 metrics_source_not_connected rather than querying Prometheus.",
         "responses": {
           "200": {
             "description": "Success",
@@ -65924,8 +66285,19 @@
           "labels": {
             "type": "array",
             "items": {
-              "type": "string"
+              "type": "string",
+              "description": "UTC HH:MM bucket starts, kept for compatibility"
             }
+          },
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Start of bucket 0 (whole seconds, UTC); bucket i covers [start+i*step, start+(i+1)*step)"
+          },
+          "step_seconds": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Bucket width in seconds; may be fractional (15m range: 37.5). Label buckets in the viewer time zone from start and step (PA-25)."
           },
           "counts": {
             "type": "array",
@@ -65944,6 +66316,8 @@
         "additionalProperties": false,
         "required": [
           "labels",
+          "start",
+          "step_seconds",
           "counts",
           "summary"
         ]
@@ -71320,6 +71694,57 @@
           "captured_at"
         ]
       },
+      "V3PullListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "connector_id": {
+            "type": "string"
+          },
+          "query_id": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          },
+          "connector_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "source_unavailable"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "application_id",
+          "environment_id",
+          "connector_id",
+          "connector_name",
+          "query_id",
+          "state",
+          "href"
+        ]
+      },
       "V3PushEventType": {
         "type": "object",
         "properties": {
@@ -75479,39 +75904,71 @@
         "type": "object",
         "properties": {
           "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/V3AlertRuleSummary"
-            }
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3AlertRuleSummary"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "counts": {
-            "type": "object",
-            "properties": {
-              "all": {
-                "type": "integer",
-                "minimum": 0
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "all": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "firing": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "scheduled": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "all",
+                  "firing",
+                  "scheduled"
+                ]
               },
-              "firing": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "scheduled": {
-                "type": "integer",
-                "minimum": 0
+              {
+                "type": "null"
               }
-            },
-            "additionalProperties": false,
-            "required": [
-              "all",
-              "firing",
-              "scheduled"
             ]
+          },
+          "empty_reason": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "no_authorized_target"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unavailable": {
+            "$ref": "#/components/schemas/V3Unavailable"
           }
         },
         "additionalProperties": false,
         "required": [
           "items",
-          "counts"
+          "counts",
+          "empty_reason",
+          "unavailable"
         ]
       },
       "V3AlertRuleDetail": {
@@ -80976,6 +81433,81 @@
           "finished_at",
           "missing",
           "partial"
+        ]
+      },
+      "V3EvalListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "agent_name": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "baseline_version": {
+            "type": "string"
+          },
+          "candidate_version": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "passed",
+              "failed",
+              "invalid"
+            ]
+          },
+          "execution_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "agent_id",
+          "agent_name",
+          "application_id",
+          "environment_id",
+          "baseline_version",
+          "candidate_version",
+          "status",
+          "execution_status",
+          "created_at",
+          "finished_at",
+          "href"
         ]
       },
       "V3AgentConfiguredVersion": {

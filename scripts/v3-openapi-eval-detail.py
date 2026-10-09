@@ -51,3 +51,20 @@ for _status, _description in {
     P['/eval-cases/{id}/labels']['post']['responses'][_status] = {
         'description':_description,
         'content':{'application/json':{'schema':ref('Error')}}}
+
+# PA-20 (2026-10-09): list of saved experiments for the evaluation page.
+S['V3EvalListItem'] = obj({
+    **fieldnames('id title agent_id agent_name application_id environment_id baseline_version candidate_version href'),
+    'status':string(enum=['pending','running','passed','failed','invalid']),
+    'execution_status':{'type':['string','null']},
+    'created_at':string(format='date-time'),
+    'finished_at':{'type':['string','null'],'format':'date-time'}},
+    ['id','title','agent_id','agent_name','application_id','environment_id','baseline_version',
+     'candidate_version','status','execution_status','created_at','finished_at','href'])
+v3_route('get','/evals','List saved evaluation experiments',
+    response=obj({'items':arr(ref('V3EvalListItem')),'total':integer(minimum=0),'page':integer(minimum=1),
+        'page_size':integer(minimum=1,maximum=100),'empty_reason':v3_empty_reason(),'unavailable':ref('V3Unavailable')},
+        ['items','total','page','page_size','empty_reason','unavailable']),
+    query=[v3_query('agent_id'),v3_query('page',integer(minimum=1,default=1)),
+        v3_query('page_size',integer(minimum=1,maximum=100,default=50))],
+    desc='Newest first. Lists exactly the experiments GET /evals/{id} would open: the Agent is in the selected environments and an active application scope, the immutable creation audit matches that environment, and agents.view holds on the application or its owner team, rechecked per row in one locked transaction together with the Cookie session. Metadata only; metrics, cases and outputs stay on the detail and execution routes. total counts the visible set. More than 1000 matching experiments returns 413 eval_list_too_large (filter by agent_id). When nothing is listed and no Agent is visible to the caller, empty_reason is no_authorized_target.')

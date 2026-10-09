@@ -157,10 +157,12 @@ func loadTrend(ctx context.Context, tx pgx.Tx, incidents []incident, now time.Ti
 		duration = ranges[0]
 	}
 	step := duration / 24
-	out := AlertTrend{Labels: make([]string, 24), Counts: make([][4]int, 24)}
-	start := now.Add(-duration)
+	// Whole seconds keep Start exact in RFC 3339 for every client parser.
+	start := now.Add(-duration).Truncate(time.Second)
+	out := AlertTrend{Labels: make([]string, 24), Counts: make([][4]int, 24),
+		Start: start.UTC().Format(time.RFC3339), StepSeconds: step.Seconds()}
 	for i := range out.Labels {
-		out.Labels[i] = start.Add(time.Duration(i) * step).Format("15:04")
+		out.Labels[i] = start.Add(time.Duration(i) * step).UTC().Format("15:04")
 	}
 	ids := make([]string, 0, len(incidents))
 	severity := make(map[string]int, len(incidents))

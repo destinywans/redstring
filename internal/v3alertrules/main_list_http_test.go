@@ -276,10 +276,15 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='alert_rules' AND scope_id='allowed'`); err != nil {
 		t.Fatal(err)
 	}
-	w = request("/api/v1/alert-rules", "test")
-	if w.Code != 403 {
-		t.Fatalf("revoked application grant still listed rules: %d %s", w.Code, w.Body.String())
+	// With nothing visible the list is a known empty scope (PA-09), not 403.
+	emptyScope := func(w *httptest.ResponseRecorder, what string) {
+		t.Helper()
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"empty_reason":"no_authorized_target"`) ||
+			!strings.Contains(w.Body.String(), `"items":[]`) || strings.Contains(w.Body.String(), "Rule") || strings.Contains(w.Body.String(), "up ==") {
+			t.Fatalf("%s: %d %s", what, w.Code, w.Body.String())
+		}
 	}
+	emptyScope(request("/api/v1/alert-rules", "test"), "revoked application grant still listed rules")
 	w = request(detailPath, "test")
 	if w.Code != 403 || strings.Contains(w.Body.String(), "AllowedRule") || strings.Contains(w.Body.String(), "up ==") {
 		t.Fatalf("revoked application grant still disclosed detail: %d %s", w.Code, w.Body.String())
@@ -314,7 +319,8 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 	if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='team-b' WHERE id='team-owned'`); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/api/v1/alert-rules", "/api/v1/alert-rules/observed/" + teamOwnedID} {
+	emptyScope(request("/api/v1/alert-rules", "test"), "changed owner retained team access on the list")
+	for _, path := range []string{"/api/v1/alert-rules/observed/" + teamOwnedID} {
 		w = request(path, "test")
 		if w.Code != 403 || strings.Contains(w.Body.String(), "TeamOwnedRule") || strings.Contains(w.Body.String(), "up ==") {
 			t.Fatalf("changed owner retained team access on %s: %d %s", path, w.Code, w.Body.String())
@@ -326,7 +332,8 @@ func TestMainAlertRuleListRegisteredHTTPAndProviderScope(t *testing.T) {
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='alert_rules' AND scope_kind='team'`); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"/api/v1/alert-rules", "/api/v1/alert-rules/observed/" + teamOwnedID} {
+	emptyScope(request("/api/v1/alert-rules", "test"), "revoked team grant retained access on the list")
+	for _, path := range []string{"/api/v1/alert-rules/observed/" + teamOwnedID} {
 		w = request(path, "test")
 		if w.Code != 403 || strings.Contains(w.Body.String(), "TeamOwnedRule") || strings.Contains(w.Body.String(), "up ==") {
 			t.Fatalf("revoked team grant retained access on %s: %d %s", path, w.Code, w.Body.String())

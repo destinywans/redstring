@@ -3,12 +3,15 @@ package v3admin
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/mail"
 	"net/smtp"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -22,11 +25,15 @@ type SMTPInvitationConfig struct {
 	From     string
 	Username string
 	Password string
+	// CAFile optionally adds a PEM bundle to the system roots for a relay
+	// behind an internal CA. Hostname verification still applies.
+	CAFile string
 }
 
 type SMTPInvitationSender struct {
 	config SMTPInvitationConfig
 	from   string
+	roots  *x509.CertPool
 }
 
 var smtpHostPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$`)
@@ -38,7 +45,22 @@ func NewSMTPInvitationSender(config SMTPInvitationConfig) (*SMTPInvitationSender
 		config.Port != 465 || config.Username == "" || config.Password == "" {
 		return nil, errInvitationUnavailable
 	}
-	return &SMTPInvitationSender{config: config, from: from.Address}, nil
+	sender := &SMTPInvitationSender{config: config, from: from.Address}
+	if config.CAFile != "" {
+		pem, err := os.ReadFile(config.CAFile)
+		if err != nil || !filepath.IsAbs(config.CAFile) || len(pem) > 1<<20 {
+			return nil, errInvitationUnavailable
+		}
+		roots, err := x509.SystemCertPool()
+		if err != nil {
+			roots = x509.NewCertPool()
+		}
+		if !roots.AppendCertsFromPEM(pem) {
+			return nil, errInvitationUnavailable
+		}
+		sender.roots = roots
+	}
+	return sender, nil
 }
 
 func (s *SMTPInvitationSender) SendInvitation(ctx context.Context, message InvitationMessage) error {
@@ -56,7 +78,7 @@ func (s *SMTPInvitationSender) SendInvitation(ctx context.Context, message Invit
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
 	tlsConn := tls.Client(conn, &tls.Config{
-		ServerName: s.config.Host, MinVersion: tls.VersionTLS12,
+		ServerName: s.config.Host, MinVersion: tls.VersionTLS12, RootCAs: s.roots,
 	})
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		return errInvitationUnavailable

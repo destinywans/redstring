@@ -102,11 +102,8 @@ type response struct {
 	} `json:"availability"`
 }
 
-var columns = []column{
-	{"metrics", "指标"}, {"logs", "日志"}, {"traces", "链路"},
-	{"changes", "变更"}, {"resources", "资源"}, {"runbooks", "Runbook"},
-	{"rules", "告警规则"},
-}
+// columns lists the coverage column IDs; labels come from text.columns.
+var columns = textFor("").columns()
 
 type profile struct {
 	AppID, Key, EnvironmentID, EnvironmentRowID, TeamID, Tier, Owner string
@@ -132,9 +129,11 @@ func (s *Service) coverage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 	defer cancel()
 	user := httpapi.CurrentUser(r)
-	result := response{KPIs: []kpi{}, Types: []coverageType{}, Columns: columns,
+	t := textFor(r.Header.Get("Accept-Language"))
+	unknownValue := t.pick("未知", "Unknown")
+	result := response{KPIs: []kpi{}, Types: []coverageType{}, Columns: t.columns(),
 		Rows: []coverageRow{}, Fixes: []fix{}, Impact: impact{
-			Answers: "未接入数据缺失归因", Flagged: "未知", Delta: "未知", Lowered: "未知",
+			Answers: t.pick("未接入数据缺失归因", "Missing-data attribution is not connected"), Flagged: unknownValue, Delta: unknownValue, Lowered: unknownValue,
 			ByType: []impactType{}, Availability: "not_connected",
 		}}
 	result.Availability.LiveCoverage = "unverified"
@@ -160,7 +159,7 @@ func (s *Service) coverage(w http.ResponseWriter, r *http.Request) {
 				httpapi.Error(w, 422, "result_limit", "Choose an application to narrow coverage")
 				return
 			}
-			row, rowFixes, rowErr := s.project(ctx, user, p)
+			row, rowFixes, rowErr := s.project(ctx, user, p, t)
 			if rowErr != nil {
 				httpapi.Error(w, 503, "coverage_unavailable", "Coverage source or policy unavailable")
 				return
@@ -180,12 +179,12 @@ func (s *Service) coverage(w http.ResponseWriter, r *http.Request) {
 		cursor = profiles[len(profiles)-1]
 	}
 	result.KPIs = []kpi{
-		{ID: "services", Label: "服务", Value: fmt.Sprint(len(result.Rows)), Sub: "当前授权的应用环境记录", Series: []float64{}},
-		{ID: "full", Label: "完整覆盖", Value: "未知", Sub: "实时覆盖尚未验证", Series: []float64{}},
-		{ID: "partial", Label: "部分覆盖", Value: "未知", Sub: "登记不等于数据覆盖", Series: []float64{}},
-		{ID: "gaps", Label: "严重缺失", Value: "未知", Sub: "缺少可信覆盖评分", Series: []float64{}},
+		{ID: "services", Label: t.pick("服务", "Services"), Value: fmt.Sprint(len(result.Rows)), Sub: t.pick("当前授权的应用环境记录", "Authorized application environments"), Series: []float64{}},
+		{ID: "full", Label: t.pick("完整覆盖", "Full coverage"), Value: unknownValue, Sub: t.pick("实时覆盖尚未验证", "Live coverage is not verified"), Series: []float64{}},
+		{ID: "partial", Label: t.pick("部分覆盖", "Partial coverage"), Value: unknownValue, Sub: t.pick("登记不等于数据覆盖", "Registration is not data coverage"), Series: []float64{}},
+		{ID: "gaps", Label: t.pick("严重缺失", "Critical gaps"), Value: unknownValue, Sub: t.pick("缺少可信覆盖评分", "No trusted coverage score"), Series: []float64{}},
 	}
-	for _, c := range columns {
+	for _, c := range result.Columns {
 		result.Types = append(result.Types, coverageType{ID: c.ID, Label: c.Label, Tone: "neutral"})
 	}
 	httpapi.WriteJSON(w, 200, result)
@@ -255,12 +254,12 @@ func configured(brand, reason string) cell {
 	return cell{State: "partial", Brand: brand, Text: reason, Availability: "configured_unverified"}
 }
 
-func (s *Service) project(ctx context.Context, user core.User, p profile) (coverageRow, []fix, error) {
+func (s *Service) project(ctx context.Context, user core.User, p profile, t text) (coverageRow, []fix, error) {
 	row := coverageRow{ID: p.AppID + ":" + p.EnvironmentID, Service: p.Key,
 		EnvironmentID: p.EnvironmentID, Tier: p.Tier, Owner: p.Owner, Cells: map[string]cell{}}
 	fixes := []fix{}
 	for _, c := range columns {
-		row.Cells[c.ID] = unknown("无可验证来源")
+		row.Cells[c.ID] = unknown(t.pick("无可验证来源", "No verifiable source"))
 	}
 	if p.Tier == "" {
 		row.Tier = "unknown"
@@ -276,18 +275,18 @@ func (s *Service) project(ctx context.Context, user core.User, p profile) (cover
 		}
 		for _, id := range []string{"metrics", "logs", "traces", "changes"} {
 			if brand := bindings[id]; brand != "" {
-				row.Cells[id] = configured(brand, "来源已登记，实时数据覆盖未验证")
+				row.Cells[id] = configured(brand, t.pick("来源已登记，实时数据覆盖未验证", "Source registered; live data coverage not verified"))
 			} else {
-				row.Cells[id] = absent("未登记精确来源")
+				row.Cells[id] = absent(t.pick("未登记精确来源", "No exact source registered"))
 				if len(fixes) == 0 {
-					fixes = append(fixes, fix{Text: p.Key + " · " + p.EnvironmentID + "：配置" + label(id) + "来源",
-						Impact: "影响未量化", Action: "查看连接器", Href: "/integrations"})
+					fixes = append(fixes, fix{Text: p.Key + " · " + p.EnvironmentID + t.pick("：配置"+t.label(id)+"来源", ": configure a "+strings.ToLower(t.label(id))+" source"),
+						Impact: t.pick("影响未量化", "Impact not quantified"), Action: t.pick("查看连接器", "View connectors"), Href: "/integrations"})
 				}
 			}
 		}
 	} else {
 		for _, id := range []string{"metrics", "logs", "traces", "changes"} {
-			row.Cells[id] = unknown("无权查看连接器配置")
+			row.Cells[id] = unknown(t.pick("无权查看连接器配置", "No permission to view connector configuration"))
 		}
 	}
 	canResources, err := s.authorized(ctx, user, "resources", p)
@@ -304,41 +303,28 @@ func (s *Service) project(ctx context.Context, user core.User, p profile) (cover
 			return row, nil, err
 		}
 		if linked {
-			row.Cells["resources"] = configured("cmdb", "资源已关联，实时状态未验证")
+			row.Cells["resources"] = configured("cmdb", t.pick("资源已关联，实时状态未验证", "Resources linked; live state not verified"))
 		} else {
-			row.Cells["resources"] = absent("未关联非示例资源")
+			row.Cells["resources"] = absent(t.pick("未关联非示例资源", "No non-sample resource linked"))
 		}
 	} else {
-		row.Cells["resources"] = unknown("无权查看资源目录")
+		row.Cells["resources"] = unknown(t.pick("无权查看资源目录", "No permission to view the resource catalog"))
 	}
 	canKnowledge, err := s.authorized(ctx, user, "knowledge", p)
 	if err != nil {
 		return row, nil, err
 	}
 	if !canKnowledge {
-		row.Cells["runbooks"] = unknown("无权查看 Runbook")
+		row.Cells["runbooks"] = unknown(t.pick("无权查看 Runbook", "No permission to view Runbooks"))
 	} else {
 		// knowledge_documents carries an application ID, but not a verified
 		// environment or the per-document visibility decision. Even one visible
 		// application environment does not make draft/private review documents
 		// visible here or prove operational Runbook coverage.
-		row.Cells["runbooks"] = unknown("缺少当前环境与文档可见性证据")
+		row.Cells["runbooks"] = unknown(t.pick("缺少当前环境与文档可见性证据", "No evidence of environment and document visibility"))
 	}
-	row.Cells["rules"] = unknown("告警规则缺少可归属的覆盖来源")
+	row.Cells["rules"] = unknown(t.pick("告警规则缺少可归属的覆盖来源", "No attributable coverage source for alert rules"))
 	return row, fixes, nil
-}
-
-func label(id string) string {
-	switch id {
-	case "metrics":
-		return "指标"
-	case "logs":
-		return "日志"
-	case "traces":
-		return "链路"
-	default:
-		return "变更"
-	}
 }
 
 // Only a persisted V3 connector in the same environment can make a legacy

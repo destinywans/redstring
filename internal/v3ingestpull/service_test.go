@@ -463,3 +463,55 @@ func TestPullReadErrorClassification(t *testing.T) {
 		}
 	}
 }
+
+func TestPullListShowsOnlyOpenableSourcesWithoutSecrets(t *testing.T) {
+	f := newPullFixture(t, false)
+	decode := func(w *httptest.ResponseRecorder) map[string]any {
+		t.Helper()
+		var body map[string]any
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &body) != nil {
+			t.Fatalf("pull list: %d %s", w.Code, w.Body.String())
+		}
+		for _, secret := range []string{f.source.Expression, "vault://", f.upstream.URL, "never-expose"} {
+			if strings.Contains(w.Body.String(), secret) {
+				t.Fatalf("pull list leaked %q: %s", secret, w.Body.String())
+			}
+		}
+		return body
+	}
+	body := decode(f.call("GET", "/api/v1/ingest/pull", "", f.viewerSID, "dev"))
+	items, _ := body["items"].([]any)
+	if len(items) != 1 || body["empty_reason"] != nil {
+		t.Fatalf("visible source: %+v", body)
+	}
+	item := items[0].(map[string]any)
+	if item["id"] != f.source.ID || item["state"] != "ready" || item["connector_name"] != "Prometheus" ||
+		item["href"] != "/ingest/pull/"+f.source.ID || item["query_id"] != "request_rate" {
+		t.Fatalf("source item: %+v", item)
+	}
+	if f.queryHits.Load() != 0 || f.vaultHits.Load() != 0 {
+		t.Fatal("listing sources reached the upstream or the vault")
+	}
+	// A disabled connector is listed as unavailable, not hidden or ready.
+	if _, err := f.db.Exec(t.Context(), `UPDATE v3_connectors SET enabled=false WHERE id='connector-pull'`); err != nil {
+		t.Fatal(err)
+	}
+	body = decode(f.call("GET", "/api/v1/ingest/pull", "", f.viewerSID, "dev"))
+	if item := body["items"].([]any)[0].(map[string]any); item["state"] != "source_unavailable" || item["connector_name"] != nil {
+		t.Fatalf("disabled connector: %+v", item)
+	}
+	// Without services.view on the application the source is not listed.
+	if _, err := f.db.Exec(t.Context(), `DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='services'`); err != nil {
+		t.Fatal(err)
+	}
+	body = decode(f.call("GET", "/api/v1/ingest/pull", "", f.viewerSID, "dev"))
+	if len(body["items"].([]any)) != 0 || body["empty_reason"] != "no_authorized_target" {
+		t.Fatalf("hidden source: %+v", body)
+	}
+	// No private Pull configuration leaves the list unknown.
+	f.service.sources = map[string]SourceConfig{}
+	body = decode(f.call("GET", "/api/v1/ingest/pull", "", f.adminSID, "dev"))
+	if body["items"] != nil || body["unavailable"].(map[string]any)["items"] != "not_configured" {
+		t.Fatalf("unconfigured list: %+v", body)
+	}
+}

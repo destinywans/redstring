@@ -375,7 +375,7 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 		if result["status"] == "duplicates_only" {
 			status = http.StatusOK
 		}
-		httpapi.WriteJSON(w, status, result)
+		httpapi.WriteJSON(w, status, localizedImportResult(result, r))
 		return true
 	}
 	key := ""
@@ -431,7 +431,7 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if result["status"] == "duplicates_only" {
-		httpapi.WriteJSON(w, http.StatusOK, result)
+		httpapi.WriteJSON(w, http.StatusOK, localizedImportResult(result, r))
 		return
 	}
 	result, err = s.export(r, actor, "import", key, digest, result)
@@ -439,7 +439,7 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	httpapi.WriteJSON(w, http.StatusCreated, result)
+	httpapi.WriteJSON(w, http.StatusCreated, localizedImportResult(result, r))
 }
 
 // The frozen page sends only {yaml}. Reuse a completed run for five minutes

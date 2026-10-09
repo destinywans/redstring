@@ -165,3 +165,23 @@ func TestIncidentListCountsUnfilteredVisibleRecords(t *testing.T) {
 		}
 	}
 }
+
+func TestEventTextsFollowAcceptLanguage(t *testing.T) {
+	en, zh := textFor("en-US,en;q=0.8"), textFor("zh-CN")
+	sent := "sent"
+	if en.notify(nil) == zh.notify(nil) || en.notification(sent) != "Accepted by the notification transport; receipt not confirmed" ||
+		zh.notify(&sent) != "平台通知传输接口已接受；未确认接收人已读" || en.unrecorded() != "Not recorded" || zh.unrecorded() != "未记录" {
+		t.Fatal("event texts do not follow the request language")
+	}
+	if label, help := en.timing("group_wait"); label != "Group wait" || help == "" {
+		t.Fatalf("timing label: %q %q", label, help)
+	}
+	since := time.Date(2026, 10, 9, 8, 0, 0, 0, time.UTC)
+	resolved := incidentRecord{ID: "r", Severity: "critical", Status: "resolved", AlertStatus: "resolved", StartsAt: since}
+	if got := summarize(resolved, since.Add(time.Hour), en); got.Duration != "Not recorded" {
+		t.Fatalf("resolved without close event: %+v", got)
+	}
+	if got := summarize(resolved, since.Add(time.Hour)); got.Duration != "未记录" {
+		t.Fatalf("default language changed: %+v", got)
+	}
+}

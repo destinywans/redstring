@@ -337,7 +337,7 @@ func duration(since, now time.Time) string {
 	}
 	return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
 }
-func summarize(v incidentRecord, now time.Time) incidentSummary {
+func summarize(v incidentRecord, now time.Time, t ...text) incidentSummary {
 	status := incidentStatus(v)
 	elapsed := duration(v.StartsAt, now)
 	if status == "resolved" {
@@ -345,7 +345,7 @@ func summarize(v incidentRecord, now time.Time) incidentSummary {
 		// updated_at may change later, and ends_at tracks the alert, not the
 		// incident. Historic resolved records without a close event have no
 		// trustworthy duration; expose that gap instead of inventing one.
-		elapsed = "未记录"
+		elapsed = firstText(t).unrecorded()
 		if v.ResolvedAt != nil {
 			elapsed = duration(v.StartsAt, *v.ResolvedAt)
 		}
@@ -510,7 +510,7 @@ func (s *Service) Incidents(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	items, counts := incidentListWithCases(values, cases, filter, time.Now())
+	items, counts := incidentListWithCases(values, cases, filter, time.Now(), textFor(r.Header.Get("Accept-Language")))
 	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, 200, map[string]any{"items": items, "counts": counts})
 }
@@ -534,7 +534,7 @@ type datedIncidentSummary struct {
 	value   any
 }
 
-func incidentListWithCases(alerts []incidentRecord, cases []caseRecord, filter string, now time.Time) ([]any, map[string]int) {
+func incidentListWithCases(alerts []incidentRecord, cases []caseRecord, filter string, now time.Time, t ...text) ([]any, map[string]int) {
 	items := make([]datedIncidentSummary, 0, len(alerts)+len(cases))
 	counts := map[string]int{"all": 0, "active": 0, "resolved": 0}
 	for _, v := range alerts {
@@ -545,7 +545,7 @@ func incidentListWithCases(alerts []incidentRecord, cases []caseRecord, filter s
 		} else {
 			counts["active"]++
 		}
-		items = append(items, datedIncidentSummary{v.UpdatedAt, v.ID, status, summarize(v, now)})
+		items = append(items, datedIncidentSummary{v.UpdatedAt, v.ID, status, summarize(v, now, t...)})
 	}
 	for _, v := range cases {
 		counts["all"]++
@@ -591,7 +591,7 @@ func incidentFilter(query url.Values) (string, bool) {
 	}
 }
 
-func incidentList(values []incidentRecord, filter string, now time.Time) ([]incidentSummary, map[string]int) {
+func incidentList(values []incidentRecord, filter string, now time.Time, t ...text) ([]incidentSummary, map[string]int) {
 	items := make([]incidentSummary, 0, len(values))
 	counts := map[string]int{"all": 0, "active": 0, "resolved": 0}
 	for _, v := range values {
@@ -605,7 +605,7 @@ func incidentList(values []incidentRecord, filter string, now time.Time) ([]inci
 		if filter == "active" && status == "resolved" || filter == "resolved" && status != "resolved" {
 			continue
 		}
-		items = append(items, summarize(v, now))
+		items = append(items, summarize(v, now, t...))
 	}
 	return items, counts
 }

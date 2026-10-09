@@ -272,13 +272,62 @@ def tls():
     print(f"{PROXY}: https on {', '.join(origin(n) for n in INSTANCES)}; SPKI in .local/acceptance/tls/spki.txt")
 
 
+MAIL = LOCAL / 'mail'
+MAIL_CONTAINER = 'aiops-acceptance-smtpsink'
+
+def mail():
+    """Loopback SMTPS sink for member invitations (tools/acceptance/smtpsink); messages land in .local/acceptance/mail/inbox."""
+    MAIL.mkdir(parents=True, exist_ok=True)
+    os.chmod(MAIL, 0o700)
+    cert, key = MAIL / 'cert.pem', MAIL / 'key.pem'
+    if not cert.exists():
+        subprocess.run(['openssl', 'req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes',
+                        '-keyout', str(key), '-out', str(cert), '-days', '60', '-subj', '/CN=localhost',
+                        '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1', '-addext', 'basicConstraints=critical,CA:TRUE'],
+                       check=True, capture_output=True)
+        os.chmod(key, 0o600)
+    for name, value in (('user', 'redstring-acceptance'), ('password', secrets.token_urlsafe(24))):
+        f = MAIL / name
+        if not f.exists():
+            private_write(f, value + '\n')
+    # macOS refuses unprivileged binds to loopback:465, and the product's relay port is fixed at 465.
+    # Run the sink as a static Linux binary in a container published only on 127.0.0.1:465.
+    linux = LOCAL / 'bin/smtpsink-linux'
+    subprocess.run(['go', 'build', '-o', str(linux), './tools/acceptance/smtpsink'], cwd=ROOT, check=True,
+                   env={**os.environ, 'GOOS': 'linux', 'CGO_ENABLED': '0'})
+    (MAIL / 'inbox').mkdir(exist_ok=True)
+    subprocess.run(['docker', 'rm', '-f', MAIL_CONTAINER], capture_output=True)
+    subprocess.run(['docker', 'run', '-d', '--name', MAIL_CONTAINER, '--label', 'aiops.acceptance=2026-10-09',
+                    '-p', '127.0.0.1:465:1465', '-v', f'{linux}:/smtpsink:ro', '-v', f'{MAIL}:/mail',
+                    '--entrypoint', '/smtpsink', 'nginx:latest',
+                    '-container', '-listen', '0.0.0.0:1465', '-cert', '/mail/cert.pem', '-key', '/mail/key.pem',
+                    '-user-file', '/mail/user', '-password-file', '/mail/password', '-dir', '/mail/inbox'],
+                   check=True, capture_output=True)
+    for name, spec in INSTANCES.items():
+        extra = LOCAL / name / 'extra.env'
+        keep = [l for l in (extra.read_text().splitlines() if extra.exists() else []) if l and not l.startswith('AIOPS_V3_INVITATION_')]
+        keep += [
+            'AIOPS_V3_INVITATION_SMTP_HOST=localhost',
+            f"AIOPS_V3_INVITATION_SMTP_FROM=redstring@{spec['host']}",
+            'AIOPS_V3_INVITATION_SMTP_USERNAME=redstring-acceptance',
+            f"AIOPS_V3_INVITATION_SMTP_PASSWORD_FILE={MAIL / 'password'}",
+            f"AIOPS_V3_INVITATION_SMTP_CA_FILE={cert}",
+            f"AIOPS_V3_INVITATION_ENTRY_URL={origin(name)}/login",
+        ]
+        private_write(extra, '\n'.join(keep) + '\n')
+    print(f"{MAIL_CONTAINER} on 127.0.0.1:465; inbox {MAIL / 'inbox'}; restart instances to pick up the invitation settings")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('command', choices=['prepare', 'start', 'stop', 'restart', 'status', 'tls'])
+    ap.add_argument('command', choices=['prepare', 'start', 'stop', 'restart', 'status', 'tls', 'mail'])
     ap.add_argument('instance', nargs='?', choices=[*INSTANCES, 'all'], default='all')
     a = ap.parse_args()
     if a.command == 'tls':
         tls()
+        return
+    if a.command == 'mail':
+        mail()
         return
     names = list(INSTANCES) if a.instance == 'all' else [a.instance]
     rc = 0

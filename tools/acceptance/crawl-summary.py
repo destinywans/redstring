@@ -7,13 +7,16 @@ the routes each one breaks, so one root cause is triaged once. Writes
 """
 import collections
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CRAWL = ROOT / '.local/acceptance/e2e/crawl'
-OUT = ROOT / '.local/acceptance/e2e/crawl-summary.md'
+# CRAWL_OUT (relative to .local/acceptance) matches web/e2e/crawl.spec.ts for fault-injection runs.
+_DIR = os.environ.get('CRAWL_OUT', 'e2e/crawl')
+CRAWL = ROOT / '.local/acceptance' / _DIR
+OUT = ROOT / '.local/acceptance' / f'{_DIR}-summary.md'
 
 ID = re.compile(r'/(?:[0-9a-f]{16,}|[A-Z]+-\d+|\d+)(?=/|$)')
 

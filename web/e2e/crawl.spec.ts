@@ -28,7 +28,8 @@ const COMBOS = [
   { locale: "zh-CN", theme: "dark" },
   { locale: "en-US", theme: "light" },
 ];
-const OUT = resolve(LOCAL, "e2e/crawl");
+// CRAWL_OUT keeps a fault-injection run apart from the baseline results.
+const OUT = resolve(LOCAL, process.env.CRAWL_OUT ?? "e2e/crawl");
 mkdirSync(OUT, { recursive: true });
 
 for (const instance of Object.keys(INSTANCES) as InstanceName[]) {

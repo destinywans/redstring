@@ -258,12 +258,13 @@ S['V3ObservedAlertRuleDetail'] = obj({**S['V3ObservedAlertRuleSummary']['propert
 S['V3AlertRuleSummary'] = obj({**fieldnames('id folder name'),
     'state':string(enum=['firing','pending','ok']), 'schedule':string()},
     ['id','folder','name','state'])
-S['V3AlertRuleList'] = obj({'items':arr(ref('V3AlertRuleSummary')),
-    'counts':obj({k:integer(minimum=0) for k in ['all','firing','scheduled']},
-        ['all','firing','scheduled'])}, ['items','counts'])
+S['V3AlertRuleList'] = obj({'items':v3_nullable(arr(ref('V3AlertRuleSummary'))),
+    'counts':v3_nullable(obj({k:integer(minimum=0) for k in ['all','firing','scheduled']},
+        ['all','firing','scheduled'])),
+    'empty_reason':v3_empty_reason(),'unavailable':ref('V3Unavailable')}, ['items','counts','empty_reason','unavailable'])
 v3_route('get','/alert-rules','Read complete authorized alert rule summaries',
     response=ref('V3AlertRuleList'),
-    desc='Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result. Counts describe the complete authorized result. Missing configuration, upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.')
+    desc='Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result (403/503). Counts describe the complete authorized result. When no application is visible to the caller before any provider read, the list is empty with empty_reason=no_authorized_target (PA-09) instead of 403. Without a configured rule provider or group bindings, items and counts are null with unavailable=not_configured instead of 503. Upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.')
 S['V3AlertRuleDetail'] = obj({
     **fieldnames('id folder name environment_id application_id datasource expr'),
     'state':string(enum=['firing','pending','ok']),
@@ -282,10 +283,10 @@ v3_route('get','/alert-rules/{id}','Read one configured provider alert rule',
     response=ref('V3AlertRuleDetail'),
     desc='Returns one uniquely identified Prometheus rule observed from a configured environment and server-owned file/group application binding, with exact matching environment/application labels and current alert_rules.view on the application or owner team. Scope and grants are rechecked after provider reads. The response contains the observed expression, duration, labels, annotations, last evaluation and group interval when available; absent provider values and editor-only preview, threshold condition, query registry, evaluation policy, runbook, notification route and AI triage are null and listed in unavailable. Evaluation time is null unless there is a last evaluation and a positive observed duration. A missing rule with an unavailable in-scope source returns 503 instead of a false 404. Duplicate visible stable IDs return 503. The frozen frontend assumes non-null editor fields and a fixed mock ID, so page acceptance remains pending.')
 v3_route('get','/alert-rules/observed','Read provider-observed alert rule summaries',
-    response=obj({'items':arr(ref('V3ObservedAlertRuleSummary')),
-        'counts':v3_map(integer()),'partial':v3_bool(),
-        'unavailable_environments':arr(string())}),
-    desc='Auxiliary read-only backend endpoint, not the V3 AlertRule DTO. Rule groups require explicit server-side application/environment binding, matching provider labels and current application or owner-team alert_rules.view. Scope and grants are rechecked after provider reads; changed scope does not return old summaries. Unconfigured sources return 503; partial source failure returns 206.')
+    response=obj({'items':v3_nullable(arr(ref('V3ObservedAlertRuleSummary'))),
+        'counts':v3_nullable(v3_map(integer())),'partial':v3_bool(),
+        'unavailable_environments':arr(string()),'empty_reason':v3_empty_reason(),'unavailable':ref('V3Unavailable')}),
+    desc='Auxiliary read-only backend endpoint, not the V3 AlertRule DTO. Rule groups require explicit server-side application/environment binding, matching provider labels and current application or owner-team alert_rules.view. Scope and grants are rechecked after provider reads; changed scope does not return old summaries. No visible application returns an empty list with empty_reason=no_authorized_target; unconfigured sources return items/counts null with unavailable=not_configured; partial source failure returns 206.')
 P['/alert-rules/observed']['get']['responses']['206'] = P['/alert-rules/observed']['get']['responses']['200']
 v3_route('get','/alert-rules/observed/{id}','Read one provider-observed alert rule',
     response=ref('V3ObservedAlertRuleDetail'),

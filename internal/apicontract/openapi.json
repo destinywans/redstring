@@ -34946,7 +34946,7 @@
       "get": {
         "summary": "Read complete authorized alert rule summaries",
         "operationId": "get_alert_rules",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result. Counts describe the complete authorized result. Missing configuration, upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result (403/503). Counts describe the complete authorized result. When no application is visible to the caller before any provider read, the list is empty with empty_reason=no_authorized_target (PA-09) instead of 403. Without a configured rule provider or group bindings, items and counts are null with unavailable=not_configured instead of 503. Upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35438,7 +35438,7 @@
       "get": {
         "summary": "Read provider-observed alert rule summaries",
         "operationId": "get_alert_rules_observed",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint, not the V3 AlertRule DTO. Rule groups require explicit server-side application/environment binding, matching provider labels and current application or owner-team alert_rules.view. Scope and grants are rechecked after provider reads; changed scope does not return old summaries. Unconfigured sources return 503; partial source failure returns 206.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only backend endpoint, not the V3 AlertRule DTO. Rule groups require explicit server-side application/environment binding, matching provider labels and current application or owner-team alert_rules.view. Scope and grants are rechecked after provider reads; changed scope does not return old summaries. No visible application returns an empty list with empty_reason=no_authorized_target; unconfigured sources return items/counts null with unavailable=not_configured; partial source failure returns 206.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35448,16 +35448,30 @@
                   "type": "object",
                   "properties": {
                     "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3ObservedAlertRuleSummary"
-                      }
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/V3ObservedAlertRuleSummary"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "counts": {
-                      "type": "object",
-                      "additionalProperties": {
-                        "type": "integer"
-                      }
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "partial": {
                       "type": "boolean"
@@ -35467,6 +35481,22 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "empty_reason": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no_authorized_target"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unavailable": {
+                      "$ref": "#/components/schemas/V3Unavailable"
                     }
                   },
                   "additionalProperties": false
@@ -35542,16 +35572,30 @@
                   "type": "object",
                   "properties": {
                     "items": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/V3ObservedAlertRuleSummary"
-                      }
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/V3ObservedAlertRuleSummary"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "counts": {
-                      "type": "object",
-                      "additionalProperties": {
-                        "type": "integer"
-                      }
+                      "oneOf": [
+                        {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "partial": {
                       "type": "boolean"
@@ -35561,6 +35605,22 @@
                       "items": {
                         "type": "string"
                       }
+                    },
+                    "empty_reason": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "no_authorized_target"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "unavailable": {
+                      "$ref": "#/components/schemas/V3Unavailable"
                     }
                   },
                   "additionalProperties": false
@@ -75479,39 +75539,71 @@
         "type": "object",
         "properties": {
           "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/V3AlertRuleSummary"
-            }
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3AlertRuleSummary"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "counts": {
-            "type": "object",
-            "properties": {
-              "all": {
-                "type": "integer",
-                "minimum": 0
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "all": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "firing": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "scheduled": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "all",
+                  "firing",
+                  "scheduled"
+                ]
               },
-              "firing": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "scheduled": {
-                "type": "integer",
-                "minimum": 0
+              {
+                "type": "null"
               }
-            },
-            "additionalProperties": false,
-            "required": [
-              "all",
-              "firing",
-              "scheduled"
             ]
+          },
+          "empty_reason": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "no_authorized_target"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unavailable": {
+            "$ref": "#/components/schemas/V3Unavailable"
           }
         },
         "additionalProperties": false,
         "required": [
           "items",
-          "counts"
+          "counts",
+          "empty_reason",
+          "unavailable"
         ]
       },
       "V3AlertRuleDetail": {

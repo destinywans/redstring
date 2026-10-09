@@ -26,6 +26,7 @@
 | 过滤 | 列表过滤用查询参数：`q`（搜索）、`filter` / `category` / `kind` 等枚举；数组参数重复键（`?k=a&k=b`） |
 | 写操作 | 模型只读取证。任何对外部系统的写动作都只生成**提案**，人工批准后由独立执行器执行；本契约中的 POST/PUT/PATCH 只修改平台自身配置或状态 |
 | 审计 | 所有写请求和 Agent 工具调用都写入审计（`GET /audit`） |
+| 空列表 | 列表因当前用户没有任何可见对象而为空时返回 200、空 `items` 和 `empty_reason: "no_authorized_target"`，不返回 403；其他情况 `empty_reason` 为 `null`。读取上游期间授权变化仍按失败关闭返回 403/409/503（2026-10-09 PA-09） |
 | 未知 | 缺少可选证据时读接口仍返回 200：受影响字段为 `null`，同时在 `unavailable` 中按字段路径给出原因，例如 `{"total": "not_configured", "security.factors": "unavailable"}`（`[]` 表示数组每项的字段）。原因只有六种：`not_configured`（没有来源或登记）、`not_connected`（没有接入集成）、`no_authorized_target`（当前用户没有可见目标）、`not_generated`（平台尚未产生或记录）、`unavailable`（已配置的来源失败或没有证明）、`stale`（证据已过期）。未知不能写成 0、空列表、正常或“未值班”；字段都已证明时 `unavailable` 是空对象。只有请求本身无法完成（唯一来源已配置但失败、存储失败、授权失败）才返回错误。2026-10-09 起适用于 `/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard`；`/home` 和 `/me` 沿用各自的 `availability`、`oncall_state` |
 | 环境 | 请求头 `X-AIOps-Environment: <环境 id> \| all`，取右上角的当前环境；列表、AI 取证范围和执行目标都按它过滤。`all` 只允许在非生产实例中使用，且只能查看，写请求要返回 `409 env_view_only`。生产实例只有 `prod` 一个环境，可以不带这个请求头 |
 
@@ -161,7 +162,7 @@
 | GET | `/incidents` | `status: active\|resolved\|all` | `{ items, counts }` | implemented |
 | GET | `/incidents/{id}` | | 当前授权的持久事件及人工时间线；手工事件另给状态修订与真实解决事件/时间，时长、指标与系统/AI 时间线未知 | implemented |
 | POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | implemented |
-| GET | `/alert-rules` | | `AlertRuleSummary[]` 与完整可见范围的 `all/firing/scheduled` 计数；仅展示服务端按 Prometheus 规则文件和组明确绑定到应用、标签和环境均匹配，且当前应用或其负责团队有 `alert_rules.view` 的规则；上游读取后复核负责人和授权，范围变化不返回旧列表。来源失败或超限明确报错，不返回部分计数；无可信周期来源时 `scheduled=0` | implemented |
+| GET | `/alert-rules` | | `AlertRuleSummary[]` 与完整可见范围的 `all/firing/scheduled` 计数；仅展示服务端按 Prometheus 规则文件和组明确绑定到应用、标签和环境均匹配，且当前应用或其负责团队有 `alert_rules.view` 的规则；上游读取后复核负责人和授权，范围变化不返回旧列表。来源失败或超限明确报错，不返回部分计数；无可信周期来源时 `scheduled=0`。当前用户没有可见应用时返回空列表和 `empty_reason: "no_authorized_target"`，不再 403（PA-09）；未配置规则来源时 `items`、`counts` 为 `null`，`unavailable` 为 `not_configured`，不再 503 | implemented |
 | GET | `/alert-rules/{id}` | | 当前受权 Prometheus 规则详情；编辑、通知和 AI 字段未知时可空 | implemented |
 | POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | implemented |
 | PUT | `/alert-rules/{id}` | 单环境、`Idempotency-Key`、`{ expected_version, observed_rule?, rule: { application_id, environment_id, group, name, expr, for, labels, annotations, mode: draft } }` | 当前受权且来源未漂移时导出新版本的不可部署 JSON 草稿，返回 `pending_review` 与经核对的 GitLab MR；不启用规则 | implemented |

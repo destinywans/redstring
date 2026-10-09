@@ -109,9 +109,18 @@ func TestListPartialAndUnavailableAreExplicit(t *testing.T) {
 		t.Fatalf("partial status=%d body=%s", w.Code, w.Body.String())
 	}
 	s.Source = nil
-	w = call(t, scopedHandler(t, http.HandlerFunc(s.List)), "GET", "/api/v1/alert-rules/observed", "test")
-	if w.Code != 503 || !strings.Contains(w.Body.String(), "alert_rules_unavailable") {
-		t.Fatalf("unconfigured status=%d body=%s", w.Code, w.Body.String())
+	// No rule source is a configuration state: the list is unknown, not empty.
+	for _, handler := range []http.HandlerFunc{s.List, s.MainList} {
+		w = call(t, scopedHandler(t, handler), "GET", "/api/v1/alert-rules", "test")
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"items":null`) || !strings.Contains(w.Body.String(), `"counts":null`) ||
+			!strings.Contains(w.Body.String(), `"items":"not_configured"`) {
+			t.Fatalf("unconfigured status=%d body=%s", w.Code, w.Body.String())
+		}
+	}
+	none := mustService(t, fakeCatalog{}, fakeAccess{}, fakeSource{}, RuleGroupBinding{EnvironmentID: "test", ApplicationID: "a", File: testRuleFile, Group: "g"})
+	w = call(t, scopedHandler(t, http.HandlerFunc(none.MainList)), "GET", "/api/v1/alert-rules", "test")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"empty_reason":"no_authorized_target"`) || !strings.Contains(w.Body.String(), `"items":[]`) {
+		t.Fatalf("no visible application status=%d body=%s", w.Code, w.Body.String())
 	}
 }
 

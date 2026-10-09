@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"sort"
@@ -141,8 +142,29 @@ func (s *Service) Register(api *httpapi.Server) {
 // observed route, it never publishes partial counts when one authorized
 // environment's provider is unavailable. Prometheus rules have no cron
 // schedule, so the scheduled count is truthfully zero.
+// listState answers a list request whose visible scope is empty or whose
+// source is not configured. Both are states, not failures: an empty visible
+// scope is a known empty list (PA-09) and an absent source leaves the list
+// unknown. It reports false for any other error.
+func listState(w http.ResponseWriter, err error) bool {
+	switch {
+	case errors.Is(err, errNoVisibleApplication):
+		httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": []any{}, "counts": map[string]int{"all": 0, "firing": 0, "scheduled": 0},
+			"empty_reason": "no_authorized_target", "unavailable": map[string]string{}})
+		return true
+	case errors.Is(err, errRuleSourceNotConfigured):
+		httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": nil, "counts": nil, "empty_reason": nil,
+			"unavailable": map[string]string{"items": "not_configured", "counts": "not_configured"}})
+		return true
+	}
+	return false
+}
+
 func (s *Service) MainList(w http.ResponseWriter, r *http.Request) {
 	items, unavailable, status, err := s.visible(r)
+	if listState(w, err) {
+		return
+	}
 	if err != nil {
 		httpapi.Error(w, status, errorCode(status), "Alert rule source or authorization is unavailable")
 		return
@@ -172,8 +194,13 @@ func (s *Service) MainList(w http.ResponseWriter, r *http.Request) {
 			counts["firing"]++
 		}
 	}
-	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": summaries, "counts": counts})
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": summaries, "counts": counts, "empty_reason": nil, "unavailable": map[string]string{}})
 }
+
+var (
+	errNoVisibleApplication    = errors.New("no application visible for alert rules")
+	errRuleSourceNotConfigured = errors.New("alert rule provider or group bindings not configured")
+)
 
 func (s *Service) visible(r *http.Request) ([]Detail, []string, int, error) {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
@@ -183,10 +210,15 @@ func (s *Service) visible(r *http.Request) ([]Detail, []string, int, error) {
 	user := httpapi.CurrentUser(r)
 	allowed, status, err := s.authorizedApplications(r.Context(), user, scope.EnvironmentIDs)
 	if err != nil {
+		// Nothing visible before any provider read: lists report an empty
+		// scope; detail lookups keep the forbidden status.
+		if status == http.StatusForbidden {
+			return nil, nil, status, fmt.Errorf("%w: %w", errNoVisibleApplication, err)
+		}
 		return nil, nil, status, err
 	}
 	if s.Source == nil || len(s.bindings) == 0 {
-		return nil, nil, http.StatusServiceUnavailable, errors.New("alert rule provider or group bindings not configured")
+		return nil, nil, http.StatusServiceUnavailable, errRuleSourceNotConfigured
 	}
 	items := []Detail{}
 	unavailable := []string{}
@@ -291,6 +323,9 @@ func toDetail(env, app string, rule ObservedRule) Detail {
 
 func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	items, unavailable, status, err := s.visible(r)
+	if listState(w, err) {
+		return
+	}
 	if err != nil {
 		httpapi.Error(w, status, errorCode(status), "Alert rule source or authorization is unavailable")
 		return

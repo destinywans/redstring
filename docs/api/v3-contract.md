@@ -91,7 +91,7 @@
 | --- | --- | --- | --- | --- |
 | GET | `/instance` | | `InstanceInfo`：`tier`（`production` \| `nonprod`）、`name`、`domain`、`environments[]`（id、名称、分组、集群、回收时间）、`default_env`，以及另一个平台的链接 `other` | implemented |
 | GET | `/integrations/lower-sources` | | `{ items: LowerSource[] }`，只有生产实例提供；非生产实例返回 404。仅返回服务端显式配置的来源元数据，不代表连接已验证 | implemented |
-| GET | `/config-sync` | | `{ direction: "import" \| "export", items: SyncItem[] }`：生产实例列出已合并候选，非生产实例列出本人已导出项 | implemented |
+| GET | `/config-sync` | | `{ direction: "import" \| "export", items: SyncItem[] }`：生产实例列出已合并候选，非生产实例列出本人已导出项。未配置配置仓库（`AIOPS_V3_CONFIG_SYNC_CONFIG`）或来源信任时返回 `501 config_repository_unavailable` / `config_source_trust_unavailable`，表示功能未接入而非故障，页面应显示“未接入” | implemented |
 | POST | `/config-sync/{id}/import` | `id=mr-<正整数 IID>`；只允许生产实例 | 验证已合并、签名且独立审核的四类配置并持久导入；不执行目标能力 | implemented |
 | POST | `/promotions` | `{ kind: template\|runbook\|alert_rule\|agent_version, id }`；单一非生产环境 | `{ mr, path }`：净化快照签名后写入独立配置仓库并发起 MR；生产实例返回 409 | implemented |
 
@@ -233,7 +233,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/services/{id}/resilience` | | `Resilience`；仅在固定 HTTPS 五类完整来源配置且证据有效时返回 200，否则 503 | implemented |
 | POST | `/services/{id}/resilience/proposals` | `{ kind, params: { investigation_id, reason, desired } }` | 201 `{ proposal_id }`；仅保存人工审阅提案，不创建可执行动作或合并请求 | implemented |
 | GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | 无 `topology_v1` 目录项时为授权 CMDB 部分响应；配置经审查的精确来源后可返回完整 `Topology`，来源不全返回 503 | implemented |
-| GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard` + `unavailable`；单环境、单服务。唯一持久 Prometheus 目标和经审查的 `dashboard` 查询齐备且面板守恒时返回指标块；无来源时指标块为 `null`（`not_configured`），面板不完整为 `unavailable`；没有平台记录的发布/回滚/事件标记为 `null`（`not_generated`） | implemented |
+| GET | `/metrics/dashboard` | `service`, `range=1h`, `align?` | `MetricsDashboard` + `unavailable`；单环境、单服务。唯一持久 Prometheus 目标和经审查的 `dashboard` 查询齐备且面板守恒时返回指标块；无来源时指标块为 `null`（`not_configured`），面板不完整为 `unavailable`；没有平台记录的发布/回滚/事件标记为 `null`（`not_generated`）。服务可见但缺环境 `connectors.view` 时指标块为 `null`、缺 `events.view` 时标记为 `null`，原因均为 `no_authorized_target`，不再整页 403（PA-09）；不可见或不存在的服务仍 403 | implemented |
 | POST | `/metrics/ask` | `{ service, view, range, question, request_id }`；`service` 为持久应用 ID，`view=request_rate\|http_p95_seconds`，`range=15m\|1h`，`request_id` 是 16–128 字符重试标识 | 首次接受为 201 `{ conversation_id }`；同一操作者同参数重试为 200，修改同一重试标识的内容返回 409。仅用当前有权的精确 Prometheus 来源快照；前端尚未发送必要字段 | implemented |
 | GET | `/traces` | `scope: app\|agent`, `view`, `q`（应用：有界 TraceQL 选择器；Agent：有界精确过滤）, `service` | 应用范围读取有界 Tempo 集合并逐条校验闭合；部署声明搜索完整（`tempo_search_fail_closed`）时返回完整 `TraceList`，否则返回已找到的 Trace、`partial: true`，总数/视图计数/分面/直方图/散点为 `null`（`not_configured`）；Agent 范围读取当前受权的持久已结束运行及已报告 Span；均带 `unavailable` | implemented |
 | GET | `/traces/{id}` | | 应用范围 `TraceView`：已存储且闭合的 Span 树、关键路径说明与服务调用图；无可靠关联时省略日志/链接 | implemented |

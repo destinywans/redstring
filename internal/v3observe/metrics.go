@@ -321,7 +321,11 @@ func dashboardBurnValue(window string, v float64) dashboardBurn {
 
 // newDashboard lays out the window and the persisted markers. Metric blocks
 // stay null until applyMetrics proves them.
-func newDashboard(window connectors.TimeWindow, marker dashboardMarkers) metricsDashboard {
+func newDashboard(window connectors.TimeWindow, marker dashboardMarkers, markerReason ...string) metricsDashboard {
+	absent := "not_generated"
+	if len(markerReason) > 0 {
+		absent = markerReason[0]
+	}
 	out := metricsDashboard{Unavailable: map[string]string{}}
 	out.Window.Labels = make([]string, dashboardPoints)
 	visibleStart := window.Start.Add(dashboardStep * time.Second)
@@ -334,13 +338,13 @@ func newDashboard(window connectors.TimeWindow, marker dashboardMarkers) metrics
 		index := dashboardIndex(*marker.release, visibleStart)
 		out.Window.ReleaseAt = &index
 	} else {
-		out.Unavailable["window.release_at"] = "not_generated"
+		out.Unavailable["window.release_at"] = absent
 	}
 	if inWindow(marker.rollback) {
 		index := dashboardIndex(*marker.rollback, visibleStart)
 		out.Window.RollbackAt = &index
 	} else {
-		out.Unavailable["window.rollback_at"] = "not_generated"
+		out.Unavailable["window.rollback_at"] = absent
 	}
 	if marker.incidentStart != nil && marker.incidentEnd != nil {
 		incident := [2]int{dashboardIndex(*marker.incidentStart, visibleStart), dashboardIndex(*marker.incidentEnd, visibleStart)}
@@ -356,7 +360,7 @@ func newDashboard(window connectors.TimeWindow, marker dashboardMarkers) metrics
 		label := fmt.Sprintf("Incident · %s–%s UTC", marker.incidentStart.UTC().Format("15:04"), marker.incidentEnd.UTC().Format("15:04"))
 		out.Window.Incident, out.Window.IncidentLabel = &incident, &label
 	} else {
-		out.Unavailable["window.incident"], out.Unavailable["window.incident_label"] = "not_generated", "not_generated"
+		out.Unavailable["window.incident"], out.Unavailable["window.incident_label"] = absent, absent
 	}
 	out.metricsUnavailable("unavailable")
 	return out
@@ -520,41 +524,26 @@ func (s *Service) dashboardSource(ctx context.Context, app, env string) (dashboa
 	return seal, ""
 }
 
-func (s *Service) currentDashboardSource(ctx context.Context, r *http.Request, service, app, env string, result *v3integrations.PrometheusMetricEvidence, before dashboardSourceSeal, beforeState string, target *float64) bool {
-	current, state := dashboardSourceSeal{}, "not_configured"
-	if s.MetricReader != nil {
-		current, state = s.dashboardSource(ctx, app, env)
-	}
-	if state != beforeState || !reflect.DeepEqual(current, before) {
+func (s *Service) currentDashboardSource(ctx context.Context, r *http.Request, service string, grants dashboardGrants, result *v3integrations.PrometheusMetricEvidence, before dashboardSourceSeal, beforeState string, target *float64) bool {
+	current, ok := s.dashboardGrantsForService(ctx, r, service, grants.env)
+	if !ok || current != grants {
 		return false
 	}
-	if result != nil && (state != "" || current.binding != result.BindingID || current.connector != result.ConnectorID || current.resource != result.ResourceID) {
+	seal, state := dashboardSourceSeal{}, "not_configured"
+	switch {
+	case !grants.metrics:
+		state = "no_authorized_target"
+	case s.MetricReader != nil:
+		seal, state = s.dashboardSource(ctx, grants.app, grants.env)
+	}
+	if state != beforeState || !reflect.DeepEqual(seal, before) {
 		return false
 	}
-	var currentService string
-	if s.Store.DB.QueryRow(ctx, `SELECT id FROM applications WHERE id=$1 AND (id=$2 OR key=$2) AND NOT archived`, app, service).Scan(&currentService) != nil {
+	if result != nil && (state != "" || seal.binding != result.BindingID || seal.connector != result.ConnectorID || seal.resource != result.ResourceID) {
 		return false
 	}
-	currentTarget, err := s.dashboardSLOTarget(ctx, app, env)
-	if err != nil || (currentTarget == nil) != (target == nil) || currentTarget != nil && *currentTarget != *target {
-		return false
-	}
-	team := current.team
-	if team == "" && s.Store.DB.QueryRow(ctx, `SELECT COALESCE(owner_team_id,'') FROM applications WHERE id=$1 AND NOT archived`, app).Scan(&team) != nil {
-		return false
-	}
-	user := httpapi.CurrentUser(r)
-	serviceGrant := s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "services", Action: "view", EnvironmentID: env, ApplicationID: app})
-	if errors.Is(serviceGrant, store.ErrForbidden) && team != "" {
-		serviceGrant = s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "services", Action: "view", EnvironmentID: env, TeamID: team})
-	}
-	if serviceGrant != nil {
-		return false
-	}
-	// The reader requires an environment/global connector grant, regardless
-	// of any narrower application or team connector grant.
-	connectorGrant := s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "connectors", Action: "view", EnvironmentID: env})
-	return connectorGrant == nil && s.dashboardEventGrant(ctx, r, v3integrations.PrometheusMetricEvidence{ApplicationID: app, EnvironmentID: env})
+	currentTarget, err := s.dashboardSLOTarget(ctx, grants.app, grants.env)
+	return err == nil && (currentTarget == nil) == (target == nil) && (currentTarget == nil || *currentTarget == *target)
 }
 
 // dashboardSLOTarget is nil when no usable target is configured. Only a failed
@@ -584,12 +573,22 @@ func (s *Service) dashboardEventGrant(ctx context.Context, r *http.Request, resu
 	return err == nil
 }
 
-func (s *Service) dashboardPreGrantForService(ctx context.Context, r *http.Request, service, environment string) (string, bool) {
+// dashboardGrants are evaluated separately so a visible service is not a
+// page-level 403 when only its metric source or incident markers are not
+// authorized: those blocks are null with no_authorized_target instead.
+type dashboardGrants struct {
+	app, env        string
+	metrics, events bool
+}
+
+// dashboardGrantsForService requires services.view on exactly one persisted
+// application; a hidden and an absent service are indistinguishable (false).
+func (s *Service) dashboardGrantsForService(ctx context.Context, r *http.Request, service, environment string) (dashboardGrants, bool) {
 	rows, err := s.Store.DB.Query(ctx, `SELECT a.id,COALESCE(a.owner_team_id,'') FROM applications a JOIN v3_application_environments ve
  ON ve.application_id=a.id AND ve.environment_id=$2
  WHERE (a.id=$1 OR a.key=$1) AND NOT a.archived LIMIT 2`, service, environment)
 	if err != nil {
-		return "", false
+		return dashboardGrants{}, false
 	}
 	type candidate struct{ app, team string }
 	var apps []candidate
@@ -603,7 +602,7 @@ func (s *Service) dashboardPreGrantForService(ctx context.Context, r *http.Reque
 	err = rows.Err()
 	rows.Close()
 	if err != nil || len(apps) != 1 {
-		return "", false
+		return dashboardGrants{}, false
 	}
 	app, team := apps[0].app, apps[0].team
 	user := httpapi.CurrentUser(r)
@@ -612,12 +611,13 @@ func (s *Service) dashboardPreGrantForService(ctx context.Context, r *http.Reque
 		serviceGrant = s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "services", Action: "view", EnvironmentID: environment, TeamID: team})
 	}
 	if serviceGrant != nil {
-		return "", false
+		return dashboardGrants{}, false
 	}
-	if s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "connectors", Action: "view", EnvironmentID: environment}) != nil {
-		return "", false
-	}
-	return app, s.dashboardEventGrant(ctx, r, v3integrations.PrometheusMetricEvidence{ApplicationID: app, EnvironmentID: environment})
+	// The reader requires an environment/global connector grant, regardless
+	// of any narrower application or team connector grant.
+	metrics := s.Access.Authorize(ctx, user, rbac.V3Decision{Module: "connectors", Action: "view", EnvironmentID: environment}) == nil
+	events := s.dashboardEventGrant(ctx, r, v3integrations.PrometheusMetricEvidence{ApplicationID: app, EnvironmentID: environment})
+	return dashboardGrants{app: app, env: environment, metrics: metrics, events: events}, true
 }
 
 func alignedDashboardEnd(now, incident time.Time) (time.Time, bool) {
@@ -659,16 +659,20 @@ func (s *Service) metricDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
-	app, granted := s.dashboardPreGrantForService(ctx, r, service, environments[0])
-	if !granted {
-		httpapi.Error(w, 403, "forbidden", "Incident timeline is outside your authorized scope")
+	grants, visible := s.dashboardGrantsForService(ctx, r, service, environments[0])
+	if !visible || align && !grants.events {
+		httpapi.Error(w, 403, "forbidden", "Service or incident timeline is outside your authorized scope")
 		return
 	}
+	app := grants.app
 	// No registered Prometheus source is a deployment state, not a failed
 	// read: the metric blocks are null with not_configured and the persisted
-	// markers are still shown.
+	// markers are still shown. Without connectors.view no source is looked up.
 	before, sourceState := dashboardSourceSeal{}, "not_configured"
-	if s.MetricReader != nil {
+	switch {
+	case !grants.metrics:
+		sourceState = "no_authorized_target"
+	case s.MetricReader != nil:
 		before, sourceState = s.dashboardSource(ctx, app, environments[0])
 	}
 	switch sourceState {
@@ -700,6 +704,9 @@ func (s *Service) metricDashboard(w http.ResponseWriter, r *http.Request) {
 	window := connectors.TimeWindow{Start: end.Add(time.Hour * -1), End: end, StepSeconds: dashboardStep}
 	var result *v3integrations.PrometheusMetricEvidence
 	metricReason := "not_configured"
+	if sourceState == "no_authorized_target" {
+		metricReason = sourceState
+	}
 	if sourceState == "" {
 		evidence, err := s.MetricReader.QueryService(ctx, scope, httpapi.CurrentUser(r), service, environments[0], "dashboard", window)
 		var readErr *v3integrations.PrometheusReadError
@@ -717,21 +724,21 @@ func (s *Service) metricDashboard(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if !s.dashboardEventGrant(ctx, r, v3integrations.PrometheusMetricEvidence{ApplicationID: app, EnvironmentID: environments[0]}) {
-		httpapi.Error(w, 403, "forbidden", "Incident timeline is outside your authorized scope")
-		return
-	}
 	target, err := s.dashboardSLOTarget(ctx, app, environments[0])
 	if err != nil {
 		httpapi.Error(w, 503, "slo_unavailable", "Service SLO target could not be read")
 		return
 	}
-	markers, err := s.loadDashboardMarkers(ctx, app, environments[0], window)
-	if err != nil {
-		httpapi.Error(w, 503, "dashboard_markers_unavailable", "Release, rollback or incident markers could not be read")
-		return
+	var markers dashboardMarkers
+	markerReason := "no_authorized_target"
+	if grants.events {
+		markerReason = "not_generated"
+		if markers, err = s.loadDashboardMarkers(ctx, app, environments[0], window); err != nil {
+			httpapi.Error(w, 503, "dashboard_markers_unavailable", "Release, rollback or incident markers could not be read")
+			return
+		}
 	}
-	dashboard := newDashboard(window, markers)
+	dashboard := newDashboard(window, markers, markerReason)
 	if result == nil || !dashboard.applyMetrics(*result, window, target) {
 		dashboard.metricsUnavailable(metricReason)
 	}
@@ -755,7 +762,7 @@ func (s *Service) metricDashboard(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 401, "unauthorized", "Session is no longer active")
 		return
 	}
-	if ctx.Err() != nil || !s.currentDashboardSource(ctx, r, service, app, environments[0], result, before, sourceState, target) {
+	if ctx.Err() != nil || !s.currentDashboardSource(ctx, r, service, grants, result, before, sourceState, target) {
 		httpapi.Error(w, 409, "metric_source_changed", "Dashboard source or authorization changed")
 		return
 	}

@@ -7,6 +7,7 @@ import { Badge, Brand, Btn, Card, Chip, Code, Col, Dot, Env, Icon, Input, LabelC
 import { toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
+import { Gate } from "../../ui/permission";
 import "./events.css";
 import { ChipSelect, AddChip, SampleOnly } from "../../ui/demo";
 import { useFirstSelection } from "../../ui/selection";
@@ -55,12 +56,16 @@ export default function RulesPage() {
       crumbs={[tx("事件与告警", "Events"), tx("告警规则", "Alert rules")]}
       actions={
         <>
-          <Btn kind="ghost" icon="download" to="/alert-rules/new?tab=import">
-            {tx("导入 Prometheus 规则", "Import Prometheus rules")}
-          </Btn>
-          <Btn kind="primary" icon="plus" to="/alert-rules/new">
-            {tx("新建规则", "New rule")}
-          </Btn>
+          <Gate need={["alert_rules", "change"]}>
+            <Btn kind="ghost" icon="download" to="/alert-rules/new?tab=import">
+              {tx("导入 Prometheus 规则", "Import Prometheus rules")}
+            </Btn>
+          </Gate>
+          <Gate need={["alert_rules", "change"]}>
+            <Btn kind="primary" icon="plus" to="/alert-rules/new">
+              {tx("新建规则", "New rule")}
+            </Btn>
+          </Gate>
         </>
       }
     >

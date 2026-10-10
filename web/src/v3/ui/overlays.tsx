@@ -243,10 +243,10 @@ export function HoverPeek({ children, content, place = "bottom-start", delay = 2
   );
 }
 
-export function Tooltip({ label, children }: { label: string; children: ReactNode }) {
+export function Tooltip({ label, children, grow }: { label: string; children: ReactNode; grow?: number }) {
   const [rect, setRect] = useState<DOMRect | null>(null);
   return (
-    <span onMouseEnter={(e) => setRect(e.currentTarget.getBoundingClientRect())} onMouseLeave={() => setRect(null)} style={{ display: "inline-flex" }}>
+    <span onMouseEnter={(e) => setRect(e.currentTarget.getBoundingClientRect())} onMouseLeave={() => setRect(null)} style={{ display: "inline-flex", flexGrow: grow }}>
       {children}
       {rect &&
         createPortal(

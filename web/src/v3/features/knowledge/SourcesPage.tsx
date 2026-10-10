@@ -6,6 +6,7 @@ import { Badge, Brand, Btn, Card, Chip, Col, Input, KV, Mono, Muted, Num, Panel,
 import { DataTable } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
+import { Gate } from "../../ui/permission";
 import { PageHead } from "../conversation/ConversationsPage";
 import "./knowledge.css";
 import { ChipSelect, usePickLists } from "../../ui/demo";
@@ -70,7 +71,7 @@ export default function SourcesPage() {
     }
   };
   return (
-    <Page flush crumbs={[tx("知识与记忆", "Knowledge"), tx("知识来源", "Sources")]} actions={<Btn kind="primary" icon="plus" to="/knowledge-sources/new">{tx("添加来源", "Add source")}</Btn>}>
+    <Page flush crumbs={[tx("知识与记忆", "Knowledge"), tx("知识来源", "Sources")]} actions={<Gate need={["knowledge", "manage"]}><Btn kind="primary" icon="plus" to="/knowledge-sources/new">{tx("添加来源", "Add source")}</Btn></Gate>}>
       <div className="v3-split knowledge-sources-layout">
         <div className="main">
           <div className="v3-content">

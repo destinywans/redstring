@@ -15,6 +15,7 @@ import type { Me, WatchedService } from "../api/types";
 import { EnvSwitch, useInstanceLoader } from "./EnvSwitch";
 import NoAccessPage, { signOutToLogin } from "../features/auth/NoAccessPage";
 import { useEnv } from "./environment";
+import { Gated, useNeed } from "../ui/permission";
 import "./shell.css";
 
 function Section({ item, active, activeChild }: { item: NavItem; active: boolean; activeChild?: string }) {
@@ -65,6 +66,7 @@ function Sidebar() {
   const open = useCommandPalette((s) => s.setOpen);
   const me = useGet<Me>("/me");
   const watched = useGet<{ items: WatchedService[] }>("/me/watched-services");
+  const newChatBlocked = useNeed(["conversation", "change"]);
   const navTo = useNavigate();
   return (
     <nav className="v3-sidebar" aria-label={tx("主导航", "Main navigation")}>
@@ -93,9 +95,17 @@ function Sidebar() {
           </span>
           <Kbd>⌘K</Kbd>
         </button>
-        <Link to="/conversations/new" className="new-btn" aria-label={tx("新建对话", "New conversation")} title={tx("新建对话", "New conversation")}>
-          <Icon name="plus" size={15} />
-        </Link>
+        {newChatBlocked ? (
+          <Gated reason={newChatBlocked}>
+            <button type="button" className="new-btn" aria-label={tx("新建对话", "New conversation")}>
+              <Icon name="plus" size={15} />
+            </button>
+          </Gated>
+        ) : (
+          <Link to="/conversations/new" className="new-btn" aria-label={tx("新建对话", "New conversation")} title={tx("新建对话", "New conversation")}>
+            <Icon name="plus" size={15} />
+          </Link>
+        )}
       </div>
       <div className="nav-list">
         {NAV.map((s) => (

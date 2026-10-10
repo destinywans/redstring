@@ -13,11 +13,13 @@ import { Markdown } from "../../ui/Markdown";
 import { toast } from "../../ui/overlays";
 import { Axis, BoxPlot, Gauge, HBars, Heatmap, Lines, SmallMultiples, StackedArea } from "../../charts";
 import { useI18n } from "../../i18n";
+import { useNeed } from "../../ui/permission";
 import "./observe.css";
 import { ChipSelect, RangeChip, AddChip, openExternal, openForm, usePickLists } from "../../ui/demo";
 
 export default function MetricsPage() {
   const { tx } = useI18n();
+  const askBlocked = useNeed(["conversation", "change"]);
   const nav = useNavigate();
   const [params] = useSearchParams();
   const service = params.get("service") ?? (API_MODE === "mock" ? "checkout-api" : "");
@@ -361,7 +363,7 @@ export default function MetricsPage() {
             )}
           </Col>
           <div style={{ padding: "0 16px 16px" }}>
-            <Composer minRows={1} maxRows={6} placeholder={tx("继续追问这些图…", "Ask more about these charts…")} attachments={[{ kind: "view", id: "view", label: tx("当前视图", "Current view") }]} viewAttachment={{ kind: "view", id: "view", label: tx("当前视图", "Current view") }} onSend={(t, att, x) => nav(newConversationUrl(t, att, x))} />
+            <Composer minRows={1} maxRows={6} blocked={askBlocked} placeholder={tx("继续追问这些图…", "Ask more about these charts…")} attachments={[{ kind: "view", id: "view", label: tx("当前视图", "Current view") }]} viewAttachment={{ kind: "view", id: "view", label: tx("当前视图", "Current view") }} onSend={(t, att, x) => nav(newConversationUrl(t, att, x))} />
           </div>
         </aside>
       </div>

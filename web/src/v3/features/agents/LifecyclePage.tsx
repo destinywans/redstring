@@ -1,13 +1,15 @@
 import { Fragment, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet } from "../../api/client";
+import { API_MODE, api, useGet } from "../../api/client";
+import { serviceParts } from "../../api/ids";
+import { Gate } from "../../ui/permission";
 import type { AgentSummary, Lifecycle } from "../../api/types";
 import { Badge, Btn, Card, Col, Dot, Icon, Mono, Muted, Num, Row, SearchBox, Skeleton, Spacer, State, Strong, Tile, type IconName } from "../../ui/core";
 import { DataTable } from "../../ui/data";
 import { useI18n } from "../../i18n";
 import "./agents.css";
-import { openForm } from "../../ui/demo";
+import { openForm, usePickLists } from "../../ui/demo";
 import { toast } from "../../ui/overlays";
 import { Unavailable, UnknownValue } from "../../ui/unknown";
 
@@ -23,15 +25,49 @@ export default function LifecyclePage() {
   const { tx } = useI18n();
   const nav = useNavigate();
   const lb = useAgentLabels();
-  const { data } = useGet<Lifecycle>("/agents/lifecycle");
+  const { data, refetch } = useGet<Lifecycle>("/agents/lifecycle");
+  const demo = API_MODE === "mock";
+  const lists = usePickLists();
+  const [creating, setCreating] = useState(false);
   const [q, setQ] = useState("");
   const rows = data?.agents.filter((a) => !q || a.id.includes(q) || a.name.includes(q));
   return (
     <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("生命周期", "Lifecycle")]} actions={
+        <Gate need={["agents", "manage"]}>
         <Btn
           kind="primary"
           icon="plus"
+          loading={creating}
           onClick={async () => {
+            // Real agents register an ID, name and summary under one application (POST /agents); they start paused at L0.
+            if (!demo) {
+              if (!lists.services.length) return toast(tx("还没有可选的服务：先在服务目录登记", "No services to choose yet — register one in the service catalog first"), { tone: "danger" });
+              const r = await openForm({
+                title: tx("新建 Agent", "New agent"),
+                desc: tx("新 Agent 从 L0（只读建议）开始并处于暂停状态，评测通过后才能提升等级。", "New agents start paused at L0 (read-only suggestions) and move up only after passing evals."),
+                fields: [
+                  { key: "name", label: tx("名称", "Name"), required: true, placeholder: tx("例如：容量巡检", "e.g. Capacity patrol") },
+                  { key: "id", label: tx("标识", "Identifier"), required: true, mono: true, placeholder: "capacity-patrol", hint: tx("字母、数字、点、下划线或短横线，创建后不能修改", "Letters, digits, dots, underscores or dashes; can't change later") },
+                  { key: "service", label: tx("所属应用", "Application"), type: "select", options: lists.services, required: true },
+                  { key: "summary", label: tx("职责", "Responsibility"), type: "textarea", placeholder: tx("它负责什么、只读取哪些数据", "What it does and which data it may read") },
+                ],
+                submit: tx("创建 Agent", "Create agent"),
+              });
+              if (!r) return;
+              const application = serviceParts(r.service || lists.services[0].value)?.application;
+              if (!application) return toast(tx("没能识别所选服务的应用", "Couldn't tell the chosen service's application"), { tone: "danger" });
+              setCreating(true);
+              try {
+                await api("POST", "/agents", { body: { id: r.id.trim(), application_id: application, name: r.name.trim(), summary: r.summary?.trim() ?? "" } });
+                void refetch();
+                toast(tx("Agent「{n}」已创建，等级 L0，处于暂停状态", "Agent “{n}” created at L0, paused", { n: r.name }));
+              } catch (e) {
+                toast(e instanceof Error ? e.message : tx("创建失败，请稍后重试", "Couldn't create; try again later"), { tone: "danger" });
+              } finally {
+                setCreating(false);
+              }
+              return;
+            }
             const v = await openForm({
               title: tx("新建 Agent", "New agent"),
               desc: tx("新 Agent 从 L0（只读建议）开始，评测通过后才能提升等级。", "New agents start at L0 (read-only suggestions) and move up only after passing evals."),
@@ -47,6 +83,7 @@ export default function LifecyclePage() {
         >
           {tx("新建 Agent", "New agent")}
         </Btn>
+        </Gate>
       }>
       <div className="v3-split">
         <div className="main">

@@ -54,6 +54,8 @@ export type Me = Person & {
   roles: string[];
   mfa: { totp: boolean; passkeys: number };
   preferences: Preferences;
+  /** Effective grants per selected environment: environment → module → action → reach; a missing action is not granted (PA-64). */
+  permissions?: Record<string, Record<string, Record<string, "all" | "scoped" | "conditional">>>;
 };
 export type Preferences = { theme: "light" | "dark" | "system"; locale: "zh-CN" | "en-US"; density: "comfortable" | "compact"; reduce_motion: boolean };
 export type WatchedService = { id: string; name: string; status: "ok" | "warn" | "danger"; signal?: string };
@@ -75,7 +77,10 @@ export type HomeSummary = {
   briefing: { summary: string; generated_at: string; citations: { n: number; label: string; href: string }[]; oncall: { name: string; until: string; next: string } | null } | null;
   suggestions: { id: string; text: string; tone?: Tone; icon: string }[];
   kpis: Kpi[];
-  attention: { id: string; severity: Severity; service: string; env: EnvName; symptom: string; meta: string; ai: "done" | "running" | null; owner?: string; href: string }[];
+  /** alert_state: is the incident's alert still firing (null when the source didn't say). Resolved items stay listed (D7). */
+  attention: { id: string; severity: Severity; service: string; env: EnvName; symptom: string; meta: string; ai: "done" | "running" | null; owner?: string; href: string; alert_state?: "firing" | "resolved" | null }[];
+  /** Distinct visible services whose alerts are still firing; null without events.view (PA-58). */
+  firing_services?: number | null;
   todos: { id: string; kind: "approval" | "report" | "runbook" | "access"; title: string; meta: string; action: string; href: string }[];
   services: { id: string; name: string; tier: Tier | null; status: "ok" | "warn" | "danger" | null; budget_pct: number | null; p99: string | null; error_rate: string | null; series: number[] | null }[];
   /** labels are UTC HH:MM (compatibility); bucket i starts at start + i * step_seconds — label it in the viewer's zone (PA-25). */

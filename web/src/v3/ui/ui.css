@@ -920,6 +920,14 @@
   margin: 4px 6px;
   background: var(--border);
 }
+/* A write entry the person lacks the permission for (PA-64): the wrapper takes hover for the tooltip. */
+.perm-gate {
+  display: inline-flex;
+  cursor: not-allowed;
+}
+.perm-gate > :not(.sr-only) {
+  pointer-events: none;
+}
 .v3-tooltip {
   position: fixed;
   z-index: 80;

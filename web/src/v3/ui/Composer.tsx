@@ -5,6 +5,7 @@ import { Popover, toast, useAnchoredPanel } from "./overlays";
 import { Sparkline } from "../charts";
 import { ModelPicker } from "./ModelPicker";
 import { useI18n } from "../i18n";
+import { Gated } from "./permission";
 import { useGet } from "../api/client";
 import { addLink, addPaste, formatSize, uploadFile } from "../api/upload";
 import type { CommandItem, MentionCandidate, MentionPreview, ModelChoice, RefKind, Upload, UploadKind } from "../api/types";
@@ -143,6 +144,7 @@ export function Composer({
   viewAttachment,
   spanRef,
   compact,
+  blocked,
 }: {
   placeholder: string;
   onSend: (text: string, attachments: Attachment[], extra: SendExtra) => void;
@@ -168,6 +170,8 @@ export function Composer({
   spanRef?: RefObject<HTMLElement | null>;
   /** Narrow hosts (Ask AI card): @ and / show icons only, the model chip drops the vendor prefix. */
   compact?: boolean;
+  /** Why this person can't send here (missing permission, PA-64); typing stays possible, sending is disabled. */
+  blocked?: string | null;
 }) {
   const { tx, zh } = useI18n();
   const [text, setText] = useState("");
@@ -294,7 +298,7 @@ export function Composer({
   };
 
   const uploading = files.some((f) => !f.upload && !f.error);
-  const canSend = !sending && !uploading && (!!text.trim() || att.length > 0 || files.some((f) => f.upload));
+  const canSend = !blocked && !sending && !uploading && (!!text.trim() || att.length > 0 || files.some((f) => f.upload));
   const send = () => {
     if (!canSend) return;
     onSend(text.trim(), att, { files: files.filter((f) => f.upload).map((f) => f.upload!), choice });
@@ -481,9 +485,11 @@ export function Composer({
             <span />
           </button>
         ) : (
-          <button type="button" className="send" aria-label={tx("发送", "Send")} onClick={send} disabled={!canSend}>
-            {sending ? <span className="v3-spinner spin" /> : <Icon name="up" size={16} />}
-          </button>
+          <Gated reason={blocked ?? null}>
+            <button type="button" className="send" aria-label={tx("发送", "Send")} onClick={send} disabled={!canSend}>
+              {sending ? <span className="v3-spinner spin" /> : <Icon name="up" size={16} />}
+            </button>
+          </Gated>
         )}
       </div>
       {dragging && (

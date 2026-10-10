@@ -7,6 +7,7 @@ import type { CanvasKind, CanvasStatus, CanvasSummary, CanvasTemplateOption, Can
 import { AvatarGroup, Badge, Btn, Chip, Field, Icon, Input, Muted, Pills, Row, SearchBox, Skeleton, Spacer, Textarea, Tile, Toggle, cx, type IconName, type Tone } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
+import { Gate } from "../../ui/permission";
 import { PageHead } from "../conversation/ConversationsPage";
 import "./canvases.css";
 import { ChipSelect, AddChip, useFacet, usePickLists } from "../../ui/demo";
@@ -86,9 +87,11 @@ export default function CanvasesPage() {
           <Btn icon="grid" to="/templates">
             {tx("从模板新建", "From template")}
           </Btn>
-          <Btn kind="primary" icon="plus" onClick={() => setDlg(true)}>
-            {tx("新建画布", "New canvas")}
-          </Btn>
+          <Gate need={["canvas", "change"]}>
+            <Btn kind="primary" icon="plus" onClick={() => setDlg(true)}>
+              {tx("新建画布", "New canvas")}
+            </Btn>
+          </Gate>
         </>
       }
     >

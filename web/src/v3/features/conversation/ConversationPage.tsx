@@ -15,6 +15,7 @@ import { useModelCatalog, describeChoice } from "../../ui/ModelPicker";
 import { PartView, type PartActions } from "./Parts";
 import { ArtifactPanel, ARTIFACT_ICON } from "./ArtifactPanel";
 import { useI18n } from "../../i18n";
+import { useNeed } from "../../ui/permission";
 import "./conversation.css";
 
 function MessageView({ m, conv, actions, onOpenArtifact }: { m: Message; conv: Conversation; actions: PartActions; onOpenArtifact: (id: string) => void }) {
@@ -201,6 +202,7 @@ function SidePanel({ conv }: { conv: Conversation }) {
 export default function ConversationPage() {
   const { id = "" } = useParams();
   const { tx } = useI18n();
+  const chatBlocked = useNeed(["conversation", "change"]);
   const nav = useNavigate();
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
@@ -358,6 +360,7 @@ export default function ConversationPage() {
           </div>
           <div className="conv-composer">
             <Composer
+              blocked={chatBlocked}
               placeholder={tx("继续提问，或让 AI 执行一个动作…", "Ask a follow-up, or ask the AI to take an action…")}
               sending={sending}
               onStop={stopTurn}
@@ -398,18 +401,21 @@ export function NewConversationPage() {
   const [params] = useSearchParams();
   const nav = useNavigate();
   const { tx } = useI18n();
+  const chatBlocked = useNeed(["conversation", "change"]);
+  const [failed, setFailed] = useState<string | null>(null);
   const q = params.get("q");
   const started = useRef(false);
   useEffect(() => {
-    if (!q || started.current) return;
+    // Without conversation·change the question stays unsent; the composer below says which permission is missing.
+    if (!q || started.current || chatBlocked) return;
     started.current = true;
     const carry = new URLSearchParams({ send: q });
     for (const k of ["model", "reasoning", "files"]) if (params.get(k)) carry.set(k, params.get(k)!);
-    void api<{ id: string }>("POST", "/conversations", { body: { text: q, context: params.get("context"), model: params.get("model") } }).then(({ id }) =>
-      nav(`/conversations/${id}?${carry}`, { replace: true }),
-    );
-  }, [q, nav, params]);
-  if (q)
+    api<{ id: string }>("POST", "/conversations", { body: { text: q, context: params.get("context"), model: params.get("model") } })
+      .then(({ id }) => nav(`/conversations/${id}?${carry}`, { replace: true }))
+      .catch((e: unknown) => setFailed(e instanceof Error ? e.message : tx("没能创建对话，请稍后重试", "Couldn't create the conversation; try again later")));
+  }, [q, nav, params, chatBlocked, tx]);
+  if (q && !chatBlocked && !failed)
     return (
       <Page crumbs={[tx("对话与画布", "Conversations & canvases"), tx("新对话", "New")]}>
         <div className="v3-col" style={{ alignItems: "center", padding: 80, gap: 10 }}>
@@ -423,8 +429,13 @@ export function NewConversationPage() {
       <div className="v3-col" style={{ alignItems: "center", padding: "80px 24px", gap: 16 }}>
         <AiAvatar size={40} />
         <h1 style={{ fontSize: 20, fontWeight: 600 }}>{tx("开始一个新对话", "Start a new conversation")}</h1>
+        {failed && (
+          <div className="unk-banner warn" role="alert" style={{ width: "min(720px, 100%)" }}>
+            <span className="grow">{failed}</span>
+          </div>
+        )}
         <div style={{ width: "min(720px, 100%)" }}>
-          <Composer big autoFocus minRows={4} placeholder={tx("描述问题、下指令，或用 / 选择命令…", "Describe a problem, give an instruction, or pick a / command…")} onSend={(t, att, x) => nav(newConversationUrl(t, att, x))} />
+          <Composer big autoFocus minRows={4} blocked={chatBlocked} placeholder={tx("描述问题、下指令，或用 / 选择命令…", "Describe a problem, give an instruction, or pick a / command…")} onSend={(t, att, x) => nav(newConversationUrl(t, att, x))} />
         </div>
       </div>
     </Page>

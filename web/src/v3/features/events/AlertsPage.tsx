@@ -11,6 +11,7 @@ import { toast, Tooltip } from "../../ui/overlays";
 import { DataTable } from "../../ui/data";
 import { Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
+import { Gate } from "../../ui/permission";
 import { PersonPeekLink, ServicePeekLink } from "./peeks";
 import "./events.css";
 import { ChipSelect } from "../../ui/demo";
@@ -110,9 +111,11 @@ export default function AlertsPage() {
           <Btn kind="ghost" icon="sliders" to="/alert-rules">
             {tx("告警规则", "Rules")}
           </Btn>
-          <Btn icon="clock" to="/silences?new=silence">
-            {tx("新建静默", "New silence")}
-          </Btn>
+          <Gate need={["silences", "manage"]}>
+            <Btn icon="clock" to="/silences?new=silence">
+              {tx("新建静默", "New silence")}
+            </Btn>
+          </Gate>
         </>
       }
     >

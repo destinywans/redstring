@@ -36,6 +36,7 @@ mock("GET", "/home", () => ({
     { id: "mttr", label: l("平均恢复 · 本周", "MTTR · this week"), value: "38", unit: l("分钟", "min"), delta: "−9", delta_good: true, tone: "ok", sub: l("较上周缩短 19%", "19% faster than last week"), series: [52, 49, 47, 50, 44, 41, 43, 40, 38, 38] },
     { id: "slo", label: l("T0 SLO 达标", "T0 SLOs met"), value: "7 / 8", tone: "warn", sub: l("checkout-api 预算剩余 38%", "checkout-api has 38% budget left"), series: [8, 8, 8, 8, 8, 8, 8, 8, 7, 7] },
   ],
+  firing_services: 2,
   attention: [
     { id: "a1", severity: "P1", service: "checkout-api", env: "prod", symptom: l("5xx 比例 8.4%（基线 0.2%）", "5xx ratio 8.4% (baseline 0.2%)"), meta: l("14:05 起 · 根因：库存调用重试放大", "Since 14:05 · cause: inventory retry amplification"), ai: "done", href: "/canvas/INV-231" },
     { id: "a2", severity: "P2", service: "inventory-service", env: "prod", symptom: l("inventory-03 磁盘 IO 等待 180 ms（基线 2 ms）", "inventory-03 disk IO wait 180 ms (baseline 2 ms)"), meta: l("14:02 起 · Prometheus 告警", "Since 14:02 · Prometheus alert"), ai: null, href: "/alerts" },

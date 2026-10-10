@@ -1,6 +1,6 @@
 # Kubernetes 回滚执行器与连接器登记切换设计（PA-08、PA-19 P3/P4）
 
-**状态**：2026-10-10 用户批准，决定见第 8 节。分两阶段交付：第一阶段为 P3 的 Kubernetes 部分和 PA-08 端到端；第二阶段为 P3 其余读取方、POST 与 8 KiB、默认切换、覆盖度，然后是 P4。第一阶段代码已在分支实现并通过隔离库测试，实施中的调整见第 9 节；实验和验收实例上的端到端验收（第 6 节第 2–6 步）尚未执行。
+**状态**：2026-10-10 用户批准，决定见第 8 节。分两阶段交付：第一阶段为 P3 的 Kubernetes 部分和 PA-08 端到端；第二阶段为 P3 其余读取方、POST 与 8 KiB、默认切换、覆盖度，然后是 P4。第一阶段已在两个验收实例上验收完成（实施记录见第 9 节）。第二阶段的实施方案见第 10 节，待用户确认后实现。
 
 **来源**：
 - 生产验收问题 PA-08（WAN-305）：V3 执行器只能执行静默，不能做 Kubernetes 回滚。
@@ -445,6 +445,199 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 - **回滚补丁里的元数据（PA-76）**：
   - 同一个补丁把 `kubernetes.io/change-cause` 写成 `aiops rollback to revision N (execution <ID>)`，恢复出的修订不再显示坏发布的说明，template 不动；
   - 操作注解保留在 Deployment 上，只表示"最近一次由执行器写入"。它必须和 template 在同一个补丁里才能证明这次写入已生效，事后清除就是第二次写入；也不能移到别处，因为别的对象不能和 template 在同一个原子补丁里写。
+
+## 10. 第二阶段实施方案（待确认）
+
+**对照的源码**：`claude/nifty-raman-d45327`，已快进到 `codex/wan-245-v3-page-interactions` 的 `78e6cc4`（含 `b72e547`）。下文的估算按实际代码重新做过，比第 7 节原估的"读取方切换 3–4 人日"多，原因见 10.8。
+
+### 10.1 现状核对（与第 3 节的出入）
+
+- **还在读旧绑定和遥测文件的读取方**：
+  - 日志页 `GET /logs`（`v3observe/logs.go`）；
+  - Trace 页 `GET /traces`、`GET /traces/{id}` 和视图（`v3traces`），以及按 Trace ID 跨服务查（`v3observe/traces.go`）；
+  - AI 工具 `read_service_logs`、`read_service_metrics`、`list_services`（`v3conversation`）。
+
+  它们都从 `application_environments.bindings` 枚举旧绑定，再用全局 `connectors.Telemetry` 读取。看板、服务视图、指标样本和回滚已经读统一登记。
+- **服务映射**比第 3.4 节写的范围大：
+  - 读写之外，GitLab 代码候选的接受（`mapping_candidates.go`）也改 `bindings`；
+  - 并发控制靠 `binding_revision`；
+  - 映射页还有 deploy（Argo/Jenkins）和 dash（Grafana/Kibana）两类系统，统一登记没有对应的目标类型。
+- **覆盖度**（PA-67）：导入后的目标已经会被计入。旧绑定只有在 `connector_id` 恰好是真实连接器 ID 时才算，而旧绑定写的是 `loki`、`tempo` 这类类型名，所以这部分仍显示"缺失"。
+- **`GET /connector-registrations` 和旧 `GET /integrations` 的能力标签**：V3 前端都不调用，只有旧前端（`/legacy`）和 `internal/operations` 的看板在用。
+- **旧 Worker 和自动巡查**：工具在 `cmd/aiops/telemetry.go`（`query_metrics`、`query_logs`），读全局 `connectors.Telemetry`。V3 不运行旧 Worker；巡查默认关闭，开启后在 V3 里运行。
+- **Elasticsearch 认证**：统一登记的 ES 只支持 `api_key` 和 `bearer`，实验 ES 用的是密码（Vault 里已有 `vault://aiops/lab/elasticsearch#password`）。导入时 ES 绑定因此是冲突 `auth_method_unsupported`；目前用 ES 的服务只能读旧登记。
+- **POST 查询**：已用只读查询核对，实验 Prometheus（3.13.3）和 Loki（3.7.0）在 127.0.0.1 上直接接受 POST 表单。验收实例直连这两个地址，中间没有代理，所以实验环境不用为 POST 做任何改动。
+
+### 10.2 共用基础（第 0 步，不改变行为）
+
+所有读取方都通过这一层切换，代码只写一次：
+
+- **按连接器构造客户端**：
+  - 给 `connectors.TelemetryEndpoint` 加一个按请求取凭据的钩子，凭据值经现有的凭据批准从 Vault 读取，不再只能读文件；
+  - 由解析器给出的连接器和目录范围，合成只含该连接器、该服务范围的 `connectors.Telemetry`，日志和 Trace 现有的查询代码原样复用；
+  - 客户端按"连接器 ID + 配置摘要"缓存，摘要覆盖端点、认证方式、凭据引用、租户和范围，任一项变化后下次读取就重建。
+- **逐个读取方切换**：
+  - 新增 `AIOPS_V3_UNIFIED_READERS`，取值为逗号分隔的读取方：`coverage`、`mappings`、`logs`、`traces`、`ai_metrics`、`mapping_writes`、`registrations`；
+  - 列在里面的读取方读统一登记，其余照旧，`compare` 模式的对照日志继续记录；
+  - `AIOPS_V3_SOURCE_REGISTRY=unified` 表示全部读取方。
+- **POST 与 8 KiB（第 3.7 节）**：
+  - Prometheus 的区间查询和即时查询、Loki 的 `query_range` 在新路径上改用 POST 表单；
+  - 目录单条表达式上限从 2048 提到 8192；
+  - 查询窗口规范到毫秒（第一阶段 PA-73 时的建议）。
+  - 旧的 GET 读取在 P4 随旧客户端一起删除。
+
+### 10.3 顺序与提交切分
+
+每一步一个提交（或一组），部署后单独验收，再进入下一步。
+
+| 步 | 内容 | 读取方开关 | 界面上能看到的变化 |
+| --- | --- | --- | --- |
+| 0 | 共用基础（10.2） | — | 无 |
+| 1 | 覆盖度改读解析器：按数据面给出"已就绪、未就绪（原因）、未登记"，不再看旧绑定 | `coverage` | PA-67 消失；未就绪时显示具体原因 |
+| 2 | 服务映射改读目标，`connector_id` 变为真实 ID；新增 `GET /services/{id}/external-targets/options`；遥测类和工作负载类在第 6 步之前只读 | `mappings` | 映射页显示的是真实来源；这几类暂时不能编辑 |
+| 3 | 日志页和 `read_service_logs` 改读解析器（含 ES 认证，见 10.9 决定 3） | `logs` | 无（结果应与切换前一致） |
+| 4 | Trace 列表、详情、视图和按 ID 查改读解析器 | `traces` | 无 |
+| 5 | `read_service_metrics` 改用统一登记的 Prometheus 读取；`list_services` 的查询 ID 从目录取 | `ai_metrics` | 无 |
+| 6 | 映射写入改写目标，GitLab 候选接受改写 `project` 目标；迁移 172 加目标版本号 | `mapping_writes` | 映射页恢复可编辑，从选项里选 |
+| 7 | 能力标签和 `GET /connector-registrations` 从登记投影；连接器详情的 `tools` 投影已保存的开关 | `registrations` | 连接器详情出现工具开关 |
+| 8 | 默认 `unified`；启动时打印模式和各类目标数；文档和契约 | 全部 | 无 |
+| P4 | 见 10.5，单独确认时机 | — | 旧前端的回滚页不可用 |
+
+为什么映射写入放到第 6 步：
+- 日志、Trace 还读旧绑定时，如果映射页已经能改目标，用户改了日志来源，日志页却不变，两边对不上；
+- 所以第 2 步只切读取，并把遥测类和工作负载类标为只读，原因 `registry_cutover`（契约里已有 `editable` 和 `unavailable_reason`）；
+- 等三个数据面都切完，再在第 6 步放开写入。
+
+### 10.4 切换方式（两个验收实例）
+
+**切换前**（每一步）：
+1. `aiops connectors compare` 退出码 0；本步数据面没有 `match_not_ready`（连接器启用、工具开关打开、凭据已批准）。
+2. 运行时对照日志 `source registry compare summary`：在至少一轮页面遍历和 AI 演练之后，本步数据面只有 `match`。很少被调用的读取方计数会很低，以静态对照和页面遍历为准。
+3. 记录切换前的基线：本步页面的 API 读数，例如同一时间窗的日志条数、Trace 条数、AI 取证的证据标题。
+4. 备份实例的环境文件。
+
+**切换**：在环境文件的 `AIOPS_V3_UNIFIED_READERS` 里加上本步的读取方，重启实例。nonprod 先切，跑完检查清单再切 prod。
+
+**切换后**：
+1. `tools/acceptance/regress.py` 遍历本步的页面：没有新增 4xx/5xx，读数与基线一致（同一时间窗允许新数据带来的差异）。
+2. AI 演练：用 `tools/acceptance/drill.py` 提一个本步数据面的问题，证据标题和来源与基线一致。第 3 步看日志，第 5 步看指标。
+3. 实例日志里没有新的 `source_unavailable`、`credential_unavailable` 或 `ambiguous`。
+4. 第 2、6 步额外核对映射页：真实连接器 ID、只读原因；写入后审计里有 `v3.connector.target_*`。
+
+**回退**：从 `AIOPS_V3_UNIFIED_READERS` 去掉该读取方，或设 `AIOPS_V3_SOURCE_REGISTRY=legacy`，然后重启。
+- 回退只换读取来源，不删任何数据：目标、目录和凭据批准都保留，再切回来不需要重新导入。
+- **第 6 步之后回退要注意**：之后在映射页做的修改只写了目标，旧绑定里没有，回退到 `legacy` 的读取方会读到旧来源。回退前先跑一次 `aiops connectors compare`：没有 `differs` 就可以安全回退；有的话，回退后这些服务会读旧来源，直到重新切回。
+- P4 之后不能再回退（10.5）。
+
+### 10.5 P4 的影响（单独确认时机）
+
+**会失效的东西**：
+- **旧回滚计划**：迁移 173 把所有"已批准、未执行"的旧计划（`action_plans` 已批准，没有对应 `executions`，或执行停在 `queued`）标为 `expired`，写审计，原因是 `legacy_plan_expired_registry_cutover`。**不可逆**：到期后不能再入队，需要回滚的按第 5 节重新提案。V3 不运行旧 Worker，实际影响为零，仍要写进发布说明。
+- **旧路由下线**：`internal/actions` 的创建、批准、执行路由不再注册，旧前端的回滚页随之不可用。历史计划和执行只读保留，`GET /executions/{id}` 继续能投影历史记录。
+- **`legacy` 和 `compare` 两个模式取消**：`AIOPS_V3_SOURCE_REGISTRY` 和 `AIOPS_V3_UNIFIED_READERS` 删除，设了也只记一条警告。**代码层面不可逆**，要回到旧读取只能部署 P4 之前的版本。而且第 6 步之后的映射修改不在旧绑定里，回到旧版本会读到旧来源。
+- **`connectors.Telemetry` 不再读端点和凭据**：遥测文件只剩目录部分。目录已经迁到 `AIOPS_V3_SOURCE_CATALOG` 的部署，可以完全不设 `AIOPS_TELEMETRY_CONFIG`。
+- **删除 `AIOPS_KUBERNETES_REGISTRY` 和演示连接器 `demo-kubernetes`**。
+- **`GET /connector-registrations` 返回 `Deprecation` 头**，下一轮移除。
+
+**旧 Worker 和自动巡查改用解析器后的行为变化**：
+- `query_metrics`、`query_logs` 只读该服务在统一登记里的目标。没有目标的服务，巡查结论是 `indeterminate`（"Telemetry configuration unavailable"），不会回退去读遥测文件。
+- 查询 ID 从目录取。同一服务的查询 ID 如果在遥测文件和目录里不一致（D13 那样的改名），巡查提示词里出现的 ID 会变。
+- 凭据改从 Vault 读。Vault 为空时（实验 dev 模式重启后），巡查是 `indeterminate`，不报错退出。
+
+**验收实例要清理的配置**：
+- `AIOPS_TELEMETRY_CONFIG` 去掉端点和凭据，或整个删掉；
+- 删掉 `AIOPS_KUBERNETES_REGISTRY`、演示 Kubernetes 的 `AIOPS_KUBERNETES_*`、`AIOPS_V3_SOURCE_REGISTRY`、`AIOPS_V3_UNIFIED_READERS`，以及已经置空的 `AIOPS_V3_PROMETHEUS_QUERIES_CONFIG`；
+- 验收数据里如有已批准、未执行的旧计划，迁移后会变成 `expired`。
+
+**保留**：`application_environments.bindings` 列、`binding_revision`、历史计划和执行行。
+
+### 10.6 接口变化与前端影响
+
+| 接口 | 变化 | 前端 | 设计图 |
+| --- | --- | --- | --- |
+| `GET /coverage` | 形状不变；单元格由解析器给出，未就绪时 `state=partial`，`text` 写原因 | 不用改 | 不需要 |
+| `GET /service-mappings` | 形状不变；遥测和工作负载类的 `connector_id` 变为真实 ID，`brand` 为供应商；第 2–5 步这几类 `editable=false`、`unavailable_reason=registry_cutover`；deploy、dash 类始终只读（10.9 决定 4） | `MappingEditor.tsx` 不能再用 `?? patch.kind` 兜底，必须用返回的 `connector_id` | 不需要（只读状态已有） |
+| `GET /services/{id}/external-targets/options`（新） | 按数据面列出本环境可选的连接器 `{id, name, provider}`，以及目录里该服务已审查的资源 ID；只读，权限同服务映射读取 | 映射编辑改为从选项里选连接器和资源，不再手填 | **需要**：编辑器的选择交互，以及"目录里没有可选资源"的状态 |
+| `PUT /service-mappings` | 请求形状不变；`connector_id` 必须是真实 ID，`resource` 必须在选项里，否则 422 `resource_not_in_catalog`；`binding_revision` 改为目标版本号（迁移 172 初始化为旧值加 1，旧页面会收到 409 并重新读取） | 处理新的 422 错误码，409 后重读 | 随上一行 |
+| 连接器详情 `GET /connectors/{id}` | `tools` 投影已保存的开关；新增 `agent_execution_available: false` | 详情页的工具列表组件已有，原来收到的是空数组；如要在这里开关，需要接上已有的 `PATCH /connectors/{id}` | 只读展示不需要；要加开关就需要 |
+| `GET /logs`、`GET /traces*` | 形状不变；服务在登记里没有目标时返回 `not_configured`，不再回退读旧文件；来源未就绪时返回 503，带原因码 | 已有"未接入"和"不可用"状态，核对文案 | 不需要 |
+| AI 工具 | 无形状变化；没有目标的服务返回 `not_configured` | 无 | — |
+| `GET /connector-registrations`、旧 `GET /integrations` | 从登记投影；P4 加 `Deprecation` 头 | V3 前端不用；旧前端照常读 | — |
+
+### 10.7 验证
+
+| 步 | 隔离 PG 测试 | 实验回归 | 页面验收 | 要动实验环境吗 |
+| --- | --- | --- | --- | --- |
+| 0 | 客户端合成与缓存失效；凭据钩子从 Vault 读、不进日志；POST 表单与毫秒窗口；8 KiB 上限；读取方开关解析 | — | — | 不用（POST 已核对） |
+| 1 | 覆盖度三种状态和未就绪原因；无权时为 unknown | `regress.py` 覆盖度页 | 覆盖度页 | 不用 |
+| 2 | 映射读取的真实 ID 与只读原因；options 只列本环境连接器和本服务目录资源，越权为 404 | 映射页遍历 | 映射页（只读） | 不用 |
+| 3 | 日志页和 AI 日志工具的目标枚举、授权、歧义失败关闭、Vault 为空时返回 `source_unavailable`、ES basic | `regress.py` 日志页；AI 日志演练 | 日志页 | 如采用决定 3：Vault 里 ES 条目加 `username` 字段 |
+| 4 | Trace 列表、详情、视图、按 ID 跨连接器查；多个连接器时分组；完整性语义不变 | Trace 页遍历；`lab-faults` 依赖延迟演练 | Trace 页 | 不用 |
+| 5 | 指标工具读目标和目录；`list_services` 的查询 ID | AI 指标演练 | — | 不用 |
+| 6 | 映射写入：并发 409、目录外资源 422、审计、GitLab 候选接受；迁移 172 | 映射页编辑一次再还原 | 映射页（可编辑，按设计图） | 不用 |
+| 7 | 能力标签投影、Kubernetes 回滚标签要求写入批准、`tools` 投影 | 连接器页遍历 | 连接器详情 | 不用 |
+| 8 | 默认模式、启动日志 | 全量 `regress.py` + 回滚演练 | 全部页面 | 不用 |
+| P4 | 旧计划到期（迁移 173，含审计）；旧路由不再注册；模式变量被忽略；巡查改用解析器 | 全量回归；巡查开一次 | 旧前端回滚页显示不可用 | 不用；按 10.5 清理验收实例配置 |
+
+### 10.8 工作量与风险
+
+| 步 | 后端估算 |
+| --- | --- |
+| 0 共用基础（含 POST、8 KiB、毫秒窗口） | 1.5–2 人日 |
+| 1 覆盖度 | 0.5 人日 |
+| 2 映射读取 + options | 1–1.5 人日 |
+| 3 日志 + AI 日志工具（含 ES basic 0.5） | 1.5–2 人日 |
+| 4 Trace | 1.5 人日 |
+| 5 AI 指标工具 + `list_services` | 0.5–1 人日 |
+| 6 映射写入 + GitLab 候选 + 迁移 172 | 1.5–2 人日 |
+| 7 能力标签、旧登记、`tools` 投影 | 0.5–1 人日 |
+| 8 默认切换、文档契约 | 0.5 人日 |
+| **P3 小计** | **约 9–12 人日** |
+| P4（巡查与旧 Worker 改用解析器、删除旧路径、迁移 173、`Deprecation`） | 2.5–3.5 人日 |
+| **合计** | **约 11.5–15.5 人日** |
+
+前端约 2.5–3 人日：映射编辑器（设计图确认后）、错误码处理、连接器详情的工具列表。
+
+比原估多的原因：
+- 服务映射多了 GitLab 候选和并发版本号；
+- Trace 有四个入口；
+- 日志和 Trace 要先补共用的客户端合成和凭据钩子；
+- ES 认证缺口。
+
+**风险（按可能性从高到低）**：
+1. **Trace**：
+   - 按 ID 跨服务查，以及列表的"完整搜索"逻辑（`telemetry_traces_complete.go`），原来对单个 Tempo 一次查多个服务，切换后要按连接器分组，上限和完整性的语义要保持不变；
+   - TraceQL 仍然放在 GET 的 URL 里（Tempo 不改 POST），要核对长度。
+2. **映射写入**：
+   - 并发版本号从旧绑定迁到目标，GitLab 候选的接受流程也要跟着改；
+   - 第 6 步之后的回退有数据差异（10.4）。
+3. **凭据**：
+   - 日志和 Trace 第一次真正经 Vault 读凭据，Vault 不可用会直接表现为页面不可用；
+   - 实验 Vault 是 dev 模式，重启后为空，需要先 init。
+4. **对照样本不足**：部分读取方（Trace 视图、按 ID 查）真实调用很少，运行时对照的计数可能接近 0，要靠静态对照和页面遍历补足。
+
+### 10.9 需要用户决定的点（附建议）
+
+1. **按读取方逐个切换**（`AIOPS_V3_UNIFIED_READERS`），还是一次全切。
+   - 建议逐个切：每一步能单独验收、单独回退；代价是多一个过渡期变量，P4 删除。
+2. **第 2–5 步映射页的遥测类和工作负载类只读**，第 6 步再放开写入。
+   - 建议同意，理由见 10.3；
+   - 另一种做法是第 2 步就读写一起切，但日志、Trace 会在一段时间里和映射页对不上。
+3. **Elasticsearch 用户名密码认证**：
+   - 建议在统一登记里给 ES 加 `basic`：用户名放连接器的非机密 `options`，密码走 Vault，约 0.5 人日；
+   - 另一种做法是要求部署方改用 API key，实验 ES 也要改。
+4. **deploy 和 dash 两类映射系统**：
+   - 建议本轮只读显示旧绑定，编辑返回 422 `system_not_supported`，等有对应的目标类型再做；
+   - 现在加目标类型会把交付链路（D11）提前拉进来。
+5. **遥测凭据的缓存**：
+   - 建议在内存里缓存 60 秒，收到 401/403 立即失效；
+   - 每个请求都读 Vault 会让每次日志或 Trace 查询多一次 Vault 往返。回滚执行器的写令牌不缓存，保持现状。
+6. **能力标签和 `GET /connector-registrations`**：
+   - 建议第 7 步照常从登记投影（约 0.5 人日），这样旧前端和巡查看板在 P3 期间仍然准确，P4 再加 `Deprecation`；
+   - 另一种做法是不投影，P4 直接废弃。
+7. **P4 的时机**：
+   - 建议等第 8 步在两个实例上稳定运行至少一轮完整回归，并且一轮回滚演练通过后，再单独确认；
+   - 10.5 列的不可逆部分在确认时逐条过一遍。
 
 ## 附录 A：对照前提的命令
 

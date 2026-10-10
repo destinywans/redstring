@@ -1,4 +1,19 @@
-**最新验收：[CP-323](#cp-323-current)，2026-10-09 (+08)。以生产验收为目标的前后端联调进行中：真实后端全页面对拍 212/216 干净（剩余为“配置仓库未接入”预期状态），静默审批闭环、邀请加入、AI 对话取证三条黄金路径在验收实例上全程通过；后端“部分数据”、前端真实模式、实验故障开关三条线并行。**
+**最新验收：[CP-324](#cp-324-current)，2026-10-11 (+08)。Kubernetes 回滚闭环、统一来源登记第二阶段与 P4 清理都已在两个验收实例上完成并验收；登记 87 条全部验证（PA-01～PA-87），最终回归 16/16（含新加的链路视图检查），prod 回滚演练 23/23。用户离开期间自行做出的决定 D22～D29 待用户审阅。报告 https://claude.ai/artifact/CD6jdw84V8stiLQRsqvjHt 。**
+
+<a id="cp-324-current"></a>
+## CP-324 · 生产验收：回滚闭环、统一来源登记第二阶段与 P4
+
+- 计划与登记：`docs/plans/2026-10-09-production-acceptance.md`、`docs/releases/2026-10-09-production-acceptance.md`（PA-01～PA-87、D1～D29），设计稿 `docs/plans/2026-10-10-rollback-executor-and-registry-p3.md`（第 10 节第二阶段，10.11/10.12 为 P4）。集成分支 `codex/wan-245-v3-page-interactions`，各会话分支均已合入，全部只在本地，未推送。
+- Kubernetes 回滚（PA-08、PA-72～77）：实验 Vault 凭据、独立执行器、两人通行密钥批准、恢复验证、画布 AI 回滚建议；prod 端到端与 nonprod 五个失败/边界场景通过。回滚写令牌 `vault://aiops/lab/k8s/rollback#token` 有效期到 2026-10-11T06:46:40Z，再演练前用 aiops-test 的 `python3 enterprise/vault.py rotate-rollback` 轮换。
+- 统一来源登记第二阶段（PA-19）：按读取方逐个切换（覆盖度、映射、日志、链路、AI 指标、映射写入、能力标签），每步先 nonprod 后 prod，切换前后对照；第 8 步缺省 `unified`；P4（用户 10-10 批准，非 V3 部署保留旧模式）：迁移 173（两库 0 条旧计划过期）、V3 实例旧动作路由 404、取消 legacy/compare、V3 不读 `AIOPS_TELEMETRY_CONFIG` 与旧 Kubernetes 登记，上限移进统一目录 `limits`。迁移 163/169/170/172/173 只在验收库与隔离测试库执行，**现有业务库未执行**。
+- 本轮另修：链路页 PA-78～82、PA-87（不完整 Trace 不再让列表整页 503）；时间本地化 PA-83；收件箱分配 PA-84；调查选择器 PA-85；首页链接 PA-86；PA-09、PA-43 补齐验证。
+- 验收实例配置（`.local/acceptance/{prod,nonprod}/`，不提交）：两实例已删 `AIOPS_V3_SOURCE_REGISTRY`、`AIOPS_V3_UNIFIED_READERS`、`AIOPS_TELEMETRY_CONFIG`、空的 `AIOPS_V3_PROMETHEUS_QUERIES_CONFIG`；统一目录有 `"limits": {"timeout_seconds": 10}`；prod checkout-api 看板查询加长到 2929 字符（PA-43）。备份 `*.bak-step8`、`*.bak-p4`、`*.bak-pa43`。`aiops connectors compare` 现在需显式传 `AIOPS_TELEMETRY_CONFIG`（只作诊断）。
+- 验收工具（`tools/acceptance/`）：`regress.py`（含新加的 `trace_views.py`）、`rollback.py`/`rollback_edges.py`、`faults.py`（基线须 2xx、失败退出码非 0）、`golden.py`（对话流续传在回复中途断开；有失败步骤时退出码非 0）、`mapping_writes.py`、`logs_baseline.py`、`traces_baseline.py`、`ai_metrics_probe.py`、`report.py`。
+- 实验环境：三台 Lima 虚拟机 HWE 7.0 内核，宿主虚拟化层导致约每小时 0.3 次单节点约 5 分钟中断，看门狗自动恢复（aiops-test `148f00b` 评估）；演练前 `cluster/clock-watchdog.py check` 须 READY，演练后核对事件。交付 GitLab 与 kind `aiops-delivery` 已停（`delivery/lab.py resume` 恢复）。
+- **待用户审阅（用户离开期间自行决定）**：D22 PA-83 后端结构化时间排在 P4 后；D23 PA-09 无可见应用场景以隔离测试为准；D24 PA-84 交后端、旧文字时间字段下一轮清理；D25 PA-85 只做不改外观的修复，搜索框待设计图；D26 修正对话流续传检查；D27 PA-86 定为 P2、前后端都改；D28 补链路视图检查与停机测试基线；D29 PA-87 不加“不完整未列出”提示，待设计图。
+- 后续：调查选择器搜索框与链路“不完整未列出”提示的设计图（待用户决定）；PA-83 旧文字时间字段删除（先给首页 `recent[]` 补环境字段）；性能与 24 小时稳定性；交付链路（D11）；推送与发布需用户另行授权。
+
+**此前验收：[CP-323](#cp-323-current)，2026-10-09 (+08)。以生产验收为目标的前后端联调进行中：真实后端全页面对拍 212/216 干净（剩余为“配置仓库未接入”预期状态），静默审批闭环、邀请加入、AI 对话取证三条黄金路径在验收实例上全程通过；后端“部分数据”、前端真实模式、实验故障开关三条线并行。**
 
 <a id="cp-323-current"></a>
 ## CP-323 · 生产验收：前后端联调与黄金路径

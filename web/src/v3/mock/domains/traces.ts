@@ -69,7 +69,7 @@ function recentList(service: string | undefined, range: string) {
     histogram: { counts, axis: [clock(start).slice(0, 5), clock(now).slice(0, 5)] },
     scatter: items.map((r) => ({ x: Math.round((440 * (r.t - start)) / winMs), y: Math.round(r.errors ? 12 + rnd() * 30 : 100 - Math.min(60, r.duration_ms / 12)), error: r.errors > 0, id: r.id })),
     items: items.map(({ t: _t, ...r }) => r),
-    ...(partial ? { partial: true, partial_reason: "search_budget", window_start_at: new Date(start).toISOString() } : {}),
+    ...(partial ? { partial: true, partial_reason: "search_budget", window_start_at: new Date(start).toISOString(), window_end_at: new Date(now).toISOString() } : {}),
   };
 }
 

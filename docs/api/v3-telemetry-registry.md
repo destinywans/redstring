@@ -183,6 +183,8 @@ Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `d
 
 ## Kubernetes 工作负载（P3 第一阶段，PA-08 依赖）
 
+**P4（2026-10-10）**：V3 实例不再读 `AIOPS_KUBERNETES_REGISTRY`，也不加载演示 Kubernetes 连接器（`AIOPS_CONNECTOR_CONFIG`，即 `demo-kubernetes`），设了只记一条警告；工作负载只从统一登记读，回滚走 PA-08 的提案和独立执行器。旧模式（`/legacy`）照旧读这两个变量，`aiops connectors import-legacy` 仍读 `AIOPS_KUBERNETES_REGISTRY`（演示项不导入）。
+
 **迁移 169**：`169_v3_workload_targets.sql` 给 `target_kind` 增加 `workload`。只在一次性隔离 PostgreSQL 中执行过，**现有业务库未执行**。回滚账本的迁移 170 见 [回滚契约](v3-rollback.md)，同样未在业务库执行。
 
 **连接器** `kubernetes`：

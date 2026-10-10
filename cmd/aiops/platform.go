@@ -50,9 +50,10 @@ func registerKubernetesIntegrations(api *httpapi.Server, registry *platformRegis
 	}
 }
 
-// telemetryPath is AIOPS_TELEMETRY_CONFIG, empty on a V3 instance (PA-19 P4).
+// telemetryPath and kubernetesRegistryPath are AIOPS_TELEMETRY_CONFIG and
+// AIOPS_KUBERNETES_REGISTRY, both empty on a V3 instance (PA-19 P4).
 func configurePlatform(ctx context.Context, s *store.Store, api *httpapi.Server, acts *actions.Service, worker *httpapi.Worker, legacy *connectors.Kubernetes, legacyConfig connectors.Config,
-	telemetryPath string) (*platformRegistry, error) {
+	telemetryPath, kubernetesRegistryPath string) (*platformRegistry, error) {
 	registry := &platformRegistry{store: s, kubernetes: map[string]registeredKubernetes{}}
 	var telemetry *connectors.Telemetry
 	telemetryDigest := ""
@@ -74,7 +75,7 @@ func configurePlatform(ctx context.Context, s *store.Store, api *httpapi.Server,
 		raw, _ := json.Marshal(legacyConfig)
 		registry.kubernetes["demo-kubernetes"] = registeredKubernetes{ID: "demo-kubernetes", Config: legacyConfig, DemoRecovery: true, connector: legacy, recovery: legacy, digest: store.Hash(string(raw))}
 	}
-	if path := os.Getenv("AIOPS_KUBERNETES_REGISTRY"); path != "" {
+	if path := kubernetesRegistryPath; path != "" {
 		raw, e := os.ReadFile(path)
 		if e != nil {
 			return nil, e

@@ -128,7 +128,11 @@ func run() error {
 	var connector *connectors.Kubernetes
 	var actionConnector actions.Connector
 	var connectorConfig connectors.Config
-	if path := os.Getenv("AIOPS_CONNECTOR_CONFIG"); path != "" {
+	// PA-19 P4: the demo Kubernetes connector and AIOPS_KUBERNETES_REGISTRY
+	// serve only the legacy mode; a V3 instance reads Kubernetes workloads
+	// through the connector registry (PA-08).
+	if path := legacyOnlyConfig(v3Info != nil, "AIOPS_CONNECTOR_CONFIG",
+		"Kubernetes workloads are read through the connector registry"); path != "" {
 		connectorConfig, e = connectors.LoadConfig(path)
 		if e != nil {
 			return e
@@ -184,7 +188,9 @@ func run() error {
 	if e = configureV3WithNativeSources(ctx, s, runtime, api, know, v3Info, v3Scope, operationsConfig, deliveryConfig.GitLabs); e != nil {
 		return e
 	}
-	registry, e := configurePlatform(ctx, s, api, acts, worker, connector, connectorConfig, telemetryPath)
+	kubernetesRegistryPath := legacyOnlyConfig(v3Info != nil, "AIOPS_KUBERNETES_REGISTRY",
+		"Kubernetes workloads are read through the connector registry")
+	registry, e := configurePlatform(ctx, s, api, acts, worker, connector, connectorConfig, telemetryPath, kubernetesRegistryPath)
 	if e != nil {
 		return e
 	}

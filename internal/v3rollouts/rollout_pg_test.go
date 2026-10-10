@@ -100,9 +100,15 @@ type rolloutFixture struct {
 	service  *Service
 	tokens   map[string]string
 	errRatio atomic.Value
-	cancel   context.CancelFunc
-	done     chan struct{}
-	secrets  *mapSecrets
+	// nanErrorRatio answers the next n error ratio reads with NaN;
+	// gapAfterReads makes the clock jump 150 s after that many error ratio
+	// reads.
+	nanErrorRatio atomic.Int32
+	gapAfterReads atomic.Int32
+	jump          atomic.Int64
+	cancel        context.CancelFunc
+	done          chan struct{}
+	secrets       *mapSecrets
 }
 
 const catalogTemplate = `{"queries":[
@@ -167,6 +173,27 @@ func newRolloutFixture(t *testing.T) *rolloutFixture {
 	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
 		value := map[string]string{"request_rate_expr": "3.5", "error_ratio_expr": f.errRatio.Load().(string), "sample_age_expr": "8"}[query.Get("query")]
+		if query.Get("query") == "error_ratio_expr" {
+			// 0/0 while Pods are replaced (PA-73).
+			if f.nanErrorRatio.Add(-1) >= 0 {
+				value = "NaN"
+			}
+			// The executor restarts and resumes after its lease expired.
+			if f.gapAfterReads.Add(-1) == 0 {
+				f.jump.Add(int64(150 * time.Second))
+			}
+		}
+		if r.URL.Path == "/api/v1/query" {
+			at, err := time.Parse(time.RFC3339Nano, query.Get("time"))
+			if value == "" || err != nil {
+				w.WriteHeader(400)
+				return
+			}
+			// Like Prometheus: evaluated at the millisecond.
+			fmt.Fprintf(w, `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[%s,"%s"]}]}}`,
+				strconv.FormatFloat(float64(at.UnixMilli())/1000, 'f', 3, 64), value)
+			return
+		}
 		start, startErr := time.Parse(time.RFC3339Nano, query.Get("start"))
 		end, endErr := time.Parse(time.RFC3339Nano, query.Get("end"))
 		step, stepErr := strconv.Atoi(query.Get("step"))
@@ -261,7 +288,9 @@ func newRolloutFixture(t *testing.T) *rolloutFixture {
 			Deployments: []string{"checkout-api"}, Actions: []string{RollbackWriteAction}, CredentialRef: "vault://kv/lab/k8s-rollback#token"}},
 		Proposals: proposals, Metrics: metrics,
 		// Each clock read advances 20 s, so the 180 s observation passes in a few samples.
-		Now:          func() time.Time { return base.Add(time.Duration(tick.Add(1)) * 20 * time.Second) },
+		Now: func() time.Time {
+			return base.Add(time.Duration(tick.Add(1))*20*time.Second + time.Duration(f.jump.Load()))
+		},
 		PollInterval: 10 * time.Millisecond, SampleInterval: 10 * time.Millisecond, Settle: 40 * time.Second}
 	proposals.RollbackReady = f.service.Ready
 	f.api = httpapi.New(st, nil, true)
@@ -382,7 +411,9 @@ type executionResponse struct {
 	Verification *struct {
 		Result  string `json:"result"`
 		Samples []struct {
-			OK bool `json:"ok"`
+			At         time.Time `json:"at"`
+			ErrorRatio *float64  `json:"error_ratio"`
+			OK         bool      `json:"ok"`
 		} `json:"samples"`
 	} `json:"verification"`
 }
@@ -618,5 +649,69 @@ func TestRollbackWithEmptyVault(t *testing.T) {
 	out := f.waitExecution(id, "approver1")
 	if out.Status != "needs_attention" || out.StatusReason == nil || *out.StatusReason != "reconcile_unknown" || f.cluster.PatchCount() != 1 {
 		t.Fatalf("read token lost during rollout: %+v patches=%d", out, f.cluster.PatchCount())
+	}
+}
+
+// PA-73: while Pods are replaced the error ratio is 0/0 (NaN). In the settle
+// period that is an unavailable sample, not the end of verification; the
+// rollback is judged on the real samples after it. After the settle period a
+// missing value still needs attention.
+func TestRollbackVerificationRidesOutNaN(t *testing.T) {
+	for _, c := range []struct {
+		name, errRatio string
+		nan            int32
+		status, reason string
+	}{
+		{"recovers", "0.001", 1, "succeeded", ""},
+		{"same fault", "0.4", 1, "failed", "verification_failed"},
+		{"no value after settle", "0.001", 100, "needs_attention", "verification_unavailable"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newRolloutFixture(t)
+			f.errRatio.Store(c.errRatio)
+			f.nanErrorRatio.Store(c.nan)
+			id := f.propose("rollback-key-nan")
+			f.approve(id, "approver1", 202)
+			f.approve(id, "approver2", 200)
+			out := f.waitExecution(id, "approver1")
+			reason := ""
+			if out.StatusReason != nil {
+				reason = *out.StatusReason
+			}
+			if out.Status != c.status || reason != c.reason || out.Verification == nil || len(out.Verification.Samples) < 2 {
+				t.Fatalf("execution: %+v", out)
+			}
+			first := out.Verification.Samples[0]
+			if first.OK || first.ErrorRatio != nil {
+				t.Fatalf("the NaN sample must be recorded as unavailable: %+v", first)
+			}
+			if c.status == "succeeded" && !out.Verification.Samples[len(out.Verification.Samples)-1].OK {
+				t.Fatalf("judged on a failing sample: %+v", out.Verification.Samples)
+			}
+		})
+	}
+}
+
+// PA-73: a gap in the samples (the executor restarted and waited for the
+// lease) does not count as observed; the window restarts after it.
+func TestRollbackObservationWindowRestartsAfterGap(t *testing.T) {
+	f := newRolloutFixture(t)
+	f.gapAfterReads.Store(3)
+	id := f.propose("rollback-key-gap")
+	f.approve(id, "approver1", 202)
+	f.approve(id, "approver2", 200)
+	out := f.waitExecution(id, "approver1")
+	if out.Status != "succeeded" || out.Verification == nil {
+		t.Fatalf("execution: %+v", out)
+	}
+	samples := out.Verification.Samples
+	resumed := -1
+	for i := 1; i < len(samples); i++ {
+		if samples[i].At.Sub(samples[i-1].At) > minSampleGap {
+			resumed = i
+		}
+	}
+	if resumed < 0 || samples[len(samples)-1].At.Sub(samples[resumed].At) < 180*time.Second {
+		t.Fatalf("the window must be observed after the gap: resumed at %d of %d", resumed, len(samples))
 	}
 }

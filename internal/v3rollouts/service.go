@@ -26,10 +26,11 @@ type Access interface {
 	AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error
 }
 
-// MetricReader reads reviewed Prometheus queries for verification.
+// MetricReader evaluates reviewed Prometheus queries at one instant for
+// verification.
 type MetricReader interface {
 	QueryForExecutor(ctx context.Context, app, env, connectorID, resourceID, queryID string,
-		window connectors.TimeWindow) ([]connectors.MetricSeries, error)
+		at time.Time) ([]connectors.MetricSeries, error)
 }
 
 // Service holds the rollback dependencies. Credentials is the approved

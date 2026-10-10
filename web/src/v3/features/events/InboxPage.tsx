@@ -226,6 +226,15 @@ export default function InboxPage() {
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [items, selId, setParams]);
+  // Assignments say what was assigned (PA-84); an unknown kind keeps the server's own (localized) line.
+  const assignedText = (it: InboxItem) =>
+    it.assignment_kind === "alert"
+      ? tx("分配给你的告警", "Alert assigned to you")
+      : it.assignment_kind === "incident"
+        ? tx("分配给你的事件", "Incident assigned to you")
+        : it.assignment_kind === "proposal"
+          ? tx("分配给你的提案", "Proposal assigned to you")
+          : it.sub;
   // The server's today/yesterday is its own time zone; `at` (PA-83) lets the viewer's day decide.
   const dayOf = (it: InboxItem): Day => {
     const t = parseStamp(it.at);
@@ -287,7 +296,7 @@ export default function InboxPage() {
                               {it.title}
                             </span>
                             <span className="ellipsis muted" style={{ fontSize: "var(--fs-sub)" }}>
-                              {it.kind === "assignment" ? tx("已分配给你", "Assigned to you") : it.sub}
+                              {it.kind === "assignment" ? assignedText(it) : it.sub}
                             </span>
                           </Col>
                           <Col gap={6} align="flex-end">

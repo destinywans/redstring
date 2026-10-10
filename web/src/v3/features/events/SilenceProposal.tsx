@@ -19,7 +19,8 @@ import "./events.css";
  * services are application IDs.
  */
 export function useOpenInvestigations(enabled: boolean) {
-  const inv = useGet<{ items: CanvasSummary[] }>(enabled ? "/canvases" : null, { filter: "investigation" }, { staleTime: 15_000 });
+  // The largest page the server serves; a longer list says so instead of silently dropping the older ones (PA-85).
+  const inv = useGet<{ items: CanvasSummary[]; total?: number }>(enabled ? "/canvases" : null, { filter: "investigation", page_size: 100 }, { staleTime: 15_000 });
   const svc = useGet<ServiceCatalog>(enabled ? "/services" : null, undefined, { staleTime: 5 * 60_000 });
   const items = useMemo(() => {
     const appKey = new Map<string, string>();
@@ -34,7 +35,8 @@ export function useOpenInvestigations(enabled: boolean) {
         return { id: c.investigation_id!, title: c.title, application_id: app, appKey: app ? appKey.get(app) ?? null : null };
       });
   }, [inv.data, svc.data]);
-  return { items, loading: inv.isLoading, error: inv.error };
+  const more = typeof inv.data?.total === "number" && inv.data.total > inv.data.items.length;
+  return { items, more, loading: inv.isLoading, error: inv.error };
 }
 
 export type SubmittedSilence = { proposal_id: string; matchers: { k: string; op: string; v: string }[]; duration: number; at: number };
@@ -43,7 +45,7 @@ const OPS = ["=", "!=", "=~", "!~"];
 const DURATIONS = [1800, 3600, 14400, 43200, 86400];
 
 /** Investigation picker shared by create and expire: open investigations only, with a way to start one. */
-export function InvestigationPicker({ value, onChange, items }: { value: string; onChange: (id: string) => void; items: ReturnType<typeof useOpenInvestigations>["items"] }) {
+export function InvestigationPicker({ value, onChange, items, more }: { value: string; onChange: (id: string) => void; items: ReturnType<typeof useOpenInvestigations>["items"]; more?: boolean }) {
   const { tx } = useI18n();
   if (!items.length)
     return (
@@ -76,6 +78,7 @@ export function InvestigationPicker({ value, onChange, items }: { value: string;
           ),
           hint: i.appKey ?? undefined,
         }))}
+        footer={more ? tx("只列出最近的 100 个调查，更早的没有列出。", "Only the latest 100 investigations are listed; older ones aren't.") : undefined}
       />
     </div>
   );
@@ -88,7 +91,7 @@ export function InvestigationPicker({ value, onChange, items }: { value: string;
 export function SilenceProposalDrawer({ open, onClose, onSubmitted }: { open: boolean; onClose: () => void; onSubmitted: (s: SubmittedSilence) => void }) {
   const { tx } = useI18n();
   const qc = useQueryClient();
-  const { items } = useOpenInvestigations(open);
+  const { items, more } = useOpenInvestigations(open);
   const [invId, setInvId] = useState("");
   const [extra, setExtra] = useState<{ k: string; op: string; v: string }[]>([]);
   const [duration, setDuration] = useState(3600);
@@ -176,7 +179,7 @@ export function SilenceProposalDrawer({ open, onClose, onSubmitted }: { open: bo
       ) : (
         <Col gap={14} style={{ padding: 16 }}>
           <Section title={tx("关联的调查", "Investigation")}>
-            <InvestigationPicker value={invId} onChange={setInvId} items={items} />
+            <InvestigationPicker value={invId} onChange={setInvId} items={items} more={more} />
             {inv && (inv.appKey ? <Muted size={11.5}>{tx("提案会挂在这个调查下；应用 {a} 来自这个调查。", "The proposal hangs off this investigation; application {a} comes from it.", { a: inv.appKey })}</Muted> : <Muted size={11.5}>{tx("找不到这个调查所属应用的告警标签，暂时不能提议静默。", "This investigation's application has no alert label here, so it can't be silenced yet.")}</Muted>)}
           </Section>
           <Section title={tx("匹配条件", "Matchers")}>
@@ -228,7 +231,7 @@ export function SilenceProposalDrawer({ open, onClose, onSubmitted }: { open: bo
 /** Ending a silence early is a proposal too: investigation and reason are required. */
 export function ExpireSilenceDialog({ silenceId, onClose, onSubmitted }: { silenceId: string | null; onClose: () => void; onSubmitted: (proposalId: string) => void }) {
   const { tx } = useI18n();
-  const { items } = useOpenInvestigations(!!silenceId);
+  const { items, more } = useOpenInvestigations(!!silenceId);
   const [invId, setInvId] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -273,7 +276,7 @@ export function ExpireSilenceDialog({ silenceId, onClose, onSubmitted }: { silen
       <Col gap={12}>
         <Muted>{tx("结束也要两人批准。批准并执行前，这条静默继续生效。", "Ending also needs two approvers. Until it's approved and executed, the silence stays in effect.")}</Muted>
         <Section title={tx("关联的调查", "Investigation")}>
-          <InvestigationPicker value={invId} onChange={setInvId} items={items} />
+          <InvestigationPicker value={invId} onChange={setInvId} items={items} more={more} />
         </Section>
         <Section title={tx("原因", "Reason")}>
           <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={tx("例如：回滚已完成，恢复告警", "e.g. rollback done; resume alerts")} style={{ minHeight: 56 }} />

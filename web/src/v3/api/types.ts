@@ -262,8 +262,11 @@ export type InvestigationTemplate = {
 };
 
 /* ---------------- events: inbox, alerts, incidents ---------------- */
-/** `time`/`day` are the server's time zone; `at` (PA-83) lets the day be judged locally. `assignment` comes from the real queue. */
-export type InboxItem = { id: string; kind: "alert" | "approval" | "mention" | "runbook" | "report" | "access" | "agent" | "assignment"; tone: Tone; title: string; sub: string; time: string; at?: string; unread: boolean; day: "today" | "yesterday"; href: string; alert_id?: string };
+/**
+ * `time`/`day` are the server's time zone; `at` (PA-83) lets the day be judged locally. An `assignment` links (`href`) to
+ * the assigned object and says what it is in `assignment_kind` (PA-84).
+ */
+export type InboxItem = { id: string; kind: "alert" | "approval" | "mention" | "runbook" | "report" | "access" | "agent" | "assignment"; tone: Tone; title: string; sub: string; time: string; at?: string; unread: boolean; day: "today" | "yesterday"; href: string; alert_id?: string; assignment_kind?: "alert" | "incident" | "proposal" | null };
 /** Sample data carries time/text/done; the real queue reports id/status/created_at/attempts (local enqueue, not delivery). */
 export type AlertNotification = { channel: string; time?: string; text?: string; done?: boolean; id?: string; status?: "pending" | "sending" | "retrying" | "failed" | "sent"; created_at?: string; attempts?: number };
 /**

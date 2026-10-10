@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ComponentType } from "react";
-import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { Shell, Page } from "./Shell";
 import { useApplyPreferences } from "./theme";
 import { Skeleton } from "../ui/core";
@@ -44,6 +44,13 @@ const NewConversation = p(() => import("../features/conversation/ConversationPag
 function CanvasRoute() {
   const { id = "" } = useParams();
   return id.startsWith("INV-") ? <Canvas /> : <DocCanvas />;
+}
+
+/** Alert links already sent out (notifications, bookmarks) open the incident they belong to (PA-86). */
+function AlertRedirect() {
+  const { id = "" } = useParams();
+  const { search, hash } = useLocation();
+  return <Navigate to={`/incidents/${encodeURIComponent(id)}${search}${hash}`} replace />;
 }
 
 function Loading() {
@@ -124,6 +131,7 @@ export default function V3App() {
           <Route path="incidents" element={<Incidents />} />
           <Route path="incidents/:id" element={<Incidents />} />
           <Route path="alerts" element={<Alerts />} />
+          <Route path="alerts/:id" element={<AlertRedirect />} />
           <Route path="alert-rules" element={<Rules />} />
           <Route path="alert-rules/new" element={<NewRule />} />
           <Route path="routing" element={<Routing />} />

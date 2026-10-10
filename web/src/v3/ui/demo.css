@@ -3,6 +3,7 @@
 .v3-menu.demo-menu button { display: flex; align-items: center; gap: 8px; height: auto; min-height: 30px; padding-block: 5px; text-align: left; line-height: 1.4; }
 .v3-menu.demo-menu button.on { background: var(--accent-soft); }
 .demo-menu small { display: block; font-size: var(--fs-cap); color: var(--muted); }
+.demo-menu-foot { padding: 6px 10px 4px; font-size: var(--fs-cap); color: var(--muted); border-top: 1px solid var(--border); margin-top: 4px; }
 .demo-req { color: var(--danger); }
 .demo-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
 .demo-option {

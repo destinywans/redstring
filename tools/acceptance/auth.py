@@ -55,8 +55,11 @@ def main():
     check('sign-in succeeds', status == 200, str(status))
     check('session cookie is Secure, HttpOnly, SameSite', all(a in attrs for a in ('secure', 'httponly', 'samesite')), raw.split(';', 1)[-1].strip())
     cookie = raw.split(';', 1)[0]
-    _, _, cookies2 = login(account['email'], account['password'])
+    status2, _, cookies2 = login(account['email'], account['password'])
     other = next((c for c in cookies2 if c.startswith('aiops_session=')), '').split(';', 1)[0]
+    if status2 != 200:
+        # A 429 here means earlier runs in the same window used up the sign-in budget, not a session defect.
+        check('second sign-in for the session list', False, f'{status2} (rate limited if 429; rerun after a minute)')
     check('signed-in session reads /me', call('prod', 'GET', '/me', cookie=cookie)[0] == 200)
     _, profile = call('prod', 'GET', '/me/profile', cookie=cookie)
     sessions = ((profile or {}).get('security') or {}).get('sessions') or []

@@ -55,6 +55,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3postmortems"
 	"github.com/wans/aiops-canvas/internal/v3proposals"
 	"github.com/wans/aiops-canvas/internal/v3resilience"
+	"github.com/wans/aiops-canvas/internal/v3rollouts"
 	"github.com/wans/aiops-canvas/internal/v3ruleassistant"
 	"github.com/wans/aiops-canvas/internal/v3security"
 	"github.com/wans/aiops-canvas/internal/v3serviceviews"
@@ -523,7 +524,12 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		}
 		alertmanagerService.SilenceWorkflow = executor
 	}
-	if silenceExecutionEnabled || enableWorker != nil {
+	// PA-08: write bindings approve the rollback executor's Deployments.
+	rollbackWriteBindings, err := v3rollouts.ParseWriteBindings(os.Getenv("AIOPS_V3_KUBERNETES_WRITE_BINDINGS"))
+	if err != nil {
+		return fmt.Errorf("configure V3 Kubernetes write bindings: %w", err)
+	}
+	if silenceExecutionEnabled || enableWorker != nil || len(rollbackWriteBindings) > 0 {
 		proposalService.RegisterApprovals(api)
 	}
 	if promotionRepository, ok := configSync.Repository.(*v3configsync.GitLabClient); ok && promotionRepository != nil {
@@ -597,6 +603,32 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	metricReader, err := v3integrations.NewPrometheusReader(s.DB, cfg.Tier, connector.Prober.Resolver, metricCatalog)
 	if err != nil {
 		return fmt.Errorf("configure V3 Prometheus reader: %w", err)
+	}
+	// PA-08: Kubernetes rollback. Candidates and proposals read with the
+	// connector's approved credential; only the executor reads the write
+	// credential named by a write binding. Without bindings the executor does
+	// not run, so rollback proposals cannot be approved.
+	if len(rollbackWriteBindings) > 0 && (os.Getenv("AIOPS_VAULT_URL") == "" || os.Getenv("AIOPS_VAULT_TOKEN") == "") {
+		return errors.New("configure V3 Kubernetes write bindings: AIOPS_VAULT_URL and AIOPS_VAULT_TOKEN are required")
+	}
+	for _, write := range rollbackWriteBindings {
+		for _, read := range credentialBindings {
+			if read.CredentialRef == write.CredentialRef {
+				return errors.New("configure V3 Kubernetes write bindings: the write credential must not be a connector credential")
+			}
+		}
+	}
+	rollouts := &v3rollouts.Service{DB: s.DB, Tier: cfg.Tier, Access: policy,
+		Registry:      &v3telemetry.Resolver{Tier: cfg.Tier, Catalog: sourceCatalog, Approvals: v3telemetry.NewApprovals(credentialBindings)},
+		Credentials:   credentialResolver,
+		Secrets:       v3integrations.NewVaultResolver(os.Getenv("AIOPS_VAULT_URL"), os.Getenv("AIOPS_VAULT_TOKEN")),
+		WriteBindings: rollbackWriteBindings, Proposals: proposalService, Metrics: metricReader}
+	rollouts.Register(api)
+	executions.Rollout = rollouts.Execution
+	proposalService.RollbackReady = rollouts.Ready
+	if len(rollbackWriteBindings) > 0 {
+		go rollouts.Run(ctx)
+		slog.Info("V3 rollback executor enabled", "write_bindings", len(rollbackWriteBindings))
 	}
 	topology := v3topology.New(s.DB, policy)
 	for key := range metricCatalog {

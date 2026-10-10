@@ -104,7 +104,7 @@
 }
 ```
 
-**成功**：返回 `201 {"proposal_id": "…", "status": "pending", "action_kind": "kubernetes.deployment.rollback"}`。用同一个键、同一个请求体重放，返回 200 和同一提案。
+**成功**：返回 `201 {"proposal_id": "…", "status": "pending", "action_kind": "kubernetes.deployment.rollback"}`。用同一个键、同一个请求体重放，返回 200 和同一提案；即使 Deployment 已经变化（例如回滚已执行）也一样。重放响应里的 `status` 是创建时的状态，当前状态以 `GET /proposals/{id}` 为准。
 
 **权限**：
 - 人类会话，单一环境；
@@ -115,12 +115,16 @@
 
 | 状态 | 代码 | 含义 |
 | --- | --- | --- |
-| 404 | `not_found` | 服务或调查不存在，或无权查看 |
+| 401 | `unauthorized` | 会话失效 |
+| 403 | `forbidden` | 能查看服务，但缺少 `resources.change` 或 `proposals.change`；或不是人类会话 |
+| 404 | `not_found` | 服务或调查不存在，或无权查看（缺少 `resources.view`） |
 | 409 | `env_view_only` | 选中了“全部环境” |
 | 409 | `rollback_target_changed` | 读取候选后 Deployment 已变化，请重读候选 |
 | 409 | `idempotency_conflict` | 同一个键配了不同请求体 |
 | 409 | 与 `blocked_reason` 同名的代码 | 当前不能回滚 |
+| 409 | `investigation_changed` | 调查在提交期间被修改，重试即可 |
 | 422 | `invalid_rollback` | 修订不是候选，或就是当前修订；原因为空 |
+| 428 | `idempotency_key_required` | 缺少 `Idempotency-Key` 或长度不对 |
 | 503 | `workload_unavailable` | 集群读不到 |
 
 **之后的审批**：完全沿用现有评审页和通行密钥流程（`/proposals/{id}/approval/*`）。需要两位不同的人类审批人，均不是发起人，并持有覆盖该提案的 `proposals.approve`。驳回见 PA-57。

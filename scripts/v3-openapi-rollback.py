@@ -85,8 +85,10 @@ v3_route('post','/rollback-proposals','Propose a Deployment rollback for two-per
          'Deployment, requires the expected current template, a candidate revision other than the current one, a '
          'catalog scope that allows rollback and an approved write binding, then stores an immutable action snapshot '
          'and the review content in one transaction with an audit row. Approval is the existing two-person passkey '
-         'flow. Replaying the same key and body returns 200 with the same proposal; a different body is 409. '
-         '409 rollback_target_changed when the Deployment changed since the candidates were read.')
+         'flow. Replaying the same key and body returns 200 with the same proposal, even after the Deployment '
+         'changed; a different body is 409 idempotency_conflict. Without resources.view the service is 404; '
+         'viewing it without the change grants is 403 forbidden. 409 rollback_target_changed when the '
+         'Deployment changed since the candidates were read.')
 P['/rollback-proposals']['post'].setdefault('parameters', []).append(
     {'name':'Idempotency-Key','in':'header','required':True,'schema':string(minLength=8,maxLength=128)})
 

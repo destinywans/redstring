@@ -24,8 +24,8 @@ E2E = LOCAL / 'e2e'
 
 # verified · partial (backend done, frontend pending, or part of the scope) · open · later (next round) · gap
 STATUS_OVERRIDES = {
-    'PA-05': 'verified', 'PA-08': 'verified', 'PA-09': 'verified', 'PA-12': 'verified', 'PA-19': 'partial', 'PA-68': 'verified',
-    'PA-21': 'verified', 'PA-43': 'verified', 'PA-84': 'open', 'PA-85': 'open', 'PA-86': 'open', 'PA-83': 'verified', 'PA-67': 'verified', 'PA-72': 'verified', 'PA-73': 'verified', 'PA-74': 'verified',
+    'PA-05': 'verified', 'PA-08': 'verified', 'PA-09': 'verified', 'PA-12': 'verified', 'PA-19': 'verified', 'PA-68': 'verified',
+    'PA-21': 'verified', 'PA-43': 'verified', 'PA-84': 'verified', 'PA-85': 'verified', 'PA-86': 'verified', 'PA-83': 'verified', 'PA-67': 'verified', 'PA-72': 'verified', 'PA-73': 'verified', 'PA-74': 'verified',
     'PA-78': 'verified', 'PA-79': 'verified', 'PA-80': 'verified', 'PA-81': 'verified', 'PA-82': 'verified',
 }
 STATUS_LABEL = {'verified': '已验证', 'partial': '部分完成', 'open': '处理中', 'later': '后续轮次', 'gap': '缺能力'}
@@ -38,7 +38,7 @@ PHASES = [
     ('4', '实验集群故障演练', 'done', '坏发布、重试风暴、Pod OOM、Pod 崩溃、消费者停止、节点压力六个场景：注入 → 告警 → 产品 → AI 取证 → 恢复，修复后重跑。'),
     ('5', '修复后全量回归', 'done', '基线、第二轮与回滚部署后的回归均已完成；最终一轮见下方“回归”数字。'),
     ('6', 'Kubernetes 回滚闭环', 'done', '下一轮第一段（用户 10-10 批准）：实验 Vault 凭据、独立执行器、两人通行密钥批准、恢复验证、AI 回滚建议与画布卡片；prod 端到端与 nonprod 五个失败与边界场景都通过。实验虚拟机时钟跳变（D12、D16）查明为 guest 内核缺少计数器倒退保护，经用户批准换为 HWE 7.0.0-38 并加自动修复守护，换后复验 23/23。'),
-    ('7', '统一来源登记第二阶段', 'done', '用户 10-10 批准，逐个读取方切换（覆盖度、服务映射、日志、链路、AI 指标工具、映射写入、能力标签），每步先 nonprod 后 prod、切换前后对照；之后缺省改为 unified 并删除开关，回退演练、回滚演练 23/23 与完整回归 15/15 均通过。期间修复链路页 PA-78～82。只剩 P4 清理待确认时间。'),
+    ('7', '统一来源登记第二阶段', 'done', '用户 10-10 批准，逐个读取方切换（覆盖度、服务映射、日志、链路、AI 指标工具、映射写入、能力标签），每步先 nonprod 后 prod、切换前后对照；之后缺省改为 unified 并删除开关，回退演练、回滚演练 23/23 与完整回归 15/15 均通过；期间修复链路页 PA-78～82。P4 清理（用户 10-10 批准）已完成：旧回滚计划到期迁移、V3 实例下线旧动作路由、取消 legacy/compare 模式、V3 不再读遥测文件与旧 Kubernetes 登记；部署后回滚演练 23/23、完整回归 15/15。'),
 ]
 
 # Rollback drills (PA-08/72/73): report file, scenario, what should happen.
@@ -63,7 +63,8 @@ DRILLS = [
 
 LATER = [
     ('性能压测与连续 24 小时运行', '计划阶段即后置。'),
-    ('统一来源登记 P4 清理（PA-19）', '第二阶段已完成并验收；P4（旧回滚计划过期、旧路由与 legacy/compare 模式移除、旧 Worker 与巡查改读登记、遥测文件只留目录）含不可逆项，待用户确认时间。'),
+    ('旧时间文字字段清理（PA-83，D24）', '前端已改读结构化时间；旧的文字字段下一轮删除，删除前后端先给首页最近动态补结构化环境字段。'),
+    ('调查选择器搜索框（PA-85，D25）', '新界面元素，需先出设计图由用户决定。'),
     ('变更与发布、启用告警规则（D11）', '实验 GitLab 交付链路已就绪，产品侧接入留到后续。'),
 ]
 
@@ -394,7 +395,7 @@ VERDICT = ('本轮在两个独立验收实例和三节点实验集群上完成�
            '权限矩阵与环境隔离没有越权。下一轮第一段的 Kubernetes 回滚闭环也已在实验集群上验证：AI 读修订并建议、人从画布提交、'
            '两人通行密钥批准、独立执行器写入并验证恢复，五个失败与边界场景都按设计停下、没有误写。'
            '统一来源登记第二阶段也已完成：集成中心登记的连接器成为服务映射、日志、链路、AI 取证和回滚的唯一来源，缺省改为 unified 后回滚演练与完整回归均通过。'
-           '性能与 24 小时稳定性、P4 清理与交付链路放到后续。')
+           'P4 清理也已完成，V3 实例只读统一登记。性能与 24 小时稳定性、交付链路放到后续。')
 
 
 def main():

@@ -65889,7 +65889,8 @@
                   "required": [
                     "id",
                     "device",
-                    "sub"
+                    "sub",
+                    "current"
                   ]
                 }
               },
@@ -66118,7 +66119,8 @@
                   "required": [
                     "id",
                     "device",
-                    "sub"
+                    "sub",
+                    "current"
                   ]
                 }
               },

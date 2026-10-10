@@ -51,7 +51,9 @@ S['V3ProfileView'] = v3_object('name display_name department title timezone', {
     'security': obj({'password_changed': string(), 'mfa_enabled': v3_nullable(v3_bool()), 'org_rule': v3_nullable(string()),
         'factors': v3_nullable(arr(obj({'kind':string(enum=['passkey','totp','recovery']), **fieldnames('name sub')},
                             ['kind','name','sub']))),
-        'sessions': arr(obj({'id': string(), 'device': v3_nullable(string()), 'sub': string(), 'current': v3_bool()}, ['id','device','sub'])),
+        # PA-69: current is on every item; the current session comes first, then newest sign-in. sub carries the sign-in
+        # time; requests do not record a last-active time.
+        'sessions': arr(obj({'id': string(), 'device': v3_nullable(string()), 'sub': string(), 'current': v3_bool()}, ['id','device','sub','current'])),
         'tokens': string()}, ['password_changed','mfa_enabled','org_rule','factors','sessions','tokens']),
     'unavailable': ref('V3Unavailable')},
     ['name','display_name','department','title','timezone','contacts','notifications','security','unavailable'])

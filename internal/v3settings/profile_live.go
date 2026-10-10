@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -182,10 +183,13 @@ func readProfileAccount(ctx context.Context, q profileQuerier, userID string) (p
 type profileSessionRow struct {
 	ID        string
 	ExpiresAt time.Time
+	IssuedAt  *time.Time
 }
 
 func readProfileSessions(ctx context.Context, q profileQuerier, userID string, locked bool) ([]profileSessionRow, error) {
-	query := `SELECT token_hash,expires_at FROM sessions WHERE user_id=$1 AND expires_at>clock_timestamp() ORDER BY token_hash LIMIT 101`
+	// Newest sign-in first (PA-69); sessions predating issued_at sort last.
+	query := `SELECT token_hash,expires_at,issued_at FROM sessions WHERE user_id=$1 AND expires_at>clock_timestamp()
+ ORDER BY issued_at DESC NULLS LAST,token_hash LIMIT 101`
 	if locked {
 		query += ` FOR SHARE`
 	}
@@ -197,7 +201,7 @@ func readProfileSessions(ctx context.Context, q profileQuerier, userID string, l
 	result := make([]profileSessionRow, 0)
 	for rows.Next() {
 		var row profileSessionRow
-		if err := rows.Scan(&row.ID, &row.ExpiresAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.ExpiresAt, &row.IssuedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, row)
@@ -441,9 +445,10 @@ func (v *profileView) withoutEvidence(r *http.Request, a profileAccount, session
 	v.Security.Sessions = make([]profileSession, 0, len(sessions))
 	for _, row := range sessions {
 		v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: row.ID,
-			Sub:     localize(r, "到期时间 ", "Expires ") + row.ExpiresAt.UTC().Format(time.RFC3339),
+			Sub:     sessionSignedIn(r, row) + localize(r, "到期时间 ", "Expires ") + row.ExpiresAt.UTC().Format(time.RFC3339),
 			Current: row.ID == currentID})
 	}
+	currentSessionFirst(v.Security.Sessions)
 	if len(v.Contacts) > 0 {
 		v.Unavailable["contacts[].verified"] = reason
 	}
@@ -532,16 +537,33 @@ func profileViewFromRows(ctx context.Context, r *http.Request, tx pgx.Tx, reques
 				}
 				device := evidence.Device
 				v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: row.ID, Device: &device,
-					Sub:     method + localize(r, " · 到期时间 ", " · Expires ") + row.ExpiresAt.UTC().Format(time.RFC3339),
+					Sub: method + " · " + sessionSignedIn(r, row) + localize(r, "到期时间 ", "Expires ") +
+						row.ExpiresAt.UTC().Format(time.RFC3339),
 					Current: row.ID == request.CurrentSessionID})
 				break
 			}
 		}
 	}
+	currentSessionFirst(v.Security.Sessions)
 	if !validEditableProfile(v) {
 		return profileView{}, errIdentityUnavailable
 	}
 	return v, nil
+}
+
+// sessionSignedIn is the sign-in time of a session, the closest recorded
+// activity: requests do not record a last-active time (PA-69).
+func sessionSignedIn(r *http.Request, row profileSessionRow) string {
+	if row.IssuedAt == nil {
+		return ""
+	}
+	return localize(r, "登录于 ", "Signed in ") + row.IssuedAt.UTC().Format(time.RFC3339) + " · "
+}
+
+// currentSessionFirst moves the requesting session to the top, keeping the
+// newest-sign-in order of the others.
+func currentSessionFirst(sessions []profileSession) {
+	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].Current && !sessions[j].Current })
 }
 
 func validEditableProfile(v profileView) bool {

@@ -208,6 +208,10 @@
 **其他字段**：
 - `verification.result` 取 `pending`、`passed`、`failed`、`unavailable`。`samples` 每 15 秒一条，最多保留最近 40 条。
 - 验证开始（`verification.started_at`）后的前 60 秒是稳定期：采样照常记录，`ok: false` 也不导致失败，因为速率窗口里还有坏版本的流量。之后每个样本都必须 `ok`，满 60 秒 + `plan.observation_seconds` 判为通过。画图时可以用 `started_at + 60s` 标出稳定期结束。
+- **不可用样本**（PA-73）：值为 `null` 的样本表示该查询没有值，比如 Pod 重建时请求为 0、错误率 0/0；`ok` 为 `false`。
+  - 稳定期内：照常记录，继续采样。
+  - 稳定期后：只要有一个值越过阈值，就是失败（`failed/verification_failed`），即使另一个值为 `null`；没有越界但有值缺失，记为 `needs_attention/verification_unavailable`，不当成恢复。
+- **观察窗口必须连续**：两个样本相隔超过 45 秒（例如执行器重启后等旧租约过期才接管），观察窗口从间隔后的第一个样本重新计时，空档不算观察时间。
 - `rollout` 和 `verification` 在对应阶段开始前为 `null`。
 
 **权限**：与旧执行视图相同，要求该应用或所属团队的 `proposals.view`，无权时返回 404。

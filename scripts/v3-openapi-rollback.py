@@ -115,7 +115,9 @@ S['V3RolloutVerificationSample'] = obj({
     'request_rate':{'type':['number','null']},
     'error_ratio':{'type':['number','null']},
     'sample_age_seconds':{'type':['number','null']},
-    'ok':v3_bool(),
+    'ok':{**v3_bool(),'description':'A null value is missing (no traffic, 0/0, or the query failed): '
+        'recorded during the 60 s settle period; after it, a value beyond its threshold fails the rollback '
+        'and a missing value needs attention (PA-73)'},
 }, ['at','request_rate','error_ratio','sample_age_seconds','ok'])
 S['V3RolloutExecutionDetail'] = obj({
     'id':string(),

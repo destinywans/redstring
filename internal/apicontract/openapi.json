@@ -89731,7 +89731,8 @@
             ]
           },
           "ok": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "A null value is missing (no traffic, 0/0, or the query failed): recorded during the 60 s settle period; after it, a value beyond its threshold fails the rollback and a missing value needs attention (PA-73)"
           }
         },
         "additionalProperties": false,

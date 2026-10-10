@@ -399,7 +399,21 @@ function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin, invest
             <Muted size={11.5}>{tx("这个节点自己的对话，与其他分支相互隔离。", "This node's own thread, isolated from other branches.")}</Muted>
             {/* The sample question belongs to the sample retry-storm investigation (its nodes carry versions). */}
             {demo && n.versions.length > 0 && <div className="cv-msg user">{tx("连接等待是从什么时候开始升高的？", "When did connection wait start rising?")}</div>}
-            <div className="cv-msg">{n.summary ? <Markdown text={n.summary} /> : <Muted>—</Muted>}</div>
+            {n.summary ? (
+              <div className="cv-msg">
+                <Markdown text={n.summary} />
+              </div>
+            ) : n.context.messages > 0 || n.rollback_suggestion ? (
+              // The canvas has no way to read a node's earlier replies yet (PA-75): say so instead of a bare dash.
+              <div className="cv-msg muted" role="note">
+                <Row gap={6} align="flex-start">
+                  <Icon name="info" size={13} style={{ marginTop: 3 }} />
+                  <span>{tx("这个节点的历史回复暂时无法读取（共 {n} 条消息）。继续追问后，新的回复会显示在这里。", "This node's earlier replies can't be read yet ({n} messages). New replies show here after you ask a follow-up.", { n: n.context.messages })}</span>
+                </Row>
+              </div>
+            ) : (
+              <Muted>{tx("还没有对话。在节点上追问后，回复会显示在这里。", "No conversation yet. Ask on the node and replies show here.")}</Muted>
+            )}
             {/* The branch's latest AI rollback suggestion, right under the reply; it only opens the proposal drawer. */}
             {n.rollback_suggestion && investigation && (
               <RollbackSuggestionCard

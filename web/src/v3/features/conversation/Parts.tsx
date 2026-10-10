@@ -391,7 +391,11 @@ function TasksPart({ p }: { p: Extract<Part, { type: "tasks" }> }) {
 }
 
 /** Renders one message part. Shared by conversation view, canvas nodes and the artifact panel. */
-export function PartView({ part, actions, streamingText }: { part: Part; actions?: PartActions; streamingText?: boolean }) {
+/** Status codes the server sends (PA-60/71): failures, and answers that finished under a limit. */
+const STATUS_FAILED = new Set(["reply_failed", "reply_interrupted"]);
+const STATUS_LIMITED = new Set(["evidence_limit", "output_truncated", "canvas_history_too_large"]);
+
+export function PartView({ part, actions, streamingText, streaming }: { part: Part; actions?: PartActions; streamingText?: boolean; /** the message is still being written */ streaming?: boolean }) {
   const nav = useNavigate();
   switch (part.type) {
     case "text":
@@ -440,13 +444,18 @@ export function PartView({ part, actions, streamingText }: { part: Part; actions
       return <NextSteps items={part.items.map((s) => ({ icon: s.icon as IconName, label: s.label, onClick: () => actions?.onStep?.(s.action, s.label) }))} />;
     case "artifacts":
       return null;
-    case "status":
+    case "status": {
+      // Only a message still being written shows progress; afterwards a status is a finished step (check), a failure
+      // or an answer cut short by a limit.
+      const failed = !!part.code && STATUS_FAILED.has(part.code);
+      const limited = !!part.code && STATUS_LIMITED.has(part.code);
       return (
-        <Row gap={8} className="part-status">
-          <span className="v3-spinner spin" />
+        <Row gap={8} className={cx("part-status", failed && "danger", limited && "warn")}>
+          {failed ? <Icon name="x" size={13} /> : limited ? <Icon name="alert" size={13} /> : streaming ? <span className="v3-spinner spin" /> : <Icon name="check" size={13} color="var(--ok)" />}
           <span>{part.text}</span>
         </Row>
       );
+    }
   }
 }
 

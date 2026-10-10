@@ -142,7 +142,7 @@ export function AskAiCard() {
                   {m.streaming && <BrandMark size={14} state="thinking" label={tx("生成中", "Generating")} />}
                 </div>
                 {m.parts.map((p, i) => (
-                  <PartView key={i} part={p} streamingText={m.streaming && i === m.parts.length - 1} actions={{ onStep: () => openFull() }} />
+                  <PartView key={i} part={p} streamingText={m.streaming && i === m.parts.length - 1} streaming={m.streaming} actions={{ onStep: () => openFull() }} />
                 ))}
               </div>
             ),

@@ -13,6 +13,7 @@ import "./observe.css";
 import { openExternal, ChipSelect, usePickLists } from "../../ui/demo";
 import { useNavigate } from "react-router-dom";
 import { Unavailable, UnknownValue } from "../../ui/unknown";
+import { CollectionBanner, CollectionEmpty, useStaleCollectors } from "./CollectionNotice";
 
 const TONE_COLOR = { ok: "var(--c2)", warn: "var(--warn)", danger: "var(--danger)" };
 const NODE_W = 172;
@@ -124,7 +125,12 @@ function visibleRows(tree: Topology["tree"], toggled: Set<number>) {
 
 export default function ResourcesPage() {
   const { tx } = useI18n();
-  const { data: rawTopology, refetch: topoRefetch } = useGet<RawTopology>("/topology");
+  // While a collector is behind, check again every minute so the notice clears (and the minutes tick) on its own.
+  const { data: rawTopology, refetch: topoRefetch } = useGet<RawTopology>("/topology", undefined, {
+    refetchInterval: (q) => ((q.state.data?.collection ?? []).some((c) => c.state !== "fresh") ? 60_000 : false),
+  });
+  const stale = useStaleCollectors(rawTopology?.collection);
+  const empty = !!rawTopology && rawTopology.nodes.length === 0;
   const kindLabel = (k?: string) =>
     ({ cluster: tx("集群", "Cluster"), node: tx("节点", "Node"), namespace: tx("命名空间", "Namespace"), network: tx("服务网络", "Service"), deployment: tx("工作负载", "Workload") })[k ?? ""] ?? (k || tx("资源", "Resource"));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -286,6 +292,7 @@ export default function ResourcesPage() {
               {tx("影响范围", "Blast radius")}
             </Chip>
           </Row>
+          {!empty && <CollectionBanner stale={stale} />}
           <div className="topo-stage">
           <div
             className={cx("topo-box", view_ === "topo" && "pan")}
@@ -312,7 +319,9 @@ export default function ResourcesPage() {
             }}
           >
             {!t && <Skeleton h={600} style={{ margin: 20 }} />}
-            {t && view_ === "topo" && (
+            {/* An empty graph says why instead of drawing a blank canvas (PA-61). */}
+            {t && empty && view_ !== "sankey" && <CollectionEmpty stale={stale} />}
+            {t && !empty && view_ === "topo" && (
               <div className="topo-canvas" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})`, transition: animate ? "transform 280ms var(--ease)" : "none" }}>
                 {t.groups.map((g) => (
                   <div key={g.id} className="topo-group" style={{ left: g.x, top: g.y, width: g.w, height: g.h }}>
@@ -361,7 +370,7 @@ export default function ResourcesPage() {
                 ))}
               </div>
             )}
-            {t && view_ === "tree" && (
+            {t && !empty && view_ === "tree" && (
               <div className="topo-tree anim-fade">
                 <div className="tree-row head">
                   <span>{tx("名称", "Name")}</span>
@@ -411,7 +420,7 @@ export default function ResourcesPage() {
               </div>
             )}
           </div>
-          {t && view_ === "topo" && (
+          {t && !empty && view_ === "topo" && (
             <>
               <ZoomControl k={view.k} onZoom={(f) => zoom(f)} onReset={() => zoom(1 / view.k)} onFit={fit} />
               {t.blast && (

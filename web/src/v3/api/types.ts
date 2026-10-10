@@ -126,7 +126,8 @@ export type Part =
   | { type: "citations"; items: { n: number; label: string; ref?: Ref }[] }
   | { type: "data_gap"; text: string; href: string }
   | { type: "next_steps"; items: { icon: string; label: string; action: string }[] }
-  | { type: "status"; text: string; detail?: string }
+  /** code: reply_failed / reply_interrupted (failed), evidence_limit / output_truncated / canvas_history_too_large (finished under a limit); none for evidence steps. */
+  | { type: "status"; text: string; detail?: string; code?: string }
   | { type: "artifacts"; ids: string[] };
 export type Message = {
   id: string;
@@ -566,6 +567,17 @@ export type Resilience = {
 };
 /** Real topology carries no layout, health or impact yet: status is null (unknown) and the page lays nodes out itself. */
 export type TopologyNode = { id: string; name: string; brand?: string; sub: string; status: Health | null; group?: string; x: number; y: number; impacted?: boolean; kind?: string; cluster?: string; environment_ids?: string[] };
+/** One inventory collector kind per environment (PA-61); resources of collectors past stale_after_seconds are left out. */
+export type TopologyCollection = {
+  environment_id: string;
+  source_kind: "kubernetes" | "docker" | "lima" | (string & {});
+  state: "fresh" | "partial" | "stale" | "never" | (string & {});
+  sources: number;
+  fresh_sources: number;
+  last_success_at: string | null;
+  oldest_success_at: string | null;
+  stale_after_seconds: number;
+};
 export type Topology = {
   groups: { id: string; label: string; zone: string; x: number; y: number; w: number; h: number }[];
   nodes: TopologyNode[];
@@ -575,6 +587,7 @@ export type Topology = {
   sankey: null | { cols: { id: string; label: string; value: number; color: string }[][]; links: { from: string; to: string; value: number; color: string }[] };
   detail: null | { id: string; name: string; meta: string; brand: string; conns: { used: number; max: number }; from_service: { used: number; max: number; service: string }; wait: number[]; health: { k: string; v: string }[]; owner: string; dependents: string; source: string };
   unavailable_fields?: string[];
+  collection?: TopologyCollection[];
 };
 /**
  * GET /metrics/dashboard. Markers are null when no platform record falls in the window (not_generated); every metric

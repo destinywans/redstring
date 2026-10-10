@@ -307,6 +307,8 @@ export function AccountSecurityPage() {
   const endSession = useSend<string>("DELETE", (id) => `/me/sessions/${id}`);
   const signOutOthers = async () => {
     const others = form?.security.sessions.filter((s) => !s.current && !ended.has(s.id)).map((s) => s.id) ?? [];
+    // The current session is never in this list (PA-69); with nothing else signed in, say so instead of "signed out".
+    if (!others.length) return toast(tx("没有其他登录中的会话", "No other signed-in sessions"));
     if (API_MODE !== "mock") {
       const results = await Promise.allSettled(others.map((id) => endSession.mutateAsync(id)));
       const done = others.filter((_, i) => results[i].status === "fulfilled");

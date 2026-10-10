@@ -198,6 +198,8 @@ export type CanvasNode = {
   tools?: string;
   series?: number[];
   writeback?: { to: string; version: string };
+  /** Conclusions written back into this node, with the nodes they came from (PA-62). */
+  writebacks?: { received: number; sources: string[] };
   evidence?: EvidenceBody & { source: string; color: string };
   context: { version: string; inherits?: string; tokens: number; messages: number; excludes: string[] };
   versions: { v: string; text: string; at: string }[];

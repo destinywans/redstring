@@ -21,8 +21,13 @@ func TestProjectionCountsFullPopulationAndBuildsClosedTraceView(t *testing.T) {
 	window := connectors.TimeWindow{Start: start.Add(-time.Hour), End: start.Add(time.Minute)}
 	list := BuildList([]connectors.CompleteTrace{trace}, window, "all", "api", 15*time.Millisecond)
 	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].Href != "/traces/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?service=api" ||
-		list.Items[0].Errors != 1 || list.Items[0].Spans != 2 || list.Views[1].Count != 1 || list.Views[2].Count != 1 {
+		list.Items[0].Errors != 1 || list.Items[0].Spans != 2 || *list.Views[1].Count != 1 || *list.Views[2].Count != 1 {
 		t.Fatalf("inconsistent trace list: %+v", list)
+	}
+	// PA-80: searched with a view's selector, only that view is counted.
+	errorsOnly := BuildList([]connectors.CompleteTrace{trace}, window, "errors", "api", 15*time.Millisecond)
+	if errorsOnly.Views[0].Count != nil || *errorsOnly.Views[1].Count != 1 || errorsOnly.Views[2].Count != nil || errorsOnly.Total != 1 {
+		t.Fatalf("view counts of an errors search: %+v", errorsOnly.Views)
 	}
 	buckets := 0
 	for _, pair := range list.Histogram.Counts {

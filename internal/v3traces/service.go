@@ -257,6 +257,12 @@ func sourceError(w http.ResponseWriter, err error, detail bool) {
 		}
 	case "request_too_long":
 		httpapi.Error(w, 422, "query_too_long", "Trace search exceeds the 8 KiB request limit; shorten the filter")
+	case "lookback":
+		// PA-79: the range is longer than the deployment keeps searchable.
+		limit := time.Duration(telemetry.LimitSeconds) * time.Second
+		httpapi.WriteJSON(w, 422, map[string]any{"error": map[string]any{
+			"code": "range_exceeds_lookback", "message": "Choose a range within the configured trace lookback",
+			"max_lookback_seconds": telemetry.LimitSeconds, "max_range": v3pagequery.LongestRange(limit)}})
 	default:
 		httpapi.Error(w, 503, "telemetry_unavailable", "Scoped trace query is incomplete or unavailable")
 	}
@@ -475,7 +481,8 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	end := start.UTC().Truncate(time.Second)
 	window := connectors.TimeWindow{Start: end.Add(-duration), End: end}
-	observed, err := s.observed(r.Context(), all, targets, connectors.CompleteTraceQuery{Window: window, Filter: filter})
+	observed, err := s.observed(r.Context(), all, targets, connectors.CompleteTraceQuery{Window: window, Filter: filter,
+		ViewFilter: viewFilter(view)})
 	if err != nil {
 		s.readError(w, err, false)
 		return

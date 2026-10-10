@@ -12,6 +12,18 @@ import (
 var ErrInvalid = errors.New("invalid page query")
 var durations = map[string]time.Duration{"15m": 15 * time.Minute, "30m": 30 * time.Minute, "1h": time.Hour, "6h": 6 * time.Hour, "24h": 24 * time.Hour, "7d": 7 * 24 * time.Hour, "30d": 30 * 24 * time.Hour}
 
+// LongestRange is the longest range value no longer than within ("" when
+// even the shortest is longer).
+func LongestRange(within time.Duration) string {
+	best, longest := "", time.Duration(0)
+	for name, d := range durations {
+		if d <= within && d > longest {
+			best, longest = name, d
+		}
+	}
+	return best
+}
+
 func ParseRange(q url.Values, fallback time.Duration) (time.Duration, error) {
 	values, has := q["range"]
 	if !has {

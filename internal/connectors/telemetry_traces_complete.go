@@ -36,6 +36,9 @@ type CompleteTraceQuery struct {
 	// the shared budget: a query over several clients gives each a share,
 	// so the first cannot leave the others nothing (PA-78).
 	MaxTraceIDs int
+	// ViewFilter is a server-defined span selector (a saved list view such
+	// as { status = error }) combined with Filter: both must match (PA-80).
+	ViewFilter string
 }
 
 // CompleteTraceIDLimit is the trace ID budget of one logical query.
@@ -209,7 +212,7 @@ func (t *Telemetry) queryStoredTraces(ctx context.Context, q CompleteTraceQuery,
 	if q.TraceID != "" && !ValidTraceID(q.TraceID) {
 		return nil, coverage, failure(&source, "scope", "Trace ID must contain 32 hexadecimal characters", nil)
 	}
-	if !ValidTraceSelector(q.Filter) {
+	if !ValidTraceSelector(q.Filter) || !ValidTraceSelector(q.ViewFilter) {
 		return nil, coverage, failure(&source, "scope", "Trace filter must be one bounded TraceQL span selector", nil)
 	}
 	var err error
@@ -217,9 +220,9 @@ func (t *Telemetry) queryStoredTraces(ctx context.Context, q CompleteTraceQuery,
 		if requireAttested && !t.config.TempoSearchFailClosed {
 			return nil, coverage, failure(&source, "configuration", "Tempo search completeness is not verified for this deployment", nil)
 		}
-		source.Window, err = t.window(q.Window, false)
+		source.Window, err = t.searchWindow(&source, q.Window)
 		if err != nil {
-			return nil, coverage, failure(&source, "scope", err.Error(), err)
+			return nil, coverage, err
 		}
 	}
 	ids := map[string]bool{}
@@ -265,8 +268,10 @@ func (t *Telemetry) queryStoredTraces(ctx context.Context, q CompleteTraceQuery,
 		}
 		selected[resource] = true
 		selector := TempoScopeSelector(t.config.Applications[resource])
-		if q.Filter != "" {
-			selector += " && " + q.Filter
+		for _, filter := range []string{q.ViewFilter, q.Filter} {
+			if filter != "" {
+				selector += " && " + filter
+			}
 		}
 		selectors = append(selectors, selector)
 	}
@@ -276,7 +281,7 @@ func (t *Telemetry) queryStoredTraces(ctx context.Context, q CompleteTraceQuery,
 		if q.MaxTraceIDs > 0 && q.MaxTraceIDs < limit {
 			limit = q.MaxTraceIDs
 		}
-		covered, err := t.searchNewestFirst(ctx, &source, selectors, start, end, ids, budget, limit, truncate)
+		covered, err := t.searchNewestFirst(ctx, &source, selectors, start, end, int64(t.config.MaxWindowSeconds), ids, budget, limit, truncate)
 		if err != nil {
 			return nil, coverage, err
 		}
@@ -327,7 +332,7 @@ func (t *Telemetry) queryStoredTraces(ctx context.Context, q CompleteTraceQuery,
 // reaching the search or ID budget (or a full one-second window) stops the
 // search once something is covered, and the covered part [covered, end) is
 // complete; otherwise, and when nothing is covered yet, it is a limit error.
-func (t *Telemetry) searchNewestFirst(ctx context.Context, source *TelemetrySource, selectors []string, start, end int64,
+func (t *Telemetry) searchNewestFirst(ctx context.Context, source *TelemetrySource, selectors []string, start, end, chunk int64,
 	ids map[string]bool, budget *TraceSearchBudget, limit int, truncate bool) (int64, error) {
 	covered, stopped := end, false
 	stop := func(message string) error {
@@ -403,10 +408,50 @@ func (t *Telemetry) searchNewestFirst(ctx context.Context, source *TelemetrySour
 		}
 		return walk(a, mid)
 	}
-	if err := walk(start, end); err != nil {
-		return end, err
+	// The window may be as long as the lookback; every search covers at most
+	// one chunk (MaxWindowSeconds), newest first, under the same budget.
+	if chunk < 1 {
+		chunk = end - start
+	}
+	for chunkEnd := end; chunkEnd > start && !stopped; chunkEnd -= chunk {
+		if err := walk(max(start, chunkEnd-chunk), chunkEnd); err != nil {
+			return end, err
+		}
 	}
 	return covered, nil
+}
+
+// searchWindow checks a list search window (PA-79). Unlike a single read it
+// may be as long as MaxLookbackSeconds, since the search sends chunks of at
+// most MaxWindowSeconds; a longer window is a "lookback" error that names
+// the limit.
+func (t *Telemetry) searchWindow(source *TelemetrySource, w TimeWindow) (TimeWindow, error) {
+	now := t.now().UTC()
+	if w.End.IsZero() {
+		w.End = now
+	}
+	if w.Start.IsZero() {
+		w.Start = w.End.Add(-min(15*time.Minute, time.Duration(t.config.MaxWindowSeconds)*time.Second))
+	}
+	w.Start, w.End, w.StepSeconds = w.Start.UTC(), w.End.UTC(), 0
+	lookback := time.Duration(t.config.MaxLookbackSeconds) * time.Second
+	if !w.Start.Before(w.End) || w.End.After(now.Add(5*time.Second)) {
+		return w, failure(source, "scope", "telemetry window is empty or in the future", nil)
+	}
+	if w.End.Sub(w.Start) > lookback {
+		err := failure(source, "lookback", "Trace search window exceeds the configured lookback", nil)
+		err.(*TelemetryError).LimitSeconds = t.config.MaxLookbackSeconds
+		return w, err
+	}
+	// A window that ends a moment before now may start just past the
+	// lookback; it covers the lookback.
+	if oldest := now.Add(-lookback); w.Start.Before(oldest) {
+		w.Start = oldest
+	}
+	if !w.Start.Before(w.End) {
+		return w, failure(source, "scope", "telemetry window is older than the configured lookback", nil)
+	}
+	return w, nil
 }
 
 func projectCompleteTrace(source *TelemetrySource, id string, raw []byte, registrations []completeTraceRegistration) (CompleteTrace, error) {

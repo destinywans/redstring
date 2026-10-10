@@ -228,10 +228,10 @@ func buildAgentTraceList(source v3agents.TraceRunObservations, filters []agentTr
 		}
 	}
 	result.Views = []TraceViewOption{
-		{ID: "all", Label: "All", Count: len(population), Query: ""},
-		{ID: "errors", Label: "Failed, blocked or reported errors", Count: errorCount, Query: ""},
-		{ID: "slow", Label: "Slow", Count: slowCount, Query: "duration >= 1s"},
-		{ID: "blocked", Label: "Blocked", Count: blockedCount, Query: `status = "blocked"`},
+		{ID: "all", Label: "All", Count: count(len(population)), Query: ""},
+		{ID: "errors", Label: "Failed, blocked or reported errors", Count: count(errorCount), Query: ""},
+		{ID: "slow", Label: "Slow", Count: count(slowCount), Query: "duration >= 1s"},
+		{ID: "blocked", Label: "Blocked", Count: count(blockedCount), Query: `status = "blocked"`},
 	}
 	selected := make([]v3agents.TraceRunObservation, 0, len(population))
 	for _, v := range population {

@@ -130,6 +130,8 @@ Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `d
 - **归属与重叠**：数据库保证同一连接器上一个外部 ID 只属于一个服务。目录里任何两条 Tempo 范围的选择器重叠（服务名相同、属性不能区分）时失败关闭，返回 503 `not_configured`，与旧文件的规则相同，比较范围是整个目录（包括当前用户看不到的服务）。
 - **未就绪与凭据**：503 `source_not_ready`（`message` 列出原因码），凭据读不到 503 `source_unavailable`。
 - **GET 与 URL 长度**：TraceQL 搜索仍是 GET（Tempo 没有 POST 形式）。请求 URI（路径加查询串）超过 8 KiB 时不发送，列表返回 422 `query_too_long`。目录里每条 Tempo 范围的选择器 URL 编码后不得超过 6 KiB，加上最长 512 字符的 `q`（编码后最多约 1.5 KiB）仍在 8 KiB 以内，所以登记的范围只会因用户过滤条件过长而触发这个错误。旧文件里的范围不受目录校验，超长时同样 422。按 ID 读 Trace 的 URL 很短，不受影响。
+- **时间范围（PA-79）**：`range` 是搜索的外边界，可以长到 `max_lookback_seconds`（默认 7 天，更长为 422 `range_exceeds_lookback`）；每次 Tempo 请求仍不超过 `max_window_seconds`（默认 1 小时），从新到旧，计入 64 次搜索预算。所以流量很小、范围很长时也可能以 `search_budget` 结束：每个服务每小时至少一次搜索，3 个服务时 64 次约覆盖 21 小时。
+- **视图（PA-80）**：错误视图把 `{ status = error }`、慢视图把 `{ trace:duration >= 1s }` 并入每次搜索，与用户的 `q` 同时满足，覆盖整个时间范围，而不是对最近 40 条做后筛选。
 - `tempo_search_fail_closed` 目前仍取自 `AIOPS_TELEMETRY_CONFIG`，对所有登记的 Tempo 连接器生效；P4 删除遥测文件之前要给它换位置。
 
 ### AI 指标工具与服务清单（第二阶段第 5 步）

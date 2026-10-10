@@ -116,7 +116,9 @@ type TelemetryError struct {
 	Message    string `json:"message"`
 	HTTPStatus int    `json:"http_status,omitempty"`
 	Retryable  bool   `json:"retryable"`
-	cause      error
+	// LimitSeconds is the configured limit a "lookback" error refers to.
+	LimitSeconds int `json:"limit_seconds,omitempty"`
+	cause        error
 }
 
 func (e *TelemetryError) Error() string { return e.Kind + ": " + e.Message }

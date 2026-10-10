@@ -122,8 +122,8 @@ func BuildObservedList(traces []connectors.CompleteTrace, view, service string, 
 	result := ObservedTraceList{Scope: "app", Took: fmt.Sprintf("%d ms", took.Milliseconds()), Colors: traceColors(traces),
 		Items: []TraceRow{}, Partial: true, Unavailable: observedTraceReasons(reason, false),
 		Views: []ObservedTraceViewOption{{ID: "all", Label: "All", Query: ""},
-			{ID: "errors", Label: "Errors", Query: "{ status = error }"},
-			{ID: "slow", Label: "Slow", Query: "{ trace:duration >= 1s }"}}}
+			{ID: "errors", Label: "Errors", Query: errorsViewQuery},
+			{ID: "slow", Label: "Slow", Query: slowViewQuery}}}
 	for _, trace := range traces {
 		row := rowFor(trace, service)
 		if view == "errors" && row.Errors == 0 || view == "slow" && row.DurationMS < 1000 {
@@ -145,17 +145,41 @@ func BuildObservedList(traces []connectors.CompleteTrace, view, service string, 
 func UnconfiguredList() ObservedTraceList {
 	return ObservedTraceList{Scope: "app", Took: "0 ms", Colors: map[string]string{}, Partial: true, PartialReason: "not_configured",
 		Views: []ObservedTraceViewOption{{ID: "all", Label: "All", Query: ""},
-			{ID: "errors", Label: "Errors", Query: "{ status = error }"},
-			{ID: "slow", Label: "Slow", Query: "{ trace:duration >= 1s }"}},
+			{ID: "errors", Label: "Errors", Query: errorsViewQuery},
+			{ID: "slow", Label: "Slow", Query: slowViewQuery}},
 		Unavailable: observedTraceReasons("not_configured", true)}
 }
 
 type TraceViewOption struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
-	Count int    `json:"count"`
+	// Count is absent for a view outside the searched population (an app
+	// list searched with another view's filter, PA-80).
+	Count *int   `json:"count,omitempty"`
 	Query string `json:"query"`
 }
+
+// The app-scope list views. Their selectors are added to the Tempo search
+// (PA-80), so a view covers the whole window rather than the newest traces;
+// rows are still checked against the same rule (an error span; a duration
+// of at least one second).
+const (
+	errorsViewQuery = "{ status = error }"
+	slowViewQuery   = "{ trace:duration >= 1s }"
+)
+
+// viewFilter is the search selector of a view ("" for all).
+func viewFilter(view string) string {
+	switch view {
+	case "errors":
+		return errorsViewQuery
+	case "slow":
+		return slowViewQuery
+	}
+	return ""
+}
+
+func count(n int) *int { return &n }
 
 type TraceScatter struct {
 	X     float64 `json:"x"`
@@ -298,7 +322,8 @@ func facet(key, label string, counts map[string]int) TraceFacet {
 }
 
 // BuildList counts every accepted trace in the complete bounded search set.
-// A view filters that set; counts and charts all refer to the same population.
+// A view's selector was part of that search (PA-80); its rule is checked
+// again here, and counts and charts all refer to the same population.
 func BuildList(traces []connectors.CompleteTrace, window connectors.TimeWindow, view, service string, took time.Duration) TraceList {
 	base := make([]TraceRow, 0, len(traces))
 	for _, trace := range traces {
@@ -316,9 +341,17 @@ func BuildList(traces []connectors.CompleteTrace, window connectors.TimeWindow, 
 			slowCount++
 		}
 	}
-	result.Views = []TraceViewOption{{ID: "all", Label: "All", Count: len(base), Query: ""},
-		{ID: "errors", Label: "Errors", Count: errorCount, Query: "{ status = error }"},
-		{ID: "slow", Label: "Slow", Count: slowCount, Query: "{ trace:duration >= 1s }"}}
+	result.Views = []TraceViewOption{{ID: "all", Label: "All", Count: count(len(base)), Query: ""},
+		{ID: "errors", Label: "Errors", Count: count(errorCount), Query: errorsViewQuery},
+		{ID: "slow", Label: "Slow", Count: count(slowCount), Query: slowViewQuery}}
+	if view == "errors" || view == "slow" {
+		// The search used this view's selector: only its count is known.
+		for i := range result.Views {
+			if result.Views[i].ID != view {
+				result.Views[i].Count = nil
+			}
+		}
+	}
 	for _, row := range base {
 		if view == "errors" && row.Errors == 0 || view == "slow" && row.DurationMS < 1000 {
 			continue

@@ -496,3 +496,61 @@ func TestObservedTraceSearchStopsAtTheSearchBudget(t *testing.T) {
 		t.Fatalf("search budget: searches=%d from=%v truncated=%v %v", searches, observed.WindowStart, observed.Truncated, err)
 	}
 }
+
+// PA-79/PA-80: a list search may span the lookback; each Tempo request
+// covers at most MaxWindowSeconds, newest first, and those requests count
+// against the 64-search budget. A view's selector is part of every search.
+func TestObservedTraceSearchChunksTheRangeAndAddsTheView(t *testing.T) {
+	end := time.Now().UTC().Truncate(time.Second)
+	var windows []int64
+	var queries []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		a, _ := strconv.ParseInt(r.URL.Query().Get("start"), 10, 64)
+		b, _ := strconv.ParseInt(r.URL.Query().Get("end"), 10, 64)
+		windows, queries = append(windows, b-a), append(queries, r.URL.Query().Get("q"))
+		_ = json.NewEncoder(w).Encode(map[string]any{"traces": []any{}})
+	}))
+	defer server.Close()
+	applications := map[string]ApplicationTelemetry{}
+	for _, name := range []string{"a", "b", "c"} {
+		applications[name] = ApplicationTelemetry{TempoService: name, TempoAttributes: map[string]string{"deployment.environment": "lab"}}
+	}
+	telemetry, err := NewTelemetry(TelemetryConfig{Tempo: TelemetryEndpoint{URL: server.URL, AllowHTTP: true}, Applications: applications})
+	if err != nil {
+		t.Fatal(err)
+	}
+	day := TimeWindow{Start: end.Add(-24 * time.Hour), End: end}
+	// One service: 24 one-hour searches cover the day.
+	observed, err := telemetry.QueryObservedTraces(context.Background(), CompleteTraceQuery{Resources: []string{"a"}, Window: day,
+		ViewFilter: "{ status = error }", Filter: `{ span.http.route = "/orders" }`})
+	if err != nil || observed.Truncated || !observed.WindowStart.Equal(day.Start) || len(windows) != 24 {
+		t.Fatalf("one service over a day: %d searches, %+v %v", len(windows), observed, err)
+	}
+	for i, size := range windows {
+		if size > 3600 || !strings.Contains(queries[i], `resource.service.name = "a"`) ||
+			!strings.HasSuffix(queries[i], `&& { status = error } && { span.http.route = "/orders" }`) {
+			t.Fatalf("search %d: %d s, %s", i, size, queries[i])
+		}
+	}
+	// Three services: 3 searches per hour, so 64 searches cover 21 hours.
+	windows = nil
+	observed, err = telemetry.QueryObservedTraces(context.Background(), CompleteTraceQuery{Resources: []string{"a", "b", "c"}, Window: day})
+	if err != nil || !observed.Truncated || len(windows) != maxCompleteTraceSearches || !observed.WindowStart.Equal(end.Add(-21*time.Hour)) {
+		t.Fatalf("three services over a day: %d searches, from %v %v", len(windows), observed.WindowStart, err)
+	}
+	// The lookback (7 days by default) bounds the range itself.
+	if _, err = telemetry.QueryObservedTraces(context.Background(), CompleteTraceQuery{Resources: []string{"a"},
+		Window: TimeWindow{Start: end.Add(-30 * 24 * time.Hour), End: end}}); err == nil ||
+		err.(*TelemetryError).Kind != "lookback" || err.(*TelemetryError).LimitSeconds != 7*86400 {
+		t.Fatalf("30 days: %v", err)
+	}
+	windows = nil
+	if _, err = telemetry.QueryObservedTraces(context.Background(), CompleteTraceQuery{Resources: []string{"a"},
+		Window: TimeWindow{Start: end.Add(-7 * 24 * time.Hour), End: end}}); err != nil {
+		t.Fatalf("7 days: %v", err)
+	}
+	if _, err = telemetry.QueryObservedTraces(context.Background(), CompleteTraceQuery{Resources: []string{"a"}, Window: day,
+		ViewFilter: "{ status = error } | count() > 1"}); err == nil || err.(*TelemetryError).Kind != "scope" {
+		t.Fatalf("a view outside the selector grammar: %v", err)
+	}
+}

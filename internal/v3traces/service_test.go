@@ -28,9 +28,14 @@ type sourceStub struct {
 	unattested bool
 	// coveredFrom, when set, is where a search stopped at its budget.
 	coveredFrom time.Time
+	viewFilter  string
 }
 
 func (s *sourceStub) QueryObservedTraces(ctx context.Context, q connectors.CompleteTraceQuery) (connectors.TraceObservation, error) {
+	s.viewFilter = q.ViewFilter
+	if q.Window.End.Sub(q.Window.Start) > 7*24*time.Hour {
+		return connectors.TraceObservation{}, &connectors.TelemetryError{Kind: "lookback", LimitSeconds: 7 * 86400}
+	}
 	traces, err := s.QueryCompleteTraces(ctx, q)
 	observed := connectors.TraceObservation{Traces: traces, PopulationComplete: !s.unattested,
 		WindowStart: q.Window.Start, WindowEnd: q.Window.End}
@@ -232,6 +237,25 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		t.Fatalf("unattested list: %+v", unattested)
 	}
 	source.unattested = false
+	// PA-79: a range beyond the lookback is refused with the limit.
+	w = request("/api/v1/traces?service=app&range=30d")
+	var rangeError struct {
+		Error struct {
+			Code       string `json:"code"`
+			MaxSeconds int    `json:"max_lookback_seconds"`
+			MaxRange   string `json:"max_range"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(w.Body.Bytes(), &rangeError) != nil || w.Code != 422 || rangeError.Error.Code != "range_exceeds_lookback" ||
+		rangeError.Error.MaxSeconds != 7*86400 || rangeError.Error.MaxRange != "7d" {
+		t.Fatalf("range beyond the lookback: %d %s", w.Code, w.Body.String())
+	}
+	// PA-80: a view's selector goes to the search.
+	for view, filter := range map[string]string{"errors": "{ status = error }", "slow": "{ trace:duration >= 1s }", "all": ""} {
+		if w := request("/api/v1/traces?service=app&view=" + view); w.Code != 200 || source.viewFilter != filter {
+			t.Fatalf("view %s searched with %q: %d %s", view, source.viewFilter, w.Code, w.Body.String())
+		}
+	}
 	assertError(request("/api/v1/traces?service=app&source=jaeger"), 503, "trace_source_not_connected")
 	assertError(request("/api/v1/traces?service=app&range=1h&range=7d"), 422, "invalid_range")
 	w = request("/api/v1/traces/" + id + "?service=app")

@@ -172,6 +172,12 @@ func TestRoleCreationMemberAccessHTTPPostgres(t *testing.T) {
 	}
 	before := accessSnapshotHTTP(t, h, user.ID, token)
 	enabled := true
+	// PA-54: assigning the role the member already holds through the
+	// invitation says so instead of a generic invalid_access.
+	inherited := memberAccessInput{ExpectedRevision: before.Revision, RoleIDs: []string{"viewer"}, RoleRevisions: map[string]string{"viewer": "1"}, Enabled: &enabled}
+	if w := accessRequest(t, h, "PUT", "/api/v1/members/"+user.ID+"/access", "dev", token, inherited); w.Code != 409 || !strings.Contains(w.Body.String(), `"role_already_inherited"`) {
+		t.Fatalf("inherited role assignment: %d %s", w.Code, w.Body.String())
+	}
 	input := memberAccessInput{ExpectedRevision: before.Revision, RoleIDs: []string{in.ID}, RoleRevisions: map[string]string{in.ID: "1"}, Enabled: &enabled}
 	requireAccessStatus(t, accessRequest(t, h, "PUT", "/api/v1/members/"+user.ID+"/access", "dev", token, input), 200)
 	if err = policy.Authorize(ctx, user, decision); err != nil {

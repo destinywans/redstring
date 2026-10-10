@@ -121,6 +121,10 @@ def main():
                   f"suggested {sug.get('target_revision')} from {sug.get('from_revision')}, candidate {target.get('revision')}")
             check('suggestion carries the encoded service id', sug.get('service_id') == sid, str(sug.get('service_id')))
             check('suggestion is on the canvas node after a re-read', log['investigation'].get('projected_suggestion') == sug and bool(sug), '')
+            head = (log['investigation'].get('summary') or '').lstrip()[:80]
+            cjk = sum(1 for ch in head if '\u4e00' <= ch <= '\u9fff')
+            check('answer starts in the reply language, no tool preamble (PA-77)',
+                  cjk >= 5 and not head.lower().startswith(("i'll", 'i will', 'let me', 'i am going')), head)
         env_changes = [c for c in target.get('changes', []) if c.get('field') == 'env' and c.get('name') == 'LAB_FAULTS']
         check('target revision removes the injected fault', current.get('revision') == log['revision_bad'] and env_changes,
               json.dumps(env_changes, ensure_ascii=False)[:200])
@@ -206,10 +210,12 @@ def main():
 
         after = kube_json('get', 'deployment', a.app)
         env = {e['name']: e.get('value', '') for e in after.get('spec', {}).get('template', {}).get('spec', {}).get('containers', [{}])[0].get('env', [])}
-        notes = {k: v for k, v in after.get('metadata', {}).get('annotations', {}).items() if 'aiops' in k or 'revision' in k}
+        notes = {k: v for k, v in after.get('metadata', {}).get('annotations', {}).items() if 'aiops' in k or 'revision' in k or 'change-cause' in k}
         log['readback'] = {'LAB_FAULTS': env.get('LAB_FAULTS'), 'annotations': notes}
         check('Deployment template no longer injects faults', env.get('LAB_FAULTS', '') == '', repr(env.get('LAB_FAULTS')))
         check('operation annotation names the execution', eid and eid in json.dumps(notes), json.dumps(notes)[:200])
+        cause = notes.get('kubernetes.io/change-cause', '')
+        check('restored revision says it is a rollback (PA-76)', cause.startswith('aiops rollback to revision') and (eid or '-') in cause, cause)
     finally:
         log['off_at'] = round(time.time() - log['t0'])
         print(f"  +{log['off_at']:>4}s bad release off: {lab('drill', 'bad-release', 'off', '--app', a.app)}", flush=True)

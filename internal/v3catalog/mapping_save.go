@@ -293,6 +293,16 @@ func (s *Service) mappingSave(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		if s.MappingsUnified && s.MappingWritesUnified {
+			// Step 6: registry systems are written as targets (mapping_write.go).
+			saved, ok := s.registryMappingWrite(ctx, tx, w, user, mappingCatalogRow{appID: appID, env: envs[0], envID: envID,
+				bindings: raw, revision: revision}, item)
+			if !ok {
+				return
+			}
+			committed = append(committed, saved)
+			continue
+		}
 		if envID != item.ServiceEnvironmentID || revision != item.BindingRevision {
 			httpapi.Error(w, 409, "stale_mapping", "Mapping identity or revision changed")
 			return

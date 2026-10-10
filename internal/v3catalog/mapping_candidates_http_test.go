@@ -95,7 +95,13 @@ func TestMappingCandidateAcceptanceWithRegistryMappings(t *testing.T) {
 	testMappingCandidateDiscoveryAndAcceptance(t, true)
 }
 
-func testMappingCandidateDiscoveryAndAcceptance(t *testing.T, unified bool) {
+// Step 6: with mapping writes switched too, code keeps its stored binding,
+// so candidates are accepted exactly as before.
+func TestMappingCandidateAcceptanceWithRegistryWrites(t *testing.T) {
+	testMappingCandidateDiscoveryAndAcceptance(t, true, true)
+}
+
+func testMappingCandidateDiscoveryAndAcceptance(t *testing.T, unified bool, writes ...bool) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL required; creates and drops one isolated schema")
@@ -169,6 +175,7 @@ func testMappingCandidateDiscoveryAndAcceptance(t *testing.T, unified bool) {
 	if unified {
 		catalogService.Registry = &v3telemetry.Resolver{Tier: "nonprod"}
 		catalogService.MappingsUnified = true
+		catalogService.MappingWritesUnified = len(writes) > 0 && writes[0]
 	}
 	catalogService.Register(api)
 	// No legacy connector is registered in this fixture. Model the platform

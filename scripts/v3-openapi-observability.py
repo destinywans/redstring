@@ -262,12 +262,24 @@ P['/service-mappings']['get']['description'] += (' With the mappings reader swit
     '(AIOPS_V3_UNIFIED_READERS contains mappings), the metrics, logs, traces and workload cells and save bindings come from '
     'v3_connector_targets: connector_id is the real connector ID, kind the provider and resource the target external_id; '
     'code, deploy and dash keep their stored bindings. A save snapshot whose registry system has more than one target is '
-    'editable=false with unavailable_reason ambiguous_targets.')
+    'editable=false with unavailable_reason ambiguous_targets. With mapping writes switched too, the snapshot binding_revision '
+    'is the target revision of the service environment.')
 P['/service-mappings']['put']['description'] += (' In registry mode (until mapping writes switch in step 6) the metrics, '
     'logs, traces and workload bindings must equal the registry projection (422 registry_cutover otherwise), deploy and dash '
     'must equal their stored bindings (422 system_not_supported), more than one target for a system is 409 '
     'ambiguous_targets, and only the code binding may be kept or removed; the stored legacy bindings of the other systems '
-    'are left as they are for readers not switched yet. The response returns the registry projection.')
+    'are left as they are for readers not switched yet. The response returns the registry projection. '
+    'Once mapping writes switch (mapping_writes, step 6, which requires the mappings, logs, traces and ai_metrics readers) '
+    'binding_revision in the snapshot and in the request is the service environment target revision (migration 172, '
+    'v3_service_target_revisions), '
+    'raised by every target or stored-binding change, so a stale editor gets 409 stale_mapping. A changed metrics, logs, '
+    'traces or workload binding replaces that system\'s single target and an omitted one removes it: the connector must be '
+    'one of the environment whose provider serves the system and equals kind (422 connector_unavailable), resource must be '
+    'a catalog resource of that connector for this service (422 resource_not_in_catalog), and a resource already mapped to '
+    'another service is 409 target_owned_by_other_service. Each target change is audited as v3.connector.target_bound or '
+    'v3.connector.target_unbound and the save as v3.service_mapping.saved with source registry. Code stays a stored binding '
+    '(kept or removed; added only through candidate acceptance), deploy and dash stay read-only, and the stored telemetry '
+    'and workload bindings are not updated.')
 S['V3MappingOptionCurrent'] = obj({
     'target_id':{'type':['string','null'],'description':'Registry target ID; null for a stored binding without a target'},
     'connector_id':string(),'resource_id':string()},

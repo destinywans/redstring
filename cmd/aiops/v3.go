@@ -604,6 +604,8 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	coverage.Registry, coverage.Unified = sourceResolver, unifiedReaders.Unified(v3telemetry.ReaderCoverage)
 	// Step 2: the service mapping reads the registry systems from targets.
 	catalog.Registry, catalog.MappingsUnified = sourceResolver, unifiedReaders.Unified(v3telemetry.ReaderMappings)
+	// Step 6: mapping saves write the registry targets.
+	catalog.MappingWritesUnified = unifiedReaders.Unified(v3telemetry.ReaderMappingWrites)
 	// Step 3 on: switched readers build one client per registered connector,
 	// with the file registration's limits and approved Vault credentials.
 	sourceClients := &v3telemetry.Clients{Tier: cfg.Tier, Credentials: credentialResolver, Limits: telemetry.Registration()}

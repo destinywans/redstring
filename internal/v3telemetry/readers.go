@@ -22,7 +22,15 @@ const (
 // reader that is not here yet cannot be named, so a configuration never
 // claims a switch the build cannot make.
 var availableReaders = map[string]bool{ReaderCoverage: true, ReaderMappings: true, ReaderLogs: true, ReaderTraces: true,
-	ReaderAIMetrics: true}
+	ReaderAIMetrics: true, ReaderMappingWrites: true}
+
+// readerRequires lists the readers a reader cannot run without. Mapping
+// writes change targets, so the mapping page and every reader of the edited
+// systems must already read targets (design §10.3), or an edit would not
+// show where it was made.
+var readerRequires = map[string][]string{
+	ReaderMappingWrites: {ReaderMappings, ReaderLogs, ReaderTraces, ReaderAIMetrics},
+}
 
 // Readers is the set of readers that read the registry.
 type Readers map[string]bool
@@ -43,6 +51,13 @@ func ParseReaders(raw string) (Readers, error) {
 			return nil, fmt.Errorf("AIOPS_V3_UNIFIED_READERS: %q is listed twice", name)
 		}
 		readers[name] = true
+	}
+	for name := range readers {
+		for _, required := range readerRequires[name] {
+			if !readers[required] {
+				return nil, fmt.Errorf("AIOPS_V3_UNIFIED_READERS: %q requires %q", name, required)
+			}
+		}
 	}
 	return readers, nil
 }

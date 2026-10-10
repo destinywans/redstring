@@ -116,6 +116,10 @@ func (s *Service) registrySaveProjection(item mappingCatalogRow, legacy []core.B
 	if view.Editable && ambiguous {
 		view.Editable, view.UnavailableReason = false, "ambiguous_targets"
 	}
+	if s.MappingWritesUnified {
+		// Saves write targets; their token is the target revision.
+		view.BindingRevision = item.targetRevision
+	}
 	return view
 }
 

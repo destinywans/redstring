@@ -104,3 +104,30 @@ func TestCompareWorkloadStates(t *testing.T) {
 		}
 	}
 }
+
+// Stage 2 step 6: a target whose service has no legacy binding of that data
+// plane was written only to the registry; it counts as a difference, and the
+// report says how many services differ (the number to check before a
+// rollback). Code projects are not a telemetry plane.
+func TestCompareRegistryOnly(t *testing.T) {
+	state := State{
+		Bindings: []LegacyBinding{
+			{ApplicationID: "app", EnvironmentID: "dev", Kind: "loki", Resource: "checkout"},
+			{ApplicationID: "app", EnvironmentID: "dev", Kind: WorkloadProvider, ConnectorID: "k8s", Resource: "deployment"},
+		},
+		Targets: []ExistingTarget{
+			{ID: "t1", ApplicationID: "app", EnvironmentID: "dev", Provider: "elasticsearch", TargetKind: "log_index", ExternalID: "checkout"},
+			{ID: "t2", ApplicationID: "app", EnvironmentID: "dev", Provider: "tempo", TargetKind: "trace_service", ExternalID: "checkout"},
+			{ID: "t3", ApplicationID: "app", EnvironmentID: "dev", Provider: WorkloadProvider, TargetKind: WorkloadTargetKind, ExternalID: "checkout-api"},
+			{ID: "t4", ApplicationID: "app2", EnvironmentID: "dev", Provider: "prometheus", TargetKind: "metric_resource", ExternalID: "orders"},
+			{ID: "t5", ApplicationID: "app2", EnvironmentID: "dev", Provider: "gitlab", TargetKind: "project", ExternalID: "42"},
+		},
+	}
+	report := CompareReport{Counts: map[string]int{}}
+	report.CompareRegistryOnly(state)
+	report.Summarize()
+	if report.Counts[StateRegistryOnly] != 2 || report.Differences() != 2 || report.DivergedServices != 2 ||
+		report.Items[0].Surface != "traces" || report.Items[1].Surface != "metrics" || report.Items[1].Reasons[0] != "target:prometheus" {
+		t.Fatalf("registry only: %+v", report)
+	}
+}

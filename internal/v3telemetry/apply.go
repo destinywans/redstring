@@ -127,12 +127,16 @@ type CompareReport struct {
 	Checked int            `json:"checked"`
 	Counts  map[string]int `json:"counts"`
 	Items   []CompareItem  `json:"items"`
+	// DivergedServices counts the service environments with a difference
+	// (Summarize).
+	DivergedServices int `json:"diverged_services"`
 }
 
 // Differences counts the items whose registry source would read something
-// else than the file configuration (or nothing).
+// else than the file configuration (or nothing), in either direction.
 func (r CompareReport) Differences() int {
-	return r.Counts[StateDiffers] + r.Counts[StateMissing] + r.Counts[StateAmbiguous] + r.Counts[StateUnavailable]
+	return r.Counts[StateDiffers] + r.Counts[StateMissing] + r.Counts[StateAmbiguous] + r.Counts[StateUnavailable] +
+		r.Counts[StateRegistryOnly]
 }
 
 // CompareAll resolves every legacy telemetry binding in both registries.

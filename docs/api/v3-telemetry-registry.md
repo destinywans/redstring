@@ -85,9 +85,10 @@ aiops connectors compare -out report.json
   - `logs`（第 3 步）：日志页 `GET /logs` 和 AI 工具 `read_service_logs` 读统一登记的 `log_stream`（Loki）、`log_index`（Elasticsearch）目标，见下文“日志读取方”。
   - `traces`（第 4 步）：Trace 列表 `GET /traces`（应用范围）和详情 `GET /traces/{id}` 读统一登记的 `trace_service` 目标，见下文“Trace 读取方”。
   - `ai_metrics`（第 5 步）：AI 工具 `read_service_metrics` 读统一登记的 `metric_resource` 目标，`list_services` 的指标和日志两列也由统一登记给出，见下文“AI 指标工具与服务清单”。
+  - `mapping_writes`（第 6 步）：服务映射的保存改为增删目标，见下文“映射写入”。它要求 `mappings`、`logs`、`traces`、`ai_metrics` 都已列出，否则启动失败：编辑的数据面必须已经由统一登记读取，改了才能在页面和 AI 工具里看到。
   - 写了还没开放的名称，或者同一个名称写了两次，服务都拒绝启动；
   - 启动日志 `source registry` 打印模式和已切换的读取方。
-- 回退：从变量里去掉该读取方并重启，不删任何数据。第 6 步（`mapping_writes`）之后回退前先跑一次 `aiops connectors compare`，见设计稿第 10.4 节。
+- 回退：从变量里去掉该读取方并重启，不删任何数据。第 6 步（`mapping_writes`）之后回退前先跑一次 `aiops connectors compare`，见下文“映射写入”和设计稿第 10.4 节。
 - **改读统一登记的日志和 Trace 读取方怎样读取**：
   - 按目标构造客户端：端点、租户和认证方式取连接器的，范围取目录的；
   - 凭据经凭据批准从 Vault 读取，在内存里缓存 60 秒，收到 401/403 立即丢弃；
@@ -100,6 +101,7 @@ aiops connectors compare -out report.json
 | `differs` | 有字段不同：`provider`、`endpoint`、`auth_method`、`tenant_id`、`username`、`custom_ca`、`scope.<字段>`、`scope_missing`、`query_missing:<id>`、`query_changed:<id>` |
 | `missing` / `ambiguous` | 登记里这一数据面没有目标 / 有多条 |
 | `legacy_unregistered` | 旧绑定本身在遥测文件中无效（旧读取方也读不到），不算差异 |
+| `registry_only` | 统一登记里有这类目标，服务的旧绑定里没有（第 6 步之后映射编辑只写了目标），算差异 |
 | `unavailable` | 比较时数据库不可用 |
 
 Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `dashboard`）不算差异。
@@ -138,6 +140,26 @@ Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `d
   - `metrics`：`configured`、`not_configured`、`ambiguous`、`not_ready`；只有 `configured` 时列出 `metric_queries`（目录里的查询 ID，按字母排序）；
   - `logs`：同样四种取值，来自日志目标。切换前这一列看旧绑定和遥测文件，所以第 3 步之后到第 5 步之前，它与 `read_service_logs` 的来源不同；切换后一致。
   - 工具说明里多一句 `not_ready` 的解释；返回内容的 `boundary` 不变。
+
+### 映射写入（第二阶段第 6 步）
+
+- **迁移 172**（`172_v3_target_revision.sql`）：
+  - 新表 `v3_service_target_revisions(application_id, environment_id, revision)`，外键指向 `v3_application_environments`，服务环境删除时级联删除；
+  - 现有每个 V3 服务环境插入一行，`revision` 初始化为对应 `application_environments.binding_revision + 1`；没有行的服务环境视为 1；
+  - 加两个触发器：`v3_connector_targets` 的任何增删改，以及 `application_environments.bindings` 的任何变化，都让该服务环境的 `revision` 加 1（没有行时插入 2）；
+  - 不改动任何已有的目标、绑定或服务环境行。版本号单独成表，是因为画布、来源登记和对话列表在可重复读事务里对服务环境行加共享锁，触发器若改这一行，它们会在有人同时改映射时失败；
+  - 只在一次性隔离库执行过，**现有业务库未执行**；部署到验收实例时随服务启动执行。
+- **版本号**：`mapping_writes` 打开后，`GET /service-mappings` 快照和 `PUT` 请求里的 `binding_revision` 都是这个目标版本号。因为初始值是旧值加 1，切换前打开的编辑器保存时会收到 409，重新读取即可。集成中心直接增删目标、导入 apply、候选接受、代码绑定的移除都会让它变化。
+- **`PUT /service-mappings`**：
+  - 指标、日志、链路、工作负载每类最多一个目标。保存时改了的类先删旧目标再建新目标（目标 ID 会变），省略的类删除目标，没改的类不动；
+  - 连接器必须属于本环境，供应商能服务该类且等于 `kind`（指标 `prometheus`，日志 `loki` / `elasticsearch`，链路 `tempo`，工作负载 `kubernetes`），否则 422 `connector_unavailable`；未就绪的连接器可以选，读取方会报未就绪；
+  - 资源必须是目录里该连接器为本服务审查过的资源（与选项接口列出的相同），否则 422 `resource_not_in_catalog`；
+  - 该资源已是其他服务的目标时 409 `target_owned_by_other_service`；一类已有多个目标时 409 `ambiguous_targets`；
+  - 代码仍存在旧绑定里：可以保留或移除，新增只能经候选接受（409 `code_mapping_requires_accept`）；部署和看板只读（422 `system_not_supported`）；
+  - 已存的遥测和工作负载旧绑定不再更新，这就是回退时的数据差异。
+- **审计**：每个目标一条 `v3.connector.target_bound` 或 `v3.connector.target_unbound`（字段与集成中心的相同，另有 `source: service_mapping`），整次保存一条 `v3.service_mapping.saved`，带 `source: registry`、前后版本号、前后绑定和逐类的目标变化（`bound`、`unbound`、`rebound`）。原样回传的快照不写审计、版本号不变。
+- **候选接受**不变：仍写旧绑定里的 `gitlab` 绑定，候选的修订号仍是旧绑定的 `binding_revision`；接受后目标版本号跟着变化，打开着的编辑器会收到 409。
+- **回退前的检查**：`aiops connectors compare` 新增反向检查。统一登记里有遥测或工作负载目标、而该服务在旧绑定里没有这类数据面的，记为 `registry_only`；连同已有的 `differs`、`missing` 一起算差异（退出码 3）。输出的 `diverged_services` 是有差异的服务环境数，标准错误也会打印。为 0 表示回退后旧读取方读到的与现在相同；不为 0 时，回退后这些服务会读旧来源或读不到，直到重新切回。建议部署第 6 步后、第一次编辑之前先跑一次作为基线。
 
 ### Elasticsearch basic 认证（设计稿第 10.9 节决定 3）
 

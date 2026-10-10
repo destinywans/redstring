@@ -87,6 +87,10 @@ const (
 	StateAmbiguous          = "ambiguous"
 	StateLegacyUnregistered = "legacy_unregistered"
 	StateUnavailable        = "unavailable"
+	// StateRegistryOnly is a registry target of a data plane the service has
+	// no legacy binding for: a mapping edit wrote only the registry (stage 2
+	// step 6). A legacy reader would read nothing there.
+	StateRegistryOnly = "registry_only"
 )
 
 // Result is one comparison of a legacy binding with the registry.
@@ -246,4 +250,56 @@ func compareWorkload(legacy LegacyWorkload, registered bool, unified Workload, e
 		return Result{State: StateMatchNotReady, Reasons: notReady}
 	}
 	return Result{State: StateMatch}
+}
+
+// CompareRegistryOnly adds the reverse direction, needed before rolling back
+// a reader once mapping writes go to the registry (design §10.4): every
+// telemetry or workload target whose service has no legacy binding of that
+// data plane. Together with CompareAll and CompareWorkloads, a report
+// without differences means the legacy readers would read what the
+// registry reads.
+func (r *CompareReport) CompareRegistryOnly(state State) {
+	bound := map[string]bool{}
+	for _, b := range state.Bindings {
+		plane := WorkloadTargetKind
+		if surface, ok := SurfaceOf(b.Kind); ok {
+			plane = string(surface)
+		} else if b.Kind != WorkloadProvider {
+			continue
+		}
+		bound[b.ApplicationID+"\x00"+b.EnvironmentID+"\x00"+plane] = true
+	}
+	targets := append([]ExistingTarget(nil), state.Targets...)
+	sort.Slice(targets, func(i, j int) bool { return targets[i].ID < targets[j].ID })
+	for _, t := range targets {
+		var plane string
+		if t.TargetKind == WorkloadTargetKind && t.Provider == WorkloadProvider {
+			plane = WorkloadTargetKind
+		} else if surface, ok := SurfaceOf(t.Provider); ok && TargetKind(t.Provider) == t.TargetKind {
+			plane = string(surface)
+		} else {
+			continue
+		}
+		if bound[t.ApplicationID+"\x00"+t.EnvironmentID+"\x00"+plane] {
+			continue
+		}
+		item := CompareItem{ApplicationID: t.ApplicationID, EnvironmentID: t.EnvironmentID, Surface: plane,
+			Result: Result{State: StateRegistryOnly, Reasons: []string{"target:" + t.Provider}}}
+		r.Items = append(r.Items, item)
+		r.Counts[item.State]++
+		r.Checked++
+	}
+}
+
+// Summarize counts the services with at least one difference, the number to
+// check before a rollback.
+func (r *CompareReport) Summarize() {
+	diverged := map[string]bool{}
+	for _, item := range r.Items {
+		switch item.State {
+		case StateDiffers, StateMissing, StateAmbiguous, StateUnavailable, StateRegistryOnly:
+			diverged[item.ApplicationID+"\x00"+item.EnvironmentID] = true
+		}
+	}
+	r.DivergedServices = len(diverged)
 }

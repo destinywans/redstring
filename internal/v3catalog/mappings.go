@@ -19,12 +19,17 @@ type mappingCatalogRow struct {
 	appID, key, env, teamID, envID string
 	bindings                       []byte
 	revision                       int64
+	// targetRevision is the service environment's mapping revision once
+	// mapping writes go to the registry (migration 172).
+	targetRevision int64
 }
 
-const mappingQuery = `SELECT a.id,a.key,ve.environment_id,COALESCE(a.owner_team_id,''),e.id,e.bindings,e.binding_revision
+const mappingQuery = `SELECT a.id,a.key,ve.environment_id,COALESCE(a.owner_team_id,''),e.id,e.bindings,e.binding_revision,
+ COALESCE(r.revision,1)
  FROM applications a
  JOIN v3_application_environments ve ON ve.application_id=a.id
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
+ LEFT JOIN v3_service_target_revisions r ON r.application_id=a.id AND r.environment_id=ve.environment_id
  WHERE NOT a.archived AND ve.environment_id=ANY($1::text[])
  AND (a.key,ve.environment_id,a.id)>($2,$3,$4)
  ORDER BY a.key,ve.environment_id,a.id LIMIT 128`
@@ -38,7 +43,7 @@ func (s *Service) mappingBatch(ctx context.Context, envs []string, key, env, id 
 	batch := make([]mappingCatalogRow, 0, catalogPageSize)
 	for rows.Next() {
 		var row mappingCatalogRow
-		if err := rows.Scan(&row.appID, &row.key, &row.env, &row.teamID, &row.envID, &row.bindings, &row.revision); err != nil {
+		if err := rows.Scan(&row.appID, &row.key, &row.env, &row.teamID, &row.envID, &row.bindings, &row.revision, &row.targetRevision); err != nil {
 			return nil, err
 		}
 		batch = append(batch, row)

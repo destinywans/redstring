@@ -84,7 +84,7 @@ func (p *PrometheusReader) authorizeMetricSourceTx(ctx context.Context, tx pgx.T
 	key := PrometheusQueryKey{ConnectorID: connector, ApplicationID: app, EnvironmentID: env,
 		ResourceID: resource, QueryID: query}
 	expression, registered := p.queries[key]
-	if !registered || expression == "" || strings.TrimSpace(expression) != expression || len(expression) > 2048 {
+	if !registered || expression == "" || strings.TrimSpace(expression) != expression || len(expression) > MaxPrometheusExpression {
 		return metricReadError("query_unregistered")
 	}
 

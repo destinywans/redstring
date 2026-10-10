@@ -45,7 +45,30 @@ type TelemetryEndpoint struct {
 	CAFile          string `json:"ca_file,omitempty"`
 	TenantID        string `json:"tenant_id,omitempty"`
 	AllowHTTP       bool   `json:"allow_http,omitempty"`
+
+	// Runtime settings of a client the V3 source registry builds (PA-19 P3);
+	// never part of a file registration.
+	//
+	// Credential supplies the secret for each request instead of a file:
+	// CredentialKind "bearer" (Authorization: Bearer), "api_key"
+	// (Authorization: ApiKey) or "basic" (with Username).
+	Credential     func(context.Context) (string, error) `json:"-"`
+	CredentialKind string                                `json:"-"`
+	// Unauthorized is told about a 401 or 403 answer, so a cached
+	// credential can be dropped at once.
+	Unauthorized func() `json:"-"`
+	// PostQueries sends Prometheus and Loki query reads as POST forms, so
+	// expressions stay out of URLs (PA-43).
+	PostQueries bool `json:"-"`
 }
+
+// withRuntime returns e with the runtime settings of from, which a JSON
+// round trip drops.
+func (e TelemetryEndpoint) withRuntime(from TelemetryEndpoint) TelemetryEndpoint {
+	e.Credential, e.CredentialKind, e.Unauthorized, e.PostQueries = from.Credential, from.CredentialKind, from.Unauthorized, from.PostQueries
+	return e
+}
+
 type ApplicationTelemetry struct {
 	// Every expression is reviewed and registered for this application by an admin.
 	// Arbitrary PromQL is intentionally absent from the public request interface.
@@ -187,6 +210,10 @@ func NewTelemetry(config TelemetryConfig) (*Telemetry, error) {
 	if e = json.Unmarshal(b, &c); e != nil {
 		return nil, e
 	}
+	c.Prometheus = c.Prometheus.withRuntime(config.Prometheus)
+	c.Loki = c.Loki.withRuntime(config.Loki)
+	c.Elasticsearch = c.Elasticsearch.withRuntime(config.Elasticsearch)
+	c.Tempo = c.Tempo.withRuntime(config.Tempo)
 	if c.TimeoutSeconds == 0 {
 		c.TimeoutSeconds = 15
 	}
@@ -341,7 +368,12 @@ func newTelemetryClient(c TelemetryEndpoint, timeout int) (*telemetryClient, err
 	if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "https" && !(c.AllowHTTP && u.Scheme == "http")) {
 		return nil, errors.New("telemetry URL requires HTTPS without credentials/query/fragment; local HTTP must be explicitly enabled")
 	}
-	if (c.BearerTokenFile != "" && (c.Username != "" || c.PasswordFile != "")) || (c.Username == "") != (c.PasswordFile == "") {
+	if c.Credential != nil {
+		if c.BearerTokenFile != "" || c.PasswordFile != "" || (c.CredentialKind == "basic") != (c.Username != "") ||
+			(c.CredentialKind != "bearer" && c.CredentialKind != "api_key" && c.CredentialKind != "basic") {
+			return nil, errors.New("configure exactly one complete telemetry authentication method")
+		}
+	} else if c.CredentialKind != "" || (c.BearerTokenFile != "" && (c.Username != "" || c.PasswordFile != "")) || (c.Username == "") != (c.PasswordFile == "") {
 		return nil, errors.New("configure exactly one complete telemetry authentication method")
 	}
 	if strings.ContainsAny(c.TenantID, "\r\n") || strings.Contains(c.TenantID, "|") {
@@ -399,17 +431,47 @@ func failure(source *TelemetrySource, kind, message string, cause error) error {
 	source.Failure = e
 	return e
 }
+
+// postQueryPaths are the query reads PostQueries sends as POST forms.
+var postQueryPaths = map[string]bool{"/api/v1/query_range": true, "/api/v1/query": true,
+	"/loki/api/v1/query_range": true, "/loki/api/v1/query": true}
+
 func (c *telemetryClient) get(ctx context.Context, path string, params url.Values, source *TelemetrySource) ([]byte, error) {
+	if c.config.PostQueries && postQueryPaths[path] {
+		return c.send(ctx, "POST", path, []byte(params.Encode()), "application/x-www-form-urlencoded", source)
+	}
 	return c.request(ctx, "GET", path+"?"+params.Encode(), nil, source)
 }
 func (c *telemetryClient) request(ctx context.Context, method, path string, body []byte, source *TelemetrySource) ([]byte, error) {
+	contentType := ""
+	if body != nil {
+		contentType = "application/json"
+	}
+	return c.send(ctx, method, path, body, contentType, source)
+}
+func (c *telemetryClient) send(ctx context.Context, method, path string, body []byte, contentType string, source *TelemetrySource) ([]byte, error) {
 	req, e := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.config.URL, "/")+path, bytes.NewReader(body))
 	if e != nil {
 		return nil, failure(source, "configuration", "invalid telemetry request", e)
 	}
 	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if c.config.Credential != nil {
+		secret, e := c.config.Credential(ctx)
+		secret = strings.TrimSpace(secret)
+		if e != nil || secret == "" || strings.ContainsAny(secret, "\r\n") {
+			return nil, failure(source, "credentials", "cannot read telemetry credentials", e)
+		}
+		switch c.config.CredentialKind {
+		case "bearer":
+			req.Header.Set("Authorization", "Bearer "+secret)
+		case "api_key":
+			req.Header.Set("Authorization", "ApiKey "+secret)
+		case "basic":
+			req.SetBasicAuth(c.config.Username, secret)
+		}
 	}
 	if c.config.BearerTokenFile != "" {
 		b, e := os.ReadFile(c.config.BearerTokenFile)
@@ -441,6 +503,9 @@ func (c *telemetryClient) request(ctx context.Context, method, path string, body
 	}
 	defer resp.Body.Close()
 	source.HTTPStatus = resp.StatusCode
+	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) && c.config.Unauthorized != nil {
+		c.config.Unauthorized()
+	}
 	b, e := io.ReadAll(io.LimitReader(resp.Body, (4<<20)+1))
 	if e != nil {
 		return nil, failure(source, "transport", "cannot read telemetry response", e)

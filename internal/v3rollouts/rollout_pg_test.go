@@ -171,7 +171,8 @@ func newRolloutFixture(t *testing.T) *rolloutFixture {
 	f.cluster.AddDeployment("checkout-api", 2, []string{"release 1.4.2", "lab drill bad-release"}, good, bad)
 	f.errRatio.Store("0.001")
 	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		query := r.URL.Query()
+		_ = r.ParseForm() // PA-43: queries arrive as POST forms
+		query := r.Form
 		value := map[string]string{"request_rate_expr": "3.5", "error_ratio_expr": f.errRatio.Load().(string), "sample_age_expr": "8"}[query.Get("query")]
 		if query.Get("query") == "error_ratio_expr" {
 			// 0/0 while Pods are replaced (PA-73).

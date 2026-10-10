@@ -27,6 +27,12 @@ func WithCredentialUse(ctx context.Context, use CredentialUse) context.Context {
 	return context.WithValue(ctx, credentialUseKey{}, use)
 }
 
+// CredentialUseFrom returns the use a context carries.
+func CredentialUseFrom(ctx context.Context) (CredentialUse, bool) {
+	use, ok := ctx.Value(credentialUseKey{}).(CredentialUse)
+	return use, ok
+}
+
 // CredentialBinding authorizes one exact connector configuration to resolve one
 // Vault reference. The reference and any resolved secret must never be logged.
 type CredentialBinding struct {

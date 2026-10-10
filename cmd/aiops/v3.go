@@ -592,6 +592,12 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	if err != nil {
 		return err
 	}
+	// PA-19 P3 stage 2: readers switch to the registry one at a time.
+	unifiedReaders, err := v3telemetry.ParseReaders(os.Getenv("AIOPS_V3_UNIFIED_READERS"))
+	if err != nil {
+		return err
+	}
+	slog.Info("source registry", "mode", string(registryMode), "unified_readers", unifiedReaders.Names())
 	var sourceCompare v3telemetry.Observer
 	if registryMode == v3telemetry.ModeCompare {
 		comparer := v3telemetry.NewComparer(s.DB, &v3telemetry.Resolver{Tier: cfg.Tier, Catalog: sourceCatalog,

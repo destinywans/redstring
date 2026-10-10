@@ -158,8 +158,8 @@ func newPullFixture(t *testing.T, block bool) *pullFixture {
 	fixture.upstream = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fixture.queryHits.Add(1)
 		if r.URL.Path != "/api/v1/query_range" || r.Header.Get("Authorization") != "Bearer test-bearer-only" ||
-			r.URL.Query().Get("query") != `sum by (__name__,pod) (checkout_requests{application="checkout",environment="dev"})` ||
-			r.URL.Query().Get("limit") != "100" {
+			r.FormValue("query") != `sum by (__name__,pod) (checkout_requests{application="checkout",environment="dev"})` ||
+			r.FormValue("limit") != "100" {
 			w.WriteHeader(403)
 			return
 		}
@@ -171,7 +171,7 @@ func newPullFixture(t *testing.T, block bool) *pullFixture {
 			_, _ = w.Write([]byte(`{"status":"success","warnings":["partial"],"data":{"resultType":"matrix","result":[]}}`))
 			return
 		}
-		start, err := time.Parse(time.RFC3339Nano, r.URL.Query().Get("start"))
+		start, err := time.Parse(time.RFC3339Nano, r.FormValue("start"))
 		if err != nil {
 			w.WriteHeader(400)
 			return

@@ -109,13 +109,13 @@ func TestFullTopologyHTTPSourceAndScope(t *testing.T) {
 	var calls atomic.Int32
 	const expression = `topology_v1{application_id="app",environment_id="dev"}`
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/query_range" || r.URL.Query().Get("query") != expression {
+		if r.URL.Path != "/api/v1/query_range" || r.FormValue("query") != expression {
 			t.Errorf("unexpected query: %s", r.URL)
 			http.Error(w, "bad query", http.StatusBadRequest)
 			return
 		}
 		calls.Add(1)
-		start, parseErr := time.Parse(time.RFC3339Nano, r.URL.Query().Get("start"))
+		start, parseErr := time.Parse(time.RFC3339Nano, r.FormValue("start"))
 		if parseErr != nil {
 			t.Error(parseErr)
 			http.Error(w, "bad start", http.StatusBadRequest)

@@ -32,8 +32,11 @@ func TestQueryRegisteredPrometheusBearerAndEmpty(t *testing.T) {
 	const expression = "sum(rate(http_requests_total[5m]))"
 	respondEmpty := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/prom/api/v1/query_range" || r.Header.Get("Authorization") != "Bearer "+token || r.URL.Query().Get("query") != expression || r.URL.Query().Get("limit") != "100" || r.URL.Query().Get("timeout") != "5s" || r.URL.Query().Get("step") != "15" {
-			t.Errorf("unexpected bounded query request: method=%s path=%s", r.Method, r.URL.Path)
+		// PA-43: a POST form; the expression never appears in the URL.
+		if err := r.ParseForm(); err != nil || r.Method != http.MethodPost || r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" ||
+			r.URL.RawQuery != "" || r.URL.Path != "/prom/api/v1/query_range" || r.Header.Get("Authorization") != "Bearer "+token ||
+			r.PostForm.Get("query") != expression || r.PostForm.Get("limit") != "100" || r.PostForm.Get("timeout") != "5s" || r.PostForm.Get("step") != "15" {
+			t.Errorf("unexpected bounded query request: method=%s path=%s query=%q", r.Method, r.URL.Path, r.URL.RawQuery)
 		}
 		if respondEmpty {
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
@@ -140,8 +143,9 @@ func TestQueryRegisteredPrometheusInstant(t *testing.T) {
 	at := time.Now().Add(-time.Minute).Truncate(time.Second).Add(123456789 * time.Nanosecond)
 	body := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/query" || r.URL.Query().Get("time") != at.UTC().Truncate(time.Millisecond).Format(time.RFC3339Nano) {
-			t.Errorf("unexpected instant request: %s %s", r.URL.Path, r.URL.Query().Get("time"))
+		if err := r.ParseForm(); err != nil || r.Method != http.MethodPost || r.URL.RawQuery != "" || r.URL.Path != "/api/v1/query" ||
+			r.PostForm.Get("time") != at.UTC().Truncate(time.Millisecond).Format(time.RFC3339Nano) {
+			t.Errorf("unexpected instant request: %s %s %s", r.Method, r.URL.Path, r.PostForm.Get("time"))
 		}
 		_, _ = w.Write([]byte(body))
 	}))
@@ -161,5 +165,36 @@ func TestQueryRegisteredPrometheusInstant(t *testing.T) {
 		if prometheusCode(err) != c.code || (c.value != "" && (len(series) != 1 || series[0].Samples[0].Value != c.value)) {
 			t.Fatalf("%s: series=%+v err=%v", c.name, series, err)
 		}
+	}
+}
+
+// PA-43/PA-73: an 8 KiB expression is accepted and a window with
+// sub-millisecond bounds is sent and checked at millisecond resolution.
+func TestQueryRegisteredPrometheusLongExpressionAndMillisecondWindow(t *testing.T) {
+	end := time.Now().Add(-time.Minute).Truncate(time.Second).Add(987654321 * time.Nanosecond)
+	window := connectors.TimeWindow{Start: end.Add(-time.Minute), End: end, StepSeconds: 15}
+	expression := "sum(" + strings.Repeat("rate(x[5m])+", 600) + "vector(0))"
+	if len(expression) <= 2048 || len(expression) > MaxPrometheusExpression {
+		t.Fatalf("expression length %d", len(expression))
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil || r.PostForm.Get("query") != expression {
+			t.Errorf("long expression not sent in the form")
+		}
+		start := window.Start.Truncate(time.Millisecond)
+		if r.PostForm.Get("start") != start.UTC().Format(time.RFC3339Nano) {
+			t.Errorf("start %s", r.PostForm.Get("start"))
+		}
+		// Prometheus answers from the millisecond start.
+		_, _ = fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[%d.%03d,"1"]]}]}}`,
+			start.Unix(), start.Nanosecond()/1e6)
+	}))
+	defer server.Close()
+	series, err := queryRegisteredPrometheus(context.Background(), server.URL, "none", "", expression, window, nil)
+	if err != nil || len(series) != 1 {
+		t.Fatalf("series=%+v err=%v", series, err)
+	}
+	if _, err := queryRegisteredPrometheus(context.Background(), server.URL, "none", "", strings.Repeat("x", MaxPrometheusExpression+1), window, nil); prometheusCode(err) != "invalid_query" {
+		t.Fatalf("over the limit: %v", err)
 	}
 }

@@ -83,7 +83,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	var gateMu sync.Mutex
 	var entered, release chan struct{}
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/query_range" || r.URL.Query().Get("query") != expression {
+		if r.URL.Path != "/api/v1/query_range" || r.FormValue("query") != expression {
 			t.Errorf("unexpected registered query: %s", r.URL)
 			http.Error(w, "invalid query", 400)
 			return
@@ -108,7 +108,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
 			return
 		}
-		end, parseErr := time.Parse(time.RFC3339Nano, r.URL.Query().Get("end"))
+		end, parseErr := time.Parse(time.RFC3339Nano, r.FormValue("end"))
 		if parseErr != nil {
 			t.Errorf("invalid query window: %v", parseErr)
 			return

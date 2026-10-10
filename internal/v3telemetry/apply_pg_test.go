@@ -122,7 +122,7 @@ func TestImportAppliesTheReviewedPlanAndCompares(t *testing.T) {
 		t.Fatalf("unreviewed digest: %v", err)
 	}
 	result, err := Apply(ctx, db, input, reviewed.Digest, "admin@example.invalid")
-	if err != nil || result.ConnectorsCreated != 3 || result.TargetsCreated != 4 {
+	if err != nil || result.ConnectorsCreated != 3 || result.TargetsCreated != 5 {
 		t.Fatalf("apply: %+v %v", result, err)
 	}
 	if _, err := Apply(ctx, db, input, reviewed.Digest, "admin@example.invalid"); !errors.Is(err, ErrPlanStale) {
@@ -140,7 +140,7 @@ func TestImportAppliesTheReviewedPlanAndCompares(t *testing.T) {
  (SELECT count(*) FROM v3_connector_targets WHERE target_kind='metric_resource'),
  (SELECT count(*) FROM management_audit WHERE action='connector.imported' AND changes->>'plan_digest'=$1),
  (SELECT count(*) FROM management_audit WHERE action='v3.connector.target_imported' AND application_id<>'' AND changes->>'environment_id'='prod')`,
-		reviewed.Digest).Scan(&metricTargets, &audits, &targetAudits); err != nil || metricTargets != 2 || audits != 3 || targetAudits != 4 {
+		reviewed.Digest).Scan(&metricTargets, &audits, &targetAudits); err != nil || metricTargets != 3 || audits != 3 || targetAudits != 5 {
 		t.Fatalf("metric targets=%d connector audits=%d target audits=%d %v", metricTargets, audits, targetAudits, err)
 	}
 
@@ -159,7 +159,7 @@ func TestImportAppliesTheReviewedPlanAndCompares(t *testing.T) {
 	want := map[string]string{
 		"app-lab-checkout/prometheus": StateMatch, "app-lab-checkout/loki": StateMatchNotReady, "app-lab-checkout/tempo": StateMatchNotReady,
 		"app-lab-order/prometheus": StateMatch, "app-lab-order/loki": StateMissing, "app-lab-order/elasticsearch": StateMissing,
-		"app-lab-order/tempo": StateMatchNotReady, "app-lab-payments/prometheus": StateMissing, "app-lab-payments/loki": StateLegacyUnregistered,
+		"app-lab-order/tempo": StateMatchNotReady, "app-lab-payments/prometheus": StateMatch, "app-lab-payments/loki": StateLegacyUnregistered,
 		"app-lab-payments/tempo": StateMissing, "app-lab-search/elasticsearch": StateMissing,
 	}
 	got := map[string]string{}
@@ -169,7 +169,7 @@ func TestImportAppliesTheReviewedPlanAndCompares(t *testing.T) {
 			t.Fatalf("not ready reasons: %+v", item)
 		}
 	}
-	if !reflect.DeepEqual(got, want) || report.Checked != 11 || report.Differences() != 5 {
+	if !reflect.DeepEqual(got, want) || report.Checked != 11 || report.Differences() != 4 {
 		t.Fatalf("compare report: %+v", report)
 	}
 	// The imported workload resolves to the same Deployment but needs its

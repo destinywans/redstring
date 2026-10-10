@@ -29,7 +29,13 @@ import (
 )
 
 // OperationAnnotation marks the Deployment with the execution that patched
-// it, so an uncertain write can be reconciled by reading.
+// it, so an uncertain write can be reconciled by reading. It only means "the
+// last execution the executor wrote": it stays on the Deployment and, like
+// every Deployment annotation, is copied to ReplicaSets of later releases
+// (PA-76). It must be in the same patch as the template to prove that write,
+// so it is not moved or removed (that would be a second write); executions
+// match it only against their own ID together with the target template, and
+// it is never shown as a revision property.
 const OperationAnnotation = "aiops-canvas.io/operation"
 
 var (
@@ -341,7 +347,15 @@ type Rollback struct {
 	TargetTemplate         json.RawMessage
 	TargetTemplateDigest   string
 	OperationID            string
+	// ChangeCause replaces kubernetes.io/change-cause in the same patch
+	// (PA-76). The controller copies the Deployment's annotations to the
+	// ReplicaSet it reuses, so without it the restored revision would carry
+	// the bad release's cause. Metadata only; the template is untouched.
+	ChangeCause string
 }
+
+// ChangeCauseAnnotation is the standard rollout history annotation.
+const ChangeCauseAnnotation = "kubernetes.io/change-cause"
 
 // Outcome of a write or a read-only reconciliation.
 type Outcome struct {
@@ -377,7 +391,7 @@ func outcome(d Deployment, r Rollback) Outcome {
 // operation. It never retries. An ErrUnavailable result is ambiguous and
 // must be reconciled with Reconcile, not retried.
 func (c *Client) Apply(ctx context.Context, r Rollback) (Outcome, error) {
-	if r.OperationID == "" || len(r.OperationID) > 63 || Digest(r.TargetTemplate) != r.TargetTemplateDigest {
+	if r.OperationID == "" || len(r.OperationID) > 63 || len(r.ChangeCause) > 256 || Digest(r.TargetTemplate) != r.TargetTemplateDigest {
 		return Outcome{}, errors.New("invalid rollback")
 	}
 	d, err := c.GetDeployment(ctx, r.Namespace, r.Deployment)
@@ -392,6 +406,9 @@ func (c *Client) Apply(ctx context.Context, r Rollback) (Outcome, error) {
 		annotations[k] = v
 	}
 	annotations[OperationAnnotation] = r.OperationID
+	if r.ChangeCause != "" {
+		annotations[ChangeCauseAnnotation] = r.ChangeCause
+	}
 	patch, _ := json.Marshal([]map[string]any{
 		{"op": "test", "path": "/metadata/uid", "value": r.UID},
 		{"op": "test", "path": "/metadata/resourceVersion", "value": d.Metadata.ResourceVersion},

@@ -97,6 +97,11 @@ func (s *Server) AddDeployment(name string, replicas int, causes []string, templ
 	}
 	d.template = clone(templates[len(templates)-1])
 	d.annotations["deployment.kubernetes.io/revision"] = strconv.Itoa(len(templates))
+	// The current release's cause stays on the Deployment, as kubectl
+	// annotate or a pipeline leaves it.
+	if len(causes) >= len(templates) && causes[len(templates)-1] != "" {
+		d.annotations["kubernetes.io/change-cause"] = causes[len(templates)-1]
+	}
 	d.observed = d.generation
 	s.deployments[name] = d
 }
@@ -157,8 +162,16 @@ func (s *Server) rollout(d *deployment, template any, cause string) {
 			reused = rs
 		}
 	}
+	// Like the controller: the ReplicaSet takes the Deployment's
+	// change-cause annotation, a reused one included.
+	if annotated, ok := d.annotations["kubernetes.io/change-cause"].(string); ok && cause == "" {
+		cause = annotated
+	}
 	if reused != nil {
 		reused.revision = next
+		if cause != "" {
+			reused.cause = cause
+		}
 	} else {
 		d.replicaSets = append(d.replicaSets, &replicaSet{revision: next, template: clone(template), created: time.Now().UTC(),
 			cause: cause, uid: fmt.Sprintf("rs-%s-%d", d.name, next), templateH: h})

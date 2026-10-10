@@ -216,6 +216,17 @@
 
 **权限**：与旧执行视图相同，要求该应用或所属团队的 `proposals.view`，无权时返回 404。
 
+## 执行器写到 Deployment 上的元数据（PA-76）
+
+回滚只有一次写入：一个带条件检查的 JSON Patch。除了把 template 换成目标修订，它只改两个注解：
+
+- **`kubernetes.io/change-cause`**：改为 `aiops rollback to revision N (execution <执行 ID>)`。
+  - 控制器会把这条说明复制到回滚复用的 ReplicaSet 上，所以候选列表和 AI 看到的恢复出的修订写的是回滚说明，而不是坏发布的说明。
+  - 之后的发布如果不自己设置 change-cause，会继承这条说明。这是 Kubernetes 的固有行为，发布流水线应该每次都写 change-cause。
+- **`aiops-canvas.io/operation`**：执行 ID。
+  - 它只表示"最近一次由执行器写入"：写入结果不明时，执行器靠它和目标 template 一起确认这次写入已生效。
+  - 它会留在 Deployment 上，也会随之后无关的发布复制到新的 ReplicaSet，所以不能当作某个修订的属性。候选接口和 AI 工具都不展示它。
+
 ## AI 回滚建议（PA-72）
 
 方案与决定见 [PA-72 方案](../plans/2026-10-10-pa72-ai-rollback-suggestion.md)。AI 只建议，不创建提案，也不预填提交。

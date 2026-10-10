@@ -491,6 +491,28 @@ func TestRollbackEndToEnd(t *testing.T) {
 	if revision, _ := f.cluster.Revision("checkout-api"); revision != "3" || f.cluster.PatchCount() != 1 {
 		t.Fatalf("cluster after rollback: revision %s patches %d", revision, f.cluster.PatchCount())
 	}
+	// PA-76: the restored revision says it is a rollback, not the bad
+	// release's cause the Deployment carried.
+	var after struct {
+		Candidates []struct {
+			Revision    string  `json:"revision"`
+			Current     bool    `json:"current"`
+			ChangeCause *string `json:"change_cause"`
+		} `json:"candidates"`
+	}
+	f.decode(f.call("GET", "/api/v1/services/"+ServiceID("app", "dev")+"/rollback-candidates", "requester", ""), 200, &after)
+	var execution struct {
+		Execution struct {
+			ExecutionID string `json:"execution_id"`
+		} `json:"execution"`
+	}
+	f.decode(f.call("GET", "/api/v1/proposals/"+id, "approver1", ""), 200, &execution)
+	if len(after.Candidates) != 2 || !after.Candidates[0].Current || after.Candidates[0].Revision != "3" ||
+		after.Candidates[0].ChangeCause == nil ||
+		*after.Candidates[0].ChangeCause != "aiops rollback to revision 1 (execution "+execution.Execution.ExecutionID+")" ||
+		after.Candidates[1].ChangeCause == nil || *after.Candidates[1].ChangeCause != "lab drill bad-release" {
+		t.Fatalf("change causes after rollback: %+v", after.Candidates)
+	}
 	var audits int
 	if err := f.db.QueryRow(t.Context(), `SELECT count(*) FROM management_audit WHERE target=$1 AND action LIKE 'v3.rollout.%'`, id).Scan(&audits); err != nil || audits < 5 {
 		t.Fatalf("rollout audit rows: %d %v", audits, err)

@@ -108,36 +108,6 @@ func TestIntegrationBindingsRespectApplicationACL(t *testing.T) {
 	if api.Integrations[0].ApplicationIDs[0] != "lab-order-api" {
 		t.Fatal("request mutated shared inventory")
 	}
-	// PA-19 P3 stage 2 step 7: with the registry projection, the
-	// file-configured entries are replaced and a registry entry lists only
-	// the visible applications it has targets for.
-	var hiddenID string
-	apps, err := repository.DB.Query(ctx, `SELECT id FROM applications WHERE key='hidden'`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for apps.Next() {
-		_ = apps.Scan(&hiddenID)
-	}
-	apps.Close()
-	api.Integrations[0].FileConfigured = true
-	api.RegistryIntegrations = func(context.Context) ([]Integration, error) {
-		projected := NewIntegration("prom-registered", "Prometheus", "connector", "prometheus", true, nil, []string{"metrics.read"})
-		projected.TargetApplicationIDs = []string{hiddenID, visibleID}
-		return []Integration{projected}, nil
-	}
-	projectedResponse := call(t, server, http.MethodGet, "/api/v1/integrations", "", &http.Cookie{Name: "aiops_session", Value: token})
-	var projected struct {
-		Items []Integration `json:"items"`
-	}
-	if err = json.NewDecoder(projectedResponse.Body).Decode(&projected); err != nil || len(projected.Items) != 2 ||
-		projected.Items[0].ID != kubeBinding.ConnectorID || projected.Items[1].ID != "prom-registered" ||
-		len(projected.Items[1].ApplicationIDs) != 1 || projected.Items[1].ApplicationIDs[0] != visibleID {
-		t.Fatalf("registry projection: %+v %v", projected.Items, err)
-	}
-	projectedResponse.Body.Close()
-	api.RegistryIntegrations = nil
-	api.Integrations[0].FileConfigured = false
 	if _, err = repository.DB.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id LIKE 'fixture-role-%'`, viewer.ID); err != nil {
 		t.Fatal(err)
 	}

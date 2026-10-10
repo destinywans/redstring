@@ -27,18 +27,12 @@ func CurrentUser(r *http.Request) core.User {
 }
 
 type Server struct {
-	Store         store.Repository
-	Runtime       inference.Runner
-	mux           *http.ServeMux
-	SecureCookies bool
-	AllowedOrigin string
-	Integrations  []Integration
-	// RegistryIntegrations, when set, replaces the file-configured telemetry
-	// and Kubernetes entries of Integrations with a projection of the
-	// connector registry (PA-19 P3 stage 2 step 7). RegistryRegistrations
-	// does the same for GET /connector-registrations.
-	RegistryIntegrations     func(context.Context) ([]Integration, error)
-	RegistryRegistrations    func(context.Context) ([]map[string]any, error)
+	Store                    store.Repository
+	Runtime                  inference.Runner
+	mux                      *http.ServeMux
+	SecureCookies            bool
+	AllowedOrigin            string
+	Integrations             []Integration
 	ValidateBindings         func([]core.Binding) error
 	EnvironmentCapabilities  func(core.Environment) []string
 	V3ModelsHandler          http.HandlerFunc

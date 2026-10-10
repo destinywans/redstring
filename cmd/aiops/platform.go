@@ -36,9 +36,7 @@ func registerKubernetesIntegrations(api *httpapi.Server, registry *platformRegis
 	}
 	sort.Strings(ids)
 	if len(ids) == 0 {
-		entry := httpapi.NewIntegration("kubernetes", "Kubernetes", "connector", "kubernetes", false, nil, []string{"deployment.read"})
-		entry.FileConfigured = true
-		api.Integrations = append(api.Integrations, entry)
+		api.Integrations = append(api.Integrations, httpapi.NewIntegration("kubernetes", "Kubernetes", "connector", "kubernetes", false, nil, []string{"deployment.read"}))
 	}
 	for _, id := range ids {
 		registration := registry.kubernetes[id]
@@ -48,7 +46,6 @@ func registerKubernetesIntegrations(api *httpapi.Server, registry *platformRegis
 		}
 		entry := httpapi.NewIntegration(id, "Kubernetes · "+id, "connector", "kubernetes", true, nil, capabilities)
 		entry.RegisteredBindings = []core.Binding{{Kind: "kubernetes", ConnectorID: id, Resource: "deployment"}}
-		entry.FileConfigured = true
 		api.Integrations = append(api.Integrations, entry)
 	}
 }
@@ -200,16 +197,6 @@ func configurePlatform(ctx context.Context, s *store.Store, api *httpapi.Server,
 		return nil
 	}
 	api.Register("GET /api/v1/connector-registrations", "admin", func(w http.ResponseWriter, r *http.Request) {
-		if api.RegistryRegistrations != nil {
-			// PA-19 P3 stage 2 step 7: the registered targets.
-			items, err := api.RegistryRegistrations(r.Context())
-			if err != nil {
-				httpapi.Error(w, 503, "registrations_unavailable", "Connector registrations are unavailable")
-				return
-			}
-			httpapi.WriteJSON(w, 200, map[string]any{"items": items})
-			return
-		}
 		items := []map[string]any{}
 		for id, v := range registry.kubernetes {
 			items = append(items, map[string]any{"id": id, "kind": "kubernetes", "namespace": v.Config.Namespace, "deployment": v.Config.Deployment, "resource": "deployment", "rollback_available": v.recovery != nil})

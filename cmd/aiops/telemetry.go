@@ -24,15 +24,11 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) (*connector
 	if path == "" {
 		api.RegisterTelemetryBatch(nil)
 		registerTelemetryMetadata(api, connectors.TelemetryConfig{}, nil)
-		for _, item := range []httpapi.Integration{
+		api.Integrations = append(api.Integrations,
 			httpapi.NewIntegration("prometheus", "Prometheus", "connector", "prometheus", false, nil, []string{"metrics.read"}),
 			httpapi.NewIntegration("loki", "Loki", "connector", "loki", false, nil, []string{"logs.read"}),
 			httpapi.NewIntegration("elasticsearch", "Elasticsearch", "connector", "elasticsearch", false, nil, []string{"logs.read"}),
-			httpapi.NewIntegration("tempo", "Tempo", "connector", "tempo", false, nil, []string{"traces.read"}),
-		} {
-			item.FileConfigured = true
-			api.Integrations = append(api.Integrations, item)
-		}
+			httpapi.NewIntegration("tempo", "Tempo", "connector", "tempo", false, nil, []string{"traces.read"}))
 		return nil, nil
 	}
 	config, e := connectors.LoadTelemetryConfig(path)
@@ -59,7 +55,6 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) (*connector
 			traces.RegisteredBindings = append(traces.RegisteredBindings, core.Binding{Kind: "tempo", ConnectorID: "tempo", Resource: id})
 		}
 	}
-	metrics.FileConfigured, logs.FileConfigured, esLogs.FileConfigured, traces.FileConfigured = true, true, true, true
 	api.Integrations = append(api.Integrations, metrics, logs, esLogs, traces)
 	client, e := connectors.NewTelemetry(config)
 	if e != nil {

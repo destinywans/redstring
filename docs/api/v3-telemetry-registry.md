@@ -86,7 +86,7 @@ aiops connectors compare -out report.json
   - `logs`（第 3 步）：日志页 `GET /logs` 和 AI 工具 `read_service_logs` 读统一登记的 `log_stream`（Loki）、`log_index`（Elasticsearch）目标，见下文“日志读取方”。
   - `traces`（第 4 步）：Trace 列表 `GET /traces`（应用范围）和详情 `GET /traces/{id}` 读统一登记的 `trace_service` 目标，见下文“Trace 读取方”。
   - `ai_metrics`（第 5 步）：AI 工具 `read_service_metrics` 读统一登记的 `metric_resource` 目标，`list_services` 的指标和日志两列也由统一登记给出，见下文“AI 指标工具与服务清单”。
-  - `registrations`（第 7 步）：旧前端和运维看板读的 `GET /integrations`、`GET /connector-registrations` 改为从统一登记投影，连接器详情 `GET /connectors/{id}` 的 `tools` 显示已保存的工具开关，见下文“能力标签与旧登记接口”。
+  - `registrations`（第 7 步）：连接器详情 `GET /connectors/{id}` 的 `tools` 显示已保存的工具开关。旧接口 `GET /integrations`、`GET /connector-registrations` 的投影已在 P4 删除，见下文“能力标签与旧登记接口”。
   - `mapping_writes`（第 6 步）：服务映射的保存改为增删目标，见下文“映射写入”。它要求 `mappings`、`logs`、`traces`、`ai_metrics` 都已列出，否则启动失败：编辑的数据面必须已经由统一登记读取，改了才能在页面和 AI 工具里看到。
   - 写了未知的名称，或者同一个名称写了两次，服务都拒绝启动。
 - **启动日志**：
@@ -174,16 +174,9 @@ Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `d
 
 ### 能力标签与旧登记接口（第二阶段第 7 步）
 
-**D21（2026-10-10）：下面两个旧接口的投影在任何部署形态下都不生效。** V3 实例上 `GET /integrations`、`GET /connector-registrations` 以及读同一份数据的旧运维看板、设置概览都没有登记为 V3 路由，被路由闸门拦成 501 `v3_not_implemented`；非 V3 部署不执行 V3 初始化，投影的钩子不会装上。实际生效的只有连接器详情的 `tools`。P4 删除这份投影代码，不加 `Deprecation` 头（见设计稿 10.5）。以下记录实现时的设计。
+**P4 已删除旧接口的投影（D21，2026-10-10）。** 第 7 步曾让 `GET /integrations`、`GET /connector-registrations` 从统一登记投影，但 V3 实例上这两条路由以及读同一份数据的旧运维看板、设置概览都没有登记为 V3 路由，被路由闸门拦成 501 `v3_not_implemented`；非 V3 部署不执行 V3 初始化，投影的钩子不会装上。投影在任何部署形态下都不生效，P4 删除了这份代码（`cmd/aiops/v3_registrations.go`、`Resolver.Registered`、API 服务的两个钩子和 `Integration` 的两个字段），没有加 `Deprecation` 头。两条路由在非 V3 部署里照旧读遥测文件和 Kubernetes 登记，服务旧前端（`/legacy`）。
 
-V3 前端不调用这两个接口，旧前端（`/legacy`）和 `internal/operations` 的看板在用。切换后：
-- **`GET /integrations`**：遥测和 Kubernetes 的条目换成统一登记里的连接器，其他条目（交付、模型、向量）不变。
-  - `id` 是连接器 ID，`name` 是连接器名称；`configured` 表示连接器已就绪（启用、读取工具打开、选项有效、凭据已批准），否则状态为 `not_configured`；
-  - `application_ids` 是有目录范围的目标所属的、调用者可见的应用；
-  - 能力标签沿用旧前端认识的写法：连接器就绪且至少有一个有目录范围的目标时，给 `metrics.read`、`logs.read`、`traces.read` 或 `deployment.read`；Kubernetes 另外在回滚候选可用时（目录允许回滚、有写入批准、执行器就绪，与连接器详情的 `rollback.propose` 同一判断）给 `rollback.propose` 和 `rollback.execute_after_approval`。
-- **`GET /connector-registrations`**：每个有目录范围的遥测或工作负载目标一项：`id`（真实连接器 ID）、`name`、`kind`（供应商）、`resource`（目标外部 ID）、`environment_id`；工作负载另有 `namespace`、`deployment` 和 `rollback_available`。没有目录范围的目标、已归档服务的目标、代码项目不列出。
-- **连接器详情**：`tools` 由空数组改为已保存的工具开关（名称、说明、是否打开），`agent_execution_available` 恒为 `false`。它们决定统一登记的读取方能否读这个连接器，不授予 Agent 执行。
-- ~~P4 时两个旧接口加 `Deprecation` 头，下一轮移除。~~ 按 D21 改为 P4 删除投影代码。
+实际生效的只有**连接器详情**：`tools` 由空数组改为已保存的工具开关（名称、说明、是否打开），`agent_execution_available` 恒为 `false`。它们决定统一登记的读取方能否读这个连接器，不授予 Agent 执行。
 
 ### Elasticsearch basic 认证（设计稿第 10.9 节决定 3）
 

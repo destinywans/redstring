@@ -1729,7 +1729,7 @@
       "get": {
         "summary": "Read safe integration configuration inventory",
         "operationId": "get_integrations",
-        "description": "Minimum role: viewer. Contains no provider URLs, credential paths or secrets. Configured status is not a successful connectivity check. Configuration changes require server deployment configuration; there is no settings write API. With the registrations reader of a V3 instance switched (AIOPS_V3_UNIFIED_READERS includes registrations, PA-19 P3 stage 2 step 7) the telemetry and Kubernetes entries are the registered connectors instead of the file registrations: id is the connector ID, configured means ready (enabled, read tool on, valid options, approved credential), application_ids are the visible applications with a target that has a catalog scope, and a capability (metrics.read, logs.read, traces.read, deployment.read, rollback.propose, rollback.execute_after_approval) needs a ready connector and such a target; the rollback ones also need a reviewed rollback policy, a write approval and a ready executor.",
+        "description": "Minimum role: viewer. Contains no provider URLs, credential paths or secrets. Configured status is not a successful connectivity check. Configuration changes require server deployment configuration; there is no settings write API.",
         "responses": {
           "200": {
             "description": "Success",
@@ -7795,7 +7795,7 @@
       "get": {
         "summary": "Read safe server-managed binding options",
         "operationId": "get_connector_registrations",
-        "description": "Minimum role: admin. File registrations by default. With the registrations reader of a V3 instance switched (PA-19 P3 stage 2 step 7): one item per registered telemetry or workload target with a catalog scope, id the real connector ID, name the connector name, kind the provider, resource the target external ID and environment_id its environment; workloads add namespace and deployment, and rollback_available when the workload may be rolled back, has a write approval and the executor is ready.",
+        "description": "Minimum role: admin. ",
         "responses": {
           "200": {
             "description": "Success",
@@ -7820,18 +7820,6 @@
                           },
                           "resource": {
                             "type": "string"
-                          },
-                          "environment_id": {
-                            "type": "string"
-                          },
-                          "namespace": {
-                            "type": "string"
-                          },
-                          "deployment": {
-                            "type": "string"
-                          },
-                          "rollback_available": {
-                            "type": "boolean"
                           }
                         },
                         "additionalProperties": false

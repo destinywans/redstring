@@ -16,6 +16,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
 	"github.com/wans/aiops-canvas/internal/v3conversation"
+	"github.com/wans/aiops-canvas/internal/v3rollouts"
 	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
@@ -34,6 +35,8 @@ type v3ReadTools struct {
 	KnowledgeTool func(actorID, applicationID, environmentID string) (inference.EvidenceTool, bool)
 	// ListServices backs list_services in ordinary chat (PA-50).
 	ListServices func(context.Context, core.User, string, int) ([]v3catalog.ServiceEvidence, bool, error)
+	// Workloads backs read_service_workload in investigations (PA-72).
+	Workloads *v3rollouts.Service
 }
 
 var errV3EvidenceUnavailable = errors.New("read evidence unavailable")
@@ -51,6 +54,42 @@ func serviceLookupError(err error) error {
 		return inference.ErrUnknownService
 	}
 	return errV3CatalogDown
+}
+
+// ForInvestigation is ForTurn plus read_service_workload, which only
+// application investigations offer (PA-72): the rollback suggestion it feeds
+// is shown on the investigation canvas.
+func (f v3ReadTools) ForInvestigation(ctx context.Context, ownerID, applicationID, environmentID, modelID string) ([]inference.EvidenceTool, error) {
+	tools, err := f.ForTurn(ctx, ownerID, applicationID, environmentID, modelID)
+	if err != nil || len(tools) == 0 || applicationID == "" || f.Workloads == nil {
+		return tools, err
+	}
+	lookup := func(ctx context.Context, user core.User, env, key string) (v3catalog.ServiceEvidence, error) {
+		if env != environmentID || user.ID != ownerID || user.Disabled {
+			return v3catalog.ServiceEvidence{}, store.ErrNotFound
+		}
+		profile, err := f.LookupService(ctx, user, env, key)
+		if err != nil {
+			return v3catalog.ServiceEvidence{}, err
+		}
+		app, idErr := v3EvidenceApplication(profile.ID, environmentID)
+		if profile.ID == "" || profile.Key != key || profile.Environment != env || idErr != nil || app != applicationID {
+			return v3catalog.ServiceEvidence{}, store.ErrNotFound
+		}
+		return profile, nil
+	}
+	tool, ok := f.Workloads.EvidenceTool(v3rollouts.WorkloadToolOptions{OwnerID: ownerID, EnvironmentID: environmentID,
+		CurrentUser: f.CurrentUser, Lookup: lookup})
+	if !ok {
+		return tools, nil
+	}
+	if f.DB != nil {
+		var key string
+		if err := f.DB.QueryRow(ctx, `SELECT key FROM applications WHERE id=$1 AND NOT archived AND key<>''`, applicationID).Scan(&key); err == nil {
+			tool.Description += " This investigation's service key is \"" + key + "\"; no other key is readable here."
+		}
+	}
+	return append(tools, tool), nil
 }
 
 func (f v3ReadTools) ForTurn(ctx context.Context, ownerID, applicationID, environmentID, modelID string) ([]inference.EvidenceTool, error) {

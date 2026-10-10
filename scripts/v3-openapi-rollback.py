@@ -115,7 +115,9 @@ S['V3RolloutVerificationSample'] = obj({
     'request_rate':{'type':['number','null']},
     'error_ratio':{'type':['number','null']},
     'sample_age_seconds':{'type':['number','null']},
-    'ok':v3_bool(),
+    'ok':{**v3_bool(),'description':'A null value is missing (no traffic, 0/0, or the query failed): '
+        'recorded during the 60 s settle period; after it, a value beyond its threshold fails the rollback '
+        'and a missing value needs attention (PA-73)'},
 }, ['at','request_rate','error_ratio','sample_age_seconds','ok'])
 S['V3RolloutExecutionDetail'] = obj({
     'id':string(),
@@ -149,3 +151,52 @@ P['/executions/{id}']['get']['responses']['200']['content']['application/json'][
     'oneOf':[ref('V3ExecutionDetail'),ref('V3RolloutExecutionDetail')]}
 P['/executions/{id}']['get']['description'] += (' A V3 rollback execution (kind kubernetes.deployment.rollback) is '
     'projected from the rollout ledger with its timeline, rollout readback and verification samples (PA-08).')
+
+# PA-72: the AI rollback suggestion of an investigation reply. The model only
+# picks target_revision (one of the non-current revisions it read) and words
+# the reasons; every other field is the server's, from the workload evidence.
+# Nothing is proposed: the card opens the proposal drawer.
+S['V3RollbackSuggestion'] = obj({
+    'service_id':string(description='Encoded service ID, usable with /services/{id}/rollback-candidates'),
+    'workload':string(description='namespace/deployment'),
+    'from_revision':string(),'target_revision':string(),
+    'target_created_at':{'type':['string','null'],'format':'date-time'},
+    'target_change_cause':{'type':['string','null']},
+    'reasons':{**arr(obj({'text':string(minLength=1,maxLength=200),
+        'cites':{**arr(integer(minimum=1)),'description':'Numbers of this reply\'s evidence: n is evidence_ids[n-1]'}},
+        ['text','cites'])),'minItems':1,'maxItems':3},
+    'reply_id':string(),'evidence_ids':arr(string()),'suggested_at':string(format='date-time'),
+}, ['service_id','workload','from_revision','target_revision','target_created_at','target_change_cause',
+    'reasons','reply_id','evidence_ids','suggested_at'])
+S['V3InvestigationCanvasNode']['properties']['rollback_suggestion'] = v3_nullable(ref('V3RollbackSuggestion'))
+S['V3InvestigationCanvasNode']['required'].append('rollback_suggestion')
+_reply = P['/investigations/{id}/nodes/{node}/messages']['post']['responses']['200']['content']['application/json']['schema']
+_reply['properties']['rollback_suggestion'] = v3_nullable(ref('V3RollbackSuggestion'))
+_reply['required'].append('rollback_suggestion')
+P['/investigations/{id}/nodes/{node}/messages']['post']['description'] += (
+    ' PA-72: when the reply read the service\'s workload, it lists a revision other than the current one, and the catalog does '
+    'not rule a rollback out, one more model call without tools may suggest a rollback. The server keeps only a target that is '
+    'a listed non-current revision, one to three reasons of at most 200 characters, and cites within this reply\'s evidence; '
+    'anything else yields rollback_suggestion null. The outcome is audited as v3.ai.rollback_suggested (suggested, declined, '
+    'rejected or unavailable). A failed suggestion step never fails the reply.')
+P['/investigations/{id}/canvas']['get']['description'] += (
+    ' Each node carries rollback_suggestion: the latest AI rollback suggestion of that branch (PA-72) or null; the card '
+    're-reads the candidates to show whether it is out of date.')
+
+# PA-72: a Kubernetes connector's workloads and capabilities, read-only.
+S['V3ConnectorWorkload'] = obj({
+    'key':string(description='Target external_id (catalog key)'),
+    'namespace':string(),'deployment':string(),
+    'service':{'type':['string','null'],'description':'Service key, null when the application is archived or unmapped'},
+    'rollback':v3_nullable(obj({'allowed':v3_bool(),'observation_seconds':{'type':['integer','null']}},
+        ['allowed','observation_seconds'])),
+    'write_approved':{'type':['boolean','null']},
+}, ['key','namespace','deployment','service','rollback','write_approved'])
+S['V3ConnectorDetail']['properties']['workloads'] = arr(ref('V3ConnectorWorkload'))
+S['V3ConnectorDetail']['properties']['capabilities'] = arr(string(enum=['workload.read','revisions.read','rollback.propose']))
+P['/connectors/{id}']['get']['description'] += (
+    ' PA-72: a kubernetes connector also returns workloads (each workload target with the catalog namespace/deployment, '
+    'the reviewed rollback setting, null when the catalog has no scope, and whether a write binding approves it) and '
+    'capabilities (workload.read and revisions.read when the connector, its read_workloads tool and its read credential '
+    'approval are all on; rollback.propose when also a workload may be rolled back with a write approval and the executor '
+    'is ready). Other providers omit both. No credential reference is returned.')

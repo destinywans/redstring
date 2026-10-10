@@ -2,6 +2,7 @@ package v3canvas
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -152,6 +153,10 @@ type investigationCanvasNode struct {
 	Context       investigationCanvasContext    `json:"context"`
 	Versions      []investigationCanvasVersion  `json:"versions"`
 	Writebacks    investigationCanvasWritebacks `json:"writebacks"`
+	// RollbackSuggestion is the latest AI rollback suggestion of this branch
+	// (PA-72), or null. The card re-reads the candidates to tell if it is
+	// out of date.
+	RollbackSuggestion *rollbackSuggestion `json:"rollback_suggestion"`
 }
 
 // investigationCanvasWritebacks counts the writebacks this node received, as
@@ -468,6 +473,33 @@ func (s *Service) readCanvasGraph(ctx context.Context, tx pgx.Tx, target investi
 			}
 		}
 		sort.Strings(graph.Nodes[atIndex].Writebacks.Sources)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return graph, graphUnavailable()
+	}
+	rows, err = tx.Query(ctx, `SELECT DISTINCT ON (branch_id) branch_id,rollback_suggestion FROM v3_investigation_node_replies
+ WHERE branch_id=ANY($1::text[]) AND state='completed' AND rollback_suggestion IS NOT NULL
+ ORDER BY branch_id,completed_at DESC,id DESC`, ids)
+	if err != nil {
+		return graph, graphUnavailable()
+	}
+	for rows.Next() {
+		var branchID string
+		var raw []byte
+		if err = rows.Scan(&branchID, &raw); err != nil {
+			break
+		}
+		var suggestion rollbackSuggestion
+		if err = json.Unmarshal(raw, &suggestion); err != nil {
+			break
+		}
+		if atIndex, found := index[branchID]; found {
+			graph.Nodes[atIndex].RollbackSuggestion = &suggestion
+		}
 	}
 	if err == nil {
 		err = rows.Err()

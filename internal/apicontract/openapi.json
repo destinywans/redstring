@@ -26991,7 +26991,7 @@
       "get": {
         "summary": "Read a persisted investigation graph",
         "operationId": "get_investigations_id_canvas",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current session, environment and canvas.view for the persisted application or owner team are rechecked in one snapshot. Both INV-* and historical IDs use actual branch IDs. Nodes are real branches with current message counts and immutable revision history; layout rows or deterministic legacy drawing coordinates supply positions. Context tokens is null because current context token occupancy is unknown; historical provider usage is not summed as occupancy. Evidence is shown as exact recorded kind/content/source table rows; untyped workflow loop data yields an empty array. No AI conclusion or status is inferred. A source environment outside the frozen prod/staging/test DTO returns 422 canvas_environment_unsupported; invalid/oversized graph data returns 503 or 413. The current frontend must handle actual root IDs, nullable tokens, and persisted inspector data.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current session, environment and canvas.view for the persisted application or owner team are rechecked in one snapshot. Both INV-* and historical IDs use actual branch IDs. Nodes are real branches with current message counts and immutable revision history; layout rows or deterministic legacy drawing coordinates supply positions. Context tokens is null because current context token occupancy is unknown; historical provider usage is not summed as occupancy. Evidence is shown as exact recorded kind/content/source table rows; untyped workflow loop data yields an empty array. No AI conclusion or status is inferred. A source environment outside the frozen prod/staging/test DTO returns 422 canvas_environment_unsupported; invalid/oversized graph data returns 503 or 413. The current frontend must handle actual root IDs, nullable tokens, and persisted inspector data. Each node carries rollback_suggestion: the latest AI rollback suggestion of that branch (PA-72) or null; the card re-reads the candidates to show whether it is out of date.",
         "responses": {
           "200": {
             "description": "Success",
@@ -27567,7 +27567,7 @@
       "post": {
         "summary": "Run a persisted investigation-branch model reply",
         "operationId": "post_investigations_id_nodes_node_messages",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires an open, selected-environment investigation and current canvas.change on its persisted application or owner team. One live reply per branch; a legacy run also prevents a reply. The configured model receives the current branch context snapshot, which already contains its inherited parent history at fork time, plus this prompt. It receives no live ancestor, sibling or descendant state. The prompt/model/state and audit are durably recorded as a running attempt before the model call. An explicitly allowed tool-capable model may use service profile, metrics, log metadata and knowledge read-only tools fixed to the persisted application and environment, with at most four tool calls and five model calls within the existing 90-second budget. Authorization and source access are rechecked before and after tools and in the completion transaction; knowledge references must still match published document versions. A successful reply atomically persists evidence, assistant evidence references, user and assistant messages, the new branch context revision and completion audit. Tool attempt audits persist independently without query or output bodies. Model failure or revoked access retains a failed attempt without fabricating an assistant message. Concurrent runs or a changed context return 409; context exceeding 24 KiB returns 413. No child branch is generated in this response.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires an open, selected-environment investigation and current canvas.change on its persisted application or owner team. One live reply per branch; a legacy run also prevents a reply. The configured model receives the current branch context snapshot, which already contains its inherited parent history at fork time, plus this prompt. It receives no live ancestor, sibling or descendant state. The prompt/model/state and audit are durably recorded as a running attempt before the model call. An explicitly allowed tool-capable model may use service profile, metrics, log metadata, knowledge and Kubernetes workload (read_service_workload, PA-72) read-only tools fixed to the persisted application and environment, with at most six tool calls and seven model calls within the existing 90-second budget. Authorization and source access are rechecked before and after tools and in the completion transaction; knowledge references must still match published document versions. A successful reply atomically persists evidence, assistant evidence references, user and assistant messages, the new branch context revision and completion audit. Tool attempt audits persist independently without query or output bodies. Model failure or revoked access retains a failed attempt without fabricating an assistant message. Concurrent runs or a changed context return 409; context exceeding 24 KiB returns 413. No child branch is generated in this response. PA-72: when the reply read the service's workload, it lists a revision other than the current one, and the catalog does not rule a rollback out, one more model call without tools may suggest a rollback. The server keeps only a target that is a listed non-current revision, one to three reasons of at most 200 characters, and cites within this reply's evidence; anything else yields rollback_suggestion null. The outcome is audited as v3.ai.rollback_suggested (suggested, declined, rejected or unavailable). A failed suggestion step never fails the reply.",
         "responses": {
           "200": {
             "description": "Success",
@@ -27578,11 +27578,22 @@
                   "properties": {
                     "summary": {
                       "type": "string"
+                    },
+                    "rollback_suggestion": {
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/V3RollbackSuggestion"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "additionalProperties": false,
                   "required": [
-                    "summary"
+                    "summary",
+                    "rollback_suggestion"
                   ]
                 }
               }
@@ -29885,7 +29896,7 @@
       "get": {
         "summary": "Read connector configuration",
         "operationId": "get_connectors_id",
-        "description": "Minimum role: admin. V3 instance and environment scope apply. Returns one persisted registration in the selected environment. Service names are included only after current target and application grants. Auth text distinguishes a missing credential, missing server-side binding, and registered Vault reference; it does not claim the secret was verified. Status is the most recent fresh connection probe, not continuous health; missing credentials or bindings are unverified even if an older successful check was stored. There is no connector-backed Agent executor or query binding, so tools, queries, and capability tags are empty even when registration preferences exist. More than 1000 visible target services returns 422 instead of truncation.",
+        "description": "Minimum role: admin. V3 instance and environment scope apply. Returns one persisted registration in the selected environment. Service names are included only after current target and application grants. Auth text distinguishes a missing credential, missing server-side binding, and registered Vault reference; it does not claim the secret was verified. Status is the most recent fresh connection probe, not continuous health; missing credentials or bindings are unverified even if an older successful check was stored. There is no connector-backed Agent executor or query binding, so tools, queries, and capability tags are empty even when registration preferences exist. More than 1000 visible target services returns 422 instead of truncation. PA-72: a kubernetes connector also returns workloads (each workload target with the catalog namespace/deployment, the reviewed rollback setting, null when the catalog has no scope, and whether a write binding approves it) and capabilities (workload.read and revisions.read when the connector, its read_workloads tool and its read credential approval are all on; rollback.propose when also a workload may be rolled back with a write approval and the executor is ready). Other providers omit both. No credential reference is returned.",
         "responses": {
           "200": {
             "description": "Success",
@@ -69779,6 +69790,16 @@
               "received",
               "sources"
             ]
+          },
+          "rollback_suggestion": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3RollbackSuggestion"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -69795,7 +69816,8 @@
           "layout_version",
           "context",
           "versions",
-          "writebacks"
+          "writebacks",
+          "rollback_suggestion"
         ]
       },
       "V3InvestigationEvidenceTrayItem": {
@@ -71542,6 +71564,23 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "workloads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3ConnectorWorkload"
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "workload.read",
+                "revisions.read",
+                "rollback.propose"
+              ]
+            }
           }
         },
         "additionalProperties": false,
@@ -89692,7 +89731,8 @@
             ]
           },
           "ok": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "A null value is missing (no traffic, 0/0, or the query failed): recorded during the 60 s settle period; after it, a value beyond its threshold fails the rollback and a missing value needs attention (PA-73)"
           }
         },
         "additionalProperties": false,
@@ -89952,6 +89992,155 @@
           "timeline",
           "rollout",
           "verification"
+        ]
+      },
+      "V3RollbackSuggestion": {
+        "type": "object",
+        "properties": {
+          "service_id": {
+            "type": "string",
+            "description": "Encoded service ID, usable with /services/{id}/rollback-candidates"
+          },
+          "workload": {
+            "type": "string",
+            "description": "namespace/deployment"
+          },
+          "from_revision": {
+            "type": "string"
+          },
+          "target_revision": {
+            "type": "string"
+          },
+          "target_created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "target_change_cause": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "cites": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "description": "Numbers of this reply's evidence: n is evidence_ids[n-1]"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "text",
+                "cites"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 3
+          },
+          "reply_id": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "suggested_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "service_id",
+          "workload",
+          "from_revision",
+          "target_revision",
+          "target_created_at",
+          "target_change_cause",
+          "reasons",
+          "reply_id",
+          "evidence_ids",
+          "suggested_at"
+        ]
+      },
+      "V3ConnectorWorkload": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Target external_id (catalog key)"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "deployment": {
+            "type": "string"
+          },
+          "service": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Service key, null when the application is archived or unmapped"
+          },
+          "rollback": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "allowed": {
+                    "type": "boolean"
+                  },
+                  "observation_seconds": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "allowed",
+                  "observation_seconds"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "write_approved": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "namespace",
+          "deployment",
+          "service",
+          "rollback",
+          "write_approved"
         ]
       },
       "SecuritySSOProvider": {

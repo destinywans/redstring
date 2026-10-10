@@ -26,6 +26,32 @@ type Service struct {
 	DB     *pgxpool.Pool
 	Tier   string // "production" or "nonprod"; one database per instance
 	Prober Prober
+	// Workloads, when set, projects a Kubernetes connector's workload
+	// targets and capabilities on its detail (PA-72). v3rollouts supplies it,
+	// so write approvals stay out of this package.
+	Workloads func(ctx context.Context, connectorID, environmentID string) (ConnectorWorkloads, error)
+}
+
+// ConnectorWorkloads is the read-only rollback view of a Kubernetes
+// connector: its workload targets with the reviewed rollback setting and the
+// deployer's write approval, and what the connector can do.
+type ConnectorWorkloads struct {
+	Workloads    []ConnectorWorkload `json:"workloads"`
+	Capabilities []string            `json:"capabilities"`
+}
+
+type ConnectorWorkload struct {
+	Key           string                   `json:"key"`
+	Namespace     string                   `json:"namespace"`
+	Deployment    string                   `json:"deployment"`
+	Service       *string                  `json:"service"`
+	Rollback      *ConnectorWorkloadPolicy `json:"rollback"`
+	WriteApproved *bool                    `json:"write_approved"`
+}
+
+type ConnectorWorkloadPolicy struct {
+	Allowed            bool `json:"allowed"`
+	ObservationSeconds *int `json:"observation_seconds"`
 }
 
 func New(db *pgxpool.Pool, tier string, resolver CredentialResolver) *Service {
@@ -572,7 +598,16 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "storage_unavailable", "Connector service bindings are unavailable")
 		return
 	}
-	httpapi.WriteJSON(w, 200, s.detailProjection(c, services, r.Header.Get("Accept-Language")))
+	result := s.detailProjection(c, services, r.Header.Get("Accept-Language"))
+	if c.Provider == "kubernetes" && s.Workloads != nil {
+		view, err := s.Workloads(r.Context(), c.ID, c.EnvironmentID)
+		if err != nil {
+			httpapi.Error(w, 503, "storage_unavailable", "Connector workloads are unavailable")
+			return
+		}
+		result["workloads"], result["capabilities"] = view.Workloads, view.Capabilities
+	}
+	httpapi.WriteJSON(w, 200, result)
 }
 
 func (s *Service) detailProjection(c connector, services []string, lang string) map[string]any {

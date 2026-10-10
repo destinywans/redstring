@@ -373,13 +373,14 @@ func (p *PrometheusReader) resolveServiceMetricTarget(ctx context.Context, user 
 	return app, binding, nil
 }
 
-// QueryForExecutor reads one reviewed query for the rollback executor
-// (PA-08). The executor acts on an approved proposal, not for a viewer, so
-// there is no user check; instead the metric target must still be the
-// service's bound metric_resource on this connector and resource, enabled
-// for query_metrics, and the query must be in the reviewed catalog.
+// QueryForExecutor evaluates one reviewed query at one instant for the
+// rollback executor (PA-08, PA-73). The executor acts on an approved
+// proposal, not for a viewer, so there is no user check; instead the metric
+// target must still be the service's bound metric_resource on this connector
+// and resource, enabled for query_metrics, and the query must be in the
+// reviewed catalog. Values may be NaN or ±Inf (no traffic, 0/0).
 func (p *PrometheusReader) QueryForExecutor(ctx context.Context, app, env, connectorID, resourceID, queryID string,
-	window connectors.TimeWindow) ([]connectors.MetricSeries, error) {
+	at time.Time) ([]connectors.MetricSeries, error) {
 	if p == nil || p.DB == nil {
 		return nil, metricReadError("storage_unavailable")
 	}
@@ -429,5 +430,5 @@ func (p *PrometheusReader) QueryForExecutor(ctx context.Context, app, env, conne
 			return nil, metricReadError("credential_unavailable")
 		}
 	}
-	return queryRegisteredPrometheus(ctx, source.Endpoint, source.AuthMethod, credential, expression, window, p.Client)
+	return queryRegisteredPrometheusInstant(ctx, source.Endpoint, source.AuthMethod, credential, expression, at, p.Client)
 }

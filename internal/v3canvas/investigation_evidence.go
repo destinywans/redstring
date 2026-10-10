@@ -18,7 +18,13 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-const maxInvestigationToolCalls = 4
+// maxInvestigationToolCalls bounds the evidence reads of one reply, and
+// maxInvestigationTools the distinct tools offered (PA-72: 4 → 6, so a
+// release question can read profile, metrics, logs and the workload).
+const (
+	maxInvestigationToolCalls = 6
+	maxInvestigationTools     = 6
+)
 
 var errInvestigationEvidence = errors.New("invalid investigation evidence or tool sequence")
 var investigationStepID = regexp.MustCompile(`^[A-Za-z0-9_-]{1,160}$`)
@@ -49,6 +55,8 @@ func investigationToolKind(name string) (kind, source string) {
 		return "logs", "loki"
 	case "search_knowledge":
 		return "knowledge", "knowledge://published-documents"
+	case workloadToolName:
+		return "workload", "kubernetes"
 	}
 	return "", ""
 }
@@ -213,6 +221,9 @@ func authorizeInvestigationToolTx(ctx context.Context, tx pgx.Tx, st *store.Stor
 	if name == "read_service_logs" {
 		modules = append(modules, "logs")
 	}
+	if name == workloadToolName {
+		modules = append(modules, "resources")
+	}
 	policy := &rbac.V3Policy{Store: st}
 	for _, module := range modules {
 		decision := rbac.V3Decision{Module: module, Action: "view", ApplicationID: target.application, EnvironmentID: target.environment}
@@ -298,7 +309,7 @@ func (s *Service) investigationReplyTools(ctx context.Context, r *http.Request, 
 	if err != nil {
 		return nil, collected, err
 	}
-	if len(tools) > 4 {
+	if len(tools) > maxInvestigationTools {
 		return nil, collected, errInvestigationEvidence
 	}
 	for i, t := range tools {

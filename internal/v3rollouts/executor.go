@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"math"
 	"strconv"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3alertmanager"
@@ -487,12 +487,17 @@ func snapshot(d v3kube.Deployment, at time.Time) *rolloutSnapshot {
 }
 
 // verify samples the reviewed queries. Samples in the first settle period
-// are recorded but cannot fail the rollback: the services' rate windows still
-// include the bad release. After it, every sample must pass for the whole
-// observation window.
+// are recorded but cannot end the rollback: the services' rate windows still
+// include the bad release, and while Pods are replaced a query may have no
+// value at all (PA-73). After it, every sample must pass: a value beyond a
+// threshold fails the rollback, a missing value or query error needs
+// attention. The observation window must be covered without a gap; a gap
+// (the executor restarted and waited for the lease) restarts the window at
+// the first sample after it.
 func (s *Service) verify(ctx context.Context, row *ledgerRow, a v3proposals.RollbackAction, r v3kube.Rollback) error {
 	settle := or(s.Settle, defaultSettle)
 	observation := time.Duration(a.ObservationSeconds) * time.Second
+	maxGap := max(3*or(s.SampleInterval, defaultSampleInterval), minSampleGap)
 	started := row.enteredAt(stateVerifying)
 	if row.Verification == nil || row.Verification.StartedAt == nil {
 		now := s.now()
@@ -511,13 +516,9 @@ func (s *Service) verify(ctx context.Context, row *ledgerRow, a v3proposals.Roll
 		if err == nil && !outcome.Applied {
 			return s.finish(ctx, row, a, stateNeedsAttention, "target_changed", func(rw *ledgerRow) { rw.Verification.Result = "unavailable" })
 		}
-		sample, queryErr := s.sample(ctx, a, now)
+		sample, state, queryErr := s.sample(ctx, a, now)
 		if queryErr != nil {
 			log.Printf("v3 rollout verification query failed (execution=%s): %v", row.ExecutionID, queryErr)
-			return s.finish(ctx, row, a, stateNeedsAttention, "verification_unavailable", func(rw *ledgerRow) {
-				rw.Verification.Result = "unavailable"
-				rw.Verification.FinishedAt = &now
-			})
 		}
 		settled := now.Sub(started) >= settle
 		if err := s.save(ctx, row, func(rw *ledgerRow) {
@@ -528,13 +529,20 @@ func (s *Service) verify(ctx context.Context, row *ledgerRow, a v3proposals.Roll
 		}); err != nil {
 			return err
 		}
-		if settled && !sample.OK {
+		switch {
+		case settled && state == sampleFailed:
 			return s.finish(ctx, row, a, stateFailed, "verification_failed", func(rw *ledgerRow) {
 				rw.Verification.Result = "failed"
 				rw.Verification.FinishedAt = &now
 			})
+		case settled && state == sampleUnavailable:
+			return s.finish(ctx, row, a, stateNeedsAttention, "verification_unavailable", func(rw *ledgerRow) {
+				rw.Verification.Result = "unavailable"
+				rw.Verification.FinishedAt = &now
+			})
 		}
-		if now.Sub(started) >= settle+observation+confirmGrace && err != nil {
+		windowEnd := observationStart(row.Verification.Samples, started.Add(settle), maxGap).Add(observation)
+		if !now.Before(windowEnd.Add(confirmGrace)) && err != nil {
 			// Recovery cannot be confirmed without seeing the Deployment
 			// still at the target; a short read outage only extends the
 			// sampling by up to confirmGrace.
@@ -543,7 +551,7 @@ func (s *Service) verify(ctx context.Context, row *ledgerRow, a v3proposals.Roll
 				rw.Verification.FinishedAt = &now
 			})
 		}
-		if now.Sub(started) >= settle+observation && err == nil {
+		if !now.Before(windowEnd) && err == nil {
 			return s.finish(ctx, row, a, stateSucceeded, "", func(rw *ledgerRow) {
 				rw.Verification.Result = "passed"
 				rw.Verification.FinishedAt = &now
@@ -555,46 +563,75 @@ func (s *Service) verify(ctx context.Context, row *ledgerRow, a v3proposals.Roll
 	}
 }
 
-// sample reads the three reviewed queries. Each must return one series with
-// a value; a query error is unavailable, not a failed recovery.
-func (s *Service) sample(ctx context.Context, a v3proposals.RollbackAction, now time.Time) (verificationSample, error) {
+// minSampleGap is the shortest gap between samples that breaks the
+// observation window (normal spacing is the sample interval plus the reads).
+const minSampleGap = 45 * time.Second
+
+// observationStart is where the current continuous observation began: the
+// end of the settle period, or the first sample after the last gap.
+func observationStart(samples []verificationSample, settleEnd time.Time, maxGap time.Duration) time.Time {
+	start := settleEnd
+	for i := 1; i < len(samples); i++ {
+		if samples[i].At.Sub(samples[i-1].At) > maxGap && samples[i].At.After(start) {
+			start = samples[i].At
+		}
+	}
+	return start
+}
+
+type sampleState int
+
+const (
+	sampleOK sampleState = iota
+	sampleFailed
+	sampleUnavailable
+)
+
+// sample evaluates the three reviewed queries at the sample time. Each must
+// return one series; NaN or ±Inf (no traffic: 0/0) is a missing value. A value
+// beyond its threshold makes the sample failed even when another is missing;
+// otherwise any missing value makes it unavailable. Missing values are null
+// in the ledger.
+func (s *Service) sample(ctx context.Context, a v3proposals.RollbackAction, now time.Time) (verificationSample, sampleState, error) {
+	out := verificationSample{At: now}
 	if s.Metrics == nil {
-		return verificationSample{}, errors.New("metrics reader not configured")
+		return out, sampleUnavailable, errors.New("metrics reader not configured")
 	}
 	v := a.Verification
-	// The query window is wall time: the reader rejects windows in the
-	// future, and the injectable clock only governs elapsed time. Whole
-	// seconds: Prometheus answers with millisecond timestamps, and the reader
-	// rejects a first sample that falls before a nanosecond start.
-	wall := time.Now().UTC().Truncate(time.Second)
-	window := connectors.TimeWindow{Start: wall.Add(-60 * time.Second), End: wall, StepSeconds: 15}
-	read := func(queryID string) (*float64, error) {
-		series, err := s.Metrics.QueryForExecutor(ctx, a.ApplicationID, a.EnvironmentID, v.ConnectorID, v.ResourceID, queryID, window)
+	// Wall time: the reader rejects instants in the future, and the
+	// injectable clock only governs elapsed time. Whole seconds, like the
+	// other metric readers.
+	at := time.Now().UTC().Truncate(time.Second)
+	var firstErr error
+	read := func(queryID string) *float64 {
+		series, err := s.Metrics.QueryForExecutor(ctx, a.ApplicationID, a.EnvironmentID, v.ConnectorID, v.ResourceID, queryID, at)
+		if err == nil && (len(series) != 1 || len(series[0].Samples) != 1) {
+			err = errors.New("verification query must return one series")
+		}
 		if err != nil {
-			return nil, err
+			if firstErr == nil {
+				firstErr = fmt.Errorf("%s: %w", queryID, err)
+			}
+			return nil
 		}
-		if len(series) != 1 || len(series[0].Samples) == 0 {
-			return nil, errors.New("verification query must return one series")
-		}
-		value, err := strconv.ParseFloat(series[0].Samples[len(series[0].Samples)-1].Value, 64)
+		value, err := strconv.ParseFloat(series[0].Samples[0].Value, 64)
 		if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
-			return nil, errors.New("verification value is not a number")
+			return nil
 		}
-		return &value, nil
+		return &value
 	}
-	out := verificationSample{At: now}
-	var err error
-	if out.RequestRate, err = read(v.RequestRateQueryID); err != nil {
-		return out, err
+	out.RequestRate, out.ErrorRatio, out.SampleAgeSeconds = read(v.RequestRateQueryID), read(v.ErrorRatioQueryID), read(v.SampleAgeQueryID)
+	failing := (out.RequestRate != nil && *out.RequestRate < v.MinRequestRate) ||
+		(out.ErrorRatio != nil && *out.ErrorRatio > v.MaxErrorRatio) ||
+		(out.SampleAgeSeconds != nil && *out.SampleAgeSeconds > maxSampleAge)
+	switch {
+	case failing:
+		return out, sampleFailed, firstErr
+	case out.RequestRate == nil || out.ErrorRatio == nil || out.SampleAgeSeconds == nil:
+		return out, sampleUnavailable, firstErr
 	}
-	if out.ErrorRatio, err = read(v.ErrorRatioQueryID); err != nil {
-		return out, err
-	}
-	if out.SampleAgeSeconds, err = read(v.SampleAgeQueryID); err != nil {
-		return out, err
-	}
-	out.OK = *out.ErrorRatio <= v.MaxErrorRatio && *out.RequestRate >= v.MinRequestRate && *out.SampleAgeSeconds <= maxSampleAge
-	return out, nil
+	out.OK = true
+	return out, sampleOK, nil
 }
 
 func (s *Service) sleep(ctx context.Context, d time.Duration) error {

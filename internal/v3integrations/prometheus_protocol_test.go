@@ -133,3 +133,33 @@ func TestQueryRegisteredPrometheusRejectsRedirectUpstreamAndBounds(t *testing.T)
 		t.Fatalf("body limit code=%q", code)
 	}
 }
+
+// PA-73: the executor's instant query asks at a millisecond-normalized time,
+// accepts only samples exactly at it, and passes NaN through for the caller.
+func TestQueryRegisteredPrometheusInstant(t *testing.T) {
+	at := time.Now().Add(-time.Minute).Truncate(time.Second).Add(123456789 * time.Nanosecond)
+	body := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/query" || r.URL.Query().Get("time") != at.UTC().Truncate(time.Millisecond).Format(time.RFC3339Nano) {
+			t.Errorf("unexpected instant request: %s %s", r.URL.Path, r.URL.Query().Get("time"))
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+	ms := fmt.Sprintf("%d.%03d", at.Unix(), at.Nanosecond()/1e6)
+	for _, c := range []struct {
+		name, body, value, code string
+	}{
+		{"value", `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[` + ms + `,"0.02"]}]}}`, "0.02", ""},
+		{"no traffic", `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[` + ms + `,"NaN"]}]}}`, "NaN", ""},
+		{"other time", `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[` + fmt.Sprint(at.Unix()-15) + `,"0.02"]}]}}`, "", "protocol"},
+		{"range result", `{"status":"success","data":{"resultType":"matrix","result":[]}}`, "", "protocol"},
+		{"warning", `{"status":"success","warnings":["partial"],"data":{"resultType":"vector","result":[]}}`, "", "partial"},
+	} {
+		body = c.body
+		series, err := queryRegisteredPrometheusInstant(context.Background(), server.URL, "none", "", "ratio", at, nil)
+		if prometheusCode(err) != c.code || (c.value != "" && (len(series) != 1 || series[0].Samples[0].Value != c.value)) {
+			t.Fatalf("%s: series=%+v err=%v", c.name, series, err)
+		}
+	}
+}

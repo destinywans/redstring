@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -164,12 +165,22 @@ func newRolloutFixture(t *testing.T) *rolloutFixture {
 	f.cluster.AddDeployment("checkout-api", 2, []string{"release 1.4.2", "lab drill bad-release"}, good, bad)
 	f.errRatio.Store("0.001")
 	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		value := map[string]string{"request_rate_expr": "3.5", "error_ratio_expr": f.errRatio.Load().(string), "sample_age_expr": "8"}[r.URL.Query().Get("query")]
-		if value == "" {
+		query := r.URL.Query()
+		value := map[string]string{"request_rate_expr": "3.5", "error_ratio_expr": f.errRatio.Load().(string), "sample_age_expr": "8"}[query.Get("query")]
+		start, startErr := time.Parse(time.RFC3339Nano, query.Get("start"))
+		end, endErr := time.Parse(time.RFC3339Nano, query.Get("end"))
+		step, stepErr := strconv.Atoi(query.Get("step"))
+		if r.URL.Path != "/api/v1/query_range" || value == "" || startErr != nil || endErr != nil || stepErr != nil || step <= 0 {
 			w.WriteHeader(400)
 			return
 		}
-		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[%d,"%s"]]}]}}`, time.Now().Unix(), value)
+		// Like Prometheus: the range is evaluated at millisecond resolution
+		// from the start, so a sub-millisecond start comes back truncated.
+		var points []string
+		for at := start.UnixMilli(); at <= end.UnixMilli(); at += int64(step) * 1000 {
+			points = append(points, fmt.Sprintf(`[%s,"%s"]`, strconv.FormatFloat(float64(at)/1000, 'f', 3, 64), value))
+		}
+		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[%s]}]}}`, strings.Join(points, ","))
 	}))
 	t.Cleanup(prom.Close)
 

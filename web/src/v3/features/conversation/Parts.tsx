@@ -13,7 +13,8 @@ import { API_MODE } from "../../api/client";
 
 /** Pin / add-to-report / download / edit buttons only have sample behaviour; real mode has no writer for them yet. */
 const demo = API_MODE === "mock";
-const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`);
+// Tool reads are measured in whole milliseconds, so a 0 is a read shorter than 1 ms, not a missing value.
+const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : ms < 1 ? "<1 ms" : `${Math.round(ms)} ms`);
 
 export type PartActions = {
   openArtifact?: (a: Partial<Artifact> & { kind: Artifact["kind"] }) => void;
@@ -43,7 +44,8 @@ function ToolCalls({ p }: { p: Extract<Part, { type: "tool_calls" }> }) {
       <button type="button" className="head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <Icon name="right" size={12} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 150ms" }} />
         {running ? <span className="v3-spinner spin" style={{ color: "var(--accent)" }} /> : <Icon name="check" size={13} color="var(--ok)" />}
-        <b>{p.summary}</b>
+        {/* The server's summary is "N tool calls" in English; say it in the reader's language. */}
+        <b>{/^\d+ tool calls?$/.test(p.summary) ? tx("调用了 {n} 个工具", "Called {n} tools", { n: p.calls.length }) : p.summary}</b>
         {kinds.map((k) => (
           <Brand key={k} name={k} size={18} />
         ))}

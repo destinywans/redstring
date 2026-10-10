@@ -1216,11 +1216,13 @@ export type TraceList = {
   items: TraceRow[] | null;
   partial?: boolean;
   /**
-   * PA-78 (provisional names until backend plan a lands): why the list is partial. "search_budget" means the
-   * search went newest-first and stopped at its budget, so only [window_start_at, now] of the range is covered.
+   * PA-78: why the list is partial. "search_budget": the search went newest-first and stopped at its budget, so
+   * only [window_start_at, window_end_at) of the range is covered; "search_unattested": the deployment doesn't
+   * attest search completeness (no counts or charts); "not_configured": no Tempo source.
    */
-  partial_reason?: "search_budget" | (string & {}) | null;
+  partial_reason?: "search_budget" | "search_unattested" | "not_configured" | (string & {}) | null;
   window_start_at?: string | null;
+  window_end_at?: string | null;
   unavailable: Unavailable;
 };
 export type TraceSpan = {

@@ -29,15 +29,8 @@ export function useRollbackBlocked() {
   return can(["resources", "view"]) ?? can(["resources", "change"]) ?? can(["proposals", "change"]);
 }
 
-/** Times in the app's language (not the browser's): date + minute, and a seconds clock for ledger steps (PA-74). */
-export function useWhen() {
-  const { locale, fmt } = useI18n();
-  const clock = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
-  return {
-    at: (iso: string | null | undefined) => (iso ? fmt.dateTime(iso) : null),
-    clock: (iso: string | null | undefined) => (iso ? clock.format(new Date(iso)) : null),
-  };
-}
+/** Times in the app's language (PA-74); shared with every page since PA-82. */
+export { useWhen } from "../../ui/when";
 
 /** Readings with 2–3 significant digits (e.g. 0.202), never a raw float. */
 export const sig = (n: number) => (n === 0 ? "0" : String(Number(n.toPrecision(n >= 100 ? 4 : 3))));

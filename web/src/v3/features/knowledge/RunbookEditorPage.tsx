@@ -11,10 +11,12 @@ import { PromoteButton } from "./PromoteDialog";
 import "../../ui/forms.css";
 import "./knowledge.css";
 import { confirmAction } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 export default function RunbookEditorPage() {
   const { id = "rb-retry-storm" } = useParams();
   const { tx } = useI18n();
+  const when = useWhen();
   const { data: rb } = useGet<Runbook>(`/runbooks/${id}`);
   const [accepted, setAccepted] = useState<"pending" | "yes" | "no">("pending");
   const [running, setRunning] = useState(false);
@@ -177,7 +179,7 @@ export default function RunbookEditorPage() {
                 <Row key={v.v} gap={10}>
                   <Mono color={i === 0 ? "var(--text)" : undefined}>{v.v}</Mono>
                   <span className="grow" style={{ fontSize: "var(--fs-sm)" }}>{v.who}</span>
-                  <Muted size={11.5}>{v.when}</Muted>
+                  <Muted size={11.5}>{when.at(v.when)}</Muted>
                 </Row>
               ))}
             </Section>

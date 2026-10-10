@@ -3,6 +3,7 @@ import { useEnv } from "../../app/environment";
 import { Icon } from "../../ui/core";
 import { Unavailable } from "../../ui/unknown";
 import { useI18n } from "../../i18n";
+import { useWhen } from "../../ui/when";
 
 const KIND: Record<string, string> = { kubernetes: "Kubernetes", docker: "Docker", lima: "Lima" };
 
@@ -15,17 +16,14 @@ export function useStaleCollectors(collection: TopologyCollection[] | undefined)
 /** One sentence per collector: how long since it last succeeded, and when that was, in the viewer's time. */
 function useDescribe() {
   const { tx } = useI18n();
+  const when = useWhen();
   const ago = (iso: string) => {
     const min = Math.max(1, Math.floor((Date.now() - Date.parse(iso)) / 60_000));
     if (min < 120) return tx("{n} 分钟", "{n} min", { n: min });
     if (min < 48 * 60) return tx("{n} 小时", "{n} h", { n: Math.floor(min / 60) });
     return tx("{n} 天", "{n} d", { n: Math.floor(min / 1440) });
   };
-  const at = (iso: string) => {
-    const d = new Date(iso);
-    const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-    return d.toDateString() === new Date().toDateString() ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
-  };
+  const at = (iso: string) => when.short(iso) ?? iso;
   return (c: TopologyCollection) => {
     const k = KIND[c.source_kind] ?? c.source_kind;
     if (c.state === "never" || !c.last_success_at) return tx("{k} 采集还没有成功过", "{k} collection has never succeeded", { k });

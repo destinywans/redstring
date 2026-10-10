@@ -7,9 +7,11 @@ import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
 import { openForm, confirmAction, SecretBox } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 export default function WebhooksPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const { data } = useGet<WebhookView>("/webhooks");
   const [tab, setTab] = useState<"inbound" | "tokens" | "mcp" | "outbound">("inbound");
   const [sel, setSel] = useState("gitlab");
@@ -121,7 +123,7 @@ export default function WebhooksPage() {
                             <Num>{h.count}</Num>
                           </td>
                           <td>
-                            <Muted>{h.last}</Muted>
+                            <Muted>{when.text(h.last)}</Muted>
                           </td>
                           <td>
                             <State tone={h.status === "ok" ? "ok" : "danger"}>{h.status === "ok" ? tx("已启用", "Enabled") : tx("异常", "Error")}</State>
@@ -151,7 +153,7 @@ export default function WebhooksPage() {
                     <tbody key={sel}>
                       {(hook?.status === "error" ? [] : data.deliveries).map((d) => (
                         <tr key={d.time} className="anim-fade" style={{ height: 32 }}>
-                          <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{d.time}</td>
+                          <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{when.stamp(d.time)}</td>
                           <td className="mono" style={{ fontSize: "var(--fs-sub)" }}>{d.event}</td>
                           <td>
                             <Badge tone="ok" mono>

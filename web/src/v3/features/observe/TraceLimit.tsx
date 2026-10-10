@@ -11,12 +11,13 @@ import { useI18n } from "../../i18n";
  */
 export type CoveredWindow = { start: number; end: number; seconds: number };
 
-/** Reads the provisional plan-a fields in one place; null unless the list stopped at the search budget. */
+/** Null unless the list stopped at the search budget; search_unattested keeps the "total missing" banner. */
 export function coveredWindow(d: TraceList | undefined, fetchedAt: number): CoveredWindow | null {
   if (!d?.partial || d.partial_reason !== "search_budget" || !d.window_start_at) return null;
   const start = Date.parse(d.window_start_at);
   if (!Number.isFinite(start)) return null;
-  const end = Math.max(start, fetchedAt || Date.now());
+  const until = d.window_end_at ? Date.parse(d.window_end_at) : NaN;
+  const end = Math.max(start, Number.isFinite(until) ? until : fetchedAt || Date.now());
   return { start, end, seconds: (end - start) / 1000 };
 }
 
@@ -95,7 +96,7 @@ export function BudgetNotice({ count, w, range, actions }: { count: number; w: C
   );
 }
 
-/** Replaces the list on 413: why nothing can be listed and how to narrow the query. */
+/** Replaces the list on 413: why nothing can be listed and how to narrow the query. The range doesn't matter here — only the newest second's density does. */
 export function DenseCard({ serviceExample, actions }: { serviceExample: string | null; actions: ReactNode }) {
   const { tx } = useI18n();
   return (
@@ -116,7 +117,6 @@ export function DenseCard({ serviceExample, actions }: { serviceExample: string 
             {tx("只看错误：", "only errors:")} <code>status = error</code>
             {tx("；或只看慢的：", "; or only slow ones:")} <code>duration &gt; 1s</code>
           </li>
-          <li>{tx("选更短的时间范围（最短 15 分钟）", "choose a shorter range (down to 15 minutes)")}</li>
         </ul>
         {actions && <Row gap={6} wrap>{actions}</Row>}
       </div>

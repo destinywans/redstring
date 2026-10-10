@@ -15,6 +15,7 @@ import { openExternal } from "../../ui/demo";
 import { Gated } from "../../ui/permission";
 import { useRollbackDrawer } from "../events/RollbackProposal";
 import { useRollbackBlocked } from "../events/rollback";
+import { useWhen } from "../../ui/when";
 
 function useService() {
   const { id = API_MODE === "mock" ? "checkout-api" : "" } = useParams();
@@ -39,6 +40,7 @@ function BurnRow({ label, value, tone, pct }: { label: string; value: string; to
 
 export default function ServiceDetailPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const openRollback = useRollbackDrawer((x) => x.open);
   const rollbackBlocked = useRollbackBlocked();
   const SIGNAL_LABEL: Record<string, string> = { rps: tx("请求量", "Requests"), err: tx("错误率", "Error rate"), p99: tx("P99 延迟", "P99 latency"), wait: tx("等待", "Wait"), cpu: tx("CPU", "CPU") };
@@ -82,7 +84,7 @@ export default function ServiceDetailPage() {
           <div className="svc-ai">
             <Icon name="sparkles" size={16} color="var(--accent-text)" style={{ marginTop: 2 }} />
             <Col gap={8} grow>
-              <Markdown text={s.ai.text} />
+              <Markdown text={when.text(s.ai.text) ?? ""} />
               <Row gap={6}>
                 <Btn h={26} icon="branch" to={`/canvas/${s.ai.investigation}`}>
                   {tx("打开调查", "Open investigation")}
@@ -92,7 +94,7 @@ export default function ServiceDetailPage() {
                     {tx("复核提案", "Review proposal")}
                   </Btn>
                 )}
-                <Muted size={11.5}>{s.ai.meta}</Muted>
+                <Muted size={11.5}>{when.text(s.ai.meta)}</Muted>
               </Row>
             </Col>
           </div>
@@ -185,7 +187,7 @@ export default function ServiceDetailPage() {
                       <span className="ellipsis" style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>
                         {c.title}
                       </span>
-                      <Muted size={11.5}>{c.meta}</Muted>
+                      <Muted size={11.5}>{when.text(c.meta)}</Muted>
                     </Col>
                     {c.tag && <Badge tone="warn">{c.tag}</Badge>}
                   </li>
@@ -237,6 +239,7 @@ function Source({ brand, text, link }: { brand: string; text: string; link: stri
 
 export function ResiliencePage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const { data: s, error: sErr } = useService();
   const { data: r, error: rErr } = useGet<Resilience>(s ? `/services/${s.id}/resilience` : null);
   // The propose / sync / advice buttons only have sample behaviour; real resilience proposals need an open
@@ -270,7 +273,7 @@ export function ResiliencePage() {
             <Strong>{tx("只读视图：规则的真相源在各自系统中", "Read-only: each rule's source of truth is its own system")}</Strong>
             <Muted size={11.5}>{tx("平台聚合展示灰度、熔断、限流、开关与伸缩状态，供排障和 Agent 取证。需要干预时点「提议…」：可逆动作走提案与人工批准，配置类改动在配置仓库发起合并请求。", "The platform aggregates canary, breaker, rate-limit, flag and autoscaling state for troubleshooting and agent evidence. To intervene, use “Propose…”: reversible actions go through proposal and approval; config changes open a merge request in the config repo.")}</Muted>
           </Col>
-          <Muted size={11.5}>{r.synced}</Muted>
+          <Muted size={11.5}>{when.at(r.synced)}</Muted>
           {demo && <Btn icon="rotate" onClick={() => toast(tx("已从 5 个来源重新同步", "Re-synced from 5 sources"))}>{tx("立即同步", "Sync now")}</Btn>}
         </Card>
         <div className="res-grid stagger">

@@ -11,6 +11,7 @@ import "./trace.css";
 import { ChipSelect, RangeChip, openForm, usePickLists } from "../../ui/demo";
 import { toast } from "../../ui/overlays";
 import { BudgetNotice, DenseCard, coveredWindow, isScopeLimit, useAxisNote, useWindowText, withErrors } from "./TraceLimit";
+import { useWhen } from "../../ui/when";
 
 export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`);
 
@@ -31,6 +32,7 @@ export function ScopeSwitch({ scope, onChange }: { scope: "app" | "agent"; onCha
 /** Traces v2 — facets, TraceQL, saved views, count histogram, duration scatter and a table. One explorer for application and agent traces. */
 export default function TracesPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const scope = params.get("scope") === "agent" ? "agent" : "app";
@@ -77,7 +79,11 @@ export default function TracesPage() {
     }
   };
   const { data, isLoading, error, refetch, dataUpdatedAt } = useGet<TraceList>("/traces", { scope, view, service, q: applied || undefined, range });
-  const u = data?.unavailable ?? {};
+  const raw = data?.unavailable ?? {};
+  // PA-81: with a connected source, not_configured on the charts, total and facets means search completeness isn't
+  // declared — say so instead of "not connected / configure". No source at all keeps the original text.
+  const unattested = !!data && data.items !== null && data.partial_reason !== "not_configured";
+  const u = Object.fromEntries(Object.entries(raw).map(([k, r]) => [k, unattested && r === "not_configured" ? "search_unattested" : r])) as typeof raw;
   // items is null only when no trace source is bound at all.
   const noSource = !!data && data.items === null;
   // PA-78: the search stopped at its budget (covered window), or even one second is too dense to list (413).
@@ -123,12 +129,12 @@ export default function TracesPage() {
   useEffect(() => {
     const key = `${scope}:${view}`;
     if (viewSynced.current === key) return;
-    const v = data?.views.find((x) => x.id === view);
+    const v = views.find((x) => x.id === view);
     if (v) {
       setQ(v.query);
       viewSynced.current = key;
     }
-  }, [data, view, scope]);
+  }, [views, view, scope]);
   const maxMs = useMemo(() => Math.max(1, ...(data?.items ?? []).map((r) => r.duration_ms)), [data]);
   const setScope = (s: "app" | "agent") => setParams(s === "agent" ? { scope: "agent" } : {}, { replace: true });
   const toggle = (k: string) => setChecked((c) => ({ ...c, [k]: !c[k] }));
@@ -203,9 +209,7 @@ export default function TracesPage() {
             {real && scope === "app" && bound.length === 1 && <Chip icon="database">{bound[0] === "tempo" ? "Tempo" : "Jaeger"}</Chip>}
             {real && scope === "app" && bound.length > 1 && <ChipSelect icon="database" label="" showLabel={false} value={activeSource} onChange={(v) => setSource(v as string)} options={bound.map((b) => ({ value: b, label: b === "tempo" ? "Tempo" : "Jaeger" }))} />}
             {scope === "app" && <ChipSelect icon="box" label="" showLabel={false} value={service ?? "all"} onChange={(v) => setService(v === "all" ? "" : (v as string))} options={[{ value: "all", label: tx("全部服务", "All services") }, ...lists.services]} openNonce={pickNonce} />}
-            <span className={cx("tr-range", dense && "hl")}>
-              <RangeChip key={scope} value={range} onChange={setRange} />
-            </span>
+            <RangeChip key={scope} value={range} onChange={setRange} />
             <label className="grow">
               <Badge tone="info" mono>{scope === "agent" ? tx("筛选", "Filter") : "TraceQL"}</Badge>
               <input value={q} onChange={(e) => setQ(e.target.value)} aria-label={tx("链路查询", "Trace query")} spellCheck={false} placeholder={scope === "agent" ? 'agent = "investigator" && model = "claude-opus-5-5"' : "{ status = error }"} />
@@ -283,7 +287,7 @@ export default function TracesPage() {
               </Muted>
             )}
           </Row>
-          {dense && <DenseCard serviceExample={service ? null : (lists.services[0]?.label ?? "checkout-api")} actions={shortcuts(["err", "svc", "r15"])} />}
+          {dense && <DenseCard serviceExample={service ? null : (lists.services[0]?.label ?? "checkout-api")} actions={shortcuts(["err", "svc"])} />}
           {!dense && (
           <div className="tr-charts">
             <Panel title={tx("数量 · 按状态", "Count · by status")} right={<Legend items={[[tx("正常", "OK"), "var(--c1s)"], [tx("错误", "Error"), "var(--danger)"]]} />} bodyStyle={{ padding: "10px 14px" }}>
@@ -362,7 +366,7 @@ export default function TracesPage() {
               <tbody>
                 {data?.items?.map((r) => (
                   <tr key={r.id} className="clickable" onClick={() => nav(r.href)}>
-                    <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{r.time}</td>
+                    <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{when.precise(r.time)}</td>
                     <td>
                       <span className="v3-col" style={{ gap: 0 }}>
                         <span className={cx(scope === "app" && "mono")} style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{r.op}</span>

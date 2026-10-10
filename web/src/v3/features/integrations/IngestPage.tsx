@@ -11,6 +11,7 @@ import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
 import { openForm, openExternal, downloadFile } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 export default function IngestPage() {
   const { tx } = useI18n();
@@ -104,6 +105,7 @@ function Hl({ body, highlights }: { body: string; highlights: { text: string; co
 
 function Pull({ id }: { id: string | null }) {
   const { tx } = useI18n();
+  const when = useWhen();
   const { data: d } = useGet<PullDraft>(id ? `/ingest/pull/${id}` : null);
   const [contract, setContract] = useState<ContractKind>("metric");
   const [accepted, setAccepted] = useState(false);
@@ -236,7 +238,7 @@ function Pull({ id }: { id: string | null }) {
               <Badge tone="ok" mono>
                 {d.sample.status}
               </Badge>
-              <Muted size={11.5}>{d.sample.meta}</Muted>
+              <Muted size={11.5}>{when.text(d.sample.meta)}</Muted>
               <Spacer />
               {API_MODE === "mock" && (
                 <Chip icon="rotate" onClick={() => toast(tx("已重新请求 · 200 · 81 ms", "Re-requested · 200 · 81 ms"))}>
@@ -306,7 +308,7 @@ function Pull({ id }: { id: string | null }) {
                 <tr key={r.time} style={{ height: 32 }}>
                   <td className="mono">{r.service}</td>
                   <td className="mono">{r.name}</td>
-                  <td className="mono muted">{r.time}</td>
+                  <td className="mono muted">{when.at(r.time)}</td>
                   <td>
                     <Num color={r.bad ? "var(--danger)" : undefined}>{r.value}</Num>
                   </td>
@@ -375,6 +377,7 @@ function Pull({ id }: { id: string | null }) {
 
 function Push({ stackOnly }: { stackOnly: boolean }) {
   const { tx } = useI18n();
+  const when = useWhen();
   const { data: d } = useGet<PushView>("/ingest/push");
   const [sel, setSel] = useState("change");
   const [deploy, setDeploy] = useState<"helm" | "compose">("helm");
@@ -546,7 +549,7 @@ function Push({ stackOnly }: { stackOnly: boolean }) {
               <tbody>
                 {d.deliveries.map((x, i) => (
                   <tr key={i} style={{ height: 36 }}>
-                    <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{x.time}</td>
+                    <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{when.precise(x.time)}</td>
                     <td>
                       <Row gap={6}>
                         <Brand name={x.source} size={20} />

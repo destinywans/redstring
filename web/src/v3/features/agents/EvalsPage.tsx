@@ -11,9 +11,11 @@ import { Radar } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./agents.css";
 import { openForm } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 export default function EvalsPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   // Real mode lists persisted experiments (GET /evals, PA-20) and opens one by ?id=.
@@ -74,7 +76,7 @@ export default function EvalsPage() {
                   { key: "v", header: tx("基线 → 候选", "Baseline → candidate"), render: (x) => <Mono size={12}>{x.baseline_version} → {x.candidate_version}</Mono> },
                   { key: "s", header: tx("状态", "Status"), render: (x) => <Badge tone={EVAL_STATUS[x.status][0]}>{EVAL_STATUS[x.status][1]}</Badge> },
                   { key: "c", header: tx("创建", "Created"), render: (x) => <Muted>{new Date(x.created_at).toLocaleString()}</Muted> },
-                  { key: "f", header: tx("完成", "Finished"), render: (x) => <Muted>{x.finished_at ? new Date(x.finished_at).toLocaleString() : "—"}</Muted> },
+                  { key: "f", header: tx("完成", "Finished"), render: (x) => <Muted>{when.at(x.finished_at) ?? "—"}</Muted> },
                 ]}
               />
             </Card>

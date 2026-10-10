@@ -10,6 +10,7 @@ import { useI18n } from "../../i18n";
 import "./agents.css";
 import { ChipSelect, RangeChip, openExternal, useFacet } from "../../ui/demo";
 import { Unavailable, UnknownValue } from "../../ui/unknown";
+import { useWhen } from "../../ui/when";
 
 const fmtMs = (ms: number) => (ms >= 60_000 ? `${Math.floor(ms / 60_000)} m ${String(Math.round((ms % 60_000) / 1000)).padStart(2, "0")} s` : ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`);
 const fmtTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
@@ -22,6 +23,7 @@ const durationBuckets = (ms: number[]) => {
 
 export default function RunsPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const demo = API_MODE === "mock";
   const [filter, setFilter] = useState<"all" | "failed" | "blocked" | "negative">("all");
@@ -35,7 +37,7 @@ export default function RunsPage() {
   const trendLabels = (t: NonNullable<RunsView["trend"]>) => {
     if (!t.window_start_at || !t.interval_minutes) return t.ok.map((_, i) => `${String(i).padStart(2, "0")}:00`);
     const start = new Date(t.window_start_at).getTime();
-    return t.ok.map((_, i) => new Date(start + i * t.interval_minutes! * 60_000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+    return t.ok.map((_, i) => when.time(start + i * t.interval_minutes! * 60_000) ?? "");
   };
   const durations = data?.durations ? (demo ? data.durations : durationBuckets(data.durations)) : null;
   const fAgent = useFacet(data?.items, (r) => r.agent);
@@ -175,7 +177,7 @@ export default function RunsPage() {
                       </Row>
                     ),
                   }
-                : { key: "started", header: tx("开始时间", "Started"), render: (r) => <Muted>{r.started_at ? new Date(r.started_at).toLocaleString() : "—"}</Muted> },
+                : { key: "started", header: tx("开始时间", "Started"), render: (r) => <Muted>{when.at(r.started_at) ?? "—"}</Muted> },
             ]}
           />
         </Card>

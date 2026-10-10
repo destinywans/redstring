@@ -16,12 +16,14 @@ import { PersonPeekLink, ServicePeekLink } from "./peeks";
 import "./events.css";
 import { ChipSelect } from "../../ui/demo";
 import { useFirstSelection } from "../../ui/selection";
+import { useWhen } from "../../ui/when";
 
 type BulkAction = "claim" | "silence" | "investigate";
 type BulkItem = { id: string; outcome: string; investigation_id: string | null; proposal_id: string | null; error: string | null };
 
 export default function AlertsPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const qc = useQueryClient();
   const demo = API_MODE === "mock";
@@ -186,7 +188,7 @@ export default function AlertsPage() {
                         </Badge>
                       ))}
                       <Spacer />
-                      <span className="since muted" style={{ fontSize: "var(--fs-sub)" }}>{/^\d{4}-\d{2}-\d{2}T/.test(g.since) ? new Date(g.since).toLocaleString([], { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }) : g.since}</span>
+                      <span className="since muted" style={{ fontSize: "var(--fs-sub)" }}>{when.at(g.since)}</span>
                       <Row gap={4}>
                         {g.notify.channel && <Brand name={g.notify.channel} size={20} />}
                         <Muted size={11.5}>{g.notify.text}</Muted>
@@ -324,7 +326,7 @@ export default function AlertsPage() {
                 {!policy.data.timeline.length && <Muted size={11.5}>{tx("平台还没有发出过这一组的通知；外部通知记录暂缺。", "The platform hasn't sent notifications for this group; external notification history isn't available.")}</Muted>}
                 {policy.data.timeline.map((n) => (
                   <Row key={n.time} gap={8}>
-                    <Muted size={11.5}>{n.time}</Muted>
+                    <Muted size={11.5}>{when.short(n.time)}</Muted>
                     {n.channel === "feishu" ? <Brand name="feishu" size={18} /> : <Icon name={n.channel === "sms" ? "message" : "rotate"} size={14} color="var(--muted)" />}
                     <span className="grow" style={{ fontSize: "var(--fs-sub)" }}>
                       {n.text}

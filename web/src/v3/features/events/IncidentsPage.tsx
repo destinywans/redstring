@@ -12,11 +12,13 @@ import { Gate } from "../../ui/permission";
 import { useCreateParam } from "../../ui/forms";
 import { NewIncidentDrawer } from "./CreateDrawers";
 import "./events.css";
+import { useWhen } from "../../ui/when";
 
 type Summary = Pick<Incident, "id" | "severity" | "title" | "status" | "duration" | "commander">;
 
 export default function IncidentsPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const { id: routeId } = useParams();
   const [status, setStatus] = useState<"active" | "resolved" | "all">("active");
@@ -37,7 +39,7 @@ export default function IncidentsPage() {
   const stages = [tx("发现", "Detected"), tx("确认", "Acknowledged"), tx("缓解", "Mitigated"), tx("解决", "Resolved"), tx("复盘", "Postmortem")];
   // Real records have no stage; the stepper follows the confirmed status instead.
   const cur = stage ?? inc?.stage ?? (inc ? { active: 1, mitigated: 2, resolved: 3 }[inc.status] : 0);
-  const fmtTime = (t: string) => (/^\d{4}-\d{2}-\d{2}T/.test(t) ? new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : t);
+  const fmtTime = (t: string) => when.short(t) ?? t;
   const setStatus2 = async (to: "mitigated" | "resolved") => {
     if (!inc?.status_revision) return;
     try {

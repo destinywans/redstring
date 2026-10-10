@@ -13,9 +13,11 @@ import { PageHead } from "../conversation/ConversationsPage";
 import "./knowledge.css";
 import { ChipSelect, useFacet } from "../../ui/demo";
 import { PartialBanner, Unavailable, UnknownValue } from "../../ui/unknown";
+import { useWhen } from "../../ui/when";
 
 export default function RunbooksPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const [tab, setTab] = useState<"all" | "mine" | "review" | "stale">("all");
   const [q, setQ] = useState("");
@@ -85,7 +87,7 @@ export default function RunbooksPage() {
                   { key: "v", header: tx("版本", "Version"), render: (r) => <Row gap={6}><Mono color="var(--text)">{r.version}</Mono><State tone={ST[r.status][0]}>{ST[r.status][1]}</State></Row> },
                   { key: "n", header: tx("近 30 天引用", "Cited (30d)"), sort: (a, b) => (a.refs_30d ?? -1) - (b.refs_30d ?? -1), render: (r) => (r.refs_30d == null ? <UnknownValue /> : <Num>{r.refs_30d}</Num>) },
                   { key: "p", header: tx("解决率", "Resolve rate"), sort: (a, b) => (a.resolve_rate ?? 0) - (b.resolve_rate ?? 0), render: (r) => (r.resolve_rate == null ? <UnknownValue /> : <Row gap={6}><Bar pct={r.resolve_rate} tone={r.resolve_rate >= 80 ? "ok" : "warn"} width={48} height={4} /><Num>{r.resolve_rate}%</Num></Row>) },
-                  { key: "l", header: tx("最近验证", "Last verified"), render: (r) => (r.last_verified == null ? <UnknownValue /> : r.stale ? <Badge tone="warn"><Icon name="clock" size={11} />{r.last_verified}</Badge> : <Muted>{r.last_verified}</Muted>) },
+                  { key: "l", header: tx("最近验证", "Last verified"), render: (r) => (r.last_verified == null ? <UnknownValue /> : r.stale ? <Badge tone="warn"><Icon name="clock" size={11} />{when.date(r.last_verified)}</Badge> : <Muted>{when.date(r.last_verified)}</Muted>) },
                 ]}
               />
             </Card>

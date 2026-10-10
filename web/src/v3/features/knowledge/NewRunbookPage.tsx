@@ -8,6 +8,7 @@ import { useI18n } from "../../i18n";
 import "../../ui/forms.css";
 import "./knowledge.css";
 import { AddChip, usePickLists } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 type Source = "blank" | "template" | "postmortem" | "conversation" | "import";
 type Draft = {
@@ -24,6 +25,7 @@ const KIND_TONE: Record<Draft["steps"][number]["kind"], Tone> = { check: "info",
 /** "新建 Runbook" start dialog: pick a starting point; the AI drafts, a person reviews. */
 export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { open: boolean; onClose: () => void; initial?: Source }) {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const [src, setSrc] = useState<Source>(initial);
   // The sample preselects its sample postmortem; real mode preselects the first real candidate.
@@ -91,7 +93,7 @@ export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { op
                   <label key={c.id} className="rb-pm">
                     <input type="radio" name="pm" checked={pm === c.id} onChange={() => setPm(c.id)} />
                     <span className="grow ellipsis">{c.id} · {c.title}</span>
-                    <Muted size={11}>{tx("已发布 · {d}", "Published · {d}", { d: c.resolved })}</Muted>
+                    <Muted size={11}>{tx("已发布 · {d}", "Published · {d}", { d: when.at(c.resolved) })}</Muted>
                   </label>
                 ))}
               </div>

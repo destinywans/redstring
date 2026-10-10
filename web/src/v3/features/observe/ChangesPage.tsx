@@ -12,11 +12,13 @@ import { Axis } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./observe.css";
 import { ChipSelect, RangeChip, openExternal, usePickLists } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 const STATUS = { success: "ok", failed: "danger", running: "accent", canceled: "neutral" } as const;
 
 export default function ChangesPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const [params, setParams] = useSearchParams();
   // The view covers one native delivery run of one service: pick the service, then one of its runs (approved design).
   const real = API_MODE !== "mock";
@@ -63,7 +65,7 @@ export default function ChangesPage() {
                 {r.projection?.commit_sha && <span className="mono muted">{r.projection.commit_sha.slice(0, 8)}</span>}
               </span>
             ),
-            hint: r.created_at ? new Date(r.created_at).toLocaleString() : undefined,
+            hint: when.at(r.created_at) ?? undefined,
           }))}
         />
       </Col>
@@ -250,7 +252,7 @@ export default function ChangesPage() {
                     <Muted>{p.trigger}</Muted>
                   </td>
                   <td>
-                    <Muted>{p.time}</Muted>
+                    <Muted>{when.at(p.time)}</Muted>
                   </td>
                 </tr>
               ))}
@@ -258,7 +260,7 @@ export default function ChangesPage() {
           </table>
         </Card>
       </div>
-      <Drawer open={!!open && !!d} onClose={() => setOpen(null)} width={560} icon={d && <Brand name={d.brand} size={22} />} title={d?.title} sub={d?.meta}>
+      <Drawer open={!!open && !!d} onClose={() => setOpen(null)} width={560} icon={d && <Brand name={d.brand} size={22} />} title={d?.title} sub={when.text(d?.meta)}>
         {d && (
           <Col gap={14}>
             <div className="dag">
@@ -287,7 +289,7 @@ export default function ChangesPage() {
                 <Tile icon="shield" tone="warn" size={24} />
                 <Strong>{d.risk.title}</Strong>
               </Row>
-              <Muted size={11.5}>{d.risk.meta}</Muted>
+              <Muted size={11.5}>{when.text(d.risk.meta)}</Muted>
               <p>{d.risk.text}</p>
             </div>
             <div className="danger-note">

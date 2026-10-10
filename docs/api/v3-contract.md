@@ -240,7 +240,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/traces/{id}` | | 应用范围 `TraceView`：已存储且闭合的 Span 树、关键路径说明与服务调用图；无可靠关联时省略日志/链接 | implemented |
 | GET | `/services/discover` | 单个可选 `cluster`；重复参数返回 422 | 只读发现经授权的新鲜 Kubernetes 工作负载快照；返回稳定资源 ID、采集来源与时间、未知字段清单；同名歧义候选不返回 | implemented |
 | POST | `/services` | `{ items: [{ id, namespace, resource_id?, tier, owner, slo, p99 }] }`；`resource_id` 为发现接口返回的稳定 CMDB 标识，提供时必须有 namespace | `{ created }` | implemented |
-| GET | `/logs` | `q`, `levels`, `service?`, `provider?` | `LogSearch` + `unavailable`；返回可证明的限量日志行；全部来源证明了全窗计数才给 `total`/`errors`/`histogram`，模式计数与趋势守恒才给 `patterns`，否则为 `null` 并注明原因；未绑定日志来源时全部为 `null`（`not_configured`） | implemented |
+| GET | `/logs` | `q`, `levels`, `service?`, `provider?` | `LogSearch` + `unavailable`；返回可证明的限量日志行；全部来源证明了全窗计数才给 `total`/`errors`/`histogram`，模式计数与趋势守恒才给 `patterns`，否则为 `null` 并注明原因；未绑定日志来源时全部为 `null`（`not_configured`）；`AIOPS_V3_UNIFIED_READERS` 含 `logs` 时（PA-19 第二阶段第 3 步）目标来自统一登记的 `log_stream`/`log_index`，按各自连接器和 Vault 凭据读取，形状不变：不再读旧绑定（没有登记目标即 `not_configured`），同一服务两条日志目标无论所选供应商都是 409 `ambiguous_binding`，来源未就绪为 503 `source_not_ready`（`message` 列出原因码），凭据读不到为 503 `source_unavailable` | implemented |
 | GET | `/changes` | `service_id`, `run_id`, `range?=24h\|7d`, `sources?=native` | 单一有证据的原生交付运行及所选窗口的 `ChangesView` | implemented |
 
 韧性提案 POST 只接受当前真人会话、单一环境、精确服务与同服务开放调查，并在事务内复核 `services.view`、`proposals.change`、`canvas.view` 后保存不可变审阅正文和审计；六种 `kind` 均要求对应的有界 `desired` 字段，重复提交会建立新记录。正文中的目标源状态、风险、可逆性和执行路径仍未核实；此操作不创建执行动作、批准、外部变更或 GitLab 合并请求。`GET /services/{id}/resilience` 可由固定 HTTPS 聚合来源提供五类完整观测，服务端核对范围、修订、采集时间、项目数及完整 DTO；未配置或证据不全返回 `503 resilience_source_unavailable`，不能以空数组或零冒充真实状态。实际聚合器尚未部署或核验；详见[韧性视图与提案](v3-resilience.md)。冻结前端按钮只显示本地提示，整页仍待对接；本批只做源码接线和最小编译，未跑测试或真实来源联调。

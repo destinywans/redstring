@@ -18,6 +18,7 @@ type Legacy struct {
 	Endpoint   string
 	AuthMethod string
 	TenantID   string
+	Username   string
 	CustomCA   bool
 	Scope      connectors.ApplicationTelemetry
 	Queries    map[string]string
@@ -46,7 +47,7 @@ func LegacySource(cfg connectors.TelemetryConfig, provider, resource string) (Le
 		return Legacy{}, false
 	}
 	legacy := Legacy{Provider: provider, Resource: resource, Endpoint: canonicalEndpoint(endpoint.URL),
-		AuthMethod: "none", TenantID: endpoint.TenantID, CustomCA: endpoint.CAFile != "",
+		AuthMethod: "none", TenantID: endpoint.TenantID, Username: endpoint.Username, CustomCA: endpoint.CAFile != "",
 		Scope: ProviderScope(provider, a)}
 	if endpoint.BearerTokenFile != "" {
 		legacy.AuthMethod = "bearer"
@@ -118,6 +119,7 @@ func Compare(legacy Legacy, legacyOK bool, unified Source, err error) Result {
 	differ("endpoint", legacy.Endpoint == canonicalEndpoint(unified.Endpoint))
 	differ("auth_method", legacy.AuthMethod == unified.AuthMethod)
 	differ("tenant_id", legacy.TenantID == unified.TenantID)
+	differ("username", legacy.Username == unified.Username)
 	differ("custom_ca", !legacy.CustomCA)
 	notReady := make([]string, 0, len(unified.NotReady))
 	scopeMissing := false

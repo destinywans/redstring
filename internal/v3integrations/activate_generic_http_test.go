@@ -22,10 +22,13 @@ import (
 type genericActivationResolver struct{}
 
 func (genericActivationResolver) Resolve(_ context.Context, ref string) (string, error) {
-	if ref != "vault://isolated/prometheus#token" {
-		return "", ErrCredentialUnavailable
+	switch ref {
+	case "vault://isolated/prometheus#token":
+		return "isolated-token", nil
+	case "vault://isolated/elasticsearch#password":
+		return "es-password", nil
 	}
-	return "isolated-token", nil
+	return "", ErrCredentialUnavailable
 }
 
 func TestGenericConnectorDraftActivationCompletesHTTPChain(t *testing.T) {
@@ -289,5 +292,31 @@ func TestGenericConnectorDraftActivationCompletesHTTPChain(t *testing.T) {
 	}
 	if probes.Load() < 4 {
 		t.Fatalf("expected real upstream probes during activation and test, got %d", probes.Load())
+	}
+
+	// PA-19 P3 stage 2 decision 3: an imported Elasticsearch basic connector
+	// names its user in options.username; activation and test send it with
+	// the Vault password.
+	var esAuth []string
+	esUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, _ := r.BasicAuth()
+		esAuth = append(esAuth, user+"|"+pass)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer esUpstream.Close()
+	if _, err = db.Exec(ctx, `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,enabled,tools,options)
+ VALUES('es-imported','dev','elasticsearch','Elasticsearch','observe',$1,'basic',false,'[{"name":"search_logs","desc":"","enabled":false}]','{"username":"reader"}')`,
+		esUpstream.URL); err != nil {
+		t.Fatal(err)
+	}
+	svc.Prober.Resolver = NewBoundResolver(genericActivationResolver{}, []CredentialBinding{{
+		Tier: "nonprod", EnvironmentID: "dev", ConnectorID: "es-imported", Provider: "elasticsearch", Endpoint: esUpstream.URL,
+		CredentialRef: "vault://isolated/elasticsearch#password",
+	}})
+	assert(request(http.MethodPost, "/api/v1/connectors/es-imported/activate", "dev", session,
+		`{"credential_ref":"vault://isolated/elasticsearch#password"}`), 200, "")
+	assert(request(http.MethodPost, "/api/v1/connectors/es-imported/test", "dev", session, ""), 200, "")
+	if len(esAuth) != 2 || esAuth[0] != "reader|es-password" || esAuth[1] != "reader|es-password" {
+		t.Fatalf("elasticsearch basic probes: %v", esAuth)
 	}
 }

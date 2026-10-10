@@ -13,6 +13,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3pagequery"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 type logLine struct {
@@ -63,6 +64,10 @@ func logReason(current, next string) string {
 		return current
 	}
 	return next
+}
+
+type logReader interface {
+	QueryLogsOptions(context.Context, string, string, string, string, bool, connectors.TimeWindow, int) (connectors.LogEvidence, error)
 }
 
 type logPatternTelemetry interface {
@@ -117,7 +122,8 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.Telemetry == nil {
+	_, unified := s.registrySurface("logs")
+	if (!unified && s.Telemetry == nil) || (unified && (s.Registry == nil || s.Clients == nil)) {
 		httpapi.Error(w, 503, "not_configured", "Log provider is not configured")
 		return
 	}
@@ -183,6 +189,34 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 			Patterns: []logPattern{}, Unavailable: map[string]string{}})
 		return
 	}
+	// Each target is read with the file-configured client, or once the logs
+	// reader is switched, with its registered connector's client.
+	readers := make([]logReader, len(targets))
+	resources := make([]string, len(targets))
+	for i, target := range targets {
+		if !unified {
+			readers[i], resources[i] = s.Telemetry, target.Resource
+			continue
+		}
+		client, resource, err := s.registryClient(r.Context(), target, v3telemetry.Logs)
+		var notReady sourceNotReadyError
+		switch {
+		case err == nil:
+			readers[i], resources[i] = client, resource
+			continue
+		case errors.Is(err, errAmbiguousObservationBinding):
+			httpapi.Error(w, 409, "ambiguous_binding", "Select one log provider for this service and environment")
+		case errors.Is(err, errRegistrySourceChanged):
+			httpapi.Error(w, 409, "log_scope_changed", "Log source or authorization changed during the query")
+		case errors.As(err, &notReady):
+			httpapi.Error(w, 503, "source_not_ready", "Log source is not ready: "+strings.Join(notReady.reasons, ", "))
+		case errors.Is(err, errRegistryClient):
+			httpapi.Error(w, 503, "not_configured", "Selected log provider is not configured")
+		default:
+			httpapi.Error(w, 503, "log_scope_unavailable", "Log scope lookup failed")
+		}
+		return
+	}
 	window := observationWindow(duration)
 	items := []logLine{}
 	total, errorsCount := int64(0), int64(0)
@@ -193,18 +227,24 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	// Each level is queried separately so total and histogram refer to the
 	// selected levels, not a misleading sample or an unrelated global count.
 	buckets := map[int64][3]int64{}
-	for _, target := range targets {
+	for i, target := range targets {
 		for _, level := range levels {
 			var result connectors.LogEvidence
 			var err error
-			if source, ok := s.Telemetry.(logPatternTelemetry); ok {
-				result, err = source.QueryLogsWithPatterns(r.Context(), target.Resource, target.Provider, search, level, window, 100)
+			if source, ok := readers[i].(logPatternTelemetry); ok {
+				result, err = source.QueryLogsWithPatterns(r.Context(), resources[i], target.Provider, search, level, window, 100)
 			} else {
-				result, err = s.Telemetry.QueryLogsOptions(r.Context(), target.Resource, target.Provider, search, level, true, window, 100)
+				result, err = readers[i].QueryLogsOptions(r.Context(), resources[i], target.Provider, search, level, true, window, 100)
 			}
 			var telemetryError *connectors.TelemetryError
 			if errors.As(err, &telemetryError) && telemetryError.Kind == "configuration" {
 				httpapi.Error(w, 503, "not_configured", "Selected log provider is not configured")
+				return
+			}
+			if unified && errors.As(err, &telemetryError) && telemetryError.Kind == "credentials" {
+				// The approved Vault credential could not be read (an empty
+				// Vault after a dev-mode restart, a revoked approval).
+				httpapi.Error(w, 503, "source_unavailable", "Log source credential is unavailable")
 				return
 			}
 			if err != nil || result.Source.Failure != nil {

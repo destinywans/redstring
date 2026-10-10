@@ -4,16 +4,16 @@
   "environments": [
     "prod"
   ],
-  "digest": "77e95ac6e6bf14911d66c2d0eaf2c2153759620ddf0f974a5f535366e620bfea",
+  "digest": "d4b1c8235778c57f21a0b0b8c42241043739d317acf9c3eb5755838e331e0ce0",
   "summary": {
     "bindings": 15,
-    "imported": 7,
+    "imported": 8,
     "deferred": 2,
-    "conflicts": 6,
+    "conflicts": 5,
     "reviews": 1,
-    "connectors_created": 3,
-    "targets_created": 5,
-    "catalog_entries_added": 8
+    "connectors_created": 4,
+    "targets_created": 6,
+    "catalog_entries_added": 9
   },
   "connectors": [
     {
@@ -61,6 +61,20 @@
       "auth_method": "none",
       "tools": [
         "query_traces"
+      ]
+    },
+    {
+      "action": "create",
+      "id": "ffe4ac7966500489deb6a559f65288e9",
+      "environment_id": "prod",
+      "provider": "elasticsearch",
+      "name": "Elasticsearch",
+      "category": "observe",
+      "endpoint": "https://es.example.invalid",
+      "auth_method": "basic",
+      "username": "reader",
+      "tools": [
+        "search_logs"
       ]
     }
   ],
@@ -135,6 +149,16 @@
       "external_id": "lab-payments",
       "legacy_resource": "lab-payments",
       "effect": "dashboard_and_service_views_read_this_target"
+    },
+    {
+      "action": "create",
+      "id": "e21d2bee94284ed69311ae16146b992b",
+      "application_id": "app-lab-search",
+      "environment_id": "prod",
+      "connector_id": "ffe4ac7966500489deb6a559f65288e9",
+      "target_kind": "log_index",
+      "external_id": "lab-search",
+      "legacy_resource": "lab-search"
     }
   ],
   "credential_bindings": [
@@ -146,6 +170,14 @@
       "auth_method": "bearer",
       "approved": false,
       "ca_field": true
+    },
+    {
+      "environment_id": "prod",
+      "connector_id": "ffe4ac7966500489deb6a559f65288e9",
+      "provider": "elasticsearch",
+      "endpoint": "https://es.example.invalid",
+      "auth_method": "basic",
+      "approved": false
     }
   ],
   "catalog": {
@@ -232,6 +264,17 @@
         "tempo_attributes": {
           "deployment.environment": "lab"
         }
+      },
+      {
+        "connector_id": "ffe4ac7966500489deb6a559f65288e9",
+        "application_id": "app-lab-search",
+        "environment_id": "prod",
+        "resource_id": "lab-search",
+        "provider": "elasticsearch",
+        "elasticsearch_index": "lab-search-logs",
+        "elasticsearch_filters": {
+          "service.name": "search"
+        }
       }
     ],
     "workloads": [
@@ -300,15 +343,6 @@
       "resource": "lab-order",
       "reasons": [
         "target_owned_by_other_service"
-      ]
-    },
-    {
-      "application_id": "app-lab-search",
-      "environment_id": "prod",
-      "kind": "elasticsearch",
-      "resource": "lab-search",
-      "reasons": [
-        "auth_method_unsupported"
       ]
     },
     {

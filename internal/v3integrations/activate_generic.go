@@ -55,6 +55,9 @@ func (s *Service) activateGeneric(w http.ResponseWriter, r *http.Request, initia
 		Tier: s.Tier, EnvironmentID: initial.EnvironmentID, ConnectorID: initial.ID,
 		Provider: initial.Provider, Endpoint: initial.Endpoint,
 	})
+	if initial.AuthMethod == "basic" {
+		probeCtx = WithBasicUsername(probeCtx, s.connectorUsername(probeCtx, initial.ID, initial.EnvironmentID))
+	}
 	result, err := s.Prober.Check(probeCtx, initial.Provider, initial.Endpoint, initial.AuthMethod, credentialRef)
 	if errors.Is(err, ErrCredentialUnavailable) {
 		if !s.auditGenericActivationFailure(w, r, initial, "credential_unavailable") {

@@ -122,7 +122,7 @@ func TestImportAppliesTheReviewedPlanAndCompares(t *testing.T) {
 		t.Fatalf("unreviewed digest: %v", err)
 	}
 	result, err := Apply(ctx, db, input, reviewed.Digest, "admin@example.invalid")
-	if err != nil || result.ConnectorsCreated != 3 || result.TargetsCreated != 5 {
+	if err != nil || result.ConnectorsCreated != 4 || result.TargetsCreated != 6 {
 		t.Fatalf("apply: %+v %v", result, err)
 	}
 	if _, err := Apply(ctx, db, input, reviewed.Digest, "admin@example.invalid"); !errors.Is(err, ErrPlanStale) {
@@ -135,12 +135,17 @@ func TestImportAppliesTheReviewedPlanAndCompares(t *testing.T) {
 		enabled != 0 || !strings.Contains(tools, `"enabled": false`) || options != "{}" {
 		t.Fatalf("imported connector: enabled=%d tools=%s options=%s %v", enabled, tools, options, err)
 	}
+	// Elasticsearch basic auth (stage 2 step 3): the user is in the options.
+	if err := db.QueryRow(ctx, `SELECT auth_method||' '||(options->>'username') FROM v3_connectors WHERE provider='elasticsearch'`).Scan(&options); err != nil ||
+		options != "basic reader" {
+		t.Fatalf("imported elasticsearch: %q %v", options, err)
+	}
 	var metricTargets, audits, targetAudits int
 	if err := db.QueryRow(ctx, `SELECT
  (SELECT count(*) FROM v3_connector_targets WHERE target_kind='metric_resource'),
  (SELECT count(*) FROM management_audit WHERE action='connector.imported' AND changes->>'plan_digest'=$1),
  (SELECT count(*) FROM management_audit WHERE action='v3.connector.target_imported' AND application_id<>'' AND changes->>'environment_id'='prod')`,
-		reviewed.Digest).Scan(&metricTargets, &audits, &targetAudits); err != nil || metricTargets != 3 || audits != 3 || targetAudits != 5 {
+		reviewed.Digest).Scan(&metricTargets, &audits, &targetAudits); err != nil || metricTargets != 3 || audits != 4 || targetAudits != 6 {
 		t.Fatalf("metric targets=%d connector audits=%d target audits=%d %v", metricTargets, audits, targetAudits, err)
 	}
 
@@ -160,16 +165,21 @@ func TestImportAppliesTheReviewedPlanAndCompares(t *testing.T) {
 		"app-lab-checkout/prometheus": StateMatch, "app-lab-checkout/loki": StateMatchNotReady, "app-lab-checkout/tempo": StateMatchNotReady,
 		"app-lab-order/prometheus": StateMatch, "app-lab-order/loki": StateMissing, "app-lab-order/elasticsearch": StateMissing,
 		"app-lab-order/tempo": StateMatchNotReady, "app-lab-payments/prometheus": StateMatch, "app-lab-payments/loki": StateLegacyUnregistered,
-		"app-lab-payments/tempo": StateMissing, "app-lab-search/elasticsearch": StateMissing,
+		"app-lab-payments/tempo": StateMissing, "app-lab-search/elasticsearch": StateMatchNotReady,
 	}
 	got := map[string]string{}
 	for _, item := range report.Items {
 		got[item.ApplicationID+"/"+item.LegacyProvider] = item.State
-		if item.State == StateMatchNotReady && !reflect.DeepEqual(item.Reasons, []string{"connector_disabled", "tool_disabled"}) {
+		reasons := []string{"connector_disabled", "tool_disabled"}
+		if item.LegacyProvider == "elasticsearch" {
+			// The password is not in the registry until it is approved.
+			reasons = append(reasons, "credential_missing")
+		}
+		if item.State == StateMatchNotReady && !reflect.DeepEqual(item.Reasons, reasons) {
 			t.Fatalf("not ready reasons: %+v", item)
 		}
 	}
-	if !reflect.DeepEqual(got, want) || report.Checked != 11 || report.Differences() != 4 {
+	if !reflect.DeepEqual(got, want) || report.Checked != 11 || report.Differences() != 3 {
 		t.Fatalf("compare report: %+v", report)
 	}
 	// The imported workload resolves to the same Deployment but needs its

@@ -76,6 +76,13 @@ func (p Prober) Check(ctx context.Context, provider, rawURL, authMethod, credent
 	case "pat":
 		request.Header.Set("PRIVATE-TOKEN", credential)
 	case "basic":
+		// A registry connector names its user in options.username and keeps
+		// only the password in Vault (PA-19 P3 stage 2 decision 3); otherwise
+		// the credential is "user:password".
+		if user := basicUsername(ctx); user != "" {
+			request.SetBasicAuth(user, credential)
+			break
+		}
 		user, pass, ok := strings.Cut(credential, ":")
 		if !ok {
 			return ProbeResult{}, ErrCredentialUnavailable
@@ -129,4 +136,26 @@ func (p Prober) Check(ctx context.Context, provider, rawURL, authMethod, credent
 		result.ErrorCode = fmt.Sprintf("upstream_%d", response.StatusCode)
 	}
 	return result, nil
+}
+
+type basicUserKey struct{}
+
+// WithBasicUsername carries a connector's basic-auth user to the probe.
+func WithBasicUsername(ctx context.Context, user string) context.Context {
+	return context.WithValue(ctx, basicUserKey{}, user)
+}
+
+func basicUsername(ctx context.Context) string {
+	user, _ := ctx.Value(basicUserKey{}).(string)
+	return user
+}
+
+// connectorUsername reads the basic-auth user of a connector's options.
+func (s *Service) connectorUsername(ctx context.Context, id, environment string) string {
+	if s.DB == nil {
+		return ""
+	}
+	var user string
+	_ = s.DB.QueryRow(ctx, `SELECT COALESCE(options->>'username','') FROM v3_connectors WHERE id=$1 AND environment_id=$2`, id, environment).Scan(&user)
+	return user
 }

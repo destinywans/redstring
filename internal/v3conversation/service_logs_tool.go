@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
@@ -37,6 +38,12 @@ type ServiceLogsToolOptions struct {
 	// SourceCompare, when set, is told which file-configured binding was
 	// read (PA-19 compare mode). It never changes the result.
 	SourceCompare v3telemetry.Observer
+	// Unified reads the service's log source from the connector registry
+	// (PA-19 P3 stage 2 step 3): Registry resolves its one target and Clients
+	// builds that connector's client; Telemetry is then not used.
+	Unified  bool
+	Registry *v3telemetry.Resolver
+	Clients  *v3telemetry.Clients
 }
 
 type logsToolInput struct {
@@ -86,11 +93,17 @@ const (
 // personal data become typed placeholders and are counted in the evidence.
 // Labels, configured queries, source URLs and credentials are still omitted.
 func NewServiceLogsTool(opts ServiceLogsToolOptions) (inference.EvidenceTool, bool) {
-	if !opts.Enabled || opts.DB == nil || opts.Telemetry == nil || opts.CurrentUser == nil || opts.LookupService == nil || opts.Access == nil ||
+	if !opts.Enabled || opts.DB == nil || opts.CurrentUser == nil || opts.LookupService == nil || opts.Access == nil ||
 		opts.OwnerID == "" || opts.EnvironmentID == "" || opts.EnvironmentID == "all" {
 		return inference.EvidenceTool{}, false
 	}
-	if telemetry, ok := opts.Telemetry.(*connectors.Telemetry); ok && telemetry == nil {
+	if opts.Unified {
+		if opts.Registry == nil || opts.Clients == nil {
+			return inference.EvidenceTool{}, false
+		}
+	} else if opts.Telemetry == nil {
+		return inference.EvidenceTool{}, false
+	} else if telemetry, ok := opts.Telemetry.(*connectors.Telemetry); ok && telemetry == nil {
 		return inference.EvidenceTool{}, false
 	}
 	return inference.EvidenceTool{
@@ -137,44 +150,9 @@ func readServiceLogs(ctx context.Context, opts ServiceLogsToolOptions, input str
 	if profile.Key != request.Service || profile.Environment != opts.EnvironmentID || !auditTargetID.MatchString(profile.ID) {
 		return inference.Evidence{}, inference.ErrUnknownService
 	}
-	// Require one persisted Loki association for the authorized service in this
-	// exact environment. Duplicate or missing bindings fail closed.
-	// One persisted log binding (Loki or Elasticsearch); two is ambiguous.
-	rows, err := opts.DB.Query(ctx, `SELECT a.id,COALESCE(a.owner_team_id,''),b.resource,b.kind
- FROM applications a
- JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
- JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
- JOIN LATERAL jsonb_to_recordset(e.bindings) AS b(kind text, resource text) ON b.kind IN ('loki','elasticsearch')
- WHERE a.key=$1 AND NOT a.archived AND b.resource<>'' LIMIT 2`, request.Service, opts.EnvironmentID)
+	binding, err := serviceLogBinding(ctx, opts, request.Service)
 	if err != nil {
-		return inference.Evidence{}, logsUnavailable("binding lookup")
-	}
-	type logBinding struct{ appID, teamID, resource, provider string }
-	var bindings []logBinding
-	for rows.Next() {
-		var binding logBinding
-		if err = rows.Scan(&binding.appID, &binding.teamID, &binding.resource, &binding.provider); err != nil {
-			break
-		}
-		bindings = append(bindings, binding)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return inference.Evidence{}, logsUnavailable("binding lookup")
-	}
-	switch len(bindings) {
-	case 0:
-		return inference.Evidence{}, inference.NewToolError(inference.ToolNotConfigured, "no log source is configured for service "+request.Service)
-	case 1:
-	default:
-		return inference.Evidence{}, inference.NewToolError(inference.ToolNotConfigured, "service "+request.Service+" has more than one log source; an administrator must keep one")
-	}
-	binding := bindings[0]
-	if opts.SourceCompare != nil {
-		opts.SourceCompare.ObserveLegacy(v3telemetry.Use{ApplicationID: binding.appID, EnvironmentID: opts.EnvironmentID, Provider: binding.provider, Resource: binding.resource})
+		return inference.Evidence{}, err
 	}
 	if binding.appID == "" || !auditTargetID.MatchString(binding.appID) {
 		return inference.Evidence{}, logsUnavailable("binding lookup")
@@ -199,13 +177,28 @@ func readServiceLogs(ctx context.Context, opts ServiceLogsToolOptions, input str
 			return inference.Evidence{}, logsUnavailable("authorization")
 		}
 	}
+	reader, resource := opts.Telemetry, binding.resource
+	if opts.Unified {
+		// Reasons are shown only after logs.view: they describe the
+		// connector's configuration.
+		if len(binding.source.NotReady) > 0 {
+			return inference.Evidence{}, inference.NewToolError(inference.ToolNotConfigured,
+				"the log source of service "+request.Service+" is registered but not ready ("+strings.Join(binding.source.NotReady, ", ")+")")
+		}
+		client, key, clientErr := opts.Clients.For(opts.EnvironmentID, binding.source)
+		if clientErr != nil {
+			return inference.Evidence{}, inference.NewToolError(inference.ToolNotConfigured,
+				"the log source of service "+request.Service+" is unsupported or unconfigured")
+		}
+		reader, resource = client, key
+	}
 	end := time.Now().UTC().Truncate(time.Second)
 	window := connectors.TimeWindow{Start: end.Add(-15 * time.Minute), End: end}
 	level := ""
 	if request.QueryID == "recent_errors" {
 		level = "error"
 	}
-	result, err := opts.Telemetry.QueryLogsOptions(ctx, binding.resource, binding.provider, "", level, false, window, 10)
+	result, err := reader.QueryLogsOptions(ctx, resource, binding.provider, "", level, false, window, 10)
 	if err != nil {
 		var telemetryErr *connectors.TelemetryError
 		if errors.As(err, &telemetryErr) && (telemetryErr.Kind == "configuration" || telemetryErr.Kind == "scope") {
@@ -215,7 +208,7 @@ func readServiceLogs(ctx context.Context, opts ServiceLogsToolOptions, input str
 		return inference.Evidence{}, logsUnavailable("log query failed")
 	}
 	if result.Source.Failure != nil || result.Source.Provider != binding.provider ||
-		result.Source.ApplicationID != binding.resource || len(result.Entries) > 10 {
+		result.Source.ApplicationID != resource || len(result.Entries) > 10 {
 		return inference.Evidence{}, logsUnavailable("unexpected source response")
 	}
 	evidence := logsToolEvidence{
@@ -269,6 +262,85 @@ func readServiceLogs(ctx context.Context, opts ServiceLogsToolOptions, input str
 		Kind: "logs", Title: inference.Localized(ctx, "脱敏日志样本：", "Masked log samples: ") + request.Service,
 		Content: string(content), Source: binding.provider, TargetID: profile.ID,
 	}, nil
+}
+
+// logSource is the one log source of a service in the turn's environment:
+// its legacy binding, or with Unified its registry target.
+type logSource struct {
+	appID, teamID, resource, provider string
+	// source is the resolved registry target (Unified only).
+	source v3telemetry.Source
+}
+
+// serviceLogBinding finds the log source of service. Missing or duplicate
+// sources fail closed with not_configured; a registered source that is not
+// ready is returned with its reasons for the caller to report after the
+// logs.view check.
+func serviceLogBinding(ctx context.Context, opts ServiceLogsToolOptions, service string) (logSource, error) {
+	if opts.Unified {
+		var binding logSource
+		err := opts.DB.QueryRow(ctx, `SELECT a.id,COALESCE(a.owner_team_id,'')
+ FROM applications a
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
+ JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
+ WHERE a.key=$1 AND NOT a.archived`, service, opts.EnvironmentID).Scan(&binding.appID, &binding.teamID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return binding, inference.NewToolError(inference.ToolNotConfigured, "no log source is configured for service "+service)
+		}
+		if err != nil {
+			return binding, logsUnavailable("binding lookup")
+		}
+		binding.source, err = opts.Registry.Resolve(ctx, opts.DB, binding.appID, opts.EnvironmentID, v3telemetry.Logs)
+		switch {
+		case errors.Is(err, v3telemetry.ErrNotConfigured):
+			return binding, inference.NewToolError(inference.ToolNotConfigured, "no log source is registered for service "+service)
+		case errors.Is(err, v3telemetry.ErrAmbiguous):
+			return binding, inference.NewToolError(inference.ToolNotConfigured, "service "+service+" has more than one registered log source; an administrator must keep one")
+		case err != nil:
+			return binding, logsUnavailable("binding lookup")
+		}
+		binding.resource, binding.provider = binding.source.ResourceID, binding.source.Provider
+		return binding, nil
+	}
+	// One persisted log binding (Loki or Elasticsearch) for the authorized
+	// service in this exact environment. Duplicate or missing bindings fail
+	// closed.
+	rows, err := opts.DB.Query(ctx, `SELECT a.id,COALESCE(a.owner_team_id,''),b.resource,b.kind
+ FROM applications a
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
+ JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
+ JOIN LATERAL jsonb_to_recordset(e.bindings) AS b(kind text, resource text) ON b.kind IN ('loki','elasticsearch')
+ WHERE a.key=$1 AND NOT a.archived AND b.resource<>'' LIMIT 2`, service, opts.EnvironmentID)
+	if err != nil {
+		return logSource{}, logsUnavailable("binding lookup")
+	}
+	var bindings []logSource
+	for rows.Next() {
+		var binding logSource
+		if err = rows.Scan(&binding.appID, &binding.teamID, &binding.resource, &binding.provider); err != nil {
+			break
+		}
+		bindings = append(bindings, binding)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return logSource{}, logsUnavailable("binding lookup")
+	}
+	switch len(bindings) {
+	case 0:
+		return logSource{}, inference.NewToolError(inference.ToolNotConfigured, "no log source is configured for service "+service)
+	case 1:
+	default:
+		return logSource{}, inference.NewToolError(inference.ToolNotConfigured, "service "+service+" has more than one log source; an administrator must keep one")
+	}
+	binding := bindings[0]
+	if opts.SourceCompare != nil {
+		opts.SourceCompare.ObserveLegacy(v3telemetry.Use{ApplicationID: binding.appID, EnvironmentID: opts.EnvironmentID, Provider: binding.provider, Resource: binding.resource})
+	}
+	return binding, nil
 }
 
 // printableLogText drops control characters other than tab so a log line

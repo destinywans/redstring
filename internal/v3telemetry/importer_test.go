@@ -57,7 +57,8 @@ func TestBuildPlanIsIdempotentOnceApplied(t *testing.T) {
 	for _, c := range plan.Connectors {
 		if c.Action == actionCreate {
 			state.Connectors = append(state.Connectors, ExistingConnector{ID: c.ID, EnvironmentID: c.EnvironmentID,
-				Provider: c.Provider, Endpoint: c.Endpoint, AuthMethod: c.AuthMethod, TenantID: c.TenantID, OptionsValid: true})
+				Provider: c.Provider, Endpoint: c.Endpoint, AuthMethod: c.AuthMethod, TenantID: c.TenantID, Username: c.Username,
+				OptionsValid: true})
 		}
 	}
 	for _, target := range plan.Targets {
@@ -94,7 +95,8 @@ func providerOfKind(kind string) string {
 // approval the operator must add; an existing approval is reported.
 func TestBuildPlanListsCredentialApprovals(t *testing.T) {
 	input, state := labInput(), labState()
-	input.Workloads = nil // only the Loki credential here
+	input.Workloads = nil                                          // only the Loki credential here
+	input.Telemetry.Elasticsearch = connectors.TelemetryEndpoint{} // ES basic: TestBuildPlanImportsBasicAuth
 	input.Telemetry.Loki = connectors.TelemetryEndpoint{URL: "https://loki.example.invalid", BearerTokenFile: "/run/secrets/loki", TenantID: "lab"}
 	plan := BuildPlan(input, state)
 	var loki PlannedConnector
@@ -122,6 +124,58 @@ func TestBuildPlanListsCredentialApprovals(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("tenant conflict missing: %+v", conflicted.Conflicts)
+	}
+}
+
+// PA-19 P3 stage 2 step 3 (decision 3): Elasticsearch with a username and
+// password file imports as basic auth. The username goes into the connector
+// options; the password becomes a credential approval. A registered
+// connector with another username is a conflict, not a reuse.
+func TestBuildPlanImportsBasicAuth(t *testing.T) {
+	input, state := labInput(), labState()
+	input.Workloads = nil
+	plan := BuildPlan(input, state)
+	var es PlannedConnector
+	for _, c := range plan.Connectors {
+		if c.Provider == "elasticsearch" {
+			es = c
+		}
+	}
+	var binding *PlannedCredential
+	for i, b := range plan.CredentialBindings {
+		if b.ConnectorID == es.ID {
+			binding = &plan.CredentialBindings[i]
+		}
+	}
+	if es.Action != actionCreate || es.AuthMethod != "basic" || es.Username != "reader" || binding == nil || binding.AuthMethod != "basic" {
+		t.Fatalf("basic plan: %+v %+v", es, plan.CredentialBindings)
+	}
+	for _, issue := range plan.Conflicts {
+		for _, reason := range issue.Reasons {
+			if reason == "auth_method_unsupported" {
+				t.Fatalf("basic auth still unsupported: %+v", issue)
+			}
+		}
+	}
+	state.Connectors = append(state.Connectors, ExistingConnector{ID: "es-registered", EnvironmentID: "prod", Provider: "elasticsearch",
+		Endpoint: "https://es.example.invalid", AuthMethod: "basic", Username: "someone-else", OptionsValid: true})
+	found := false
+	for _, issue := range BuildPlan(input, state).Conflicts {
+		found = found || (issue.Kind == "elasticsearch" && issue.Reasons[0] == "existing_connector_username_differs")
+	}
+	if !found {
+		t.Fatal("username conflict missing")
+	}
+	// A username the options cannot hold stays a conflict.
+	input.Telemetry.Elasticsearch.Username = "re:ader"
+	found = false
+	for _, issue := range BuildPlan(input, labState()).Conflicts {
+		for _, reason := range issue.Reasons {
+			found = found || (issue.Kind == "elasticsearch" && reason == "basic_username_invalid")
+		}
+	}
+	if !found {
+		t.Fatal("a username with a colon was imported")
 	}
 }
 

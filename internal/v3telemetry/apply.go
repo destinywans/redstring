@@ -71,7 +71,7 @@ func Apply(ctx context.Context, db *pgxpool.Pool, input ImportInput, reviewedDig
 			tools = append(tools, map[string]any{"name": name, "desc": "Read-only", "enabled": false})
 		}
 		rawTools, _ := json.Marshal(tools)
-		rawOptions, _ := json.Marshal(Options{TenantID: c.TenantID})
+		rawOptions, _ := json.Marshal(Options{TenantID: c.TenantID, Username: c.Username})
 		if _, err = tx.Exec(ctx, `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,
  credential_ref,webhook_requested,enabled,tools,options) VALUES($1,$2,$3,$4,$5,$6,$7,'',false,false,$8,$9)`,
 			c.ID, c.EnvironmentID, c.Provider, c.Name, c.Category, c.Endpoint, c.AuthMethod, rawTools, rawOptions); err != nil {

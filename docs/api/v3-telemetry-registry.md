@@ -24,7 +24,7 @@
 
 ## 迁移 163
 
-`163_v3_source_registry_import.sql` 给 `v3_connectors` 增加非机密属性 `options`（目前只接受 `tenant_id`），并给 `v3_connector_targets.target_kind` 增加 `log_stream`（Loki）、`log_index`（Elasticsearch）、`trace_service`（Tempo）。Kubernetes 工作负载绑定带着回滚能力，留到 P3 再迁。只在一次性隔离 PostgreSQL 中执行过，**现有业务库未执行**。
+`163_v3_source_registry_import.sql` 给 `v3_connectors` 增加非机密属性 `options`（接受 `tenant_id`，以及第二阶段第 3 步起的 basic 认证用户名 `username`），并给 `v3_connector_targets.target_kind` 增加 `log_stream`（Loki）、`log_index`（Elasticsearch）、`trace_service`（Tempo）。Kubernetes 工作负载绑定带着回滚能力，留到 P3 再迁。只在一次性隔离 PostgreSQL 中执行过，**现有业务库未执行**。
 
 导入的目标会出现在 `GET /services/{id}/external-targets` 中，`target_kind` 是新增的三个值之一；页面目前不读这个接口。界面仍然不能新建这三类目标。
 
@@ -57,8 +57,9 @@ aiops connectors compare -out report.json
 | `resource_not_registered` | 绑定的资源在遥测文件里没有该供应商的范围 |
 | `endpoint_not_allowed` | 端点不是 HTTPS，也不是回环 HTTP |
 | `custom_ca_unsupported` | 遥测文件配了自定义 CA，登记里还不能表示 |
-| `auth_method_unsupported` | 认证方式不在该供应商的登记方式里（如 Elasticsearch 用户名密码） |
-| `existing_connector_auth_differs` / `existing_connector_tenant_differs` | 已登记的同端点连接器认证方式或租户不同 |
+| `auth_method_unsupported` | 认证方式不在该供应商的登记方式里（如 Loki 用户名密码；Elasticsearch 用户名密码从第二阶段第 3 步起可导入） |
+| `basic_username_invalid` | basic 认证的用户名为空、超过 256 字符，或含冒号、控制字符 |
+| `existing_connector_auth_differs` / `existing_connector_tenant_differs` / `existing_connector_username_differs` | 已登记的同端点连接器认证方式、租户或 basic 用户名不同 |
 | `existing_target_other_source` / `existing_targets_ambiguous` | 服务已在别的连接器上绑定了这类数据，或已有多条 |
 | `target_owned_by_other_service` | 同一资源已归属另一个服务 |
 | `resource_id_invalid` | 资源名不符合目录键格式 |
@@ -81,6 +82,7 @@ aiops connectors compare -out report.json
 - 可选名称随实施步骤开放（设计稿第 10.3 节）：`coverage`、`mappings`、`logs`、`traces`、`ai_metrics`、`mapping_writes`、`registrations`。目前已开放：
   - `coverage`（第 1 步）：覆盖度的指标、日志、链路单元格由解析器给出，未就绪时 `availability=not_ready` 并写明原因，旧应用绑定不再计入。
   - `mappings`（第 2 步）：服务映射的指标、日志、链路、工作负载读统一登记的目标（真实连接器 ID），在第 6 步之前只读（`registry_cutover`）；代码绑定和 GitLab 候选接受照旧；部署和看板只读（`system_not_supported`）。编辑器的选项见 `GET /services/{id}/external-targets/options`。
+  - `logs`（第 3 步）：日志页 `GET /logs` 和 AI 工具 `read_service_logs` 读统一登记的 `log_stream`（Loki）、`log_index`（Elasticsearch）目标，见下文“日志读取方”。
   - 写了还没开放的名称，或者同一个名称写了两次，服务都拒绝启动；
   - 启动日志 `source registry` 打印模式和已切换的读取方。
 - 回退：从变量里去掉该读取方并重启，不删任何数据。第 6 步（`mapping_writes`）之后回退前先跑一次 `aiops connectors compare`，见设计稿第 10.4 节。
@@ -93,12 +95,27 @@ aiops connectors compare -out report.json
 | --- | --- |
 | `match` | 登记会读到同一端点、认证方式、租户和范围，并且已经可读 |
 | `match_not_ready` | 内容一致，但还不可读：`connector_disabled`、`tool_disabled`、`credential_missing`、`credential_not_approved`、`options_invalid` |
-| `differs` | 有字段不同：`provider`、`endpoint`、`auth_method`、`tenant_id`、`custom_ca`、`scope.<字段>`、`scope_missing`、`query_missing:<id>`、`query_changed:<id>` |
+| `differs` | 有字段不同：`provider`、`endpoint`、`auth_method`、`tenant_id`、`username`、`custom_ca`、`scope.<字段>`、`scope_missing`、`query_missing:<id>`、`query_changed:<id>` |
 | `missing` / `ambiguous` | 登记里这一数据面没有目标 / 有多条 |
 | `legacy_unregistered` | 旧绑定本身在遥测文件中无效（旧读取方也读不到），不算差异 |
 | `unavailable` | 比较时数据库不可用 |
 
 Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `dashboard`）不算差异。
+
+### 日志读取方（第二阶段第 3 步）
+
+- **目标**：日志页按服务环境枚举统一登记里的日志目标（Loki 和 Elasticsearch 都算），授权规则不变（先应用、再负责人团队的 `logs.view`）。没有目标的服务是 `not_configured`，不再回退读旧绑定和遥测文件。
+- **歧义**：同一服务环境有两条日志目标时失败关闭。日志页即使用 `provider` 只选了其中一个供应商，也返回 409 `ambiguous_binding`；AI 工具返回 `not_configured`，提示保留一条。
+- **未就绪**：日志页在查询之前返回 503 `source_not_ready`，`message` 列出原因码（`connector_disabled`、`tool_disabled`、`options_invalid`、`credential_missing`、`credential_not_approved`、`scope_missing`）。AI 工具先做 `logs.view` 检查，再返回 `not_configured` 并带原因。
+- **凭据读不到**（例如实验 Vault 的 dev 模式重启后为空）：日志页 503 `source_unavailable`，AI 工具 `source_unavailable`（可重试）。
+- 响应形状不变，与切换前对照时，同一时间窗内的条数、错误数、样本和不可用原因应一致。
+
+### Elasticsearch basic 认证（设计稿第 10.9 节决定 3）
+
+- Elasticsearch 连接器的认证方式增加 `basic`：用户名放在连接器 `options.username`（非机密），密码是 Vault 凭据，例如 `vault://aiops/lab/elasticsearch#password`。用户名不能为空、不能含冒号或控制字符，最长 256 字符；不满足时解析器判为 `options_invalid`。
+- **怎么配**：`options` 目前只能由导入写入，`PUT /connectors/{id}/settings` 只改地址。遥测文件里 Elasticsearch 写了 `username` 和 `password_file` 时，`import-legacy` 生成 `auth_method: basic`、`username` 的连接器和一条凭据批准；apply 后按上文第 3 步加批准、重启，再用 `POST /connectors/{id}/activate`（带 `credential_ref`）和 `PATCH /connectors/{id}` 打开 `search_logs`。
+- 激活和 `POST /connectors/{id}/test` 的探测用 `options.username` 加 Vault 密码；没有 `options.username` 的 basic 连接器（如 Jenkins）仍按 Vault 字段里的 `user:password` 拆分。界面新建的 Elasticsearch basic 连接器没有用户名，统一登记的读取方会判它未就绪（`options_invalid`），直到有设置入口。
+- 统一读取方按请求发 `Authorization: Basic`，密码与其他凭据一样缓存 60 秒，401/403 立即丢弃。
 
 ## Kubernetes 工作负载（P3 第一阶段，PA-08 依赖）
 

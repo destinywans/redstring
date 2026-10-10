@@ -604,6 +604,9 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	coverage.Registry, coverage.Unified = sourceResolver, unifiedReaders.Unified(v3telemetry.ReaderCoverage)
 	// Step 2: the service mapping reads the registry systems from targets.
 	catalog.Registry, catalog.MappingsUnified = sourceResolver, unifiedReaders.Unified(v3telemetry.ReaderMappings)
+	// Step 3 on: switched readers build one client per registered connector,
+	// with the file registration's limits and approved Vault credentials.
+	sourceClients := &v3telemetry.Clients{Tier: cfg.Tier, Credentials: credentialResolver, Limits: telemetry.Registration()}
 	var sourceCompare v3telemetry.Observer
 	if registryMode == v3telemetry.ModeCompare {
 		comparer := v3telemetry.NewComparer(s.DB, &v3telemetry.Resolver{Tier: cfg.Tier, Catalog: sourceCatalog,
@@ -696,6 +699,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		DB: s.DB, Models: toolModels, CurrentUser: currentToolUser,
 		LookupService: catalog.LookupServiceEvidence, ListServices: catalog.ListServiceEvidence, Access: policy, Telemetry: telemetry,
 		SourceCompare: sourceCompare, Workloads: rollouts,
+		Registry: sourceResolver, Clients: sourceClients, UnifiedLogs: unifiedReaders.Unified(v3telemetry.ReaderLogs),
 		KnowledgeTool: func(actorID, applicationID, environmentID string) (inference.EvidenceTool, bool) {
 			return v3knowledge.NewKnowledgeEvidenceTool(v3knowledge.KnowledgeEvidenceToolOptions{
 				Enabled: true, Service: knowledgeV3, ActorID: actorID, ApplicationID: applicationID,
@@ -803,6 +807,8 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	observations.MetricReader = metricReader
 	observations.MetricsConversation = chat
 	observations.SourceCompare = sourceCompare
+	observations.Registry, observations.Clients = sourceResolver, sourceClients
+	observations.UnifiedLogs = unifiedReaders.Unified(v3telemetry.ReaderLogs)
 	observations.Register(api)
 	alertCoverage, err := v3serviceviews.LoadAlertCoverage(os.Getenv("AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG"), opsConfig, cfg, s.DB)
 	if err != nil {

@@ -20,7 +20,7 @@ var descriptors = map[string]descriptor{
 	"victoriametrics": {"victoriametrics", "observe", "VictoriaMetrics", "Metrics", "/health", []string{"none", "bearer"}, []string{"query_metrics"}},
 	"loki":            {"loki", "observe", "Loki", "Logs", "/ready", []string{"none", "bearer"}, []string{"search_logs"}},
 	"tempo":           {"tempo", "observe", "Tempo", "Traces", "/ready", []string{"none", "bearer"}, []string{"query_traces"}},
-	"elasticsearch":   {"elasticsearch", "observe", "Elasticsearch", "Logs", "/", []string{"api_key", "bearer"}, []string{"search_logs"}},
+	"elasticsearch":   {"elasticsearch", "observe", "Elasticsearch", "Logs", "/", []string{"api_key", "bearer", "basic"}, []string{"search_logs"}},
 	"grafana":         {"grafana", "observe", "Grafana", "Dashboards", "/api/health", []string{"none", "bearer"}, []string{"list_dashboards"}},
 	"jenkins":         {"jenkins", "delivery", "Jenkins", "Pipelines", "/api/json?tree=nodeName", []string{"basic", "bearer"}, []string{"list_builds"}},
 	"argo":            {"argo", "delivery", "Argo CD", "Deployments", "/api/version", []string{"bearer"}, []string{"get_app_status"}},

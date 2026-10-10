@@ -39,8 +39,9 @@ func SurfaceOf(provider string) (Surface, bool) {
 // TargetKind returns the target kind a provider is bound with.
 func TargetKind(provider string) string { return telemetryProviders[provider].targetKind }
 
-// surfacePairs lists the "target_kind:provider" pairs that serve a surface.
-func surfacePairs(surface Surface) []string {
+// SurfacePairs lists the "target_kind:provider" pairs that serve a surface,
+// matched against t.target_kind||':'||c.provider in registry queries.
+func SurfacePairs(surface Surface) []string {
 	var out []string
 	for provider, info := range telemetryProviders {
 		if info.surface == surface {

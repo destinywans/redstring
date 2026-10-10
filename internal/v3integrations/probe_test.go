@@ -90,3 +90,31 @@ func TestCredentialClientsRejectRedirectEvenWithInjectedHTTPClient(t *testing.T)
 		t.Fatalf("Vault request followed redirect: redirected=%v err=%v", redirected, err)
 	}
 }
+
+// PA-19 P3 stage 2 decision 3: Elasticsearch basic auth takes its user from
+// the connector's options and only the password from Vault; without a user
+// the credential is still "user:password".
+func TestProbeBasicAuthUsesTheOptionsUser(t *testing.T) {
+	var got []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, _ := r.BasicAuth()
+		got = append(got, user+"|"+pass)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	prober := Prober{Resolver: staticResolver("pa:ss")}
+	ctx := WithBasicUsername(context.Background(), "reader")
+	if result, err := prober.Check(ctx, "elasticsearch", upstream.URL, "basic", "vault://aiops/lab/elasticsearch#password"); err != nil || !result.OK {
+		t.Fatalf("options user: %+v %v", result, err)
+	}
+	if result, err := prober.Check(context.Background(), "elasticsearch", upstream.URL, "basic", "vault://aiops/lab/elasticsearch#password"); err != nil || !result.OK {
+		t.Fatalf("user:password credential: %+v %v", result, err)
+	}
+	if len(got) != 2 || got[0] != "reader|pa:ss" || got[1] != "pa|ss" {
+		t.Fatalf("basic auth sent: %v", got)
+	}
+}
+
+type staticResolver string
+
+func (s staticResolver) Resolve(context.Context, string) (string, error) { return string(s), nil }

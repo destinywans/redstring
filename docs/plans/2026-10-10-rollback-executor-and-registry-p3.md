@@ -652,6 +652,16 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
    - 建议等第 8 步在两个实例上稳定运行至少一轮完整回归，并且一轮回滚演练通过后，再单独确认；
    - 10.5 列的不可逆部分在确认时逐条过一遍。
 
+### 10.10 实施记录
+
+**第 3 步（日志读取方与 ES basic）**，实现时定下的细节：
+- **歧义按数据面判断**：日志页按服务环境枚举全部日志目标后才按 `provider` 过滤。同一服务有 Loki 和 ES 两条目标时，即使只选了一个供应商也返回 409 `ambiguous_binding`，与 AI 工具和解析器一致；旧路径只看所选供应商的绑定。
+- **原因码的可见范围**：日志页的 `source_not_ready` 在目标授权之后才返回。AI 工具先做 `logs.view` 检查，再说明未就绪原因；没有 `logs.view` 只得到 `not_permitted`。
+- **显式空 `levels`** 仍然直接返回零结果，不解析来源，与切换前相同。
+- **ES 用户名只能由导入写入**：`PUT /connectors/{id}/settings` 只改地址，界面新建的 ES basic 连接器没有 `options.username`，统一读取方判为 `options_invalid`。要在界面上配置，需要给连接器设置加用户名字段（前端改动，需设计图），目前不在本步范围。
+- **探测兼容**：激活和测试探测有 `options.username` 时用它加 Vault 密码；没有时仍按 Vault 字段里的 `user:password` 拆分，Jenkins 等已有 basic 连接器不受影响。
+- 导入新增冲突原因 `basic_username_invalid` 和 `existing_connector_username_differs`；`compare` 新增差异字段 `username`。
+
 ## 附录 A：对照前提的命令
 
 在仓库根目录，使用与验收实例相同的环境变量（`AIOPS_TELEMETRY_CONFIG`、`AIOPS_V3_SOURCE_CATALOG`、`AIOPS_KUBERNETES_REGISTRY`（如有）、数据库连接），对两个实例分别执行：

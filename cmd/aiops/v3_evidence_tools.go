@@ -37,6 +37,11 @@ type v3ReadTools struct {
 	ListServices func(context.Context, core.User, string, int) ([]v3catalog.ServiceEvidence, bool, error)
 	// Workloads backs read_service_workload in investigations (PA-72).
 	Workloads *v3rollouts.Service
+	// Registry and Clients serve read_service_logs from the connector
+	// registry when UnifiedLogs is set (PA-19 P3 stage 2 step 3).
+	Registry    *v3telemetry.Resolver
+	Clients     *v3telemetry.Clients
+	UnifiedLogs bool
 }
 
 var errV3EvidenceUnavailable = errors.New("read evidence unavailable")
@@ -146,11 +151,18 @@ func (f v3ReadTools) ForTurn(ctx context.Context, ownerID, applicationID, enviro
 		}); ok {
 			tools = append(tools, tool)
 		}
-		if tool, ok := v3conversation.NewServiceLogsTool(v3conversation.ServiceLogsToolOptions{
+	}
+	if f.Telemetry != nil || f.UnifiedLogs {
+		options := v3conversation.ServiceLogsToolOptions{
 			Enabled: true, DB: f.DB, OwnerID: ownerID, EnvironmentID: environmentID,
-			CurrentUser: f.CurrentUser, LookupService: lookup, Access: f.Access, Telemetry: f.Telemetry,
+			CurrentUser: f.CurrentUser, LookupService: lookup, Access: f.Access,
 			SourceCompare: f.SourceCompare,
-		}); ok {
+			Unified:       f.UnifiedLogs, Registry: f.Registry, Clients: f.Clients,
+		}
+		if f.Telemetry != nil {
+			options.Telemetry = f.Telemetry
+		}
+		if tool, ok := v3conversation.NewServiceLogsTool(options); ok {
 			tools = append(tools, tool)
 		}
 	}

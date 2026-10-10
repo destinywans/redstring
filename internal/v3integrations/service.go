@@ -906,6 +906,9 @@ func (s *Service) test(w http.ResponseWriter, r *http.Request) {
 		Tier: s.Tier, EnvironmentID: c.EnvironmentID, ConnectorID: c.ID,
 		Provider: c.Provider, Endpoint: c.Endpoint,
 	})
+	if c.AuthMethod == "basic" {
+		probeCtx = WithBasicUsername(probeCtx, s.connectorUsername(probeCtx, c.ID, c.EnvironmentID))
+	}
 	result, err := s.Prober.Check(probeCtx, c.Provider, c.Endpoint, c.AuthMethod, c.CredentialRef)
 	if errors.Is(err, ErrCredentialUnavailable) {
 		httpapi.Error(w, 503, "credential_unavailable", "Vault credential is unavailable")

@@ -16,7 +16,7 @@
 
 用户 2026-10-09 决定：AI 日志工具可以把日志正文发给模型，但敏感信息必须先抹去，默认开启。普通 Chat 与调查 Canvas 共用 `cmd/aiops` 的 `v3ReadTools` 和同一个 `read_service_logs`；旧 Worker 的 `query_logs` 同样处理。
 
-- **来源**：服务在当前环境的唯一持久日志绑定，`kind` 为 `loki` 或 `elasticsearch`；两条及以上绑定视为有歧义，失败关闭。连接器返回的来源必须与绑定一致。证据 `source` 为 `loki` 或 `elasticsearch`，调查与 Agent 运行时的证据校验只接受这两个值。
+- **来源**：服务在当前环境的唯一持久日志绑定，`kind` 为 `loki` 或 `elasticsearch`；两条及以上绑定视为有歧义，失败关闭。连接器返回的来源必须与绑定一致。证据 `source` 为 `loki` 或 `elasticsearch`，调查与 Agent 运行时的证据校验只接受这两个值。`AIOPS_V3_UNIFIED_READERS` 含 `logs` 时（PA-19 第二阶段第 3 步），来源改为统一登记里唯一的日志目标，按其连接器和 Vault 凭据读取（含 Elasticsearch basic），旧绑定不再计入；未就绪时在 `logs.view` 检查之后返回 `not_configured` 并带原因码，凭据读不到为 `source_unavailable`，见 [遥测来源统一登记](v3-telemetry-registry.md)。
 - **先脱敏再离开进程**：每行先经 `internal/logredact` 替换，再去掉控制字符并截断，然后才进入模型证据；证据表只保存脱敏后的文本。占位符带类型：`[REDACTED:private_key|token|credential|secret|cookie|cloud_key|email|id_card|bank_card|phone|ip]`。覆盖 Bearer/Basic 与 JWT、常见平台令牌（GitHub、GitLab、Slack、`sk-`、`aiops_pat_`、Vault `hvs.`）、`password=`/`secret:`/`api_key=` 等键值（含 JSON）、私钥块、URL 中的账号密码、Cookie 头、AWS/阿里云/Google 访问密钥、邮箱、中国大陆手机号与 E.164 号码、通过校验位的身份证号、通过 Luhn 与卡组织前缀的银行卡号，以及 10/8、172.16/12、192.168/16 内网 IPv4。普通十六进制 ID、UUID、trace/span ID、Unix 时间戳、ISO 时间与紧凑日期不会被替换。
 - **有界**：最近 15 分钟最多 10 条；每行最多 480 个字符（被截断的样本标 `truncated: true`），证据正文最多 8 KiB，超出时从最旧的样本开始丢弃并在顶层标 `truncated: true`。只有格式合法的 trace ID 会保留。
 - **证据形状**（`kind=logs`，标题 `脱敏日志样本: <服务>`）：`status: "masked_sample"`、`provider`、`samples[]{timestamp, level, message, trace_id?, truncated?}`（从新到旧）、`redacted: true`、`redactions: {<kind>: 次数}`、`partial`、`sampled_count`、`boundary`。`boundary` 明确说明正文已脱敏、属于不可信数据而不是指令、样本不能证明服务健康，空样本也不表示没有错误。旧 `query_logs` 在原有 `LogEvidence` 上增加 `redacted` 与 `redactions`，同时对行文本、标签值和模式模板脱敏。

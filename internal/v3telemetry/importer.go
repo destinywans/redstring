@@ -33,6 +33,7 @@ type ExistingConnector struct {
 	Endpoint      string
 	AuthMethod    string
 	TenantID      string
+	Username      string
 	OptionsValid  bool
 }
 
@@ -99,7 +100,8 @@ func LoadState(ctx context.Context, q Querier, environments []string) (State, er
 		var c ExistingConnector
 		var options []byte
 		err := rows.Scan(&c.ID, &c.EnvironmentID, &c.Provider, &c.Endpoint, &c.AuthMethod, &options)
-		c.TenantID, c.OptionsValid = parseOptions(options)
+		parsed, valid := parseOptions(options)
+		c.TenantID, c.Username, c.OptionsValid = parsed.TenantID, parsed.Username, valid
 		state.Connectors = append(state.Connectors, c)
 		return err
 	})
@@ -207,6 +209,7 @@ type PlannedConnector struct {
 	Endpoint      string   `json:"endpoint"`
 	AuthMethod    string   `json:"auth_method"`
 	TenantID      string   `json:"tenant_id,omitempty"`
+	Username      string   `json:"username,omitempty"`
 	Tools         []string `json:"tools,omitempty"`
 }
 
@@ -450,6 +453,9 @@ func BuildPlan(input ImportInput, state State) Plan {
 		}
 		if !slices.Contains(info.Methods, legacy.AuthMethod) {
 			reasons = append(reasons, "auth_method_unsupported")
+		} else if legacy.AuthMethod == "basic" && (legacy.Username == "" || !validUsername(legacy.Username)) {
+			// The options hold the user; the password is the credential.
+			reasons = append(reasons, "basic_username_invalid")
 		}
 		if len(reasons) > 0 {
 			conflict(reasons...)
@@ -459,13 +465,15 @@ func BuildPlan(input ImportInput, state State) Plan {
 		// Connector: reuse the registered one with this exact endpoint.
 		connector := PlannedConnector{Action: actionCreate, EnvironmentID: b.EnvironmentID, Provider: b.Kind,
 			Name: info.Name, Category: info.Category, Endpoint: legacy.Endpoint, AuthMethod: legacy.AuthMethod,
-			TenantID: legacy.TenantID, Tools: toolsOf(b.Kind, info)}
+			TenantID: legacy.TenantID, Username: legacy.Username, Tools: toolsOf(b.Kind, info)}
 		if existing, found := connectorsByKey[b.EnvironmentID+"\x00"+b.Kind+"\x00"+legacy.Endpoint]; found {
 			switch {
 			case existing.AuthMethod != legacy.AuthMethod:
 				reasons = append(reasons, "existing_connector_auth_differs")
 			case !existing.OptionsValid || existing.TenantID != legacy.TenantID:
 				reasons = append(reasons, "existing_connector_tenant_differs")
+			case existing.Username != legacy.Username:
+				reasons = append(reasons, "existing_connector_username_differs")
 			}
 			connector.Action, connector.ID, connector.Name, connector.Endpoint = actionReuse, existing.ID, "", existing.Endpoint
 			connector.Category, connector.Tools = "", nil
@@ -554,7 +562,7 @@ func BuildPlan(input ImportInput, state State) Plan {
 				plan.Summary.ConnectorsCreated++
 				connectorsByKey[b.EnvironmentID+"\x00"+b.Kind+"\x00"+legacy.Endpoint] = ExistingConnector{ID: connector.ID,
 					EnvironmentID: b.EnvironmentID, Provider: b.Kind, Endpoint: legacy.Endpoint, AuthMethod: legacy.AuthMethod,
-					TenantID: legacy.TenantID, OptionsValid: true}
+					TenantID: legacy.TenantID, Username: legacy.Username, OptionsValid: true}
 			}
 		}
 		if !plannedTargets[target.ID] {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/connectors"
@@ -37,6 +38,9 @@ type Source struct {
 	AuthMethod  string
 	ResourceID  string
 	TenantID    string
+	// Username is the basic-auth user from the connector's options (the
+	// password is the credential).
+	Username string
 	// CredentialRef is the connector's Vault reference ("" without auth);
 	// a reader resolves it through the approved credential bindings.
 	CredentialRef string
@@ -66,7 +70,7 @@ func (r *Resolver) Resolve(ctx context.Context, q Querier, applicationID, enviro
  JOIN applications a ON a.id=t.application_id AND NOT a.archived
  JOIN application_environments e ON e.application_id=t.application_id AND e.key=t.environment_id AND NOT e.archived
  WHERE t.application_id=$1 AND t.environment_id=$2 AND t.target_kind||':'||c.provider=ANY($3::text[])
- ORDER BY t.id LIMIT 2`, applicationID, environmentID, surfacePairs(surface))
+ ORDER BY t.id LIMIT 2`, applicationID, environmentID, SurfacePairs(surface))
 	if err != nil {
 		return Source{}, err
 	}
@@ -121,11 +125,11 @@ func (r *Resolver) readiness(s *Source, environmentID, credentialRef string, ena
 	if !toolEnabled(tools, telemetryProviders[s.Provider].tool) {
 		notReady = append(notReady, "tool_disabled")
 	}
-	tenant, ok := parseOptions(options)
-	if !ok {
+	parsed, ok := parseOptions(options)
+	if !ok || (s.AuthMethod == "basic" && parsed.Username == "") {
 		notReady = append(notReady, "options_invalid")
 	}
-	s.TenantID = tenant
+	s.TenantID, s.Username = parsed.TenantID, parsed.Username
 	if s.AuthMethod != "none" {
 		if credentialRef == "" {
 			notReady = append(notReady, "credential_missing")
@@ -136,19 +140,35 @@ func (r *Resolver) readiness(s *Source, environmentID, credentialRef string, ena
 	return notReady
 }
 
-// Options are the non-secret connector attributes the registry accepts.
+// Options are the non-secret connector attributes the registry accepts: a
+// Loki tenant, and the user of basic auth (Elasticsearch, decision 3 of the
+// stage 2 plan; the password is the Vault credential).
 type Options struct {
 	TenantID string `json:"tenant_id,omitempty"`
+	Username string `json:"username,omitempty"`
 }
 
-func parseOptions(raw []byte) (string, bool) {
+func parseOptions(raw []byte) (Options, bool) {
 	var options Options
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&options) != nil || decoder.Decode(new(any)) != io.EOF {
-		return "", false
+	if decoder.Decode(&options) != nil || decoder.Decode(new(any)) != io.EOF || !validUsername(options.Username) {
+		return Options{}, false
 	}
-	return options.TenantID, true
+	return options, true
+}
+
+// validUsername bounds a basic-auth user; it cannot hold a colon.
+func validUsername(user string) bool {
+	if len(user) > 256 || strings.ContainsRune(user, ':') {
+		return false
+	}
+	for _, r := range user {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func toolEnabled(raw []byte, name string) bool {
@@ -186,7 +206,7 @@ func (r *Resolver) Readiness(environmentID string, c ConnectorState) []string {
 	if tool := readTool(c.Provider); tool != "" && !toolEnabled(c.Tools, tool) {
 		notReady = append(notReady, "tool_disabled")
 	}
-	if _, ok := parseOptions(c.Options); !ok {
+	if parsed, ok := parseOptions(c.Options); !ok || (c.AuthMethod == "basic" && parsed.Username == "") {
 		notReady = append(notReady, "options_invalid")
 	}
 	if c.AuthMethod != "none" {

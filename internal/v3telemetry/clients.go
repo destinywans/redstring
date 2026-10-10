@@ -76,6 +76,11 @@ func (c *Clients) For(env string, s Source) (*connectors.Telemetry, string, erro
 		}
 	case "bearer", "api_key":
 		endpoint.CredentialKind = s.AuthMethod
+	case "basic":
+		if s.Username == "" {
+			return nil, "", ErrClientUnavailable
+		}
+		endpoint.CredentialKind, endpoint.Username = "basic", s.Username
 	default:
 		return nil, "", ErrClientUnavailable
 	}
@@ -127,10 +132,10 @@ func (c *Clients) For(env string, s Source) (*connectors.Telemetry, string, erro
 func clientDigest(env string, s Source, scope connectors.ApplicationTelemetry, limits connectors.TelemetryConfig) string {
 	limits.Applications = nil
 	raw, _ := json.Marshal(struct {
-		Env, Connector, Provider, Endpoint, Auth, Reference, Tenant, Resource string
-		Scope                                                                 connectors.ApplicationTelemetry
-		Limits                                                                connectors.TelemetryConfig
-	}{env, s.ConnectorID, s.Provider, s.Endpoint, s.AuthMethod, s.CredentialRef, s.TenantID, s.ResourceID, scope, limits})
+		Env, Connector, Provider, Endpoint, Auth, Reference, Tenant, Username, Resource string
+		Scope                                                                           connectors.ApplicationTelemetry
+		Limits                                                                          connectors.TelemetryConfig
+	}{env, s.ConnectorID, s.Provider, s.Endpoint, s.AuthMethod, s.CredentialRef, s.TenantID, s.Username, s.ResourceID, scope, limits})
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }

@@ -114,7 +114,7 @@ func TestParseReaders(t *testing.T) {
 	if readers, err := ParseReaders(" "); err != nil || len(readers) != 0 {
 		t.Fatalf("empty: %v %v", readers, err)
 	}
-	if _, err := ParseReaders("logs"); err == nil {
+	if _, err := ParseReaders("traces"); err == nil {
 		t.Fatal("a reader whose step is not built was accepted")
 	}
 	if _, err := ParseReaders("nonsense"); err == nil {
@@ -123,7 +123,80 @@ func TestParseReaders(t *testing.T) {
 	if readers, err := ParseReaders("coverage"); err != nil || !readers.Unified(ReaderCoverage) || readers.Unified(ReaderLogs) {
 		t.Fatalf("coverage: %v %v", readers, err)
 	}
+	if readers, err := ParseReaders("coverage,mappings,logs"); err != nil || !readers.Unified(ReaderLogs) || readers.Unified(ReaderTraces) {
+		t.Fatalf("through step 3: %v %v", readers, err)
+	}
 	if _, err := ParseReaders("coverage,coverage"); err == nil {
 		t.Fatal("repeated reader accepted")
+	}
+}
+
+type passwordResolver string
+
+func (p passwordResolver) Resolve(context.Context, string) (string, error) { return string(p), nil }
+
+// Stage 2 step 3 (decision 3): an Elasticsearch basic source sends the user
+// from the connector options and the Vault credential as the password. The
+// options must name a valid user, or the source is not ready.
+func TestClientsBasicAuthAndOptions(t *testing.T) {
+	var sent []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user, pass, _ := r.BasicAuth()
+		sent = append(sent, user+"|"+pass)
+		switch r.URL.Path {
+		case "/lab-search-logs/_mapping/field/service.name,service.name.keyword":
+			_, _ = w.Write([]byte(`{"lab-search-logs":{"mappings":{"service.name":{"full_name":"service.name",
+ "mapping":{"name":{"type":"keyword"}}}}}}`))
+		case "/lab-search-logs/_settings/index.mapping.ignore_above":
+			_, _ = w.Write([]byte(`{"lab-search-logs":{"settings":{}}}`))
+		default:
+			_, _ = w.Write([]byte(`{"timed_out":false,"_shards":{"total":1,"successful":1,"skipped":0,"failed":0},
+ "hits":{"total":{"value":0,"relation":"eq"},"hits":[]}}`))
+		}
+	}))
+	defer server.Close()
+	clients := &Clients{Tier: "nonprod", Credentials: passwordResolver("es-password")}
+	source := Source{TargetID: "t", ConnectorID: "es-1", Provider: "elasticsearch", Endpoint: server.URL, AuthMethod: "basic",
+		Username: "reader", ResourceID: "search", CredentialRef: "vault://aiops/lab/elasticsearch#password",
+		Scope: connectors.ApplicationTelemetry{ElasticsearchIndex: "lab-search-logs", ElasticsearchFilters: map[string]string{"service.name": "search"}}}
+	client, resource, err := clients.For("dev", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	window := connectors.TimeWindow{Start: time.Now().Add(-5 * time.Minute), End: time.Now()}
+	if _, err := client.QueryLogsOptions(context.Background(), resource, "elasticsearch", "", "", false, window, 10); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 3 || sent[0] != "reader|es-password" || sent[2] != "reader|es-password" {
+		t.Fatalf("basic auth sent: %v", sent)
+	}
+	// Another user is another client; no user cannot be read.
+	other := source
+	other.Username = "auditor"
+	if again, _, _ := clients.For("dev", other); again == client {
+		t.Fatal("a changed user reused the client")
+	}
+	other.Username = ""
+	if _, _, err := clients.For("dev", other); !errors.Is(err, ErrClientUnavailable) {
+		t.Fatalf("basic without a user: %v", err)
+	}
+
+	resolver := &Resolver{Tier: "nonprod", Approvals: NewApprovals([]v3integrations.CredentialBinding{{Tier: "nonprod", EnvironmentID: "dev",
+		ConnectorID: "es-1", Provider: "elasticsearch", Endpoint: server.URL, CredentialRef: source.CredentialRef}})}
+	tools := []byte(`[{"name":"search_logs","enabled":true}]`)
+	state := ConnectorState{ID: "es-1", Provider: "elasticsearch", Endpoint: server.URL, AuthMethod: "basic",
+		CredentialRef: source.CredentialRef, Enabled: true, Tools: tools}
+	for options, ready := range map[string]bool{
+		`{"username":"reader"}`:                   true,
+		`{}`:                                      false, // basic needs a user
+		`{"username":"re:ader"}`:                  false, // the user cannot hold a colon
+		`{"username":"reader","password":"x"}`:    false, // no secrets in options
+		`{"username":"reader","tenant_id":"lab"}`: true,
+	} {
+		state.Options = []byte(options)
+		notReady := resolver.Readiness("dev", state)
+		if (len(notReady) == 0) != ready || (!ready && notReady[0] != "options_invalid") {
+			t.Errorf("options %s: %v", options, notReady)
+		}
 	}
 }

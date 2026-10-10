@@ -46,7 +46,7 @@ const SAMPLE_YAML = `groups:
 
 /** New alert rule: describe in words → PromQL, live preview, 7-day backtest, routing preview, duplicate check. */
 export default function NewRulePage() {
-  const { tx } = useI18n();
+  const { tx, fmt } = useI18n();
   const nav = useNavigate();
   const [params] = useSearchParams();
   const [tab, setTab] = useState<"editor" | "import" | "yaml">(params.get("tab") === "import" ? "import" : "editor");
@@ -383,7 +383,7 @@ export default function NewRulePage() {
                       <Muted size={11.5}>{tx("按 5 分钟采样会触发的时间段（{n} 个采样点）", "Windows that would fire at 5-minute samples ({n} samples)", { n: b.sampled_count })}</Muted>
                     </Row>
                     {b.sampled_windows.slice(0, 5).map((w) => (
-                      <Muted key={w.start} size={11.5}>{new Date(w.start).toLocaleString()} – {new Date(w.end).toLocaleTimeString()}</Muted>
+                      <Muted key={w.start} size={11.5}>{fmt.dateTime(w.start)} – {fmt.time(w.end)}</Muted>
                     ))}
                     <Muted size={11}>{b.completeness_notice}</Muted>
                   </Col>

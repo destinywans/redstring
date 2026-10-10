@@ -7,10 +7,9 @@ import { Gated } from "../../ui/permission";
 import { Unavailable } from "../../ui/unknown";
 import { useI18n } from "../../i18n";
 import { useRollbackDrawer } from "./RollbackProposal";
-import { PlanTiles, fmtAt, serviceIdOf, useRollbackBlocked, useRolloutText } from "./rollback";
+import { PlanTiles, serviceIdOf, sig, useRollbackBlocked, useRolloutText, useWhen } from "./rollback";
 
 const TERMINAL: RolloutStatus[] = ["succeeded", "failed", "needs_attention"];
-const time = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }) : null);
 
 /**
  * Execution view of a Kubernetes rollback (approved design board §3; docs/api/v3-rollback.md §4): a five-step
@@ -20,6 +19,7 @@ const time = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleTi
 export function RolloutExecutionPage({ id }: { id: string }) {
   const { tx } = useI18n();
   const text = useRolloutText();
+  const { at: fmtAt, clock: time } = useWhen();
   const open = useRollbackDrawer((s) => s.open);
   const blocked = useRollbackBlocked();
   const { data: e } = useGet<RolloutExecutionDetail>(`/executions/${id}`, undefined, {
@@ -83,7 +83,7 @@ export function RolloutExecutionPage({ id }: { id: string }) {
                     {tx("{t} 的采样：错误率 {e}，请求率 {r}/秒。", "Sample at {t}: errors {e}, requests {r}/s.", {
                       t: time(badSample.at) ?? "—",
                       e: badSample.error_ratio === null ? "—" : `${Math.round(badSample.error_ratio * 1000) / 10}%`,
-                      r: badSample.request_rate ?? "—",
+                      r: badSample.request_rate === null ? "—" : sig(badSample.request_rate),
                     })}
                   </>
                 )}
@@ -128,8 +128,8 @@ export function RolloutExecutionPage({ id }: { id: string }) {
                   <ChartCard title={tx("错误率", "Error ratio")} value={lastErr === null ? "—" : `${Math.round(lastErr * 1000) / 10}%`} bad={!!badSample && badSample.error_ratio !== null && badSample.error_ratio > v.plan.max_error_ratio}>
                     <SampleChart values={samples.map((s) => s.error_ratio)} oks={samples.map((s) => s.ok)} slots={slots} threshold={v.plan.max_error_ratio} kind="max" format={(x) => `${Math.round(x * 1000) / 10}%`} start={time(v.started_at)} label={tx("错误率", "Error ratio")} />
                   </ChartCard>
-                  <ChartCard title={tx("请求率", "Request rate")} value={lastRate === null ? "—" : tx("{v}/秒", "{v}/s", { v: lastRate })}>
-                    <SampleChart values={samples.map((s) => s.request_rate)} oks={samples.map((s) => s.ok)} slots={slots} threshold={v.plan.min_request_rate} kind="min" format={(x) => `${Math.round(x * 100) / 100}`} start={time(v.started_at)} label={tx("请求率", "Request rate")} />
+                  <ChartCard title={tx("请求率", "Request rate")} value={lastRate === null ? "—" : tx("{v}/秒", "{v}/s", { v: sig(lastRate) })}>
+                    <SampleChart values={samples.map((s) => s.request_rate)} oks={samples.map((s) => s.ok)} slots={slots} threshold={v.plan.min_request_rate} kind="min" format={sig} start={time(v.started_at)} label={tx("请求率", "Request rate")} />
                   </ChartCard>
                 </div>
                 <Muted size={11.5}>
@@ -198,6 +198,7 @@ export function RolloutExecutionPage({ id }: { id: string }) {
 /** Five steps: claim (reserved) → write (dispatching/unknown/applied) → roll out → verify → result. */
 function Timeline({ e }: { e: RolloutExecutionDetail }) {
   const { tx } = useI18n();
+  const time = useWhen().clock;
   const at = (states: string[]) => time(e.timeline.filter((t) => states.includes(t.state)).at(-1)?.at);
   const order: RolloutStatus[] = ["reserved", "dispatching", "unknown", "applied", "rolling_out", "verifying"];
   const stepOf = (s: RolloutStatus) => (s === "reserved" ? 0 : s === "dispatching" || s === "unknown" || s === "applied" ? 1 : s === "rolling_out" ? 2 : s === "verifying" ? 3 : 4);

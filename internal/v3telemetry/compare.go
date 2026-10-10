@@ -91,6 +91,11 @@ const (
 	// no legacy binding for: a mapping edit wrote only the registry (stage 2
 	// step 6). A legacy reader would read nothing there.
 	StateRegistryOnly = "registry_only"
+	// StateRegistryNative is a workload target on an instance without a
+	// legacy Kubernetes registration: no legacy reader exists for that plane
+	// (rollback reads the registry only), so rolling a reader back does not
+	// change what is read. Listed, not a difference.
+	StateRegistryNative = "registry_native"
 )
 
 // Result is one comparison of a legacy binding with the registry.
@@ -257,8 +262,10 @@ func compareWorkload(legacy LegacyWorkload, registered bool, unified Workload, e
 // telemetry or workload target whose service has no legacy binding of that
 // data plane. Together with CompareAll and CompareWorkloads, a report
 // without differences means the legacy readers would read what the
-// registry reads.
-func (r *CompareReport) CompareRegistryOnly(state State) {
+// registry reads. legacyWorkloads says whether the instance has a legacy
+// Kubernetes registration; without one, workload targets are
+// registry_native.
+func (r *CompareReport) CompareRegistryOnly(state State, legacyWorkloads bool) {
 	bound := map[string]bool{}
 	for _, b := range state.Bindings {
 		plane := WorkloadTargetKind
@@ -283,8 +290,12 @@ func (r *CompareReport) CompareRegistryOnly(state State) {
 		if bound[t.ApplicationID+"\x00"+t.EnvironmentID+"\x00"+plane] {
 			continue
 		}
+		state := StateRegistryOnly
+		if plane == WorkloadTargetKind && !legacyWorkloads {
+			state = StateRegistryNative
+		}
 		item := CompareItem{ApplicationID: t.ApplicationID, EnvironmentID: t.EnvironmentID, Surface: plane,
-			Result: Result{State: StateRegistryOnly, Reasons: []string{"target:" + t.Provider}}}
+			Result: Result{State: state, Reasons: []string{"target:" + t.Provider}}}
 		r.Items = append(r.Items, item)
 		r.Counts[item.State]++
 		r.Checked++

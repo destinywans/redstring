@@ -105,7 +105,11 @@ func runConnectorsCommand(ctx context.Context, args []string, stdout, stderr io.
 		resolver := &v3telemetry.Resolver{Tier: input.Tier, Catalog: input.Catalog, Approvals: input.Approvals}
 		report := v3telemetry.CompareAll(ctx, tx, resolver, input.Telemetry, state)
 		report.CompareWorkloads(ctx, tx, resolver, input.Workloads, state)
-		report.CompareRegistryOnly(state)
+		legacyWorkloads := false
+		for _, workload := range input.Workloads {
+			legacyWorkloads = legacyWorkloads || !workload.Demo
+		}
+		report.CompareRegistryOnly(state, legacyWorkloads)
 		report.Summarize()
 		fmt.Fprintf(stderr, "compared %d bindings and targets: %v; %d services differ\n", report.Checked, report.Counts, report.DivergedServices)
 		if code := writeResult(report, *out, stdout, stderr); code != 0 {

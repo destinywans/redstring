@@ -124,10 +124,25 @@ func TestCompareRegistryOnly(t *testing.T) {
 		},
 	}
 	report := CompareReport{Counts: map[string]int{}}
-	report.CompareRegistryOnly(state)
+	report.CompareRegistryOnly(state, true)
 	report.Summarize()
 	if report.Counts[StateRegistryOnly] != 2 || report.Differences() != 2 || report.DivergedServices != 2 ||
 		report.Items[0].Surface != "traces" || report.Items[1].Surface != "metrics" || report.Items[1].Reasons[0] != "target:prometheus" {
 		t.Fatalf("registry only: %+v", report)
+	}
+	// A workload target with no legacy Kubernetes registration on the
+	// instance has no legacy reader: listed, not a difference.
+	state.Bindings = state.Bindings[:1]
+	report = CompareReport{Counts: map[string]int{}}
+	report.CompareRegistryOnly(state, false)
+	report.Summarize()
+	if report.Counts[StateRegistryOnly] != 2 || report.Counts[StateRegistryNative] != 1 || report.Differences() != 2 ||
+		report.DivergedServices != 2 {
+		t.Fatalf("without a legacy Kubernetes registration: %+v", report)
+	}
+	report = CompareReport{Counts: map[string]int{}}
+	report.CompareRegistryOnly(state, true)
+	if report.Counts[StateRegistryOnly] != 3 || report.Counts[StateRegistryNative] != 0 {
+		t.Fatalf("with one, a workload without its binding differs: %+v", report)
 	}
 }

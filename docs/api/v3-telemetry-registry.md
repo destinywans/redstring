@@ -102,6 +102,7 @@ aiops connectors compare -out report.json
 | `missing` / `ambiguous` | 登记里这一数据面没有目标 / 有多条 |
 | `legacy_unregistered` | 旧绑定本身在遥测文件中无效（旧读取方也读不到），不算差异 |
 | `registry_only` | 统一登记里有这类目标，服务的旧绑定里没有（第 6 步之后映射编辑只写了目标），算差异 |
+| `registry_native` | 实例没有旧 Kubernetes 登记（`AIOPS_KUBERNETES_REGISTRY` 未设或只有演示项）时的工作负载目标：这类数据面没有旧读取方，回滚执行器只读统一登记，回退读取方不改变读到的内容；列出但不算差异 |
 | `unavailable` | 比较时数据库不可用 |
 
 Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `dashboard`）不算差异。
@@ -159,7 +160,7 @@ Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `d
   - 已存的遥测和工作负载旧绑定不再更新，这就是回退时的数据差异。
 - **审计**：每个目标一条 `v3.connector.target_bound` 或 `v3.connector.target_unbound`（字段与集成中心的相同，另有 `source: service_mapping`），整次保存一条 `v3.service_mapping.saved`，带 `source: registry`、前后版本号、前后绑定和逐类的目标变化（`bound`、`unbound`、`rebound`）。原样回传的快照不写审计、版本号不变。
 - **候选接受**不变：仍写旧绑定里的 `gitlab` 绑定，候选的修订号仍是旧绑定的 `binding_revision`；接受后目标版本号跟着变化，打开着的编辑器会收到 409。
-- **回退前的检查**：`aiops connectors compare` 新增反向检查。统一登记里有遥测或工作负载目标、而该服务在旧绑定里没有这类数据面的，记为 `registry_only`；连同已有的 `differs`、`missing` 一起算差异（退出码 3）。输出的 `diverged_services` 是有差异的服务环境数，标准错误也会打印。为 0 表示回退后旧读取方读到的与现在相同；不为 0 时，回退后这些服务会读旧来源或读不到，直到重新切回。建议部署第 6 步后、第一次编辑之前先跑一次作为基线。
+- **回退前的检查**：`aiops connectors compare` 新增反向检查。统一登记里有遥测或工作负载目标、而该服务在旧绑定里没有这类数据面的，记为 `registry_only`；连同已有的 `differs`、`missing` 一起算差异（退出码 3）。输出的 `diverged_services` 是有差异的服务环境数，标准错误也会打印（`registry_native` 不计入）。为 0 表示回退后旧读取方读到的与现在相同；不为 0 时，回退后这些服务会读旧来源或读不到，直到重新切回。建议部署第 6 步后、第一次编辑之前先跑一次作为基线。
 
 ### Elasticsearch basic 认证（设计稿第 10.9 节决定 3）
 

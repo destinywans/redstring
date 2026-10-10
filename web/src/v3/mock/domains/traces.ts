@@ -1,5 +1,5 @@
 /** Traces v2: application traces (Tempo/Jaeger style) and agent traces (Langfuse/Phoenix style). */
-import { mock } from "../router";
+import { mock, MockError } from "../router";
 
 /** The sample spans are written in seconds; the contract reports milliseconds. */
 const traceInMs = <T extends { total: number; spans: { start: number; dur: number }[] }>(t: T): T => ({ ...t, total: t.total * 1000, spans: t.spans.map((x) => ({ ...x, start: Math.round(x.start * 1000), dur: Math.round(x.dur * 1000) })) });
@@ -30,6 +30,49 @@ const AGENT_ROWS = [
   { id: "run_7d18", time: "12:10:44", op: P("报告撰写 · INC-1039", "Report · INC-1039"), agent: P("报告撰写 v4", "Reporter v4"), model: "Claude Opus 5.5 · 中", services: ["get_incident", "search_runbooks"], duration_ms: 26500, spans: 6, errors: 0, tokens: "7.4k", cost: "¥0.46" },
 ];
 
+const APP_VIEWS = [{ id: "all", label: P("全部", "All"), query: "{ }" }, { id: "errors", label: P("错误", "Errors"), count: 214, query: '{ resource.service.name = "checkout-api" && status = error && duration > 1s }' }, { id: "slow", label: P("慢请求 > 1 s", "Slow > 1 s"), query: "{ duration > 1s }" }, { id: "release", label: P("发布后 v2.8.1", "After v2.8.1"), query: '{ resource.service.version = "v2.8.1" }' }];
+
+// PA-78 demo states (example data). An unnarrowed query (view "All", no service, no condition) goes newest-first and
+// stops at the search budget — 40 traces — so only the most recent minutes of the range are covered; one service is
+// quieter, so the same budget reaches further back. api-gateway sees every request: even one second of it is too
+// dense to list, whatever the range (413).
+const RANGE_MIN: Record<string, number> = { "15m": 15, "30m": 30, "1h": 60, "6h": 360, "24h": 1440, "7d": 10080, "30d": 43200 };
+const OPS = ["GET /api/cart", "POST /api/orders", "GET /api/products/{id}", "GET /api/orders/{id}", "POST /api/coupons/apply", "GET /api/search"];
+const PATHS = [["api-gateway", "checkout-api", "session-cache"], SHORT, ["api-gateway", "search-api"], FULL, ["api-gateway", "checkout-api"], ["api-gateway", "search-api", "session-cache"]];
+const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+const clock = (t: number) => {
+  const d = new Date(t);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+};
+function recentList(service: string | undefined, range: string) {
+  let seed = service ? 11 : 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const rangeMin = RANGE_MIN[range] ?? 60;
+  const coverMin = service ? 26 : 8;
+  const partial = coverMin < rangeMin;
+  const winMs = Math.min(coverMin, rangeMin) * 60_000;
+  const now = Date.now();
+  const start = now - winMs;
+  const items = Array.from({ length: 40 }, (_, i) => {
+    const t = now - ((i + 0.3 + rnd() * 0.5) * winMs) / 40;
+    const k = Math.floor(rnd() * OPS.length);
+    const errors = rnd() < 0.08 ? 1 + Math.floor(rnd() * 3) : 0;
+    const duration_ms = Math.round(errors ? 700 + rnd() * 900 : 20 + rnd() * (k === 1 ? 600 : 180));
+    const id = Math.floor(rnd() * 0xffffffff).toString(16).padStart(8, "0");
+    return { id, t, time: clock(t), op: OPS[k], services: service ? [service, ...PATHS[k].filter((x) => x !== service)].slice(0, 3) : PATHS[k], duration_ms, spans: PATHS[k].length * 2 + Math.floor(rnd() * 4), errors, href: `/traces/${id}` };
+  });
+  const counts: [number, number][] = Array.from({ length: 24 }, () => (service ? [3 + Math.floor(rnd() * 4), rnd() < 0.15 ? 1 : 0] : [10 + Math.floor(rnd() * 6), rnd() < 0.2 ? 1 : 0]));
+  return {
+    scope: "app", total: counts.reduce((a, [ok, er]) => a + ok + er, 0), took: "0.42 s",
+    colors: { ...COLORS, "search-api": "var(--c7)", ...(service && !(service in COLORS) ? { [service]: "var(--c7)" } : {}) },
+    unavailable: {}, facets: null, views: APP_VIEWS,
+    histogram: { counts, axis: [clock(start).slice(0, 5), clock(now).slice(0, 5)] },
+    scatter: items.map((r) => ({ x: Math.round((440 * (r.t - start)) / winMs), y: Math.round(r.errors ? 12 + rnd() * 30 : 100 - Math.min(60, r.duration_ms / 12)), error: r.errors > 0, id: r.id })),
+    items: items.map(({ t: _t, ...r }) => r),
+    ...(partial ? { partial: true, partial_reason: "search_budget", window_start_at: new Date(start).toISOString() } : {}),
+  };
+}
+
 mock("GET", "/traces", ({ query }) => {
   const scope = query.scope === "agent" ? "agent" : "app";
   if (scope === "agent") {
@@ -48,13 +91,18 @@ mock("GET", "/traces", ({ query }) => {
       items: AGENT_ROWS.map((r) => ({ ...r, href: `/agents/runs/${r.id}` })),
     };
   }
+  const q = String(query.q ?? "");
+  const broad = query.view === "all" && !/status\s*=\s*error|duration\s*[<>]|resource\.service\.name|\bname\s*=/.test(q);
+  const service = typeof query.service === "string" && query.service ? query.service : undefined;
+  if (broad && service === "api-gateway") throw new MockError(413, "trace_scope_limit", "Trace population exceeds the bounded search limit");
+  if (broad) return recentList(service, String(query.range ?? "1h"));
   const counts: [number, number][] = [[30, 0], [32, 0], [31, 0], [33, 1], [30, 0], [34, 0], [32, 0], [35, 0], [31, 0], [33, 0], [36, 0], [34, 0], [33, 0], [35, 0], [34, 0], [36, 0], [22, 14], [18, 20], [16, 23], [17, 22], [18, 21], [19, 19], [21, 16], [30, 6], [33, 2], [35, 1], [34, 0], [36, 0], [35, 0], [37, 0]];
   const scatter = Array.from({ length: 70 }, (_, i) => {
     const x = 10 + ((i * 37) % 430);
     const error = x > 235 && x < 330 && i % 3 !== 0;
     return { x, y: error ? 18 + ((i * 53) % 40) : 70 + ((i * 29) % 36), error, id: error && i % 5 === 1 ? "4f2a9c17" : undefined };
   });
-  const errorsOnly = query.view !== "all";
+  const errorsOnly = query.view !== "all" || /status\s*=\s*error/.test(q);
   return {
     scope, total: errorsOnly ? 214 : 4813, took: "0.42 s", colors: COLORS, unavailable: {},
     facets: [
@@ -63,7 +111,7 @@ mock("GET", "/traces", ({ query }) => {
       { key: "op", label: P("接口", "Endpoint"), items: [{ value: "POST /api/orders", count: 902 }, { value: "GET /api/cart", count: 1140 }, { value: "POST /api/coupons/apply", count: 221 }] },
       { key: "version", label: P("版本", "Version"), items: [{ value: "v2.8.1", count: 214 }, { value: "v2.8.0", count: 0 }] },
     ],
-    views: [{ id: "all", label: P("全部", "All"), query: "{ }" }, { id: "errors", label: P("错误", "Errors"), count: 214, query: '{ resource.service.name = "checkout-api" && status = error && duration > 1s }' }, { id: "slow", label: P("慢请求 > 1 s", "Slow > 1 s"), query: "{ duration > 1s }" }, { id: "release", label: P("发布后 v2.8.1", "After v2.8.1"), query: '{ resource.service.version = "v2.8.1" }' }],
+    views: APP_VIEWS,
     histogram: { counts, axis: ["13:35", P("14:03 发布", "14:03 release"), "14:35"] },
     scatter,
     items: APP_ROWS.filter((r) => !errorsOnly || r.errors).map((r) => ({ ...r, href: `/traces/${r.id}` })),

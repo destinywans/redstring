@@ -69507,6 +69507,26 @@
             "items": {
               "type": "string"
             }
+          },
+          "writebacks": {
+            "type": "object",
+            "properties": {
+              "received": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "received",
+              "sources"
+            ]
           }
         },
         "additionalProperties": false,
@@ -69522,7 +69542,8 @@
           "collapsed",
           "layout_version",
           "context",
-          "versions"
+          "versions",
+          "writebacks"
         ]
       },
       "V3InvestigationEvidenceTrayItem": {

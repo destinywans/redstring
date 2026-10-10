@@ -3,6 +3,7 @@ package v3canvas
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -242,6 +243,28 @@ func TestInvestigationWritebackRegisteredRoutes(t *testing.T) {
 	}
 	if audits != 3 || events != 3 {
 		t.Fatalf("writeback missing atomic audit/events: audits=%d events=%d", audits, events)
+	}
+	// The canvas shows how many writebacks each node received and from where.
+	canvas := request(http.MethodGet, viewerToken, "/api/v1/investigations/INV-wb/canvas", "")
+	assertStatus(canvas, 200)
+	var graph struct {
+		Nodes []struct {
+			ID         string `json:"id"`
+			Writebacks struct {
+				Received int      `json:"received"`
+				Sources  []string `json:"sources"`
+			} `json:"writebacks"`
+		} `json:"nodes"`
+	}
+	if err = json.Unmarshal(canvas.Body.Bytes(), &graph); err != nil {
+		t.Fatal(err)
+	}
+	received := map[string]string{}
+	for _, node := range graph.Nodes {
+		received[node.ID] = fmt.Sprintf("%d:%s", node.Writebacks.Received, strings.Join(node.Writebacks.Sources, ","))
+	}
+	if received["wb-root"] != "2:wb-grand" || received["wb-child"] != "1:wb-grand" || received["wb-grand"] != "0:" {
+		t.Fatalf("canvas writeback counts: %v", received)
 	}
 	if err = db.QueryRow(ctx, `SELECT revision FROM branches WHERE id='wb-grand'`).Scan(&revision); err != nil || revision != 1 {
 		t.Fatalf("source changed: revision=%d err=%v", revision, err)

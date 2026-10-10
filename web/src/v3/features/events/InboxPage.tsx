@@ -12,11 +12,13 @@ import { useI18n } from "../../i18n";
 import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./events.css";
 import { openExternal, copyText } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 const KIND_ICON: Record<InboxItem["kind"], IconName> = { alert: "alert", approval: "shield", mention: "message", runbook: "book", report: "file", access: "user", agent: "cpu" };
 
 export function AlertDetailView({ id }: { id: string }) {
   const { tx } = useI18n();
+  const when = useWhen();
   const curEnv = useCurrentEnv();
   const nav = useNavigate();
   const { data: a, refetch } = useGet<AlertDetail>(`/alerts/${id}`);
@@ -80,7 +82,7 @@ export function AlertDetailView({ id }: { id: string }) {
         />
       </Row>
       <Muted>
-        {a.source ?? <UnknownValue reason="not_generated" label={tx("来源 —", "source —")} />} · {curEnv?.label ?? "—"} · {a.since} · {a.rule ? tx("规则「{r}」", "Rule “{r}”", { r: a.rule }) : <UnknownValue reason="not_generated" label={tx("规则 —", "rule —")} />}
+        {a.source ?? <UnknownValue reason="not_generated" label={tx("来源 —", "source —")} />} · {curEnv?.label ?? "—"} · {when.short(a.since)} · {a.rule ? tx("规则「{r}」", "Rule “{r}”", { r: a.rule }) : <UnknownValue reason="not_generated" label={tx("规则 —", "rule —")} />}
       </Muted>
       {!!a.unavailable?.length && <PartialBanner fields={[...new Set(a.unavailable.map((f) => ({ source: tx("来源", "source"), rule: tx("规则", "rule"), triage: tx("AI 初查", "AI triage"), series: tx("告警值曲线", "value chart"), labels: tx("标签", "labels"), runbook: "Runbook" })[f.split(".")[0]] ?? tx("分组与关联", "grouping")))]} />}
       {a.triage && (
@@ -155,7 +157,7 @@ export function AlertDetailView({ id }: { id: string }) {
               return (
                 <li key={n.id ?? n.time ?? i}>
                   <span className="tnum muted" style={{ width: 60, flex: "none" }}>
-                    {n.time ?? (n.created_at ? new Date(n.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "")}
+                    {n.time ?? when.short(n.created_at) ?? ""}
                   </span>
                   {n.channel === "feishu" ? <Brand name="feishu" size={20} /> : <Icon name={n.channel === "sms" ? "message" : "rotate"} size={15} color="var(--muted)" />}
                   <span className="grow">{n.text ?? `${n.channel} · ${statusText}${n.attempts && n.attempts > 1 ? tx(" · 第 {n} 次", " · attempt {n}", { n: n.attempts }) : ""}`}</span>

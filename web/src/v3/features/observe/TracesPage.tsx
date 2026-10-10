@@ -11,6 +11,7 @@ import "./trace.css";
 import { ChipSelect, RangeChip, openForm, usePickLists } from "../../ui/demo";
 import { toast } from "../../ui/overlays";
 import { BudgetNotice, DenseCard, coveredWindow, isScopeLimit, useAxisNote, useWindowText, withErrors } from "./TraceLimit";
+import { useWhen } from "../../ui/when";
 
 export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`);
 
@@ -31,6 +32,7 @@ export function ScopeSwitch({ scope, onChange }: { scope: "app" | "agent"; onCha
 /** Traces v2 — facets, TraceQL, saved views, count histogram, duration scatter and a table. One explorer for application and agent traces. */
 export default function TracesPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const scope = params.get("scope") === "agent" ? "agent" : "app";
@@ -362,7 +364,7 @@ export default function TracesPage() {
               <tbody>
                 {data?.items?.map((r) => (
                   <tr key={r.id} className="clickable" onClick={() => nav(r.href)}>
-                    <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{r.time}</td>
+                    <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{when.precise(r.time)}</td>
                     <td>
                       <span className="v3-col" style={{ gap: 0 }}>
                         <span className={cx(scope === "app" && "mono")} style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{r.op}</span>

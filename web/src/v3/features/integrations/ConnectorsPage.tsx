@@ -10,11 +10,13 @@ import { useEnv } from "../../app/environment";
 import type { LowerSource } from "../../api/types";
 import "./integrations.css";
 import { openForm, confirmAction } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 export const STATUS_TONE: Record<ConnectorStatus, Tone> = { ok: "ok", unverified: "warn", error: "danger" };
 
 export default function ConnectorsPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const [cat, setCat] = useState("all");
   const [q, setQ] = useState("");
@@ -68,7 +70,7 @@ export default function ConnectorsPage() {
                       </Badge>
                     ))}
                   </span>
-                  <span className="meta" style={{ color: c.status === "ok" ? undefined : `var(--${STATUS_TONE[c.status]})` }}>{c.meta}</span>
+                  <span className="meta" style={{ color: c.status === "ok" ? undefined : `var(--${STATUS_TONE[c.status]})` }}>{when.text(c.meta)}</span>
                 </button>
               ))}
               {data && (
@@ -89,6 +91,7 @@ export default function ConnectorsPage() {
 
 function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
   const { tx } = useI18n();
+  const when = useWhen();
   const { data: c } = useGet<ConnectorDetail>(`/connectors/${id}`);
   const test = useSend<void, { ok: boolean; latency_ms: number }>("POST", `/connectors/${id}/test`);
   const [off, setOff] = useState<Set<string>>(new Set());
@@ -126,7 +129,7 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
                   </Row>
                 </KV>
                 <KV k={tx("检查", "Checked")} kw={52}>
-                  {c.checked}
+                  {when.at(c.checked)}
                 </KV>
               </Col>
             </Section>

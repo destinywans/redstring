@@ -10,11 +10,12 @@ import { useI18n } from "../../i18n";
 import "./agents.css";
 import { ChipSelect, useFacet, downloadFile, openForm } from "../../ui/demo";
 import { Unavailable } from "../../ui/unknown";
+import { useWhen } from "../../ui/when";
 
-const localTime = (t: string) => (/^\d{4}-\d{2}-\d{2}T/.test(t) ? new Date(t).toLocaleString() : t);
 
 export default function GuardrailsPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const [filter, setFilter] = useState<"all" | "blocked" | "masked">("all");
   const [q, setQ] = useState("");
   const { data, refetch } = useGet<GuardrailsView>("/guardrails", { filter });
@@ -28,7 +29,7 @@ export default function GuardrailsPage() {
   // Real detail only describes the newest event; any selected event shows what its row recorded.
   const sel = selPick || (demo ? "" : data?.events[0]?.id ?? "");
   const selEvent = data?.events.find((e) => e.id === sel);
-  const d = demo ? data?.detail : selEvent && { id: selEvent.id, title: `${act(selEvent.action)[0]} · ${selEvent.target_kind ?? selEvent.rule}`, meta: `${selEvent.agent} · ${localTime(selEvent.time)}`, source: null, snippet: null, masked: null, verdict: null, run: selEvent.run };
+  const d = demo ? data?.detail : selEvent && { id: selEvent.id, title: `${act(selEvent.action)[0]} · ${selEvent.target_kind ?? selEvent.rule}`, meta: `${selEvent.agent} · ${when.stamp(selEvent.time)}`, source: null, snippet: null, masked: null, verdict: null, run: selEvent.run };
   const trendLabels = !demo && data?.trend_days?.length ? data.trend_days.map((x) => `${Number(x.slice(5, 7))}/${Number(x.slice(8, 10))}`) : ["9/17", "9/18", "9/19", "9/20", "9/21", "9/22", tx("今天", "Today")];
   const toggle = (id: string, name: string, v: boolean) => {
     const done = v ? tx("已开启「{p}」", "“{p}” enabled", { p: name }) : tx("已关闭「{p}」，此操作已写入审计", "“{p}” disabled — recorded in the audit log", { p: name });
@@ -177,7 +178,7 @@ export default function GuardrailsPage() {
                 selected={sel}
                 onRowClick={(e) => setSel(e.id)}
                 columns={[
-                  { key: "time", header: tx("时间", "Time"), render: (e) => <Muted>{localTime(e.time)}</Muted> },
+                  { key: "time", header: tx("时间", "Time"), render: (e) => <Muted>{when.stamp(e.time)}</Muted> },
                   {
                     key: "agent",
                     header: tx("Agent · 运行", "Agent · run"),

@@ -13,12 +13,14 @@ import { ScopeSwitch, fmtMs } from "./TracesPage";
 import { DetailPanel, usePinned } from "../../ui/DetailPanel";
 import "./trace.css";
 import { openExternal } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 type View = "wf" | "flame" | "graph";
 
 /** Application trace detail: waterfall / flame / service graph, critical path, span attributes, events, logs and links. */
 export default function TraceDetailPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const { id = "4f2a9c17" } = useParams();
   const { data: t } = useGet<TraceView>(`/traces/${id}`);
@@ -76,12 +78,12 @@ export default function TraceDetailPage() {
                     ) : (
                       <Muted>{tx("这个 Span 没有额外属性", "No extra attributes on this span")}</Muted>
                     ))}
-                  {tab === "events" && (span.events?.length ? span.events.map((e) => <Code key={e.at}>{`${e.at}  ${e.name}\n${e.text}`}</Code>) : <Muted>{tx("没有事件", "No events")}</Muted>)}
+                  {tab === "events" && (span.events?.length ? span.events.map((e) => <Code key={e.at}>{`${when.precise(e.at)}  ${e.name}\n${e.text}`}</Code>) : <Muted>{tx("没有事件", "No events")}</Muted>)}
                   {tab === "logs" &&
                     (span.logs?.length ? (
                       span.logs.map((l) => (
                         <div key={l.time + l.message} className="td-log">
-                          <span className="muted">{l.time.slice(-12)}</span>
+                          <span className="muted">{when.precise(l.time)}</span>
                           <span style={{ color: l.level === "ERROR" ? "var(--danger)" : l.level === "WARN" ? "var(--warn)" : "var(--muted)" }}>{l.level}</span>
                           <span>{l.message}</span>
                         </div>
@@ -149,7 +151,7 @@ export default function TraceDetailPage() {
                 </Row>
               ))}
               <Spacer />
-              <Muted size={11.5}>{tx("开始 {t}", "Started {t}", { t: t.time })}</Muted>
+              <Muted size={11.5}>{tx("开始 {t}", "Started {t}", { t: when.precise(t.time) })}</Muted>
             </Row>
           </div>
           <div className="td-body">

@@ -9,11 +9,13 @@ import { StackedBars, Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./observe.css";
 import { RangeChip, openExternal, ChipSelect, useRanges, usePickLists } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 const LV = { ERROR: "danger", WARN: "warn", INFO: "neutral" } as const;
 
 export default function LogsPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const service = params.get("service") ?? undefined;
@@ -146,7 +148,7 @@ export default function LogsPage() {
                 <tbody>
                   {rows.map((r, i) => (
                     <tr key={r.time + i} className={cx(i < extra.length && live && "anim-rise")} style={{ height: 34 }}>
-                      <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{r.time}</td>
+                      <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{when.precise(r.time)}</td>
                       <td>
                         <Badge tone={LV[r.level]} mono>
                           {r.level}

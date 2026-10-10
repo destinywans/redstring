@@ -11,9 +11,11 @@ import { Gate } from "../../ui/permission";
 import { PageHead } from "../conversation/ConversationsPage";
 import { ChipSelect, useFacet } from "../../ui/demo";
 import { Unavailable, UnknownValue } from "../../ui/unknown";
+import { useWhen } from "../../ui/when";
 
 export default function PostmortemsPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const [tab, setTab] = useState<"all" | "draft" | "published">("all");
   const [q, setQ] = useState("");
@@ -45,7 +47,7 @@ export default function PostmortemsPage() {
               columns={[
                 { key: "t", header: tx("标题", "Title"), width: "34%", render: (r) => <Row gap={10}><Icon name="file" size={15} color="var(--muted)" /><span className="ellipsis" style={{ fontWeight: 500 }}>{r.title}</span></Row> },
                 { key: "s", header: tx("等级", "Sev"), render: (r) => (r.severity ? <Sev p={r.severity} /> : <UnknownValue />) },
-                { key: "d", header: tx("日期", "Date"), render: (r) => <Muted>{r.date}</Muted> },
+                { key: "d", header: tx("日期", "Date"), render: (r) => <Muted>{when.date(r.date)}</Muted> },
                 { key: "du", header: tx("持续", "Duration"), render: (r) => (r.duration ? <Muted>{r.duration}</Muted> : <UnknownValue />) },
                 { key: "c", header: tx("根因类别", "Cause"), render: (r) => <Badge>{r.cause}</Badge> },
                 { key: "a", header: tx("改进项", "Actions"), render: (r) => <Num>{r.actions}</Num> },

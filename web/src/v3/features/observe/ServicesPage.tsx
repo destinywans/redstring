@@ -11,6 +11,7 @@ import { PageHead } from "../conversation/ConversationsPage";
 import "./observe.css";
 import { LoadError, PartialBanner, UnknownValue, anyReason, unknownLabels } from "../../ui/unknown";
 import { ChipSelect } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 /** Header + tab strip shared by the service detail views. */
 export function ServiceHeader({ s }: { s: ServiceDetail }) {
@@ -71,6 +72,7 @@ export function ServiceHeader({ s }: { s: ServiceDetail }) {
 
 export default function ServicesPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
@@ -191,7 +193,7 @@ export default function ServicesPage() {
                           {s.slo.budget_left !== null && <Bar pct={s.slo.budget_left} tone={s.slo.budget_left < 50 ? "warn" : "ok"} width={110} height={5} />}
                         </Col>
                       ) },
-                  { key: "r", header: tx("最近发布", "Last release"), render: (s) => (s.release ? <Row gap={6}><Brand name={s.release.brand} size={18} /><Col gap={0}><Mono color="var(--text)" size={11.5}>{s.release.version}</Mono><Muted size={11}>{s.release.when}</Muted></Col></Row> : <UnknownValue reason={s.unavailable.release} />) },
+                  { key: "r", header: tx("最近发布", "Last release"), render: (s) => (s.release ? <Row gap={6}><Brand name={s.release.brand} size={18} /><Col gap={0}><Mono color="var(--text)" size={11.5}>{s.release.version}</Mono><Muted size={11}>{when.at(s.release.when)}</Muted></Col></Row> : <UnknownValue reason={s.unavailable.release} />) },
                   { key: "a", header: tx("告警", "Alerts"), sort: (a, b) => (a.alerts ?? -1) - (b.alerts ?? -1), render: (s) => (s.alerts === null ? <UnknownValue reason={s.unavailable.alerts} source={tx("告警来源", "alert source")} /> : <Num color={s.alerts ? "var(--danger)" : "var(--muted)"}>{s.alerts}</Num>) },
                   { key: "c", header: tx("已接入", "Connected"), render: (s) => (s.connectors === null ? <UnknownValue reason={s.unavailable.connectors} /> : s.connectors.length ? <Row gap={3}>{s.connectors.map((b) => <Brand key={b} name={b} size={20} />)}</Row> : <Muted>{tx("无", "None")}</Muted>) },
                 ]}

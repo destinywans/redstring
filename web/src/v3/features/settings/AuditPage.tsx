@@ -11,9 +11,11 @@ import { useI18n } from "../../i18n";
 import { UnknownValue } from "../../ui/unknown";
 import "./settings.css";
 import { ChipSelect, useFacet, RangeChip } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 export default function AuditPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const [filter, setFilter] = useState<"all" | "user" | "agent" | "system">("all");
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<string | null>(null);
@@ -75,7 +77,7 @@ export default function AuditPage() {
                 selected={sel}
                 onRowClick={(a) => setSel(a.id)}
                 columns={[
-                  { key: "time", header: tx("时间", "Time"), render: (a) => <Mono color="var(--muted)" size={11.5}>{a.time}</Mono> },
+                  { key: "time", header: tx("时间", "Time"), render: (a) => <Mono color="var(--muted)" size={11.5}>{when.stamp(a.time)}</Mono> },
                   {
                     key: "actor",
                     header: tx("操作者", "Actor"),
@@ -109,7 +111,7 @@ export default function AuditPage() {
                   {d.actor_kind === "agent" ? <AiAvatar size={30} /> : d.actor_kind === "system" ? <Tile icon="cpu" size={30} /> : <Avatar name={d.actor_name} size={30} accent />}
                   <Col gap={0} grow>
                     <Strong size={14}>{d.title}</Strong>
-                    <Muted size={11.5}>{d.time}</Muted>
+                    <Muted size={11.5}>{when.stamp(d.time)}</Muted>
                   </Col>
                   <IconBtn icon="x" label={tx("关闭", "Close")} onClick={() => setSel(null)} />
                 </Row>

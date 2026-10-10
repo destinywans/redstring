@@ -201,6 +201,7 @@ function RealExecutionPage() {
 function SampleExecutionPage() {
   const { id = "EXE-51" } = useParams();
   const { tx } = useI18n();
+  const when = useWhen();
   const { data: e } = useGet<Execution>(`/executions/${id}`);
   const [editing, setEditing] = useState(false);
   const [published, setPublished] = useState(false);
@@ -238,7 +239,7 @@ function SampleExecutionPage() {
               {e.steps.map((s, i) => (
                 <li key={s.time} style={{ animationDelay: `${i * 80}ms` }}>
                   <span className="tnum muted" style={{ width: 58, flex: "none", fontSize: "var(--fs-sub)", paddingTop: 2 }}>
-                    {s.time}
+                    {when.clock(s.time)}
                   </span>
                   <span className="rail">
                     <Tile icon={s.icon as IconName} tone={s.tone} size={22} />
@@ -299,7 +300,7 @@ function SampleExecutionPage() {
               {editing ? tx("完成", "Done") : tx("编辑", "Edit")}
             </Btn>
             <Btn kind="ghost" icon="download" onClick={() => {
-                const md = [`# ${r.title}`, "", `${r.severity} · ${r.meta}`, "", `## ${tx("摘要", "Summary")}`, r.summary, "", `## ${tx("影响", "Impact")}`, r.impact, "", `## ${tx("时间线", "Timeline")}`, ...r.timeline.map((t) => `- ${t.time} ${t.text}`), "", `## ${tx("改进项", "Action items")}`, ...r.actions.map((a) => `- [${a.done ? "x" : " "}] ${a.text} (${a.owner}, ${a.due})`), "", r.refs].join("\n");
+                const md = [`# ${r.title}`, "", `${r.severity} · ${r.meta}`, "", `## ${tx("摘要", "Summary")}`, r.summary, "", `## ${tx("影响", "Impact")}`, r.impact, "", `## ${tx("时间线", "Timeline")}`, ...r.timeline.map((t) => `- ${when.short(t.time)} ${t.text}`), "", `## ${tx("改进项", "Action items")}`, ...r.actions.map((a) => `- [${a.done ? "x" : " "}] ${a.text} (${a.owner}, ${a.due})`), "", r.refs].join("\n");
                 downloadFile(`${e.id}-report.md`, md, "text/markdown");
                 toast(tx("已导出 Markdown", "Exported Markdown"));
               }}>
@@ -356,7 +357,7 @@ function SampleExecutionPage() {
               <tbody>
                 {r.timeline.map((t) => (
                   <tr key={t.time} style={{ height: 32 }}>
-                    <td className="mono">{t.time}</td>
+                    <td className="mono">{when.short(t.time)}</td>
                     <td>{t.text}</td>
                   </tr>
                 ))}

@@ -6,6 +6,7 @@ import { AiAvatar, Avatar, Badge, Brand, Btn, Col, Dot, Icon, KV, Mono, Muted, R
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./knowledge.css";
+import { useWhen } from "../../ui/when";
 
 type Candidate = { id: string; title: string; severity: Severity; resolved: string; duration: string; evidence: number };
 type Draft = {
@@ -18,6 +19,7 @@ type Draft = {
 /** /postmortems/new — pick a resolved incident, the AI drafts from its timeline and evidence, a person reviews. */
 export default function NewPostmortemPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const incident = params.get("incident");
@@ -68,7 +70,7 @@ export default function NewPostmortemPage() {
                   <Badge tone="ok">{tx("已解决", "Resolved")}</Badge>
                 </Row>
                 <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{c.title}</span>
-                <Muted size={11.5}>{tx("{r} · 持续 {d} · {n} 条证据", "{r} · {d} · {n} evidence", { r: c.resolved, d: c.duration, n: c.evidence })}</Muted>
+                <Muted size={11.5}>{tx("{r} · 持续 {d} · {n} 条证据", "{r} · {d} · {n} evidence", { r: when.at(c.resolved), d: c.duration, n: c.evidence })}</Muted>
               </button>
             ))}
           </div>

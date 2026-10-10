@@ -5,10 +5,12 @@ import { Badge, Btn, Col, Divider, Icon, Mono, Muted, Radio, Row, Section, Space
 import { Dialog } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { useI18n } from "../../i18n";
+import { useWhen } from "../../ui/when";
 
 /** Preview of writing a descendant's conclusions back to an ancestor (main line). */
 export function WritebackDialog({ open, investigation, from, onClose, onDone }: { open: boolean; investigation: string; from: string; onClose: () => void; onDone: (version: string) => void }) {
   const { tx } = useI18n();
+  const when = useWhen();
   const { data } = useGet<WritebackPreview>(open ? `/investigations/${investigation}/writeback-preview` : null, { from });
   const [mode, setMode] = useState<"summary" | "messages" | "evidence">("summary");
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -113,7 +115,7 @@ export function WritebackDialog({ open, investigation, from, onClose, onDone }: 
                     <Mono color={t.isNew ? "var(--accent-text)" : undefined}>{t.v}</Mono>
                     <span className="v3-col grow" style={{ gap: 3 }}>
                       <Markdown text={t.text} />
-                      <Muted size={11.5}>{t.meta}</Muted>
+                      <Muted size={11.5}>{when.text(t.meta)}</Muted>
                     </span>
                   </li>
                 ))}

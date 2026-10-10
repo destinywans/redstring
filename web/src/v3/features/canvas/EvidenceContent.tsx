@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { EvidenceBody } from "../../api/types";
 import { Badge, Muted, Row } from "../../ui/core";
 import { useI18n } from "../../i18n";
+import { useWhen } from "../../ui/when";
 
 type LogSample = { timestamp?: string; level?: string; message?: string; trace_id?: string; truncated?: boolean };
 type MaskedLogs = { status: "masked_sample"; provider?: string; samples: LogSample[]; redacted?: boolean; redactions?: Record<string, number>; partial?: boolean; sampled_count?: number; truncated?: boolean; boundary?: string };
@@ -33,6 +34,7 @@ function withRedactions(text: string): ReactNode[] {
  */
 export function EvidenceContent({ body, compact }: { body: EvidenceBody | undefined; compact?: boolean }) {
   const { tx } = useI18n();
+  const when = useWhen();
   const parts = evidenceParts(body);
   if (!parts) return null;
   let logs: MaskedLogs | null = null;
@@ -59,7 +61,7 @@ export function EvidenceContent({ body, compact }: { body: EvidenceBody | undefi
         <ol className="cv-log ev-lines">
           {shown.map((l, i) => (
             <li key={i}>
-              <span className="muted">{l.timestamp ? new Date(l.timestamp).toLocaleTimeString([], { hour12: false }) : ""}</span>
+              <span className="muted">{when.clock(l.timestamp) ?? ""}</span>
               {l.level && <b className={`lv-${l.level.toLowerCase()}`}>{l.level}</b>}
               <span>{withRedactions(l.message ?? "")}</span>
               {l.truncated && <Muted size={10.5}>…</Muted>}

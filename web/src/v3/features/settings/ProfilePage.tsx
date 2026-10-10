@@ -14,6 +14,7 @@ import { useI18n } from "../../i18n";
 import { SettingsHead, useProfileForm } from "./common";
 import "./settings.css";
 import { ChipSelect, confirmAction, openForm, openExternal } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 const CHANNELS: NotifyChannel[] = ["feishu", "email", "sms", "phone"];
 
@@ -302,6 +303,7 @@ export function NotificationsPage() {
 
 export function AccountSecurityPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const { form, error: profileError } = useProfileForm();
   const [ended, setEnded] = useState<Set<string>>(new Set());
   const endSession = useSend<string>("DELETE", (id) => `/me/sessions/${id}`);
@@ -339,7 +341,7 @@ export function AccountSecurityPage() {
                 <Row gap={10} className="set-sep">
                   <Col gap={0} grow>
                     <Strong>{tx("密码", "Password")}</Strong>
-                    <Muted size={11.5}>{form.security.password_changed}</Muted>
+                    <Muted size={11.5}>{when.at(form.security.password_changed)}</Muted>
                   </Col>
                   {API_MODE === "mock" && <Btn h={28} icon="external" onClick={() => openExternal(tx("统一身份认证", "Single sign-on"), "https://sso.example.internal/account/password")}>{tx("修改密码", "Change password")}</Btn>}
                 </Row>

@@ -239,7 +239,7 @@ export default function ReviewPage() {
                   <Col gap={2}>
                     <Row gap={8} style={{ fontSize: "var(--fs-sub)" }}>
                       <b style={{ fontWeight: 600 }}>{m.author}</b>
-                      <Muted>{m.time}</Muted>
+                      <Muted>{when(m.time)}</Muted>
                     </Row>
                     <Markdown text={m.text} />
                   </Col>

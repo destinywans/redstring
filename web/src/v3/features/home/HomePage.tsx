@@ -14,6 +14,7 @@ import "./home.css";
 import { ChipSelect, RangeChip, useFacet } from "../../ui/demo";
 import { Unavailable, UnknownValue } from "../../ui/unknown";
 import { Gate, Gated, usePermission } from "../../ui/permission";
+import { useWhen } from "../../ui/when";
 
 const TODO_TONE = { approval: "accent", report: "info", runbook: "t1", access: "warn" } as const;
 const ACT_ICON: Record<string, IconName> = { ai: "sparkles", change: "branch", alert: "bell", runbook: "book", approval: "shield", system: "cpu" };
@@ -34,6 +35,7 @@ function Cited({ text, citations, onOpen }: { text: string; citations: NonNullab
 
 function Briefing({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string) => void }) {
   const { tx } = useI18n();
+  const when = useWhen();
   const b = data?.briefing;
   return (
     <Card className="home-brief" style={{ border: "none" }}>
@@ -41,7 +43,7 @@ function Briefing({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string)
         <AiAvatar size={22} />
         <b>{tx("AI 今日简报", "AI briefing")}</b>
         <span style={{ flexGrow: 1 }} />
-        {b && <Muted size={11.5}>{tx("{t} 生成", "Generated {t}", { t: b.generated_at })}</Muted>}
+        {b && <Muted size={11.5}>{tx("{t} 生成", "Generated {t}", { t: when.short(b.generated_at) })}</Muted>}
       </div>
       <p className="brief-text">{b ? <Cited text={b.summary} citations={b.citations} onOpen={onOpen} /> : data ? <Muted>{tx("尚未生成。有新的告警、事件或变更后，AI 会在这里总结今天需要关注的事。", "Not generated yet. The AI summarises what needs attention once new alerts, incidents or changes arrive.")}</Muted> : <Skeleton h={48} />}</p>
       {b && (
@@ -58,7 +60,7 @@ function Briefing({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string)
         <div className="brief-oncall">
           <Avatar name={b.oncall.name} size={22} />
           <span className="grow">
-            {tx("值班 {n} · 至 {u}", "On call {n} · until {u}", { n: b.oncall.name, u: b.oncall.until })}
+            {tx("值班 {n} · 至 {u}", "On call {n} · until {u}", { n: b.oncall.name, u: when.short(b.oncall.until) })}
           </span>
           <Muted size={11.5}>{tx("下一班 {n}", "Next {n}", { n: b.oncall.next })}</Muted>
         </div>
@@ -70,6 +72,7 @@ function Briefing({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string)
 /** One line of status chips above the composer; the full AI briefing opens in a popover. */
 function StatusRow({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string) => void }) {
   const { tx } = useI18n();
+  const when = useWhen();
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   if (!data) return <Skeleton w={520} h={26} />;
@@ -87,7 +90,7 @@ function StatusRow({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string
       {data.briefing?.oncall ? (
         <span className="home-stat">
           <Dot tone="ok" size={6} />
-          <span className="muted">{tx("值班 {n} · 至 {u}", "On call {n} · until {u}", { n: data.briefing.oncall.name, u: data.briefing.oncall.until })}</span>
+          <span className="muted">{tx("值班 {n} · 至 {u}", "On call {n} · until {u}", { n: data.briefing.oncall.name, u: when.short(data.briefing.oncall.until) })}</span>
         </span>
       ) : (
         <span className="home-stat">
@@ -138,6 +141,7 @@ function greetingWord(tx: (a: string, b: string) => string) {
 
 export default function HomePage() {
   const { tx, fmt } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const { data } = useGet<HomeSummary>("/home");
   const can = usePermission();
@@ -153,7 +157,7 @@ export default function HomePage() {
   const trend = data?.alert_trend;
   const trendLabels =
     trend?.start && trend.step_seconds
-      ? trend.counts.map((_, i) => new Date(Date.parse(trend.start!) + i * trend.step_seconds! * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false }))
+      ? trend.counts.map((_, i) => when.time(Date.parse(trend.start!) + i * trend.step_seconds! * 1000) ?? "")
       : (trend?.labels ?? []);
   return (
     <Page
@@ -216,7 +220,7 @@ export default function HomePage() {
                       {a.alert_state === "resolved" && <Badge>{tx("已恢复", "Recovered")}</Badge>}
                     </Row>
                     <span>{a.symptom}</span>
-                    <Muted>{a.meta}</Muted>
+                    <Muted>{when.text(a.meta)}</Muted>
                   </div>
                   <div className="v3-col" style={{ alignItems: "flex-end", gap: 6 }}>
                     {a.ai === "done" && (
@@ -254,7 +258,7 @@ export default function HomePage() {
                     <span className="ellipsis" style={{ fontWeight: 500 }}>
                       {t.title}
                     </span>
-                    <Muted>{t.meta}</Muted>
+                    <Muted>{when.text(t.meta)}</Muted>
                   </div>
                   <Btn h={26} to={t.href}>
                     {t.action}
@@ -355,7 +359,7 @@ export default function HomePage() {
                     <span className="ellipsis grow" style={{ fontWeight: 500 }}>
                       {r.title}
                     </span>
-                    <Muted>{r.meta}</Muted>
+                    <Muted>{when.text(r.meta)}</Muted>
                   </a>
                 </li>
               ))}

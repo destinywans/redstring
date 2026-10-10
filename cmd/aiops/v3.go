@@ -587,16 +587,21 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return fmt.Errorf("load V3 source catalog: %w", err)
 	}
 	metricCatalog := sourceCatalog.Queries
-	// PA-19 P2: readers keep using the file configuration; compare mode also
-	// resolves each read in the registry and logs differences.
+	// PA-19: every reader reads the registry (unified, the default since P3
+	// stage 2 step 8). Until P4, legacy or compare (which also logs how each
+	// legacy read compares with the registry) keep only the readers named in
+	// AIOPS_V3_UNIFIED_READERS on the registry: the way back.
 	registryMode, err := v3telemetry.ParseMode(os.Getenv("AIOPS_V3_SOURCE_REGISTRY"))
 	if err != nil {
 		return err
 	}
-	// PA-19 P3 stage 2: readers switch to the registry one at a time.
-	unifiedReaders, err := v3telemetry.ParseReaders(os.Getenv("AIOPS_V3_UNIFIED_READERS"))
+	listedReaders, err := v3telemetry.ParseReaders(os.Getenv("AIOPS_V3_UNIFIED_READERS"))
 	if err != nil {
 		return err
+	}
+	unifiedReaders, ignored := v3telemetry.EffectiveReaders(registryMode, listedReaders)
+	if ignored {
+		slog.Warn("AIOPS_V3_UNIFIED_READERS is ignored in unified mode: every reader reads the registry")
 	}
 	slog.Info("source registry", "mode", string(registryMode), "unified_readers", unifiedReaders.Names())
 	sourceResolver := &v3telemetry.Resolver{Tier: cfg.Tier, Catalog: sourceCatalog, Approvals: v3telemetry.NewApprovals(credentialBindings)}

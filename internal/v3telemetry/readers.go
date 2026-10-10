@@ -74,6 +74,20 @@ func availableReaderList() string {
 	return strings.Join(names, ", ")
 }
 
+// EffectiveReaders is the set of readers that read the registry in mode:
+// every available reader in unified mode, where a listed set is ignored
+// (ignored reports it), and the listed set otherwise.
+func EffectiveReaders(mode Mode, listed Readers) (readers Readers, ignored bool) {
+	if mode != ModeUnified {
+		return listed, false
+	}
+	all := Readers{}
+	for name := range availableReaders {
+		all[name] = true
+	}
+	return all, len(listed) > 0
+}
+
 // Unified reports whether reader reads the registry.
 func (r Readers) Unified(reader string) bool { return r[reader] }
 

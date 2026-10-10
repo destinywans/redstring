@@ -15,25 +15,29 @@ import (
 type Mode string
 
 const (
-	// ModeLegacy reads the file configuration only (default).
+	// ModeUnified: every reader reads the registry. The default since PA-19
+	// P3 stage 2 step 8; AIOPS_V3_UNIFIED_READERS is then ignored.
+	ModeUnified Mode = "unified"
+	// ModeLegacy: the readers named in AIOPS_V3_UNIFIED_READERS read the
+	// registry, the others the file configuration. Kept until P4 as the way
+	// back.
 	ModeLegacy Mode = "legacy"
-	// ModeCompare still reads the file configuration and, in the background,
-	// checks each read against the registry; differences go to the log.
+	// ModeCompare is ModeLegacy that also checks, in the background, each
+	// legacy read against the registry; differences go to the log.
 	ModeCompare Mode = "compare"
 )
 
-// ParseMode accepts legacy (or empty) and compare. unified is P3 and is
-// refused until the readers are switched.
+// ParseMode accepts unified (or empty), legacy and compare.
 func ParseMode(value string) (Mode, error) {
 	switch value {
-	case "", string(ModeLegacy):
+	case "", string(ModeUnified):
+		return ModeUnified, nil
+	case string(ModeLegacy):
 		return ModeLegacy, nil
 	case string(ModeCompare):
 		return ModeCompare, nil
-	case "unified":
-		return "", errors.New("AIOPS_V3_SOURCE_REGISTRY=unified is PA-19 P3 and not available yet; use legacy or compare")
 	}
-	return "", errors.New("AIOPS_V3_SOURCE_REGISTRY must be legacy or compare")
+	return "", errors.New("AIOPS_V3_SOURCE_REGISTRY must be unified, legacy or compare")
 }
 
 // Use is one read of a file-configured binding by a current reader.

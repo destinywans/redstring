@@ -58,14 +58,35 @@ func TestParseCatalogRejectsMixedOrUnsafeScopes(t *testing.T) {
 }
 
 func TestParseMode(t *testing.T) {
-	for value, want := range map[string]Mode{"": ModeLegacy, "legacy": ModeLegacy, "compare": ModeCompare} {
+	for value, want := range map[string]Mode{"": ModeUnified, "unified": ModeUnified, "legacy": ModeLegacy, "compare": ModeCompare} {
 		if mode, err := ParseMode(value); err != nil || mode != want {
 			t.Fatalf("%q: %v %v", value, mode, err)
 		}
 	}
-	for _, value := range []string{"unified", "Compare", "on"} {
+	for _, value := range []string{"Unified", "Compare", "on"} {
 		if _, err := ParseMode(value); err == nil {
 			t.Fatalf("%q accepted", value)
+		}
+	}
+}
+
+// Stage 2 step 8: unified switches every reader and ignores a list; legacy
+// and compare keep the listed readers (the way back until P4).
+func TestEffectiveReaders(t *testing.T) {
+	listed, err := ParseReaders("coverage,mappings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	all, ignored := EffectiveReaders(ModeUnified, listed)
+	if !ignored || len(all) != len(availableReaders) || !all.Unified(ReaderMappingWrites) || !all.Unified(ReaderRegistrations) {
+		t.Fatalf("unified: %v %v", all.Names(), ignored)
+	}
+	if all, ignored = EffectiveReaders(ModeUnified, Readers{}); ignored || len(all) != len(availableReaders) {
+		t.Fatalf("unified without a list: %v %v", all.Names(), ignored)
+	}
+	for _, mode := range []Mode{ModeLegacy, ModeCompare} {
+		if readers, ignored := EffectiveReaders(mode, listed); ignored || len(readers) != 2 || readers.Unified(ReaderLogs) {
+			t.Fatalf("%s: %v", mode, readers.Names())
 		}
 	}
 }

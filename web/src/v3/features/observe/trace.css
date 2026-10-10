@@ -107,6 +107,7 @@
 .tr-limit > svg { flex: none; margin-top: 2px; }
 .tr-limit .grow { flex: 1; min-width: 0; color: var(--text); display: flex; flex-direction: column; gap: 6px; }
 .tr-dense { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 20px 16px; }
+.tr-dense-ico.info { background: var(--info-soft); color: var(--info); }
 .tr-dense-ico { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; background: var(--warn-soft); color: var(--warn); }
 .tr-dense b { font-size: 14px; }
 .tr-dense p { margin: 0; color: var(--muted); font-size: var(--fs-sub); max-width: 62ch; }

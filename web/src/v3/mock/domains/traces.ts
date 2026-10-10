@@ -30,7 +30,8 @@ const AGENT_ROWS = [
   { id: "run_7d18", time: "12:10:44", op: P("报告撰写 · INC-1039", "Report · INC-1039"), agent: P("报告撰写 v4", "Reporter v4"), model: "Claude Opus 5.5 · 中", services: ["get_incident", "search_runbooks"], duration_ms: 26500, spans: 6, errors: 0, tokens: "7.4k", cost: "¥0.46" },
 ];
 
-const APP_VIEWS = [{ id: "all", label: P("全部", "All"), query: "{ }" }, { id: "errors", label: P("错误", "Errors"), count: 214, query: '{ resource.service.name = "checkout-api" && status = error && duration > 1s }' }, { id: "slow", label: P("慢请求 > 1 s", "Slow > 1 s"), query: "{ duration > 1s }" }, { id: "release", label: P("发布后 v2.8.1", "After v2.8.1"), query: '{ resource.service.version = "v2.8.1" }' }];
+// The same selectors the backend adds to the search for its views (PA-80).
+const APP_VIEWS = [{ id: "all", label: P("全部", "All"), query: "" }, { id: "errors", label: P("错误", "Errors"), count: 214, query: "{ status = error }" }, { id: "slow", label: P("慢请求 > 1 s", "Slow > 1 s"), query: "{ trace:duration >= 1s }" }, { id: "release", label: P("发布后 v2.8.1", "After v2.8.1"), query: '{ resource.service.version = "v2.8.1" }' }];
 
 // PA-78 demo states (example data). An unnarrowed query (view "All", no service, no condition) goes newest-first and
 // stops at the search budget — 40 traces — so only the most recent minutes of the range are covered; one service is
@@ -94,6 +95,8 @@ mock("GET", "/traces", ({ query }) => {
   const q = String(query.q ?? "");
   const broad = query.view === "all" && !/status\s*=\s*error|duration\s*[<>]|resource\.service\.name|\bname\s*=/.test(q);
   const service = typeof query.service === "string" && query.service ? query.service : undefined;
+  // PA-79 demo: the deployment keeps 7 days of searchable traces.
+  if (query.range === "30d") throw new MockError(422, "range_exceeds_lookback", "Choose a range within the configured trace lookback", { max_lookback_seconds: 604800, max_range: "7d" });
   // PA-81 demo: search-api's Tempo is connected but the deployment doesn't declare search complete (no counts or
   // charts); notification-svc has no trace source at all.
   if (service === "search-api") return { ...recentList(service, "15m"), total: null, facets: null, histogram: null, scatter: null, partial: true, partial_reason: "search_unattested", unavailable: { total: "not_configured", facets: "not_configured", histogram: "not_configured", scatter: "not_configured" } };

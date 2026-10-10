@@ -12,6 +12,8 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    /** The rest of the error object, e.g. `max_range` on 422 range_exceeds_lookback (PA-79). */
+    public detail: Record<string, unknown> = {},
   ) {
     super(message);
     this.name = "ApiError";
@@ -86,7 +88,7 @@ export async function apiWithMeta<T>(
   if (res.status === 401 && !path.startsWith("/auth/")) toLogin();
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new ApiError(res.status, body?.error?.code ?? "request_failed", body?.error?.message ?? `HTTP ${res.status}`);
+    throw new ApiError(res.status, body?.error?.code ?? "request_failed", body?.error?.message ?? `HTTP ${res.status}`, body?.error ?? {});
   }
   const etag = res.headers.get("ETag");
   if (res.status === 204) return { data: undefined as T, etag };

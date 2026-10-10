@@ -16,9 +16,11 @@ import { useI18n } from "../../i18n";
 import { useNeed } from "../../ui/permission";
 import "./observe.css";
 import { ChipSelect, RangeChip, AddChip, openExternal, openForm, usePickLists } from "../../ui/demo";
+import { useWhen } from "../../ui/when";
 
 export default function MetricsPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const askBlocked = useNeed(["conversation", "change"]);
   const nav = useNavigate();
   const [params] = useSearchParams();
@@ -57,6 +59,12 @@ export default function MetricsPage() {
       </Page>
     );
   const w = d.window;
+  // PA-83: labels from their instants, in the viewer's time zone (the text forms are UTC "15:04").
+  const labels = when.axis(w.label_times, w.labels);
+  const ticks = when.axis(w.tick_times, w.ticks);
+  const incidentText = w.incident_start_at
+    ? tx("事件 · {a}–{b}", "Incident · {a}–{b}", { a: when.time(w.incident_start_at), b: when.time(w.incident_end_at ?? w.incident_start_at) })
+    : w.incident_label;
   const u = d.unavailable ?? {};
   // Markers come from the platform's own release / rollback records (null when none fall in the window).
   // The sample data names its sample release; real mode only states what the record is.
@@ -72,7 +80,7 @@ export default function MetricsPage() {
       ? Array.from({ length: 12 }, (_, k) => {
           const seg = d.latency!.p95.slice(k * 3, k * 3 + 3);
           const m = seg.reduce((a, b) => a + b, 0) / 3;
-          return { label: w.labels[k * 3], min: m * 0.35, q1: m * 0.7, med: m, q3: m * 1.3, max: m * 2.1 };
+          return { label: labels[k * 3], min: m * 0.35, q1: m * 0.7, med: m, q3: m * 1.3, max: m * 2.1 };
         })
       : [];
   const missing = unknownLabels([u], {
@@ -117,9 +125,9 @@ export default function MetricsPage() {
       ai={false}
       actions={
         <>
-          {align && w.incident_label ? (
+          {align && incidentText ? (
             <Chip icon="clock" onClick={() => setAlign(false)}>
-              <span className="tnum">{w.incident_label}</span>
+              <span className="tnum">{incidentText}</span>
             </Chip>
           ) : demo ? (
             <RangeChip defaultValue="1h" />
@@ -193,8 +201,8 @@ export default function MetricsPage() {
               }
             >
               {d.requests ? (
-                <StackedArea series={[d.requests.ok, d.requests.client, d.requests.server]} colors={["var(--c2)", "var(--c4)", "var(--c3)"]} height={160} names={["2xx", "4xx", "5xx"]} labels={w.labels} sync={sync} axis={w.ticks}>
-                  <MarkersOverlay markers={markers} n={w.labels.length} band={incident} height={160} />
+                <StackedArea series={[d.requests.ok, d.requests.client, d.requests.server]} colors={["var(--c2)", "var(--c4)", "var(--c3)"]} height={160} names={["2xx", "4xx", "5xx"]} labels={labels} sync={sync} axis={ticks}>
+                  <MarkersOverlay markers={markers} n={labels.length} band={incident} height={160} />
                 </StackedArea>
               ) : (
                 <Unavailable reason={u.requests} source="Prometheus" title={tx("请求量", "Requests")} icon="activity" />
@@ -262,7 +270,7 @@ export default function MetricsPage() {
                   <div style={{ position: "relative" }}>
                     <Heatmap matrix={d.latency.heat} height={160} rowLabels={d.latency.buckets} />
                     <div style={{ position: "absolute", left: 56, right: 0, top: 0 }}>
-                      <MarkersOverlay markers={markers} n={w.labels.length} band={incident} height={160} />
+                      <MarkersOverlay markers={markers} n={labels.length} band={incident} height={160} />
                     </div>
                   </div>
                 )}
@@ -274,14 +282,14 @@ export default function MetricsPage() {
                     threshold={300}
                     markers={markers}
                     bands={bands}
-                    labels={w.labels}
+                    labels={labels}
                     format={(v) => `${Math.round(v)} ms`}
                     sync={sync}
                   />
                 )}
                 {latMode === "box" && demo && <BoxPlot stats={stats} height={150} max={2000} />}
               </div>
-              <Axis labels={w.ticks} style={{ paddingLeft: latMode === "heat" ? 56 : 0 }} />
+              <Axis labels={ticks} style={{ paddingLeft: latMode === "heat" ? 56 : 0 }} />
               <Row gap={8} style={{ marginTop: 8 }}>
                 <Muted size={11.5}>{demo ? tx("热力图颜色越深表示该耗时区间的请求越多；发布后请求整体上移到 500 ms – 1 s。", "Darker cells mean more requests in that latency bucket; after the release requests shift to 500 ms – 1 s.") : tx("热力图颜色越深表示该耗时区间的请求越多。", "Darker cells mean more requests in that latency bucket.")}</Muted>
                 <Spacer />

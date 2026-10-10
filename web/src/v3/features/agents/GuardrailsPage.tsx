@@ -30,7 +30,8 @@ export default function GuardrailsPage() {
   const sel = selPick || (demo ? "" : data?.events[0]?.id ?? "");
   const selEvent = data?.events.find((e) => e.id === sel);
   const d = demo ? data?.detail : selEvent && { id: selEvent.id, title: `${act(selEvent.action)[0]} · ${selEvent.target_kind ?? selEvent.rule}`, meta: `${selEvent.agent} · ${when.stamp(selEvent.time)}`, source: null, snippet: null, masked: null, verdict: null, run: selEvent.run };
-  const trendLabels = !demo && data?.trend_days?.length ? data.trend_days.map((x) => `${Number(x.slice(5, 7))}/${Number(x.slice(8, 10))}`) : ["9/17", "9/18", "9/19", "9/20", "9/21", "9/22", tx("今天", "Today")];
+  // Buckets are UTC days, so each label is the UTC date it stands for (PA-83), in the app's language.
+  const trendLabels = !demo && data?.trend_starts_at?.length ? data.trend_starts_at.map((t) => when.utcDate(t)) : !demo && data?.trend_days?.length ? data.trend_days.map((x) => `${Number(x.slice(5, 7))}/${Number(x.slice(8, 10))}`) : ["9/17", "9/18", "9/19", "9/20", "9/21", "9/22", tx("今天", "Today")];
   const toggle = (id: string, name: string, v: boolean) => {
     const done = v ? tx("已开启「{p}」", "“{p}” enabled", { p: name }) : tx("已关闭「{p}」，此操作已写入审计", "“{p}” disabled — recorded in the audit log", { p: name });
     if (demo) {

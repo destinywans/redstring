@@ -1,4 +1,5 @@
 import { mock, MockError } from "../router";
+import { at } from "../time";
 import { l } from "../../i18n";
 import { silences as created } from "./identity";
 import { rollbackProposal, rolloutExecution } from "./rollback";
@@ -9,15 +10,15 @@ const hhmm = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, 
 /* ---------------- inbox ---------------- */
 mock("GET", "/inbox", ({ query }) => {
   const items = [
-    { id: "i1", kind: "alert", tone: "danger", title: P("P1 · checkout-api 5xx 比例 8.4%", "P1 · checkout-api 5xx ratio 8.4%"), sub: P("AI 初查完成：inventory-03 先变慢，库存调用被重试放大", "AI triage: inventory-03 slowed first; retries amplified inventory calls"), time: "14:05", unread: true, day: "today", href: "/inbox?item=i1", alert_id: "ALR-7731" },
-    { id: "i2", kind: "approval", tone: "accent", title: P("审批：库存调用重试降为 1 次并打开熔断", "Approval: retry inventory calls once, breaker on"), sub: P("等待你复核 · 中风险 · INV-231", "Awaiting your review · medium risk · INV-231"), time: "14:18", unread: true, day: "today", href: "/review/PRP-88" },
-    { id: "i3", kind: "mention", tone: "neutral", title: P("李明 在 INV-231 中提到了你", "Li Ming mentioned you in INV-231"), sub: P("“只重试 1 次，偶发超时会不会直接让下单失败？”", "“With one retry, will a stray timeout fail the order?”"), time: "14:20", unread: true, day: "today", href: "/canvas/INV-231" },
-    { id: "i4", kind: "runbook", tone: "neutral", title: P("Runbook 修订待复核", "Runbook revision to review"), sub: P("「下游超时与重试风暴」v3 → v4 · 2 处修改", "“Retry storms” v3 → v4 · 2 edits"), time: "14:25", unread: false, day: "today", href: "/runbooks/rb-retry-storm" },
-    { id: "i5", kind: "report", tone: "neutral", title: P("故障报告草稿已生成", "Incident report draft ready"), sub: P("checkout-api 5xx 上升 · 等你确认后发布", "checkout-api 5xx · publish after you confirm"), time: "14:25", unread: false, day: "today", href: "/executions/EXE-51" },
-    { id: "i6", kind: "alert", tone: "warn", title: P("P2 · inventory-03 磁盘 IO 等待 180 ms", "P2 · inventory-03 disk IO wait 180 ms"), sub: P("超过阈值 100 ms · 未认领", "Above the 100 ms threshold · unclaimed"), time: "14:02", unread: false, day: "today", href: "/inbox?item=i6", alert_id: "ALR-7729" },
-    { id: "i7", kind: "alert", tone: "neutral", title: P("P3 · inventory-worker Kafka 积压", "P3 · inventory-worker Kafka lag"), sub: P("王晨 已认领 · 已静默至 16:00", "Claimed by Wang Chen · silenced until 16:00"), time: "22:10", unread: false, day: "yesterday", href: "/inbox?item=i7", alert_id: "ALR-7702" },
-    { id: "i8", kind: "access", tone: "neutral", title: P("李明 申请 inventory-worker 操作权限", "Li Ming requests inventory-worker access"), sub: P("交易平台 · 有效期 7 天", "Trading · valid 7 days"), time: "18:42", unread: false, day: "yesterday", href: "/settings/members" },
-    { id: "i9", kind: "agent", tone: "warn", title: P("Agent 治理：调查助手 v13 未通过评测门禁", "Agent governance: Investigator v13 failed an eval gate"), sub: P("成本上升 14%，已阻止灰度扩大到 50%", "Cost +14%; canary blocked at 20%"), time: "17:05", unread: false, day: "yesterday", href: "/agents/evals" },
+    { id: "i1", kind: "alert", tone: "danger", title: P("P1 · checkout-api 5xx 比例 8.4%", "P1 · checkout-api 5xx ratio 8.4%"), sub: P("AI 初查完成：inventory-03 先变慢，库存调用被重试放大", "AI triage: inventory-03 slowed first; retries amplified inventory calls"), time: "14:05", at: at("14:05"), unread: true, day: "today", href: "/inbox?item=i1", alert_id: "ALR-7731" },
+    { id: "i2", kind: "approval", tone: "accent", title: P("审批：库存调用重试降为 1 次并打开熔断", "Approval: retry inventory calls once, breaker on"), sub: P("等待你复核 · 中风险 · INV-231", "Awaiting your review · medium risk · INV-231"), time: "14:18", at: at("14:18"), unread: true, day: "today", href: "/review/PRP-88" },
+    { id: "i3", kind: "mention", tone: "neutral", title: P("李明 在 INV-231 中提到了你", "Li Ming mentioned you in INV-231"), sub: P("“只重试 1 次，偶发超时会不会直接让下单失败？”", "“With one retry, will a stray timeout fail the order?”"), time: "14:20", at: at("14:20"), unread: true, day: "today", href: "/canvas/INV-231" },
+    { id: "i4", kind: "runbook", tone: "neutral", title: P("Runbook 修订待复核", "Runbook revision to review"), sub: P("「下游超时与重试风暴」v3 → v4 · 2 处修改", "“Retry storms” v3 → v4 · 2 edits"), time: "14:25", at: at("14:25"), unread: false, day: "today", href: "/runbooks/rb-retry-storm" },
+    { id: "i5", kind: "report", tone: "neutral", title: P("故障报告草稿已生成", "Incident report draft ready"), sub: P("checkout-api 5xx 上升 · 等你确认后发布", "checkout-api 5xx · publish after you confirm"), time: "14:25", at: at("14:25"), unread: false, day: "today", href: "/executions/EXE-51" },
+    { id: "i6", kind: "alert", tone: "warn", title: P("P2 · inventory-03 磁盘 IO 等待 180 ms", "P2 · inventory-03 disk IO wait 180 ms"), sub: P("超过阈值 100 ms · 未认领", "Above the 100 ms threshold · unclaimed"), time: "14:02", at: at("14:02"), unread: false, day: "today", href: "/inbox?item=i6", alert_id: "ALR-7729" },
+    { id: "i7", kind: "alert", tone: "neutral", title: P("P3 · inventory-worker Kafka 积压", "P3 · inventory-worker Kafka lag"), sub: P("王晨 已认领 · 已静默至 16:00", "Claimed by Wang Chen · silenced until 16:00"), time: "22:10", at: at("22:10", -1), unread: false, day: "yesterday", href: "/inbox?item=i7", alert_id: "ALR-7702" },
+    { id: "i8", kind: "access", tone: "neutral", title: P("李明 申请 inventory-worker 操作权限", "Li Ming requests inventory-worker access"), sub: P("交易平台 · 有效期 7 天", "Trading · valid 7 days"), time: "18:42", at: at("18:42", -1), unread: false, day: "yesterday", href: "/settings/members" },
+    { id: "i9", kind: "agent", tone: "warn", title: P("Agent 治理：调查助手 v13 未通过评测门禁", "Agent governance: Investigator v13 failed an eval gate"), sub: P("成本上升 14%，已阻止灰度扩大到 50%", "Cost +14%; canary blocked at 20%"), time: "17:05", at: at("17:05", -1), unread: false, day: "yesterday", href: "/agents/evals" },
   ];
   const tab = String(query.tab ?? "all");
   const filtered = tab === "mine" ? items.filter((i) => ["approval", "report", "runbook", "access"].includes(i.kind)) : tab === "mentions" ? items.filter((i) => i.kind === "mention") : items;

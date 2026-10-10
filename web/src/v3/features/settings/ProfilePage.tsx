@@ -406,7 +406,11 @@ export function AccountSecurityPage() {
                           <Tile icon={s.device?.includes("iPhone") ? "phone" : "monitor"} size={28} />
                           <Col gap={0} grow>
                             <Strong>{s.device ?? <UnknownValue reason={form.unavailable["security.sessions[].device"]} source={tx("身份来源", "identity source")} label={tx("设备未知", "Unknown device")} />}</Strong>
-                            <Muted size={11.5}>{s.sub}</Muted>
+                            <Muted size={11.5}>
+                              {s.signed_in_at === undefined && s.expires_at === undefined
+                                ? s.sub
+                                : [s.signed_in_at && tx("登录于 {t}", "Signed in {t}", { t: when.at(s.signed_in_at) }), s.expires_at && tx("到期时间 {t}", "Expires {t}", { t: when.at(s.expires_at) })].filter(Boolean).join(" · ") || s.sub}
+                            </Muted>
                           </Col>
                           {s.current ? (
                             <Badge tone="ok">{tx("当前会话", "This session")}</Badge>

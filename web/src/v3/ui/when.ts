@@ -41,6 +41,7 @@ export function whenFormats(locale: string) {
   const second = f({ hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const milli = f({ hour: "2-digit", minute: "2-digit", second: "2-digit", fractionalSecondDigits: 3 });
   const day = f({ month: "short", day: "numeric" });
+  const utcDay = f({ month: "short", day: "numeric", timeZone: "UTC" });
   const dayYear = f({ year: "numeric", month: "short", day: "numeric" });
   const sameDay = (t: number) => new Date(t).toDateString() === new Date().toDateString();
   const sameYear = (t: number) => new Date(t).getFullYear() === new Date().getFullYear();
@@ -66,8 +67,41 @@ export function whenFormats(locale: string) {
     precise: fmt((t) => (sameDay(t) ? milli.format(t) : `${day.format(t)} ${milli.format(t)}`)),
     /** Date only (with the year when it isn't this year). */
     date: fmt((t) => (sameYear(t) ? day.format(t) : dayYear.format(t))),
+    /** Seconds clock today, date and second otherwise (delivery logs). */
+    log: fmt((t) => (sameDay(t) ? second.format(t) : daySecond.format(t))),
+    /** The UTC calendar day a bucket stands for (buckets cut at UTC midnight), in the app's language. */
+    utcDate: fmt((t) => utcDay.format(t)),
+    /**
+     * Axis labels from instants (PA-83): clock times within a day, date and time over a few days, dates beyond.
+     * Falls back to `texts` when the instants are missing or don't line up with them.
+     */
+    axis: (times: readonly (string | null)[] | null | undefined, texts: readonly string[] = []): string[] => {
+      const ts = (times ?? []).map((v) => parseStamp(v));
+      if (!ts.length || ts.some((t) => t === null) || (texts.length > 0 && ts.length !== texts.length)) return [...texts];
+      const span = (ts[ts.length - 1] as number) - (ts[0] as number);
+      const f = span < 22 * 3600_000 ? minute : span < 6 * 86400_000 ? dayMinute : day;
+      return ts.map((t) => f.format(t as number));
+    },
+    /**
+     * Server text that embeds a timestamp, with that timestamp taken from its structured field (PA-83) and shown
+     * locally; without the text (once the server drops it), just the time.
+     */
+    withAt: (text: string | null | undefined, at: string | null | undefined): string | null => {
+      const local = (m: string) => { const x = parseStamp(m); return x === null ? m : dayMinute.format(x); };
+      const t = parseStamp(at);
+      if (t === null) return text ? text.replace(ISO_IN_TEXT, local) : (text ?? null);
+      if (!text) return dayMinute.format(t);
+      let first = true;
+      return text.replace(ISO_IN_TEXT, (m) => (first ? ((first = false), dayMinute.format(t)) : local(m)));
+    },
     /** Display text with timestamps inside it, each shown as date and minute. */
     text: (v: string | null | undefined) =>
       v ? v.replace(ISO_IN_TEXT, (m) => { const t = parseStamp(m); return t === null ? m : dayMinute.format(t); }) : (v ?? null),
   };
+}
+
+/** At most `max` labels, evenly picked (first and last kept), for a label row laid out with space-between. */
+export function thinLabels(labels: readonly string[], max: number): string[] {
+  if (labels.length <= max || max < 2) return [...labels];
+  return Array.from({ length: max }, (_, i) => labels[Math.round((i * (labels.length - 1)) / (max - 1))]);
 }

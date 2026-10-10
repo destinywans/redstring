@@ -68,7 +68,7 @@ export type MentionCandidate = { kind: RefKind; id: string; label: string; meta?
 /* ---------------- shared widgets ---------------- */
 export type Kpi = { id: string; label: string; value: string; unit?: string; delta?: string; delta_good?: boolean; tone?: Tone; sub?: string; series: number[] };
 export type Activity = { id: string; time: string; kind: "ai" | "change" | "alert" | "runbook" | "approval" | "system"; tone: Tone; text: string; href?: string };
-export type RecentItem = { id: string; kind: "investigation" | "conversation" | "artifact"; title: string; meta: string; href: string };
+export type RecentItem = { id: string; kind: "investigation" | "conversation" | "artifact"; title: string; meta: string; href: string; /** PA-83: the time inside meta. */ at?: string };
 
 /* ---------------- home ---------------- */
 export type HomeSummary = {
@@ -78,7 +78,7 @@ export type HomeSummary = {
   suggestions: { id: string; text: string; tone?: Tone; icon: string }[];
   kpis: Kpi[];
   /** alert_state: is the incident's alert still firing (null when the source didn't say). Resolved items stay listed (D7). */
-  attention: { id: string; severity: Severity; service: string; env: EnvName; symptom: string; meta: string; ai: "done" | "running" | null; owner?: string; href: string; alert_state?: "firing" | "resolved" | null }[];
+  attention: { id: string; severity: Severity; service: string; env: EnvName; symptom: string; meta: string; ai: "done" | "running" | null; owner?: string; href: string; alert_state?: "firing" | "resolved" | null; /** PA-83: the time inside meta (alert start while firing, else last update). */ at?: string }[];
   /** Distinct visible services whose alerts are still firing; null without events.view (PA-58). */
   firing_services?: number | null;
   todos: { id: string; kind: "approval" | "report" | "runbook" | "access"; title: string; meta: string; action: string; href: string }[];
@@ -262,7 +262,8 @@ export type InvestigationTemplate = {
 };
 
 /* ---------------- events: inbox, alerts, incidents ---------------- */
-export type InboxItem = { id: string; kind: "alert" | "approval" | "mention" | "runbook" | "report" | "access" | "agent"; tone: Tone; title: string; sub: string; time: string; unread: boolean; day: "today" | "yesterday"; href: string; alert_id?: string };
+/** `time`/`day` are the server's time zone; `at` (PA-83) lets the day be judged locally. `assignment` comes from the real queue. */
+export type InboxItem = { id: string; kind: "alert" | "approval" | "mention" | "runbook" | "report" | "access" | "agent" | "assignment"; tone: Tone; title: string; sub: string; time: string; at?: string; unread: boolean; day: "today" | "yesterday"; href: string; alert_id?: string };
 /** Sample data carries time/text/done; the real queue reports id/status/created_at/attempts (local enqueue, not delivery). */
 export type AlertNotification = { channel: string; time?: string; text?: string; done?: boolean; id?: string; status?: "pending" | "sending" | "retrying" | "failed" | "sent"; created_at?: string; attempts?: number };
 /**
@@ -649,10 +650,11 @@ export type ServiceDetail = {
   status: Health | null;
   desc: string;
   deeplinks: { brand: string; name: string; url: string }[];
-  ai: { text: string; investigation: string; proposal?: string; meta: string } | null;
+  /** PA-83: `at` is the time embedded in text and meta. */
+  ai: { text: string; investigation: string; proposal?: string; meta: string; at?: string } | null;
   signals: Kpi[] | null;
   slo: { availability: string | null; target: string | null; budget_left: number | null; burn: ServiceBurn[] | null; note: string };
-  changes: { brand: string; title: string; meta: string; tag?: string }[] | null;
+  changes: { brand: string; title: string; meta: string; tag?: string; /** PA-83: the time inside meta. */ at?: string }[] | null;
   deps: { upstream: ServiceDependency[]; downstream: ServiceDependency[] } | null;
   /** The contract counts changes, deps and incidents; the other keys only appear in sample data. */
   tabs: { changes: number | null; deps: number | null; incidents: number | null; resilience?: number; runbooks?: number };
@@ -713,7 +715,20 @@ export type Topology = {
  * block is null without a reviewed Prometheus source and query (not_configured) or when the panels don't add up (unavailable).
  */
 export type MetricsDashboard = {
-  window: { labels: string[]; ticks: string[]; release_at: number | null; rollback_at: number | null; incident: [number, number] | null; incident_label: string | null };
+  window: {
+    labels: string[];
+    ticks: string[];
+    /** PA-83: the instants of labels / ticks, one each (the text forms are UTC "15:04"). */
+    label_times?: string[];
+    tick_times?: string[];
+    release_at: number | null;
+    rollback_at: number | null;
+    incident: [number, number] | null;
+    incident_label: string | null;
+    /** PA-83: the incident span (end = window end while it's open; both null without an incident). */
+    incident_start_at?: string | null;
+    incident_end_at?: string | null;
+  };
   kpis: Kpi[] | null;
   requests: { ok: number[]; client: number[]; server: number[] } | null;
   slo: { remaining: number; availability: string; delta: string; burn: { window: string; value: string; tone: Tone; pct: number }[]; note: string } | null;
@@ -742,11 +757,15 @@ export type ChangesView = {
   sources: { brand: string; name: string; count: number; on: boolean }[];
   lanes: { service: string; marks: { at: number; tone: "ok" | "danger"; label?: string }[]; alerts: [number, number][] }[];
   axis: string[];
+  /** PA-83: the instants of `axis`, one per label. */
+  axis_times?: string[];
   pipelines: Pipeline[];
   detail: {
     id: string;
     title: string;
     meta: string;
+    /** PA-83: the review time inside meta. */
+    reviewed_at?: string | null;
     brand: string;
     stages: { name: string; jobs: { name: string; state: "ok" | "running"; brand?: string }[] }[];
     diff: { path: string; minus: string; plus: string };
@@ -759,7 +778,7 @@ export type ChangesView = {
 export type ConnectorStatus = "ok" | "unverified" | "error";
 export type ConnectorCategory = "model" | "observe" | "delivery" | "infra" | "im" | "knowledge" | "agent_obs" | "security";
 export type TagChip = { label: string; tone?: Tone; mono?: boolean };
-export type Connector = { id: string; brand: string; name: string; kind: string; category: ConnectorCategory; status: ConnectorStatus; tags: TagChip[]; meta: string };
+export type Connector = { id: string; brand: string; name: string; kind: string; category: ConnectorCategory; status: ConnectorStatus; tags: TagChip[]; meta: string; /** PA-83: the last connection test (null when never tested); meta and `checked` embed it as text. */ checked_at?: string | null };
 export type ConnectorList = { items: Connector[]; counts: Record<ConnectorStatus, number>; categories: { id: ConnectorCategory | "all"; label: string; count: number }[] };
 export type ConnectorDetail = Connector & {
   scope: string;
@@ -819,7 +838,7 @@ export type PullDraft = {
   name: string;
   step: number;
   request: { method: string; host: string; path: string; params: { k: string; v: string; variable: boolean }[]; auth: string; rate: string; paging: string };
-  sample: { status: number; meta: string; body: string; highlights: { text: string; color: string }[] };
+  sample: { status: number; meta: string; body: string; highlights: { text: string; color: string }[]; /** PA-83: the read time inside meta. */ captured_at?: string | null };
   contract: ContractKind;
   contract_version: string;
   fields: { field: string; required: boolean; source: string; transform?: string; color: string; state: "ok" | "warn" | "none" }[];
@@ -832,7 +851,7 @@ export type PushEventType = { id: string; icon: string; name: string; schema: st
 export type PushView = {
   types: PushEventType[];
   endpoint: { method: string; path: string; host: string; headers: { k: string; v: string; note: string }[]; example: string; responses: { code: string; tone: Tone; text: string }[] };
-  deliveries: { time: string; source: string; key: string; code: string; tone: Tone; result: string; ms: string }[];
+  deliveries: { time: string; source: string; key: string; code: string; tone: Tone; result: string; ms: string; /** PA-83: `time` as RFC 3339. */ at?: string }[];
   stack: { enabled: boolean; components: { brand: string; name: string; role: string }[]; helm: string; compose: string; estimate: string };
 };
 
@@ -845,8 +864,8 @@ export type MappingSave = { service_id: string; service_environment_id: string; 
 export type MappingOptionSystem = {
   system_id: "metrics" | "logs" | "traces" | "code" | "deploy" | "dash" | "workload" | (string & {});
   editable: boolean;
-  /** registry_not_enabled = mappings not switched yet (legacy editing); registry_cutover = read-only during steps 2–5. */
-  unavailable_reason: "registry_not_enabled" | "registry_cutover" | "system_not_supported" | "ambiguous_targets" | "forbidden" | null | (string & {});
+  /** Since P4 every system is on the registry (registry_not_enabled / registry_cutover are no longer returned). */
+  unavailable_reason: "system_not_supported" | "ambiguous_targets" | "forbidden" | null | (string & {});
   /** target_id null = a legacy binding. */
   current: { target_id: string | null; connector_id: string; resource_id: string } | null;
   /** Connectors of this environment for the system; not ready ones list why. resources are reviewed catalog IDs (code: bound GitLab projects). */
@@ -871,7 +890,8 @@ export type CoverageView = {
 };
 
 export type WebhookView = {
-  inbound: { id: string; brand: string; name: string; url: string; verify: string; count: string; last: string; status: "ok" | "error" }[];
+  /** PA-83: `last` is "<code> · <RFC 3339>" or "unknown"; last_at / last_code carry it (null when unknown). */
+  inbound: { id: string; brand: string; name: string; url: string; verify: string; count: string; last: string; last_at?: string | null; last_code?: number | string | null; status: "ok" | "error" }[];
   deliveries: { time: string; event: string; code: string; ms: string }[];
   tokens: { name: string; scopes: string[]; used: string; expires: string }[];
   mcp: { enabled: boolean; url: string; tools: string[]; clients: string };
@@ -1017,6 +1037,8 @@ export type GuardrailsView = {
   trend: number[][];
   /** UTC days (YYYY-MM-DD) for the real trend columns. */
   trend_days?: string[];
+  /** PA-83: the UTC midnight each trend bucket starts at (buckets are UTC days). */
+  trend_starts_at?: string[];
   events: GuardEvent[];
   counts: Record<"all" | "blocked" | "masked", number>;
   /** Real events don't keep the source text, snippet, masked text or verdict (null); detail is null with no events. */
@@ -1043,7 +1065,8 @@ export type ProfileView = {
     mfa_enabled: boolean | null;
     org_rule: string | null;
     factors: { kind: "passkey" | "totp" | "recovery"; name: string; sub: string }[] | null;
-    sessions: { id: string; device: string | null; sub: string; current?: boolean }[];
+    /** PA-83: `sub` is "signed in <t> · expires <t>"; signed_in_at (null when not recorded) and expires_at carry it. */
+    sessions: { id: string; device: string | null; sub: string; current?: boolean; signed_in_at?: string | null; expires_at?: string }[];
     tokens: string;
   };
   unavailable: Unavailable;
@@ -1147,7 +1170,7 @@ export type CommandItem = {
 export type ModelAdminView = {
   providers: { brand: string; name: string; api: string; models: number; status: "ok" | "unverified" | "error" }[];
   items: (ModelInfo & { used_by: string; scope: string; status: "ok" | "unverified"; is_default?: boolean })[];
-  detail: { model: string; api_chain: { api: string; note: string }[]; mapping: { level: string; param: string; is_default?: boolean }[]; checks: string[]; roles: string; agents: string; limits: string };
+  detail: { model: string; api_chain: { api: string; note: string }[]; mapping: { level: string; param: string; is_default?: boolean }[]; checks: string[]; roles: string; agents: string; limits: string; /** PA-83: the last check (null when none in this process); not shown yet. */ checked_at?: string | null };
 };
 
 /* ---------------- v4: generic canvases ---------------- */
@@ -1211,7 +1234,8 @@ export type TraceList = {
   colors: Record<string, string>;
   facets: TraceFacet[] | null;
   views: { id: string; label: string; count?: number | null; query: string }[];
-  histogram: { counts: [number, number][]; axis: string[] } | null;
+  /** PA-83: `axis_times` are the bucket starts, one per `axis` label. */
+  histogram: { counts: [number, number][]; axis: string[]; axis_times?: string[] } | null;
   scatter: { x: number; y: number; error: boolean; id?: string }[] | null;
   items: TraceRow[] | null;
   partial?: boolean;

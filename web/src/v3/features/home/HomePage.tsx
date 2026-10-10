@@ -220,7 +220,11 @@ export default function HomePage() {
                       {a.alert_state === "resolved" && <Badge>{tx("已恢复", "Recovered")}</Badge>}
                     </Row>
                     <span>{a.symptom}</span>
-                    <Muted>{when.text(a.meta)}</Muted>
+                    <Muted>
+                      {a.meta
+                        ? when.withAt(a.meta, a.at)
+                        : a.at && (a.alert_state === "firing" ? tx("已入库告警 · {t}", "Stored alert · {t}", { t: when.at(a.at) }) : tx("已入库事件 · {t}", "Stored incident · {t}", { t: when.at(a.at) }))}
+                    </Muted>
                   </div>
                   <div className="v3-col" style={{ alignItems: "flex-end", gap: 6 }}>
                     {a.ai === "done" && (
@@ -359,7 +363,7 @@ export default function HomePage() {
                     <span className="ellipsis grow" style={{ fontWeight: 500 }}>
                       {r.title}
                     </span>
-                    <Muted>{when.text(r.meta)}</Muted>
+                    <Muted>{when.withAt(r.meta, r.at)}</Muted>
                   </a>
                 </li>
               ))}

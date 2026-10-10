@@ -192,9 +192,9 @@ export default function MappingPage() {
                           </Btn>
                         ) : (
                           <Muted size={11.5}>
-                            {r.save?.unavailable_reason === "registry_cutover"
-                              ? tx("来源登记切换中，暂时只读", "Read-only while sources move to the new registry")
-                              : r.save?.unavailable_reason ?? tx("只能在配置里改", "Change it in configuration")}
+                            {r.save?.unavailable_reason === "ambiguous_targets"
+                              ? tx("登记了多个目标，暂时不能编辑", "More than one target is registered; can't be edited")
+                              : tx("只能在配置里改", "Change it in configuration")}
                           </Muted>
                         )}
                       </td>

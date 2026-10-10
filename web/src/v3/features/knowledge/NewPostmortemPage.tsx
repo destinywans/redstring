@@ -10,7 +10,8 @@ import { useWhen } from "../../ui/when";
 
 type Candidate = { id: string; title: string; severity: Severity; resolved: string; duration: string; evidence: number };
 type Draft = {
-  incident: { id: string; title: string; severity: Severity; window: string; duration: string };
+  /** PA-83: started_at / closed_at carry the times inside `window`. */
+  incident: { id: string; title: string; severity: Severity; window: string; duration: string; started_at?: string | null; closed_at?: string | null };
   sections: { key: string; title: string; text: string }[];
   timeline: { at: string; text: string; tone: Tone }[];
   actions: { text: string; owner: string; due: string }[];
@@ -86,7 +87,12 @@ export default function NewPostmortemPage() {
                   <Badge tone="ok">{tx("已解决", "Resolved")}</Badge>
                 </Row>
                 <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{data.incident.title}</span>
-                <Muted size={11.5}>{tx("{w} · 持续 {d}", "{w} · {d}", { w: data.incident.window, d: data.incident.duration })}</Muted>
+                <Muted size={11.5}>{tx("{w} · 持续 {d}", "{w} · {d}", {
+                    w: data.incident.started_at
+                      ? `${when.at(data.incident.started_at)} – ${data.incident.closed_at ? (when.date(data.incident.closed_at) === when.date(data.incident.started_at) ? when.time(data.incident.closed_at) : when.at(data.incident.closed_at)) : "—"}`
+                      : data.incident.window,
+                    d: data.incident.duration,
+                  })}</Muted>
               </div>
             )}
             <Col gap={6}>

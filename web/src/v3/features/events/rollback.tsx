@@ -9,11 +9,13 @@ import "./rollback.css";
 
 /* Shared pieces of the Kubernetes rollback flow (PA-08, approved design board; contract docs/api/v3-rollback.md). */
 
-/** Service IDs are base64url("application\0environment"); sample data uses plain service names. */
-export const appOfService = (serviceId: string) => (API_MODE === "mock" ? serviceId : serviceParts(serviceId)?.application ?? null);
-export const envOfService = (serviceId: string) => (API_MODE === "mock" ? null : serviceParts(serviceId)?.environment ?? null);
+/**
+ * Service IDs are base64url("application\0environment") (rollback_suggestion.service_id uses the same form). The
+ * sample catalog still keys services by name, so in sample mode a plain name stands for its own application.
+ */
+export const appOfService = (serviceId: string) => serviceParts(serviceId)?.application ?? (API_MODE === "mock" ? serviceId : null);
+export const envOfService = (serviceId: string) => serviceParts(serviceId)?.environment ?? null;
 export function serviceIdOf(applicationId: string, environmentId: string) {
-  if (API_MODE === "mock") return applicationId;
   const raw = `${applicationId}\u0000${environmentId}`;
   return btoa(String.fromCharCode(...new TextEncoder().encode(raw)))
     .replace(/\+/g, "-")

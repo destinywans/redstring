@@ -349,7 +349,8 @@ const badRelease = {
         },
         {
           type: "rollback_suggestion",
-          service_id: "checkout-api",
+          // Encoded service ID, as the real suggestion carries it (base64url("checkout-api\0prod")).
+          service_id: "Y2hlY2tvdXQtYXBpAHByb2Q",
           workload: "aiops-lab/checkout-api",
           from_revision: "7",
           target_revision: "6",

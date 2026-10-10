@@ -2,6 +2,12 @@
 import { mock, MockError } from "../router";
 import { l } from "../../i18n";
 import { at } from "../time";
+import { serviceParts } from "../../api/ids";
+
+/** Encoded service ID as the real API uses it: base64url("application\0environment"). */
+export const CHECKOUT_SERVICE_ID = "Y2hlY2tvdXQtYXBpAHByb2Q";
+/** The sample catalog keys services by name; encoded IDs resolve to their application. */
+const keyOf = (id: string) => serviceParts(id)?.application ?? id;
 
 const P = (zh: string, en: string) => l(zh, en);
 const D7 = "9f2a6c1e5b8d4f3a7c2e9b1d6a4f8c3e5b7d9a2c4e6f8b1d3a5c7e9f2b4d6a8c";
@@ -11,8 +17,8 @@ const IMAGE = "aiops-test/api:1.4.2";
 const plan = { observation_seconds: 300, request_rate_query_id: "request_rate", error_ratio_query_id: "error_rate", sample_age_query_id: "sample_age", max_error_ratio: 0.02, min_request_rate: 0.2 };
 const FAULT = '{"http_error_ratio":{"/checkout":0.5}}';
 
-const candidates = () => ({
-  service_id: "checkout-api",
+const candidates = (serviceId = CHECKOUT_SERVICE_ID) => ({
+  service_id: serviceId,
   application_id: "checkout-api",
   environment_id: "prod",
   workload: { connector_id: "kubernetes", namespace: "aiops-lab", deployment: "checkout-api", uid: "5d1c2e7a-8b3f-4c9d-a1e6-7f2b9c4d8e31", paused: false, current_revision: "7", current_template_digest: D7, replicas: { desired: 2, updated: 2, available: 2 } },
@@ -54,9 +60,10 @@ const BLOCKED: Record<string, string> = {
   "search-api": "executor_not_ready",
 };
 mock("GET", "/services/:id/rollback-candidates", ({ params }) => {
-  if (params.id === "checkout-api") return candidates();
-  if (params.id === "notification-svc") throw new MockError(503, "workload_unavailable", "cluster unreachable");
-  return { ...candidates(), service_id: params.id, application_id: params.id, workload: null, verification: null, candidates: [], blocked_reason: BLOCKED[params.id] ?? "workload_not_configured" };
+  const key = keyOf(params.id);
+  if (key === "checkout-api") return candidates(params.id);
+  if (key === "notification-svc") throw new MockError(503, "workload_unavailable", "cluster unreachable");
+  return { ...candidates(params.id), application_id: key, workload: null, verification: null, candidates: [], blocked_reason: BLOCKED[key] ?? "workload_not_configured" };
 });
 let seq = 7;
 mock("POST", "/rollback-proposals", ({ body }) => {
@@ -93,7 +100,7 @@ export const rollbackProposal = (id: string) => ({
   execution: null,
   action_kind: "kubernetes.deployment.rollback",
   rollback: {
-    service_id: "checkout-api",
+    service_id: CHECKOUT_SERVICE_ID,
     application_id: "checkout-api",
     environment_id: "prod",
     namespace: "aiops-lab",

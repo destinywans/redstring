@@ -57,7 +57,10 @@ func labInput() ImportInput {
 			ResourceID: resource, QueryID: "dashboard"}] = `label_replace(sum(rate(lab_http_requests_total{application="` + app + `"}[100s])),"panel","requests_total","","")`
 	}
 	return ImportInput{Tier: "production", Environments: []string{"prod"}, Telemetry: labTelemetry(), Catalog: catalog,
-		Approvals: NewApprovals(nil)}
+		Approvals: NewApprovals(nil), Workloads: map[string]LegacyWorkload{
+			"lab-kubernetes": {Endpoint: "https://127.0.0.1:16443/", Namespace: "aiops-lab", Deployment: "checkout-api",
+				Token: true, CustomCA: true, VerificationQueries: []string{"requests_total", "errors_total", "sample_age"}},
+		}}
 }
 
 func labState() State {
@@ -83,6 +86,8 @@ func labState() State {
 			binding("app-lab-payments", "tempo", "lab-order"),
 			binding("app-lab-search", "elasticsearch", "lab-search"),
 			binding("app-lab-search", "gitlab", "group/search"),
+			{ApplicationID: "app-lab-search", EnvironmentID: "prod", Kind: "kubernetes", ConnectorID: "retired-kubernetes", Resource: "deployment"},
+			{ApplicationID: "demo", EnvironmentID: "prod", Kind: "kubernetes", ConnectorID: "demo-kubernetes", Resource: "deployment"},
 		},
 		Connectors: []ExistingConnector{{ID: labPrometheus, EnvironmentID: "prod", Provider: "prometheus",
 			Endpoint: "http://127.0.0.1:19090", AuthMethod: "none", OptionsValid: true}},

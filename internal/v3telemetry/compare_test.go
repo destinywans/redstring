@@ -3,6 +3,7 @@ package v3telemetry
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/wans/aiops-canvas/internal/connectors"
@@ -69,5 +70,37 @@ func TestCompareStates(t *testing.T) {
 	delete(promSource.Queries, "request_rate")
 	if got := Compare(prom, true, promSource, nil); !reflect.DeepEqual(got.Reasons, []string{"query_changed:error_ratio", "query_missing:request_rate"}) {
 		t.Fatalf("query reasons: %+v", got)
+	}
+}
+
+func TestCompareWorkloadStates(t *testing.T) {
+	legacy := LegacyWorkload{Endpoint: "https://127.0.0.1:16443/", Namespace: "aiops-lab", Deployment: "checkout-api", Token: true}
+	unified := Workload{Endpoint: "https://127.0.0.1:16443", AuthMethod: "bearer",
+		Scope: WorkloadScope{Namespace: "aiops-lab", Deployment: "checkout-api"}}
+	moved := unified
+	moved.Scope.Deployment = "checkout"
+	unready := unified
+	unready.NotReady = []string{"credential_missing"}
+	unscoped := unified
+	unscoped.NotReady, unscoped.Scope = []string{"scope_missing"}, WorkloadScope{}
+	for _, c := range []struct {
+		name       string
+		registered bool
+		unified    Workload
+		err        error
+		want       string
+		reasons    []string
+	}{
+		{"match", true, unified, nil, StateMatch, nil},
+		{"not ready", true, unready, nil, StateMatchNotReady, []string{"credential_missing"}},
+		{"moved", true, moved, nil, StateDiffers, []string{"scope.deployment"}},
+		{"unscoped", true, unscoped, nil, StateDiffers, []string{"scope_missing"}},
+		{"missing", true, Workload{}, ErrNotConfigured, StateMissing, nil},
+		{"unregistered", false, unified, nil, StateLegacyUnregistered, nil},
+	} {
+		got := compareWorkload(legacy, c.registered, c.unified, c.err)
+		if got.State != c.want || strings.Join(got.Reasons, ",") != strings.Join(c.reasons, ",") {
+			t.Fatalf("%s: %+v", c.name, got)
+		}
 	}
 }

@@ -4584,14 +4584,21 @@
       "get": {
         "summary": "Read persisted execution and recovery evidence",
         "operationId": "get_executions_id",
-        "description": "Minimum role: viewer with scoped proposals.view. V3 instance and environment scope apply. Reads the legacy execution, its approved action plan and investigation, up to 100 persisted events, optional recovery summary and optional closed report. Current application, environment and owner-team grants are checked. status_source distinguishes the authoritative legacy status from any missing derived evidence. proposal_id is null because no V3 proposal link exists. Steps contain persisted event sequence, type and timestamp only; an editorial timeline is not fabricated. Chart arrays, thresholds, report severity and action items have no producer and are null with missing reasons. A succeeded status is the legacy executor result and is not by itself proof that a report exists or is published. The frozen frontend Execution DTO expects populated mock fields and requires a null-aware adapter.",
+        "description": "Minimum role: viewer with scoped proposals.view. V3 instance and environment scope apply. Reads the legacy execution, its approved action plan and investigation, up to 100 persisted events, optional recovery summary and optional closed report. Current application, environment and owner-team grants are checked. status_source distinguishes the authoritative legacy status from any missing derived evidence. proposal_id is null because no V3 proposal link exists. Steps contain persisted event sequence, type and timestamp only; an editorial timeline is not fabricated. Chart arrays, thresholds, report severity and action items have no producer and are null with missing reasons. A succeeded status is the legacy executor result and is not by itself proof that a report exists or is published. The frozen frontend Execution DTO expects populated mock fields and requires a null-aware adapter. A V3 rollback execution (kind kubernetes.deployment.rollback) is projected from the rollout ledger with its timeline, rollout readback and verification samples (PA-08).",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/V3ExecutionDetail"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/V3ExecutionDetail"
+                    },
+                    {
+                      "$ref": "#/components/schemas/V3RolloutExecutionDetail"
+                    }
+                  ]
                 }
               }
             }
@@ -60314,6 +60321,251 @@
         ]
       }
     },
+    "/services/{id}/rollback-candidates": {
+      "get": {
+        "summary": "List revisions a Deployment can be rolled back to",
+        "operationId": "get_services_id_rollback_candidates",
+        "description": "Minimum role: viewer with scoped resources.view. V3 instance and environment scope apply. Requires one selected environment equal to the service environment, current resources.view on the application or its owner team. Resolves the single workload target of the service in the source registry and reads the Deployment and its ReplicaSets with the connector read credential. Candidates are the ReplicaSet revisions the Deployment still owns, newest first, each with its differences from the current Pod template; the current revision is listed with current true and is not proposable. A missing target, a disallowed rollback, a missing write approval or a paused Deployment are reported in blocked_reason with an empty candidate list; an unreadable cluster is 503 workload_unavailable. No expression, token or Secret value is returned (PA-08).",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3RollbackCandidates"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "services"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/rollback-proposals": {
+      "post": {
+        "summary": "Propose a Deployment rollback for two-person approval",
+        "operationId": "post_rollback_proposals",
+        "description": "Minimum role: operator with scoped resources.change and proposals.change. V3 instance and environment scope apply. Requires a human session, one selected environment equal to the service environment, an Idempotency-Key, and current resources.view, resources.change and proposals.change on the application or its owner team; the investigation must belong to the same application and environment. The server re-reads the Deployment, requires the expected current template, a candidate revision other than the current one, a catalog scope that allows rollback and an approved write binding, then stores an immutable action snapshot and the review content in one transaction with an audit row. Approval is the existing two-person passkey flow. Replaying the same key and body returns 200 with the same proposal, even after the Deployment changed; a different body is 409 idempotency_conflict. Without resources.view the service is 404; viewing it without the change grants is 403 forbidden. 409 rollback_target_changed when the Deployment changed since the candidates were read.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "proposal_id": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending"
+                      ]
+                    },
+                    "action_kind": {
+                      "type": "string",
+                      "enum": [
+                        "kubernetes.deployment.rollback"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "proposal_id",
+                    "status",
+                    "action_kind"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "rollback-proposals"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3RollbackProposalCreate"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    },
     "/security": {
       "get": {
         "operationId": "get_v3_security",
@@ -79004,6 +79256,22 @@
                 "type": "null"
               }
             ]
+          },
+          "action_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rollback": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3ProposalRollback"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -79026,7 +79294,9 @@
           "checklist",
           "requirement",
           "discussion",
-          "execution"
+          "execution",
+          "action_kind",
+          "rollback"
         ]
       },
       "V3ProposalApprovalChallenge": {
@@ -89027,6 +89297,661 @@
           "application_id",
           "environment_id",
           "status"
+        ]
+      },
+      "V3RollbackChange": {
+        "type": "object",
+        "properties": {
+          "container": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "image",
+              "env",
+              "resources",
+              "command",
+              "other"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Environment variable name for field env"
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value_hidden": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "container",
+          "field",
+          "name",
+          "from",
+          "to",
+          "value_hidden"
+        ]
+      },
+      "V3RollbackContainer": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "image"
+        ]
+      },
+      "V3RollbackVerificationPlan": {
+        "type": "object",
+        "properties": {
+          "observation_seconds": {
+            "type": "integer",
+            "minimum": 60
+          },
+          "request_rate_query_id": {
+            "type": "string"
+          },
+          "error_ratio_query_id": {
+            "type": "string"
+          },
+          "sample_age_query_id": {
+            "type": "string"
+          },
+          "max_error_ratio": {
+            "type": "number"
+          },
+          "min_request_rate": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "observation_seconds",
+          "request_rate_query_id",
+          "error_ratio_query_id",
+          "sample_age_query_id",
+          "max_error_ratio",
+          "min_request_rate"
+        ]
+      },
+      "V3RollbackCandidate": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "change_cause": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current": {
+            "type": "boolean"
+          },
+          "containers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3RollbackContainer"
+            }
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3RollbackChange"
+            }
+          },
+          "template_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "created_at",
+          "change_cause",
+          "current",
+          "containers",
+          "changes",
+          "template_digest"
+        ]
+      },
+      "V3RollbackCandidates": {
+        "type": "object",
+        "properties": {
+          "service_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "workload": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "connector_id": {
+                    "type": "string"
+                  },
+                  "namespace": {
+                    "type": "string"
+                  },
+                  "deployment": {
+                    "type": "string"
+                  },
+                  "uid": {
+                    "type": "string"
+                  },
+                  "paused": {
+                    "type": "boolean"
+                  },
+                  "current_revision": {
+                    "type": "string"
+                  },
+                  "current_template_digest": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "replicas": {
+                    "type": "object",
+                    "properties": {
+                      "desired": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "updated": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "available": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "desired",
+                      "updated",
+                      "available"
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "connector_id",
+                  "namespace",
+                  "deployment",
+                  "uid",
+                  "paused",
+                  "current_revision",
+                  "current_template_digest",
+                  "replicas"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verification": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3RollbackVerificationPlan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3RollbackCandidate"
+            }
+          },
+          "blocked_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "workload_not_configured",
+              "rollback_not_allowed",
+              "write_not_approved",
+              "deployment_paused",
+              "credential_unavailable",
+              "workload_unavailable",
+              "executor_not_ready"
+            ]
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "service_id",
+          "application_id",
+          "environment_id",
+          "workload",
+          "verification",
+          "candidates",
+          "blocked_reason",
+          "observed_at"
+        ]
+      },
+      "V3RollbackProposalCreate": {
+        "type": "object",
+        "properties": {
+          "investigation_id": {
+            "type": "string"
+          },
+          "service_id": {
+            "type": "string"
+          },
+          "target_revision": {
+            "type": "string"
+          },
+          "expected_template_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "current_template_digest from GET rollback-candidates; a change since then is 409"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "investigation_id",
+          "service_id",
+          "target_revision",
+          "expected_template_digest",
+          "reason"
+        ]
+      },
+      "V3ProposalRollback": {
+        "type": "object",
+        "properties": {
+          "service_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "deployment": {
+            "type": "string"
+          },
+          "from_revision": {
+            "type": "string"
+          },
+          "target_revision": {
+            "type": "string"
+          },
+          "containers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3RollbackContainer"
+            }
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3RollbackChange"
+            }
+          },
+          "verification": {
+            "$ref": "#/components/schemas/V3RollbackVerificationPlan"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "service_id",
+          "application_id",
+          "environment_id",
+          "namespace",
+          "deployment",
+          "from_revision",
+          "target_revision",
+          "containers",
+          "changes",
+          "verification",
+          "reason"
+        ]
+      },
+      "V3RolloutVerificationSample": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "request_rate": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "error_ratio": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "sample_age_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "at",
+          "request_rate",
+          "error_ratio",
+          "sample_age_seconds",
+          "ok"
+        ]
+      },
+      "V3RolloutExecutionDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "kubernetes.deployment.rollback"
+            ]
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "investigation_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "reserved",
+              "dispatching",
+              "unknown",
+              "applied",
+              "rolling_out",
+              "verifying",
+              "succeeded",
+              "failed",
+              "needs_attention"
+            ]
+          },
+          "status_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "drift",
+              "approval_invalid",
+              "authorization_changed",
+              "binding_changed",
+              "write_forbidden",
+              "write_unavailable",
+              "reconcile_unknown",
+              "rollout_timeout",
+              "progress_deadline_exceeded",
+              "verification_failed",
+              "verification_unavailable",
+              "target_changed"
+            ]
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "approvers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "verified_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "verified_at"
+              ]
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "namespace": {
+                "type": "string"
+              },
+              "deployment": {
+                "type": "string"
+              },
+              "from_revision": {
+                "type": "string"
+              },
+              "target_revision": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "namespace",
+              "deployment",
+              "from_revision",
+              "target_revision"
+            ]
+          },
+          "timeline": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "state": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "state",
+                "at"
+              ]
+            }
+          },
+          "rollout": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "desired": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "updated": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "available": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "current_revision": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "observed_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "desired",
+                  "updated",
+                  "available",
+                  "current_revision",
+                  "observed_at"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verification": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "plan": {
+                    "$ref": "#/components/schemas/V3RollbackVerificationPlan"
+                  },
+                  "started_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "finished_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "result": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "passed",
+                      "failed",
+                      "unavailable"
+                    ]
+                  },
+                  "samples": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/V3RolloutVerificationSample"
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "plan",
+                  "started_at",
+                  "finished_at",
+                  "result",
+                  "samples"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "proposal_id",
+          "investigation_id",
+          "application_id",
+          "environment_id",
+          "status",
+          "status_reason",
+          "approved_at",
+          "approvers",
+          "created_at",
+          "updated_at",
+          "target",
+          "timeline",
+          "rollout",
+          "verification"
         ]
       },
       "SecuritySSOProvider": {

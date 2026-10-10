@@ -2,6 +2,8 @@ package v3integrations
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -87,6 +89,21 @@ func (p Prober) Check(ctx context.Context, provider, rawURL, authMethod, credent
 	client := p.Client
 	if client == nil {
 		client = &http.Client{}
+	}
+	// A cluster API usually has a private CA, kept next to the token in the
+	// same approved secret (field "ca").
+	if provider == "kubernetes" && base.Scheme == "https" {
+		if siblings, ok := p.Resolver.(SiblingResolver); ok {
+			if pem, err := siblings.ResolveSibling(ctx, credentialRef, "ca"); err == nil && pem != "" {
+				pool := x509.NewCertPool()
+				if !pool.AppendCertsFromPEM([]byte(pem)) {
+					return ProbeResult{}, ErrCredentialUnavailable
+				}
+				transport := http.DefaultTransport.(*http.Transport).Clone()
+				transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+				client = &http.Client{Transport: transport, Timeout: client.Timeout}
+			}
+		}
 	}
 	// Preserve a caller's transport for controlled tests, but never let it
 	// redirect a credentialed probe to an endpoint outside its binding.

@@ -181,6 +181,11 @@ func (s *Service) approvalWorkflowReady(ctx context.Context, kind, environmentID
 			return v3alertmanager.ErrNotConfigured
 		}
 		return s.AlertRuleEnableReady(ctx, environmentID)
+	case RollbackActionKind:
+		if s.RollbackReady == nil {
+			return v3alertmanager.ErrNotConfigured
+		}
+		return s.RollbackReady(ctx, environmentID)
 	default:
 		return v3alertmanager.ErrNotConfigured
 	}

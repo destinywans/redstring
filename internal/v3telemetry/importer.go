@@ -144,7 +144,28 @@ type ImportInput struct {
 	Telemetry    connectors.TelemetryConfig
 	Catalog      Catalog
 	Approvals    Approvals
+	// Workloads are the AIOPS_KUBERNETES_REGISTRY entries by registration ID.
+	Workloads map[string]LegacyWorkload
 }
+
+// LegacyWorkload is one AIOPS_KUBERNETES_REGISTRY entry, reduced to what the
+// import maps. File paths are not carried: the token and the CA move to Vault
+// (the CA in the "ca" field next to the token).
+type LegacyWorkload struct {
+	Endpoint   string
+	Namespace  string
+	Deployment string
+	Token      bool
+	CustomCA   bool
+	Demo       bool
+	// VerificationQueries are the legacy counter and freshness query IDs.
+	// Their meaning differs from the rollback verification (rate, ratio,
+	// age), so they are listed for review and never converted.
+	VerificationQueries []string
+}
+
+// demoKubernetesID is the built-in demo connector, removed in P4.
+const demoKubernetesID = "demo-kubernetes"
 
 // Plan is the reviewed output of a dry run. Applying it requires the same
 // digest to be recomputed from the then-current state.
@@ -160,6 +181,9 @@ type Plan struct {
 	Catalog            CatalogFile         `json:"catalog"`
 	Deferred           []PlanIssue         `json:"deferred"`
 	Conflicts          []PlanIssue         `json:"conflicts"`
+	// Reviews are imported bindings that need a deployer decision before
+	// they do everything the legacy registration did (a rollback policy).
+	Reviews []PlanIssue `json:"reviews"`
 }
 
 type PlanSummary struct {
@@ -167,6 +191,7 @@ type PlanSummary struct {
 	Imported          int `json:"imported"`
 	Deferred          int `json:"deferred"`
 	Conflicts         int `json:"conflicts"`
+	Reviews           int `json:"reviews"`
 	ConnectorsCreated int `json:"connectors_created"`
 	TargetsCreated    int `json:"targets_created"`
 	CatalogAdded      int `json:"catalog_entries_added"`
@@ -208,6 +233,8 @@ type PlannedCredential struct {
 	Endpoint      string `json:"endpoint"`
 	AuthMethod    string `json:"auth_method"`
 	Approved      bool   `json:"approved"`
+	// CAField asks for the cluster CA in the "ca" field of the same secret.
+	CAField bool `json:"ca_field,omitempty"`
 }
 
 type PlanIssue struct {
@@ -238,7 +265,7 @@ func importID(parts ...string) string {
 func BuildPlan(input ImportInput, state State) Plan {
 	plan := Plan{Version: 1, Tier: input.Tier, Environments: append([]string(nil), input.Environments...),
 		Connectors: []PlannedConnector{}, Targets: []PlannedTarget{}, CredentialBindings: []PlannedCredential{},
-		Deferred: []PlanIssue{}, Conflicts: []PlanIssue{}}
+		Deferred: []PlanIssue{}, Conflicts: []PlanIssue{}, Reviews: []PlanIssue{}}
 	sort.Strings(plan.Environments)
 	catalog := input.Catalog.Clone()
 	bindings := append([]LegacyBinding(nil), state.Bindings...)
@@ -269,22 +296,140 @@ func BuildPlan(input ImportInput, state State) Plan {
 	for _, b := range bindings {
 		plan.Summary.Bindings++
 		issue := PlanIssue{ApplicationID: b.ApplicationID, EnvironmentID: b.EnvironmentID, Kind: b.Kind, Resource: b.Resource}
-		surface, telemetry := SurfaceOf(b.Kind)
-		if !telemetry {
-			issue.Reasons = []string{"not_telemetry"}
-			if b.Kind == "kubernetes" {
-				// Workload bindings carry rollback capability; they move
-				// together with the recovery path in P3.
-				issue.Reasons = []string{"kubernetes_deferred_to_p3"}
-			}
-			plan.Deferred = append(plan.Deferred, issue)
-			plan.Summary.Deferred++
-			continue
-		}
 		conflict := func(reasons ...string) {
 			issue.Reasons = reasons
 			plan.Conflicts = append(plan.Conflicts, issue)
 			plan.Summary.Conflicts++
+		}
+		deferIssue := func(reason string) {
+			issue.Reasons = []string{reason}
+			plan.Deferred = append(plan.Deferred, issue)
+			plan.Summary.Deferred++
+		}
+		if b.Kind == WorkloadProvider {
+			legacy, registered := input.Workloads[b.ConnectorID]
+			switch {
+			case b.ConnectorID == demoKubernetesID || (registered && legacy.Demo):
+				deferIssue("demo_connector_not_imported")
+				continue
+			case !registered:
+				conflict("resource_not_registered")
+				continue
+			}
+			info, _ := v3integrations.Provider(WorkloadProvider)
+			endpoint := canonicalEndpoint(legacy.Endpoint)
+			var reasons []string
+			if !v3integrations.ValidEndpoint(endpoint) {
+				reasons = append(reasons, "endpoint_not_allowed")
+			}
+			if !legacy.Token {
+				reasons = append(reasons, "auth_method_unsupported")
+			}
+			if !kubernetesName.MatchString(legacy.Namespace) || !kubernetesName.MatchString(legacy.Deployment) {
+				reasons = append(reasons, "workload_name_invalid")
+			}
+			if len(reasons) > 0 {
+				conflict(reasons...)
+				continue
+			}
+			connector := PlannedConnector{Action: actionCreate, EnvironmentID: b.EnvironmentID, Provider: WorkloadProvider,
+				Name: info.Name, Category: info.Category, Endpoint: endpoint, AuthMethod: "bearer", Tools: []string{WorkloadTool}}
+			if existing, found := connectorsByKey[b.EnvironmentID+"\x00"+WorkloadProvider+"\x00"+endpoint]; found {
+				if existing.AuthMethod != "bearer" {
+					reasons = append(reasons, "existing_connector_auth_differs")
+				}
+				connector.Action, connector.ID, connector.Name, connector.Endpoint = actionReuse, existing.ID, "", existing.Endpoint
+				connector.Category, connector.Tools = "", nil
+			} else {
+				connector.ID = importID("connector", b.EnvironmentID, WorkloadProvider, endpoint)
+				if connectorIDs[connector.ID] {
+					reasons = append(reasons, "connector_id_collision")
+				}
+			}
+			// One workload per service environment (the resolver refuses
+			// more), keyed in the catalog by the Deployment name.
+			target := PlannedTarget{Action: actionCreate, ApplicationID: b.ApplicationID, EnvironmentID: b.EnvironmentID,
+				ConnectorID: connector.ID, TargetKind: WorkloadTargetKind, ExternalID: legacy.Deployment, LegacyResource: b.Resource}
+			var current []ExistingTarget
+			for _, t := range state.Targets {
+				if t.TargetKind == WorkloadTargetKind && t.ApplicationID == b.ApplicationID && t.EnvironmentID == b.EnvironmentID {
+					current = append(current, t)
+				}
+			}
+			switch {
+			case len(current) > 1:
+				reasons = append(reasons, "existing_targets_ambiguous")
+			case len(current) == 1 && current[0].ConnectorID != connector.ID:
+				reasons = append(reasons, "existing_target_other_source")
+			case len(current) == 1:
+				target.Action, target.ID, target.ExternalID = actionReuse, current[0].ID, current[0].ExternalID
+			default:
+				target.ID = importID("target", b.EnvironmentID, connector.ID, WorkloadTargetKind, target.ExternalID)
+				if owner, taken := owners[b.EnvironmentID+"\x00"+connector.ID+"\x00"+WorkloadTargetKind+"\x00"+target.ExternalID]; taken && owner != b.ApplicationID {
+					reasons = append(reasons, "target_owned_by_other_service")
+				}
+				if targetIDs[target.ID] || plannedTargets[target.ID] {
+					reasons = append(reasons, "target_id_collision")
+				}
+			}
+			key := ScopeKey{ConnectorID: connector.ID, ApplicationID: b.ApplicationID, EnvironmentID: b.EnvironmentID, ResourceID: target.ExternalID}
+			var scope *WorkloadScope
+			if current, exists := catalog.Workloads[key]; exists {
+				if current.Namespace != legacy.Namespace || current.Deployment != legacy.Deployment {
+					reasons = append(reasons, "scope_conflict")
+				}
+			} else {
+				// Rollback stays off until the deployer reviews a policy.
+				scope = &WorkloadScope{Namespace: legacy.Namespace, Deployment: legacy.Deployment}
+			}
+			if len(reasons) > 0 {
+				conflict(reasons...)
+				continue
+			}
+			plan.Summary.Imported++
+			if !planned[connector.ID] {
+				planned[connector.ID] = true
+				plan.Connectors = append(plan.Connectors, connector)
+				if connector.Action == actionCreate {
+					plan.Summary.ConnectorsCreated++
+					connectorsByKey[b.EnvironmentID+"\x00"+WorkloadProvider+"\x00"+endpoint] = ExistingConnector{ID: connector.ID,
+						EnvironmentID: b.EnvironmentID, Provider: WorkloadProvider, Endpoint: endpoint, AuthMethod: "bearer", OptionsValid: true}
+				}
+			}
+			if !plannedTargets[target.ID] {
+				plannedTargets[target.ID] = true
+				plan.Targets = append(plan.Targets, target)
+				if target.Action == actionCreate {
+					plan.Summary.TargetsCreated++
+					owners[b.EnvironmentID+"\x00"+connector.ID+"\x00"+WorkloadTargetKind+"\x00"+target.ExternalID] = b.ApplicationID
+				}
+			}
+			if scope != nil {
+				catalog.Workloads[key] = *scope
+				plan.Summary.CatalogAdded++
+			}
+			if !credentials[connector.ID] {
+				credentials[connector.ID] = true
+				plan.CredentialBindings = append(plan.CredentialBindings, PlannedCredential{EnvironmentID: b.EnvironmentID,
+					ConnectorID: connector.ID, Provider: WorkloadProvider, Endpoint: endpoint, AuthMethod: "bearer",
+					Approved: input.Approvals.AnyFor(input.Tier, b.EnvironmentID, connector.ID, WorkloadProvider, endpoint),
+					CAField:  legacy.CustomCA})
+			}
+			if catalog.Workloads[key].Rollback == nil {
+				review := issue
+				review.Reasons = []string{"rollback_policy_requires_review"}
+				for _, id := range legacy.VerificationQueries {
+					review.Reasons = append(review.Reasons, "legacy_verification_query:"+id)
+				}
+				plan.Reviews = append(plan.Reviews, review)
+				plan.Summary.Reviews++
+			}
+			continue
+		}
+		surface, telemetry := SurfaceOf(b.Kind)
+		if !telemetry {
+			deferIssue("not_telemetry")
+			continue
 		}
 		if perSurface[b.ApplicationID+"\x00"+b.EnvironmentID+"\x00"+string(surface)] > 1 {
 			conflict("surface_ambiguous")

@@ -1,6 +1,6 @@
 # Kubernetes 回滚执行器与连接器登记切换设计（PA-08、PA-19 P3/P4）
 
-**状态**：2026-10-10 用户批准，决定见第 8 节。分两阶段交付：第一阶段为 P3 的 Kubernetes 部分和 PA-08 端到端；第二阶段为 P3 其余读取方、POST 与 8 KiB、默认切换、覆盖度，然后是 P4。
+**状态**：2026-10-10 用户批准，决定见第 8 节。分两阶段交付：第一阶段为 P3 的 Kubernetes 部分和 PA-08 端到端；第二阶段为 P3 其余读取方、POST 与 8 KiB、默认切换、覆盖度，然后是 P4。第一阶段代码已在分支实现并通过隔离库测试，实施中的调整见第 9 节；实验和验收实例上的端到端验收（第 6 节第 2–6 步）尚未执行。
 
 **来源**：
 - 生产验收问题 PA-08（WAN-305）：V3 执行器只能执行静默，不能做 Kubernetes 回滚。
@@ -108,7 +108,7 @@
 
 - **连接器类型** `kubernetes`：
   - 端点为 API Server 的 HTTPS 地址；
-  - 认证方式 `bearer`，CA 引用名放在 `options.ca_ref`；
+  - 认证方式 `bearer`；CA 放在读令牌所在 Vault 条目的 `ca` 字段（实施调整，见第 9 节），不用 `options.ca_ref`；
   - 探测只做只读请求：`GET /version`，以及读取目录里登记的 Deployment。
   - 这个连接器的凭据**只用于读**，第 5.4 节的写凭据另外登记。
 - **目标类型** `workload`：`external_id` 是目录键，不是资源名。
@@ -410,6 +410,27 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 
 前端第 5.9 节的五处界面先出设计图，所以候选列表、提案、执行投影和 `content.rollback` 的接口契约要先定下来、保持稳定。
 
+## 9. 第一阶段实施记录（2026-10-10）
+
+代码在 `claude/nifty-raman-d45327`：`17935fe`（P3 Kubernetes 基础）、`a5ee34b`、`771e82a`、`c731e5a`、`cc30cda`。以下是相对前文设计的调整，均不改变第 8 节的决定。
+
+- **CA 的位置**：不新增 `options.ca_ref`。集群 CA 放在读令牌同一 Vault 条目的 `ca` 字段：读令牌 `vault://kv/lab/k8s-reader#token`，CA 就是 `#ca`。只有读令牌已获批准时才会读 `ca`。执行器的写客户端也用这份 CA；写令牌条目不需要 `ca`。
+- **恢复验证的稳定期**：进入 `verifying` 后先有 60 秒稳定期。稳定期内的采样照常记录，但不判失败，因为服务的速率窗口里还含坏版本的流量。之后整个观察窗口内每次采样都必须达标。总时长 = 60 秒 + 观察窗口（非生产 180 秒、生产 300 秒，目录里更长的值优先）。
+- **采样方式**：每 15 秒一次，用执行器专用的只读查询路径，只能查目录里该应用和环境的已审查查询。每条查询取最近 60 秒内最后一个值，必须恰好一条序列。POST 读取随第二阶段（PA-43）一起改。
+- **滚动判断**：`ProgressDeadlineExceeded` 只在 `observedGeneration` 追上之后才算数。否则回滚一个本身卡住的发布时，旧条件会让回滚立刻失败；这与 `kubectl rollout status` 的规则一致。
+- **执行器范围**：每 5 秒轮询一次，只认领本实例层级写入批准覆盖的环境，避免共用数据库的另一层级实例误认领。认领时任何一项检查失败都直接记为 `needs_attention`，原因为 `approval_invalid`、`authorization_changed` 或 `binding_changed`，不会写集群。
+- **审批门槛**：同时满足以下几条才允许批准回滚提案，否则批准接口返回 503 `proposal_approval_unavailable`，候选接口显示 `executor_not_ready`：
+  - 执行器在运行，且最近 75 秒内有心跳；
+  - 本环境有写入批准；
+  - 写令牌能从 Vault 读到，结果缓存 15 秒。
+
+  dev 模式 Vault 重启后为空时：读令牌缺失，候选接口返回 `credential_unavailable`，提交提案返回 409；只缺写令牌时显示 `executor_not_ready`，批准被拒。执行 `init` 后最多 15 秒恢复。
+- **读不到时不下结论**：滚动阶段一直读不到 Deployment 直到超时，记为 `needs_attention/reconcile_unknown`，不记 `failed/rollout_timeout`。观察窗口结束时读不到，最多再采样 2 分钟，仍读不到则记为 `needs_attention/verification_unavailable`，不判成功。
+- **启动检查**：配置了写入批准但缺少 `AIOPS_VAULT_URL` 或 `AIOPS_VAULT_TOKEN`，或写令牌引用与某个连接器读凭据相同，服务都拒绝启动。
+- **权限码**：没有 `resources.view` 返回 404；能看服务但缺少 `resources.change` 或 `proposals.change`，返回 403。同一幂等键重放时先按键识别，即使 Deployment 已经变化（例如回滚已执行），也返回原提案。
+- **调查事件**：本阶段不往调查里追加事件。V3 没有通用的调查事件表；改调查还会推高 `updated_at`，使同一调查上的其他待批提案失效。执行结果通过提案和执行视图关联到调查（执行投影带 `investigation_id`）。
+- **导入**：Kubernetes 绑定按 3.6 节导入。演示连接器 `demo-kubernetes` 列为 `demo_connector_not_imported`。计划新增 `reviews` 段，逐个列出需要部署方审查回滚策略的工作负载，以及旧的计数查询 ID（不换算）。凭据批准带 `ca_field`，表示需要把 CA 放进 Vault 的 `ca` 字段。`compare` 也对照工作负载绑定，比较 API 地址、命名空间和 Deployment。
+
 ## 附录 A：对照前提的命令
 
 在仓库根目录，使用与验收实例相同的环境变量（`AIOPS_TELEMETRY_CONFIG`、`AIOPS_V3_SOURCE_CATALOG`、`AIOPS_KUBERNETES_REGISTRY`（如有）、数据库连接），对两个实例分别执行：
@@ -420,7 +441,7 @@ aiops connectors compare -out .local/acceptance/<实例>/registry-compare.json
 ```
 
 - `compare` 退出码 0 表示没有差异，3 表示有差异。
-- 计划里的 `conflicts` 必须为空，`deferred` 里的 `kubernetes_deferred_to_p3` 在 P3 实现前属预期。
+- 计划里的 `conflicts` 必须为空。第一阶段之后 Kubernetes 不再推迟，旧的 `kubernetes_deferred_to_p3` 不会再出现；`deferred` 里只剩演示连接器和非遥测绑定。
 - 两个命令都只读，不需要重启实例。
 
 ## 附录 B：实验集群写账号（示意，待批准后由 aiops-test 脚本管理）

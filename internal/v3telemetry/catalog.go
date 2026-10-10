@@ -34,6 +34,8 @@ type ScopeKey struct {
 type Catalog struct {
 	Queries map[v3integrations.PrometheusQueryKey]string
 	Scopes  map[ScopeKey]Scope
+	// Workloads are reviewed Kubernetes workload scopes (PA-08).
+	Workloads map[ScopeKey]WorkloadScope
 }
 
 // Scope is one provider's subset of a legacy application registration.
@@ -93,8 +95,9 @@ func scopeEntry(key ScopeKey, scope Scope) ScopeEntry {
 // CatalogFile is the private JSON file: {"queries":[...],"scopes":[...]}.
 // A file with only "queries" is the existing Prometheus query catalog.
 type CatalogFile struct {
-	Queries []QueryEntry `json:"queries"`
-	Scopes  []ScopeEntry `json:"scopes,omitempty"`
+	Queries   []QueryEntry    `json:"queries"`
+	Scopes    []ScopeEntry    `json:"scopes,omitempty"`
+	Workloads []WorkloadEntry `json:"workloads,omitempty"`
 }
 
 const (
@@ -106,7 +109,7 @@ const (
 // LoadCatalog reads the file at path; an empty path is an empty catalog.
 func LoadCatalog(path string) (Catalog, error) {
 	if path == "" {
-		return Catalog{Queries: map[v3integrations.PrometheusQueryKey]string{}, Scopes: map[ScopeKey]Scope{}}, nil
+		return Catalog{Queries: map[v3integrations.PrometheusQueryKey]string{}, Scopes: map[ScopeKey]Scope{}, Workloads: map[ScopeKey]WorkloadScope{}}, nil
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -156,6 +159,11 @@ func ParseCatalog(data []byte) (Catalog, error) {
 		}
 		out.Scopes[key] = Scope{Provider: entry.Provider, ApplicationTelemetry: entry.telemetry()}
 	}
+	workloads, err := parseWorkloads(file.Workloads, out.Queries)
+	if err != nil {
+		return Catalog{}, err
+	}
+	out.Workloads = workloads
 	return out, nil
 }
 
@@ -243,13 +251,27 @@ func (c Catalog) File() CatalogFile {
 		return a.EnvironmentID+"\x00"+a.ApplicationID+"\x00"+a.ConnectorID+"\x00"+a.ResourceID <
 			b.EnvironmentID+"\x00"+b.ApplicationID+"\x00"+b.ConnectorID+"\x00"+b.ResourceID
 	})
+	for key, scope := range c.Workloads {
+		out.Workloads = append(out.Workloads, WorkloadEntry{ConnectorID: key.ConnectorID, ApplicationID: key.ApplicationID,
+			EnvironmentID: key.EnvironmentID, ResourceID: key.ResourceID, Namespace: scope.Namespace,
+			Deployment: scope.Deployment, Rollback: scope.Rollback})
+	}
+	sort.Slice(out.Workloads, func(i, j int) bool {
+		a, b := out.Workloads[i], out.Workloads[j]
+		return a.EnvironmentID+"\x00"+a.ApplicationID+"\x00"+a.ConnectorID+"\x00"+a.ResourceID <
+			b.EnvironmentID+"\x00"+b.ApplicationID+"\x00"+b.ConnectorID+"\x00"+b.ResourceID
+	})
 	return out
 }
 
 // Clone copies the catalog so a plan can add entries without changing the
 // loaded configuration.
 func (c Catalog) Clone() Catalog {
-	out := Catalog{Queries: make(map[v3integrations.PrometheusQueryKey]string, len(c.Queries)), Scopes: make(map[ScopeKey]Scope, len(c.Scopes))}
+	out := Catalog{Queries: make(map[v3integrations.PrometheusQueryKey]string, len(c.Queries)), Scopes: make(map[ScopeKey]Scope, len(c.Scopes)),
+		Workloads: make(map[ScopeKey]WorkloadScope, len(c.Workloads))}
+	for key, value := range c.Workloads {
+		out.Workloads[key] = value
+	}
 	for key, value := range c.Queries {
 		out.Queries[key] = value
 	}

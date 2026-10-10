@@ -4,17 +4,31 @@
   "environments": [
     "prod"
   ],
-  "digest": "69dc44419dd4c453365517118ab782dfe40fd74aa2a2545faba4c5495ad93859",
+  "digest": "1c43057ba531c3c45a07ece588a99b4a9cf4c5ebd5e921ed9b6415921cada40c",
   "summary": {
-    "bindings": 13,
-    "imported": 5,
+    "bindings": 15,
+    "imported": 6,
     "deferred": 2,
-    "conflicts": 6,
-    "connectors_created": 2,
-    "targets_created": 3,
-    "catalog_entries_added": 6
+    "conflicts": 7,
+    "reviews": 1,
+    "connectors_created": 3,
+    "targets_created": 4,
+    "catalog_entries_added": 7
   },
   "connectors": [
+    {
+      "action": "create",
+      "id": "84bf10572dd845c91e9ded3cdd457759",
+      "environment_id": "prod",
+      "provider": "kubernetes",
+      "name": "Kubernetes",
+      "category": "infra",
+      "endpoint": "https://127.0.0.1:16443",
+      "auth_method": "bearer",
+      "tools": [
+        "read_workloads"
+      ]
+    },
     {
       "action": "create",
       "id": "cc5a57c2efcab631ac3fe1c0674fbb45",
@@ -51,6 +65,16 @@
     }
   ],
   "targets": [
+    {
+      "action": "create",
+      "id": "b0dd7d266e02e00e71a543a9ef246b4a",
+      "application_id": "app-lab-checkout",
+      "environment_id": "prod",
+      "connector_id": "84bf10572dd845c91e9ded3cdd457759",
+      "target_kind": "workload",
+      "external_id": "checkout-api",
+      "legacy_resource": "deployment"
+    },
     {
       "action": "create",
       "id": "1af5df4ac1ce1b5ea76d1c7f961c88cf",
@@ -102,7 +126,17 @@
       "legacy_resource": "lab-order"
     }
   ],
-  "credential_bindings": [],
+  "credential_bindings": [
+    {
+      "environment_id": "prod",
+      "connector_id": "84bf10572dd845c91e9ded3cdd457759",
+      "provider": "kubernetes",
+      "endpoint": "https://127.0.0.1:16443",
+      "auth_method": "bearer",
+      "approved": false,
+      "ca_field": true
+    }
+  ],
   "catalog": {
     "queries": [
       {
@@ -180,18 +214,19 @@
           "deployment.environment": "lab"
         }
       }
+    ],
+    "workloads": [
+      {
+        "connector_id": "84bf10572dd845c91e9ded3cdd457759",
+        "application_id": "app-lab-checkout",
+        "environment_id": "prod",
+        "resource_id": "checkout-api",
+        "namespace": "aiops-lab",
+        "deployment": "checkout-api"
+      }
     ]
   },
   "deferred": [
-    {
-      "application_id": "app-lab-checkout",
-      "environment_id": "prod",
-      "kind": "kubernetes",
-      "resource": "deployment",
-      "reasons": [
-        "kubernetes_deferred_to_p3"
-      ]
-    },
     {
       "application_id": "app-lab-search",
       "environment_id": "prod",
@@ -199,6 +234,15 @@
       "resource": "group/search",
       "reasons": [
         "not_telemetry"
+      ]
+    },
+    {
+      "application_id": "demo",
+      "environment_id": "prod",
+      "kind": "kubernetes",
+      "resource": "deployment",
+      "reasons": [
+        "demo_connector_not_imported"
       ]
     }
   ],
@@ -255,6 +299,29 @@
       "resource": "lab-search",
       "reasons": [
         "auth_method_unsupported"
+      ]
+    },
+    {
+      "application_id": "app-lab-search",
+      "environment_id": "prod",
+      "kind": "kubernetes",
+      "resource": "deployment",
+      "reasons": [
+        "resource_not_registered"
+      ]
+    }
+  ],
+  "reviews": [
+    {
+      "application_id": "app-lab-checkout",
+      "environment_id": "prod",
+      "kind": "kubernetes",
+      "resource": "deployment",
+      "reasons": [
+        "rollback_policy_requires_review",
+        "legacy_verification_query:requests_total",
+        "legacy_verification_query:errors_total",
+        "legacy_verification_query:sample_age"
       ]
     }
   ]

@@ -26,6 +26,10 @@ var descriptors = map[string]descriptor{
 	"argo":            {"argo", "delivery", "Argo CD", "Deployments", "/api/version", []string{"bearer"}, []string{"get_app_status"}},
 	"harbor":          {"harbor", "delivery", "Harbor", "Images", "/api/v2.0/systeminfo", []string{"basic", "bearer"}, []string{"list_images"}},
 	"vault":           {"vault", "security", "HashiCorp Vault", "Secrets", "/v1/sys/health", []string{"bearer"}, []string{}},
+	// Kubernetes is read-only through its connector (PA-08): the token reads
+	// Deployments and ReplicaSets. Rollback writes use a separate, server
+	// approved credential that only the rollback executor reads.
+	"kubernetes": {"kubernetes", "infra", "Kubernetes", "Workloads", "/version", []string{"bearer"}, []string{"read_workloads"}},
 }
 
 func knownMethod(d descriptor, method string) bool {
@@ -76,6 +80,8 @@ func authMethodCopy(method, lang string) (string, string) {
 
 func toolCopy(name, lang string) string {
 	switch name {
+	case "read_workloads":
+		return localized(lang, "读取工作负载与修订", "Read workloads and revisions")
 	case "list_pipelines":
 		return localized(lang, "读取流水线列表与状态", "Read pipeline list and status")
 	case "get_pipeline":

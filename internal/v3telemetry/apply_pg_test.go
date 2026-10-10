@@ -122,7 +122,7 @@ func TestImportAppliesTheReviewedPlanAndCompares(t *testing.T) {
 		t.Fatalf("unreviewed digest: %v", err)
 	}
 	result, err := Apply(ctx, db, input, reviewed.Digest, "admin@example.invalid")
-	if err != nil || result.ConnectorsCreated != 2 || result.TargetsCreated != 3 {
+	if err != nil || result.ConnectorsCreated != 3 || result.TargetsCreated != 4 {
 		t.Fatalf("apply: %+v %v", result, err)
 	}
 	if _, err := Apply(ctx, db, input, reviewed.Digest, "admin@example.invalid"); !errors.Is(err, ErrPlanStale) {
@@ -140,7 +140,7 @@ func TestImportAppliesTheReviewedPlanAndCompares(t *testing.T) {
  (SELECT count(*) FROM v3_connector_targets WHERE target_kind='metric_resource'),
  (SELECT count(*) FROM management_audit WHERE action='connector.imported' AND changes->>'plan_digest'=$1),
  (SELECT count(*) FROM management_audit WHERE action='v3.connector.target_imported' AND application_id<>'' AND changes->>'environment_id'='prod')`,
-		reviewed.Digest).Scan(&metricTargets, &audits, &targetAudits); err != nil || metricTargets != 2 || audits != 2 || targetAudits != 3 {
+		reviewed.Digest).Scan(&metricTargets, &audits, &targetAudits); err != nil || metricTargets != 2 || audits != 3 || targetAudits != 4 {
 		t.Fatalf("metric targets=%d connector audits=%d target audits=%d %v", metricTargets, audits, targetAudits, err)
 	}
 
@@ -171,6 +171,14 @@ func TestImportAppliesTheReviewedPlanAndCompares(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) || report.Checked != 11 || report.Differences() != 5 {
 		t.Fatalf("compare report: %+v", report)
+	}
+	// The imported workload resolves to the same Deployment but needs its
+	// connector, tool and read credential; the unregistered one stays out.
+	workloads := CompareReport{Counts: map[string]int{}}
+	workloads.CompareWorkloads(ctx, db, resolver, input.Workloads, state)
+	if workloads.Checked != 2 || workloads.Counts[StateMatchNotReady] != 1 || workloads.Counts[StateLegacyUnregistered] != 1 ||
+		!reflect.DeepEqual(workloads.Items[0].Reasons, []string{"connector_disabled", "tool_disabled", "credential_missing"}) {
+		t.Fatalf("workload compare: %+v", workloads)
 	}
 
 	// Activating the imported Loki connector makes it a full match; a

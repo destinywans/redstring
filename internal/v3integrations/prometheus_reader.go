@@ -372,3 +372,62 @@ func (p *PrometheusReader) resolveServiceMetricTarget(ctx context.Context, user 
 	}
 	return app, binding, nil
 }
+
+// QueryForExecutor reads one reviewed query for the rollback executor
+// (PA-08). The executor acts on an approved proposal, not for a viewer, so
+// there is no user check; instead the metric target must still be the
+// service's bound metric_resource on this connector and resource, enabled
+// for query_metrics, and the query must be in the reviewed catalog.
+func (p *PrometheusReader) QueryForExecutor(ctx context.Context, app, env, connectorID, resourceID, queryID string,
+	window connectors.TimeWindow) ([]connectors.MetricSeries, error) {
+	if p == nil || p.DB == nil {
+		return nil, metricReadError("storage_unavailable")
+	}
+	if app == "" || env == "" || env == "all" || connectorID == "" || !validExternalTarget("prometheus", "metric_resource", resourceID) ||
+		!prometheusQueryID.MatchString(queryID) {
+		return nil, metricReadError("invalid_scope")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var source prometheusSource
+	var enabled bool
+	var tools []byte
+	err := p.DB.QueryRow(ctx, `SELECT t.id,t.connector_id,t.external_id,c.endpoint,c.auth_method,c.credential_ref,c.enabled,c.tools
+ FROM v3_connector_targets t JOIN v3_connectors c ON c.id=t.connector_id AND c.environment_id=t.environment_id
+ JOIN applications a ON a.id=t.application_id AND NOT a.archived
+ WHERE t.application_id=$1 AND t.environment_id=$2 AND t.connector_id=$3 AND t.external_id=$4
+  AND t.target_kind='metric_resource' AND c.provider='prometheus'`, app, env, connectorID, resourceID).
+		Scan(&source.BindingID, &source.ConnectorID, &source.ResourceID, &source.Endpoint, &source.AuthMethod,
+			&source.CredentialRef, &enabled, &tools)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, metricReadError("source_not_found")
+	}
+	if err != nil {
+		return nil, metricReadError("storage_unavailable")
+	}
+	if !enabled || !toolEnabled(tools, "query_metrics") {
+		return nil, metricReadError("source_unhealthy")
+	}
+	if _, err = validEndpoint(source.Endpoint); err != nil ||
+		(source.AuthMethod != "none" && source.AuthMethod != "bearer") ||
+		(source.AuthMethod == "bearer" && validateReference(source.CredentialRef) != nil) {
+		return nil, metricReadError("source_unhealthy")
+	}
+	expression, ok := p.queries[PrometheusQueryKey{ConnectorID: connectorID, ApplicationID: app, EnvironmentID: env,
+		ResourceID: resourceID, QueryID: queryID}]
+	if !ok {
+		return nil, metricReadError("query_unregistered")
+	}
+	credential := ""
+	if source.AuthMethod == "bearer" {
+		if p.Resolver == nil {
+			return nil, metricReadError("credential_unavailable")
+		}
+		credential, err = p.Resolver.Resolve(WithCredentialUse(ctx, CredentialUse{Tier: p.Tier, EnvironmentID: env,
+			ConnectorID: connectorID, Provider: "prometheus", Endpoint: source.Endpoint}), source.CredentialRef)
+		if err != nil || credential == "" || len(credential) > 4096 || strings.ContainsAny(credential, "\r\n\x00") {
+			return nil, metricReadError("credential_unavailable")
+		}
+	}
+	return queryRegisteredPrometheus(ctx, source.Endpoint, source.AuthMethod, credential, expression, window, p.Client)
+}

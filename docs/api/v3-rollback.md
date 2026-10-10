@@ -1,8 +1,8 @@
 # Kubernetes 回滚接口契约（PA-08）
 
-**状态**：接口契约先行，供前端出设计图。后端实现中，属第一阶段，见 [设计稿](../plans/2026-10-10-rollback-executor-and-registry-p3.md)。
+**状态**：第一阶段后端已实现（`claude/nifty-raman-d45327`，`c731e5a`），隔离库测试通过；实验和验收实例上的端到端验收待部署后执行。字段名和枚举值与契约先行版本一致；之后只补充了错误码（401、403、`investigation_changed`、428），以及重放和稳定期的说明。见 [设计稿](../plans/2026-10-10-rollback-executor-and-registry-p3.md) 第 9 节。
 
-**机器契约**：`scripts/v3-openapi-rollback.py`。路由注册之后才会并入 `internal/apicontract/openapi.json`，因为契约检查要求文档里的路由都已实现。
+**机器契约**：`scripts/v3-openapi-rollback.py`，已并入 `internal/apicontract/openapi.json`。
 
 **字段约定**：
 - 字段名和枚举值在第一阶段内保持稳定；如需变动，先通知前端。
@@ -84,7 +84,7 @@
 | `write_not_approved` | 没有该命名空间和 Deployment 的写入批准 | 说明需要部署方批准 |
 | `deployment_paused` | Deployment 处于暂停状态 | 先在集群恢复 |
 | `credential_unavailable` | 读凭据未批准或 Vault 读取失败 | 指向连接器凭据 |
-| `executor_not_ready` | 回滚执行器未运行 | 稍后重试 |
+| `executor_not_ready` | 回滚执行器未运行，或写令牌读不到（例如 dev 模式 Vault 重启后为空；结果缓存 15 秒） | 稍后重试 |
 
 **集群读不到**：返回 `503 workload_unavailable`。
 
@@ -104,7 +104,7 @@
 }
 ```
 
-**成功**：返回 `201 {"proposal_id": "…", "status": "pending", "action_kind": "kubernetes.deployment.rollback"}`。用同一个键、同一个请求体重放，返回 200 和同一提案。
+**成功**：返回 `201 {"proposal_id": "…", "status": "pending", "action_kind": "kubernetes.deployment.rollback"}`。用同一个键、同一个请求体重放，返回 200 和同一提案；即使 Deployment 已经变化（例如回滚已执行）也一样。重放响应里的 `status` 是创建时的状态，当前状态以 `GET /proposals/{id}` 为准。
 
 **权限**：
 - 人类会话，单一环境；
@@ -115,12 +115,16 @@
 
 | 状态 | 代码 | 含义 |
 | --- | --- | --- |
-| 404 | `not_found` | 服务或调查不存在，或无权查看 |
+| 401 | `unauthorized` | 会话失效 |
+| 403 | `forbidden` | 能查看服务，但缺少 `resources.change` 或 `proposals.change`；或不是人类会话 |
+| 404 | `not_found` | 服务或调查不存在，或无权查看（缺少 `resources.view`） |
 | 409 | `env_view_only` | 选中了“全部环境” |
 | 409 | `rollback_target_changed` | 读取候选后 Deployment 已变化，请重读候选 |
 | 409 | `idempotency_conflict` | 同一个键配了不同请求体 |
 | 409 | 与 `blocked_reason` 同名的代码 | 当前不能回滚 |
+| 409 | `investigation_changed` | 调查在提交期间被修改，重试即可 |
 | 422 | `invalid_rollback` | 修订不是候选，或就是当前修订；原因为空 |
+| 428 | `idempotency_key_required` | 缺少 `Idempotency-Key` 或长度不对 |
 | 503 | `workload_unavailable` | 集群读不到 |
 
 **之后的审批**：完全沿用现有评审页和通行密钥流程（`/proposals/{id}/approval/*`）。需要两位不同的人类审批人，均不是发起人，并持有覆盖该提案的 `proposals.approve`。驳回见 PA-57。
@@ -195,10 +199,15 @@
 | `failed` | 滚动失败或验证不通过（见 `status_reason`），不会自动再写 | 是 |
 | `needs_attention` | 漂移、授权变化、写入被拒、对账仍不明等，需要人处理 | 是 |
 
-**`status_reason`**：失败和需要处理时非空，取值为 `drift`、`approval_invalid`、`authorization_changed`、`binding_changed`、`write_forbidden`、`write_unavailable`、`reconcile_unknown`、`rollout_timeout`、`progress_deadline_exceeded`、`verification_failed`、`verification_unavailable`、`target_changed` 之一。
+**`status_reason`**：失败和需要处理时非空，取值为 `drift`、`approval_invalid`、`authorization_changed`、`binding_changed`、`write_forbidden`、`write_unavailable`、`reconcile_unknown`、`rollout_timeout`、`progress_deadline_exceeded`、`verification_failed`、`verification_unavailable`、`target_changed` 之一。执行器读不到 Deployment 时不下结论：
+- 写入后结果不明且 5 分钟内读不到，或者滚动阶段到超时一直读不到，都是 `needs_attention` + `reconcile_unknown`；
+- 观察窗口结束时读不到 Deployment，会再采样最多 2 分钟，仍读不到就是 `needs_attention` + `verification_unavailable`。
+
+`failed` 只用于确实观察到的失败。
 
 **其他字段**：
-- `verification.result` 取 `pending`、`passed`、`failed`、`unavailable`。`samples` 每 15 秒一条，最多 40 条。
+- `verification.result` 取 `pending`、`passed`、`failed`、`unavailable`。`samples` 每 15 秒一条，最多保留最近 40 条。
+- 验证开始（`verification.started_at`）后的前 60 秒是稳定期：采样照常记录，`ok: false` 也不导致失败，因为速率窗口里还有坏版本的流量。之后每个样本都必须 `ok`，满 60 秒 + `plan.observation_seconds` 判为通过。画图时可以用 `started_at + 60s` 标出稳定期结束。
 - `rollout` 和 `verification` 在对应阶段开始前为 `null`。
 
 **权限**：与旧执行视图相同，要求该应用或所属团队的 `proposals.view`，无权时返回 404。

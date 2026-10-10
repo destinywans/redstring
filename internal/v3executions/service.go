@@ -25,6 +25,9 @@ type Access interface {
 type Service struct {
 	DB     *pgxpool.Pool
 	Access Access
+	// Rollout answers a V3 rollback execution ID (PA-08) and reports whether
+	// it did; other IDs fall through to the legacy projection.
+	Rollout func(http.ResponseWriter, *http.Request, string) bool
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
@@ -325,6 +328,9 @@ func loadEventProof(ctx context.Context, tx pgx.Tx, x executionRecord) (bool, bo
 func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
 	scope, ok := s.ready(w, r, false)
 	if !ok {
+		return
+	}
+	if s.Rollout != nil && s.Rollout(w, r, r.PathValue("id")) {
 		return
 	}
 	tx, err := s.DB.Begin(r.Context())

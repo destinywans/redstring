@@ -1,8 +1,10 @@
 package v3telemetry
 
 import (
+	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"sort"
 
 	"github.com/wans/aiops-canvas/internal/connectors"
@@ -179,4 +181,67 @@ func scopeDifferences(provider string, legacy, unified connectors.ApplicationTel
 		}
 	}
 	return out
+}
+
+// CompareWorkloads adds every legacy Kubernetes binding: the registry must
+// resolve the same API server and Deployment. The demo connector is not
+// imported and not compared.
+func (r *CompareReport) CompareWorkloads(ctx context.Context, q Querier, resolver *Resolver, workloads map[string]LegacyWorkload, state State) {
+	bindings := append([]LegacyBinding(nil), state.Bindings...)
+	sort.Slice(bindings, func(i, j int) bool { return bindingKey(bindings[i]) < bindingKey(bindings[j]) })
+	for _, b := range bindings {
+		legacy, registered := workloads[b.ConnectorID]
+		if b.Kind != WorkloadProvider || b.ConnectorID == demoKubernetesID || (registered && legacy.Demo) {
+			continue
+		}
+		item := CompareItem{ApplicationID: b.ApplicationID, EnvironmentID: b.EnvironmentID, Surface: WorkloadTargetKind,
+			LegacyProvider: b.Kind}
+		unified, err := resolver.ResolveWorkload(ctx, q, b.ApplicationID, b.EnvironmentID)
+		item.Result = compareWorkload(legacy, registered, unified, err)
+		r.Items = append(r.Items, item)
+		r.Counts[item.State]++
+		r.Checked++
+	}
+}
+
+func compareWorkload(legacy LegacyWorkload, registered bool, unified Workload, err error) Result {
+	switch {
+	case !registered:
+		return Result{State: StateLegacyUnregistered}
+	case errors.Is(err, ErrNotConfigured):
+		return Result{State: StateMissing}
+	case errors.Is(err, ErrAmbiguous):
+		return Result{State: StateAmbiguous}
+	case err != nil:
+		return Result{State: StateUnavailable}
+	}
+	var reasons, notReady []string
+	if canonicalEndpoint(legacy.Endpoint) != canonicalEndpoint(unified.Endpoint) {
+		reasons = append(reasons, "endpoint")
+	}
+	if !legacy.Token || unified.AuthMethod != "bearer" {
+		reasons = append(reasons, "auth_method")
+	}
+	for _, reason := range unified.NotReady {
+		if reason == "scope_missing" {
+			reasons = append(reasons, "scope_missing")
+		} else {
+			notReady = append(notReady, reason)
+		}
+	}
+	if !slices.Contains(reasons, "scope_missing") {
+		if unified.Scope.Namespace != legacy.Namespace {
+			reasons = append(reasons, "scope.namespace")
+		}
+		if unified.Scope.Deployment != legacy.Deployment {
+			reasons = append(reasons, "scope.deployment")
+		}
+	}
+	if len(reasons) > 0 {
+		return Result{State: StateDiffers, Reasons: reasons}
+	}
+	if len(notReady) > 0 {
+		return Result{State: StateMatchNotReady, Reasons: notReady}
+	}
+	return Result{State: StateMatch}
 }

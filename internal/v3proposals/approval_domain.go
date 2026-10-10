@@ -130,6 +130,8 @@ func (s *Service) loadApprovalActionTx(ctx context.Context, tx pgx.Tx, id string
 	var a v3alertmanager.SilenceReviewedAction
 	if kind == alertRuleEnableActionKind {
 		a, err = s.loadAlertRuleEnableApprovalActionTx(ctx, tx, id, v)
+	} else if kind == RollbackActionKind {
+		a, err = s.loadRollbackApprovalActionTx(ctx, tx, id, v)
 	} else {
 		a, err = (&SilenceExecutionActionSource{Proposals: s}).LoadReviewedActionWithTx(ctx, tx, id)
 	}
@@ -140,7 +142,7 @@ func (s *Service) loadApprovalActionTx(ctx context.Context, tx pgx.Tx, id string
 		a.ApplicationID != v.ApplicationID || a.InvestigationID != v.InvestigationID ||
 		a.CreatorID == "" || a.ActionDigest == "" || a.ReviewContentDigest == "" ||
 		(a.Kind != v3alertmanager.ProposedSilenceCreateKind && a.Kind != v3alertmanager.ProposedSilenceCancelKind &&
-			a.Kind != alertRuleEnableActionKind) {
+			a.Kind != alertRuleEnableActionKind && a.Kind != RollbackActionKind) {
 		return record{}, zero, ErrInvalidProposal
 	}
 	return v, a, nil

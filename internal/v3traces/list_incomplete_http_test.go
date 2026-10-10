@@ -34,17 +34,8 @@ type labTempo struct {
 }
 
 func newLabTempo(t *testing.T, now time.Time, every time.Duration, span time.Duration, incomplete ...time.Duration) *labTempo {
-	l := &labTempo{starts: map[string]time.Time{}, incomplete: map[string]bool{}}
-	n := 0
-	for at := now.Add(-time.Second); at.After(now.Add(-span)); at = at.Add(-every) {
-		n++
-		l.starts[fmt.Sprintf("%032x", n)] = at
-	}
-	for _, ago := range incomplete {
-		n++
-		id := fmt.Sprintf("%032x", n)
-		l.starts[id], l.incomplete[id] = now.Add(-ago), true
-	}
+	l := &labTempo{}
+	l.traffic(now, every, span, incomplete...)
 	l.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		l.mu.Lock()
 		defer l.mu.Unlock()
@@ -106,12 +97,31 @@ func newLabTempo(t *testing.T, now time.Time, every time.Duration, span time.Dur
 	return l
 }
 
+// traffic replaces the stored traces: one complete trace every period over
+// span before now, and one incomplete trace at each given age.
+func (l *labTempo) traffic(now time.Time, every time.Duration, span time.Duration, incomplete ...time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.starts, l.incomplete = map[string]time.Time{}, map[string]bool{}
+	n := 0
+	for at := now.Add(-time.Second); at.After(now.Add(-span)); at = at.Add(-every) {
+		n++
+		l.starts[fmt.Sprintf("%032x", n)] = at
+	}
+	for _, ago := range incomplete {
+		n++
+		id := fmt.Sprintf("%032x", n)
+		l.starts[id], l.incomplete[id] = now.Add(-ago), true
+	}
+}
+
 // PA-87: the default list (All view, one hour) at lab traffic without a
 // search completeness attestation is 200 search_budget, also when a trace in
 // the searched window lost a span: that trace is left out and counted, it no
 // longer fails the whole list with 503. Attested, a left-out trace withdraws
-// the population figures (incomplete_traces). The trace's own detail stays
-// strict.
+// the population figures: a search that stopped at its budget still says
+// search_budget with its window (D30), one that covered the range says
+// incomplete_traces. The trace's own detail stays strict.
 func TestDefaultTraceListAtLabTrafficSurvivesAnIncompleteTrace(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -223,12 +233,34 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 			t.Fatalf("%s: %+v (%d items)", path, list, len(list.Items))
 		}
 	}
-	// Attested: the population figures are withdrawn, with the reason.
+	// Attested, at lab traffic: the search stops at its budget, so the
+	// reason stays search_budget with the covered window; the population
+	// figures are withdrawn and the left-out trace is still counted (D30).
 	traces.Clients.TempoSearchFailClosed = map[string]bool{"tempo-1": true}
-	if attested := read("/api/v1/traces?scope=app"); attested.Total != nil || attested.PartialReason != "incomplete_traces" || attested.ExcludedIncomplete != 1 {
-		t.Fatalf("attested list with an incomplete trace: %+v", attested)
+	attested := read("/api/v1/traces?scope=app")
+	attestedStart, _ := time.Parse(time.RFC3339, attested.WindowStartAt)
+	attestedEnd, _ := time.Parse(time.RFC3339, attested.WindowEndAt)
+	if attested.Total != nil || !attested.Partial || attested.PartialReason != "search_budget" || attested.ExcludedIncomplete != 1 ||
+		attestedEnd.Sub(attestedStart) >= time.Hour {
+		t.Fatalf("attested list at the budget with an incomplete trace: %+v", attested)
+	}
+	// Attested, sparse traffic: the search covers the hour, so the left-out
+	// trace is the reason the figures are withdrawn.
+	tempo.traffic(time.Now(), 5*time.Minute, 2*time.Hour, 30*time.Second)
+	covered := read("/api/v1/traces?scope=app")
+	coveredStart, _ := time.Parse(time.RFC3339, covered.WindowStartAt)
+	coveredEnd, _ := time.Parse(time.RFC3339, covered.WindowEndAt)
+	if covered.Total != nil || covered.PartialReason != "incomplete_traces" || covered.ExcludedIncomplete != 1 ||
+		len(covered.Items) != 12 || coveredEnd.Sub(coveredStart) != time.Hour {
+		t.Fatalf("attested list covering the range with an incomplete trace: %+v (%d items)", covered, len(covered.Items))
+	}
+	// Without a left-out trace the attested list is complete again.
+	tempo.traffic(time.Now(), 5*time.Minute, 2*time.Hour)
+	if complete := read("/api/v1/traces?scope=app"); complete.Total == nil || *complete.Total != 12 || complete.Partial || complete.ExcludedIncomplete != 0 {
+		t.Fatalf("attested complete list: %+v", complete)
 	}
 	traces.Clients.TempoSearchFailClosed = nil
+	tempo.traffic(time.Now(), 6*time.Second, 2*time.Hour, 30*time.Second)
 
 	// The incomplete trace's own detail is still refused, not shown in part.
 	var incompleteID string

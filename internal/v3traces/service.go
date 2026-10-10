@@ -432,11 +432,14 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		list := BuildObservedList(observed.Traces, view, service, time.Since(start), "not_configured")
 		list.WindowStartAt, list.WindowEndAt, list.PartialReason = startAt, endAt, "search_unattested"
 		list.ExcludedIncomplete = observed.Incomplete
+		// A search stopped at its budget says so first (D30): the window then
+		// covers only its newest part, whatever else was left out;
+		// excluded_incomplete still counts the incomplete traces.
 		switch {
-		case observed.SearchAttested && observed.Incomplete > 0:
-			list.PartialReason = "incomplete_traces"
 		case observed.Truncated:
 			list.PartialReason = "search_budget"
+		case observed.SearchAttested && observed.Incomplete > 0:
+			list.PartialReason = "incomplete_traces"
 		}
 		if observed.Incomplete > 0 {
 			slog.Info("trace list left out incomplete traces", "count", observed.Incomplete)

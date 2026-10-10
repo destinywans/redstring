@@ -90,9 +90,11 @@ type ObservedTraceList struct {
 	Items     []TraceRow                `json:"items"`
 	Partial   bool                      `json:"partial"`
 	// PartialReason is search_budget when the search stopped at its budget
-	// (the window is [window_start_at, window_end_at)), search_unattested
-	// when only the search completeness is not attested, and not_configured
-	// without a Tempo source (PA-78).
+	// (the window is [window_start_at, window_end_at)), also when incomplete
+	// traces were left out; incomplete_traces when the search covered the
+	// range, completeness is attested and incomplete traces were left out
+	// (PA-87, D30); search_unattested when only the search completeness is
+	// not attested; not_configured without a Tempo source (PA-78).
 	PartialReason string `json:"partial_reason"`
 	// ExcludedIncomplete counts found traces left out because Tempo returned
 	// an incomplete tree (PA-87); absent when none.

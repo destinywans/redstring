@@ -67,13 +67,43 @@ mock("GET", "/connectors/:id", ({ params }) => {
     queries: obs ? ["p99_latency", "error_rate", "qps", "cpu_usage", "db_connection_wait_p95"] : [],
     tools: c.tags.filter((t) => t.mono).map((t) => ({ name: t.label as string, desc: P("只读 · 每轮最多 8 次", "Read-only · max 8 per turn"), enabled: true })),
     deeplink: obs ? "grafana/d/svc-overview?var-app={app}&from={from}&to={to}" : undefined,
+    // Kubernetes (PA-08 design): workload targets with the catalog's rollback setting and the deployer's write approval.
+    ...(c.id === "kubernetes"
+      ? {
+          address: "https://192.168.105.10:6443",
+          auth: { brand: "kubernetes", text: P("Bearer 令牌 · 只读 · 不回显", "Bearer token · read-only · never shown") },
+          services: ["checkout-api", "order-service", "payment-gateway"],
+          workloads: [
+            { key: "checkout-api", namespace: "aiops-lab", deployment: "checkout-api", service: "checkout-api", rollback: { allowed: true, observation_seconds: 300 }, write_approved: true },
+            { key: "order-service", namespace: "aiops-lab", deployment: "order-api", service: "order-service", rollback: { allowed: true, observation_seconds: 300 }, write_approved: true },
+            { key: "payment-gateway", namespace: "pay", deployment: "payment-gateway", service: "payment-gateway", rollback: { allowed: false, observation_seconds: null }, write_approved: false },
+          ],
+          capabilities: ["workload.read", "revisions.read", "rollback.propose"],
+        }
+      : {}),
   };
 });
 mock("POST", "/connectors/:id/test", () => ({ ok: true, latency_ms: 118 }));
 mock("PATCH", "/connectors/:id", ({ body }) => ({ ok: true, ...(body as object) }));
 mock("POST", "/connectors", () => ({ id: "gitlab-2" }));
 
-mock("GET", "/connector-types/:type", () => ({
+const K8S_TYPE = {
+  brand: "kubernetes",
+  name: "Kubernetes",
+  kind: P("集群", "Cluster"),
+  version: "v1.0",
+  auth_methods: [{ id: "bearer", label: P("Bearer 令牌（只读）", "Bearer token (read-only)"), desc: P("ServiceAccount 令牌，只用于读取工作负载与修订", "A ServiceAccount token used only to read workloads and revisions") }],
+  scopes: [
+    { id: "deployments_read", label: P("deployments · get / list", "deployments · get / list"), required: true },
+    { id: "replicasets_read", label: P("replicasets · get / list", "replicasets · get / list"), required: true },
+  ],
+  tools: [
+    { name: "inspect_deployment", desc: P("Deployment 状态与副本", "Deployment status and replicas") },
+    { name: "list_revisions", desc: P("ReplicaSet 修订与差异", "ReplicaSet revisions and differences") },
+  ],
+  webhook_url: "",
+};
+mock("GET", "/connector-types/:type", ({ params }) => params.type === "kubernetes" ? K8S_TYPE : ({
   brand: "gitlab",
   name: "GitLab",
   kind: P("代码与流水线", "Code & pipelines"),
@@ -276,7 +306,7 @@ mock("GET", "/service-mappings", () => ({
     { id: "workload", brand: "kubernetes", label: P("工作负载", "Workload") },
   ],
   rows: [
-    { service: "checkout-api", cells: { metrics: ok("job=checkout"), logs: ok("logs-checkout-*"), traces: ok("checkout-api"), code: ok("platform/checkout"), deploy: ok("checkout-prod"), dash: ok("svc-overview"), workload: ok("trade/checkout-api") } },
+    { service: "checkout-api", cells: { metrics: ok("job=checkout"), logs: ok("logs-checkout-*"), traces: ok("checkout-api"), code: ok("platform/checkout"), deploy: ok("checkout-prod"), dash: ok("svc-overview"), workload: ok("aiops-lab/checkout-api") } },
     { service: "payment-gateway", cells: { metrics: ok("job=payment"), logs: ok("logs-payment-*"), traces: sug("payment-gw"), code: ok("platform/payment"), deploy: ok("payment-prod"), dash: ok("svc-overview"), workload: ok("pay/payment-gateway") } },
     { service: "order-service", cells: { metrics: ok("job=order"), logs: ok("logs-order-*"), traces: ok("order-service"), code: ok("shop/order-service", "github"), deploy: ok("order-prod"), dash: ok("svc-overview"), workload: ok("trade/order-service") } },
     { service: "inventory-worker", cells: { metrics: ok("job=inventory"), logs: miss, traces: ok("inventory-worker"), code: ok("platform/inventory"), deploy: ok("inventory-prod"), dash: sug("kafka-consumers"), workload: ok("trade/inventory-worker") } },

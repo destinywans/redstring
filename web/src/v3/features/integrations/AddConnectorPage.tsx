@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { useGet, useSend } from "../../api/client";
@@ -35,10 +35,19 @@ export default function AddConnectorPage() {
   const [hook, setHook] = useState(true);
   const [tools, setTools] = useState<Set<string>>(new Set(["list_pipelines", "get_pipeline", "get_commit_diff", "list_merge_requests"]));
   const create = useSend<object, { id: string }>("POST", "/connectors", ["/connectors"]);
+  // Kubernetes connectors (PA-08 design): API Server address, bearer token by reference, CA reference; read-only probe.
+  const k8s = type === "kubernetes";
+  const [caRef, setCaRef] = useState("aiops-test-ca");
+  useEffect(() => {
+    if (k8s) {
+      setUrl("https://192.168.105.10:6443");
+      setAuth("bearer");
+    }
+  }, [k8s]);
   const steps = [tx("选择类型", "Type"), tx("连接与认证", "Connect"), tx("范围与映射", "Scope"), tx("Agent 能力", "Agent tools"), tx("测试", "Test"), tx("完成", "Done")];
   const next = () => {
     if (step < 4) return setStep(step + 1);
-    create.mutate({ type, url, auth, tools: [...tools], webhook: hook }, { onSuccess: () => { toast(tx("GitLab 连接器已创建", "GitLab connector created")); nav("/integrations"); } });
+    create.mutate(k8s ? { type, url, auth, options: { ca_ref: caRef }, tools: [...tools] } : { type, url, auth, tools: [...tools], webhook: hook }, { onSuccess: () => { toast(tx("{n} 连接器已创建", "{n} connector created", { n: t?.name ?? type })); nav("/integrations"); } });
   };
   return (
     <Page crumbs={[tx("集成中心", "Integrations"), tx("连接器", "Connectors"), tx("添加 {n}", "Add {n}", { n: t?.name ?? "…" })]} ai={false} actions={<Btn kind="ghost" to="/integrations">{tx("取消", "Cancel")}</Btn>}>
@@ -65,9 +74,14 @@ export default function AddConnectorPage() {
             {step === 1 && (
               <Col gap={18}>
                 <h2>{tx("连接与认证", "Connection & auth")}</h2>
-                <Field label={tx("实例地址", "Instance URL")}>
-                  <Input value={url} onChange={(e) => setUrl(e.target.value)} width={520} mono />
+                <Field label={k8s ? tx("API Server 地址", "API Server address") : tx("实例地址", "Instance URL")}>
+                  <Input value={url} onChange={(e) => setUrl(e.target.value)} width={520} mono aria-label={k8s ? tx("API Server 地址", "API Server address") : tx("实例地址", "Instance URL")} />
                 </Field>
+                {k8s && (
+                  <Field label={tx("CA 引用", "CA reference")} hint={tx("集群证书的引用名，保存在连接器选项 options.ca_ref", "Name of the cluster CA reference, kept in options.ca_ref")}>
+                    <Input value={caRef} onChange={(e) => setCaRef(e.target.value)} width={260} mono aria-label={tx("CA 引用", "CA reference")} />
+                  </Field>
+                )}
                 <Field label={tx("认证方式", "Auth method")}>
                   <Col gap={8}>
                     {t?.auth_methods.map((m) => <Radio key={m.id} name="auth" checked={auth === m.id} onChange={() => setAuth(m.id)} label={m.label} sub={m.desc} />) ?? <Skeleton h={90} />}
@@ -78,23 +92,42 @@ export default function AddConnectorPage() {
                     icon="key"
                     label=""
                     showLabel={false}
-                    defaultValue="vault:secret/aiops/gitlab"
-                    options={[
-                      { value: "vault:secret/aiops/gitlab", label: "HashiCorp Vault · secret/aiops/gitlab" },
-                      { value: "vault:secret/aiops/gitlab-readonly", label: "HashiCorp Vault · secret/aiops/gitlab-readonly" },
-                      { value: "k8s:aiops/gitlab-token", label: tx("Kubernetes Secret · aiops/gitlab-token", "Kubernetes Secret · aiops/gitlab-token") },
-                    ]}
+                    key={type}
+                    defaultValue={k8s ? "approved:aiops-lab-read" : "vault:secret/aiops/gitlab"}
+                    options={
+                      k8s
+                        ? [
+                            { value: "approved:aiops-lab-read", label: tx("已批准的凭据 · aiops-lab 只读令牌", "Approved credential · aiops-lab read-only token") },
+                            { value: "vault:secret/aiops/k8s-read", label: "HashiCorp Vault · secret/aiops/k8s-read" },
+                          ]
+                        : [
+                            { value: "vault:secret/aiops/gitlab", label: "HashiCorp Vault · secret/aiops/gitlab" },
+                            { value: "vault:secret/aiops/gitlab-readonly", label: "HashiCorp Vault · secret/aiops/gitlab-readonly" },
+                            { value: "k8s:aiops/gitlab-token", label: tx("Kubernetes Secret · aiops/gitlab-token", "Kubernetes Secret · aiops/gitlab-token") },
+                          ]
+                    }
                   />
                 </Field>
+                {k8s && (
+                  <div className="unk-banner" role="note">
+                    <Icon name="info" size={14} />
+                    <span className="grow">{tx("这份凭据只用于读：探测和取证只发只读请求。回滚的写入另由部署方批准，不在这里配置。", "This credential is for reads only: probes and evidence send read-only requests. Rollback writes are approved separately by the deployer, not here.")}</span>
+                  </div>
+                )}
                 <Field label={tx("权限范围", "Scopes")}>
                   <Col gap={6}>
                     {t?.scopes.map((s) => <Check key={s.id} checked={s.required} label={s.label} />)}
                     <Row gap={6}>
                       <Icon name="shield" size={14} color="var(--ok)" />
-                      <Muted size={11.5}>{tx("不申请任何写权限：平台只读取 CI/CD 数据，发布仍在 GitLab 中完成。", "No write scopes: the platform only reads CI/CD data; releases still happen in GitLab.")}</Muted>
+                      <Muted size={11.5}>
+                        {k8s
+                          ? tx("不申请任何写权限：这个连接器只读取工作负载和修订。", "No write scopes: this connector only reads workloads and revisions.")
+                          : tx("不申请任何写权限：平台只读取 CI/CD 数据，发布仍在 GitLab 中完成。", "No write scopes: the platform only reads CI/CD data; releases still happen in GitLab.")}
+                      </Muted>
                     </Row>
                   </Col>
                 </Field>
+                {!k8s && (
                 <Field label={tx("事件回调", "Event callback")}>
                   <Col gap={6}>
                     <Row gap={8}>
@@ -104,9 +137,20 @@ export default function AddConnectorPage() {
                     {hook && t && <Code>{t.webhook_url}</Code>}
                   </Col>
                 </Field>
+                )}
               </Col>
             )}
-            {step === 2 && (
+            {step === 2 && k8s && (
+              <Col gap={14}>
+                <h2>{tx("范围与映射", "Scope & mapping")}</h2>
+                <Muted>{tx("工作负载（命名空间与 Deployment）在部署方审查过的目录里登记。创建后在「服务映射」里把工作负载绑定到服务。", "Workloads (namespace and Deployment) are registered in the deployer's reviewed catalog. After creating, bind them to services under Service mapping.")}</Muted>
+                <Row gap={6} align="flex-start">
+                  <Icon name="lock" size={13} color="var(--faint)" style={{ marginTop: 2 }} />
+                  <Muted size={11.5}>{tx("是否允许回滚、观察时长、验证查询和写入批准都由部署方配置，这里不能改。", "Whether rollback is allowed, the watch time, verification queries and write approval are all set by the deployer and can't be changed here.")}</Muted>
+                </Row>
+              </Col>
+            )}
+            {step === 2 && !k8s && (
               <Col gap={18}>
                 <h2>{tx("范围与映射", "Scope & mapping")}</h2>
                 {/* Project scope rules and mapping suggestions are sample content; real mappings are reviewed on the Service mapping page. */}
@@ -138,6 +182,21 @@ export default function AddConnectorPage() {
                   </Col>
                 </Field>
                 </SampleOnly>
+              </Col>
+            )}
+            {step === 4 && k8s && (
+              <Col gap={8}>
+                <h2>{tx("测试", "Test")}</h2>
+                <Muted>{tx("测试只发只读请求：", "The test sends read-only requests only:")}</Muted>
+                <Row gap={8}>
+                  <Icon name="check" size={14} color="var(--muted)" />
+                  <span className="mono">GET /version</span>
+                </Row>
+                <Row gap={8}>
+                  <Icon name="check" size={14} color="var(--muted)" />
+                  <span>{tx("读取目录里为这个连接器登记的 Deployment", "Read the Deployments registered for this connector in the catalog")}</span>
+                </Row>
+                <Muted size={11.5}>{tx("失败项会写明原因（令牌被拒、证书不受信任、对象不存在），不影响其他项。", "A failed check says why (token refused, untrusted certificate, object missing) without affecting the others.")}</Muted>
               </Col>
             )}
             {step >= 3 && (

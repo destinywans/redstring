@@ -137,6 +137,51 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
                 ))}
               </Row>
             </Section>
+            {c.workloads && (
+              <Section title={tx("工作负载", "Workloads")} right={<TextLink to="/integrations/mapping">{tx("服务映射", "Mapping")}</TextLink>}>
+                <Col gap={8}>
+                  {c.workloads.length === 0 && <Muted size={11.5}>{tx("还没有登记工作负载。", "No workloads registered yet.")}</Muted>}
+                  {c.workloads.map((w) => (
+                    <Col key={w.key} gap={4} style={{ padding: "8px 10px", border: "1px solid var(--border)", borderRadius: 8 }}>
+                      <Row gap={6}>
+                        <Mono color="var(--text)">{w.key}</Mono>
+                        <Spacer />
+                        {w.service ? <Badge>{w.service}</Badge> : <Badge tone="warn">{tx("未映射", "Unmapped")}</Badge>}
+                      </Row>
+                      <Muted size={11.5}>
+                        <span className="mono">
+                          {w.namespace} / {w.deployment}
+                        </span>
+                      </Muted>
+                      <Row gap={6} wrap>
+                        {w.rollback === null ? (
+                          <Badge>{tx("回滚 · 未知", "Rollback · unknown")}</Badge>
+                        ) : w.rollback.allowed ? (
+                          <Badge tone="ok">{w.rollback.observation_seconds ? tx("允许回滚 · 观察 {s} 秒", "Rollback allowed · {s} s watch", { s: w.rollback.observation_seconds }) : tx("允许回滚", "Rollback allowed")}</Badge>
+                        ) : (
+                          <Badge>{tx("不允许回滚", "Rollback not allowed")}</Badge>
+                        )}
+                        {w.write_approved === null ? <Badge>{tx("写入 · 未知", "Writes · unknown")}</Badge> : w.write_approved ? <Badge tone="ok">{tx("写入已批准", "Writes approved")}</Badge> : <Badge>{tx("只读", "Read-only")}</Badge>}
+                      </Row>
+                    </Col>
+                  ))}
+                  <Row gap={6} align="flex-start">
+                    <Icon name="lock" size={12} color="var(--faint)" style={{ marginTop: 2 }} />
+                    <Muted size={11.5}>{tx("是否允许回滚、观察时长来自审查过的目录；写入批准来自部署方的私有文件。这里只显示，不能改。", "Whether rollback is allowed and the watch time come from the reviewed catalog; write approval comes from the deployer's private file. Shown here read-only.")}</Muted>
+                  </Row>
+                  {c.capabilities && c.capabilities.length > 0 && (
+                    <Row gap={5} wrap>
+                      <Muted size={11.5}>{tx("能力", "Capabilities")}</Muted>
+                      {c.capabilities.map((k) => (
+                        <Badge key={k} tone={k === "rollback.propose" ? "accent" : undefined}>
+                          {({ "workload.read": tx("读取工作负载", "Read workloads"), "revisions.read": tx("读取修订", "Read revisions"), "rollback.propose": tx("提议回滚", "Propose rollback") } as Record<string, string>)[k] ?? k}
+                        </Badge>
+                      ))}
+                    </Row>
+                  )}
+                </Col>
+              </Section>
+            )}
             {c.queries.length > 0 && (
               <Section title={tx("已登记查询", "Registered queries")}>
                 <Col gap={5}>

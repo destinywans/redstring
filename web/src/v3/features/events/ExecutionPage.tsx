@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import type { Execution, ExecutionDetail } from "../../api/types";
+import { ROLLBACK_KIND, type Execution, type ExecutionDetail } from "../../api/types";
+import { RolloutExecutionPage } from "./RolloutExecution";
 import { PartialBanner, Unavailable, UnknownValue } from "../../ui/unknown";
 import { Badge, Btn, Card, CardHead, Col, Icon, Mono, Muted, Row, Sev, Skeleton, Spacer, Textarea, Tile, type IconName } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -13,6 +14,10 @@ import "./events.css";
 import { downloadFile } from "../../ui/demo";
 
 export default function ExecutionPage() {
+  const { id = "" } = useParams();
+  // Rollback executions carry `kind`; the older projections don't (docs/api/v3-rollback.md §4). Same cache key as the pages below.
+  const { data } = useGet<{ kind?: string }>(id ? `/executions/${id}` : null);
+  if (data?.kind === ROLLBACK_KIND) return <RolloutExecutionPage id={id} />;
   return API_MODE === "mock" ? <SampleExecutionPage /> : <RealExecutionPage />;
 }
 

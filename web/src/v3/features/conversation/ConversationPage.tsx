@@ -16,6 +16,7 @@ import { PartView, type PartActions } from "./Parts";
 import { ArtifactPanel, ARTIFACT_ICON } from "./ArtifactPanel";
 import { useI18n } from "../../i18n";
 import { useNeed } from "../../ui/permission";
+import { useRollbackDrawer } from "../events/RollbackProposal";
 import "./conversation.css";
 
 function MessageView({ m, conv, actions, onOpenArtifact }: { m: Message; conv: Conversation; actions: PartActions; onOpenArtifact: (id: string) => void }) {
@@ -269,6 +270,7 @@ export default function ConversationPage() {
     }
   }, [conv]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const openRollback = useRollbackDrawer((x) => x.open);
   const openArtifact = (aid: string) => {
     const next = new URLSearchParams(params);
     next.set("artifact", aid);
@@ -292,6 +294,8 @@ export default function ConversationPage() {
       else if (action === "ask") void send(label);
       else toast(label);
     },
+    // Rollback suggestions only appear in conversations linked to an investigation (approved design).
+    ...(conv?.investigation_id ? { openRollback: (r: { serviceId: string; preselect: string }) => openRollback({ investigationId: conv.investigation_id!, serviceId: r.serviceId, preselect: r.preselect || undefined }) } : {}),
   };
 
   if (error) return <Page crumbs={[tx("对话与画布", "Conversations & canvases")]} error={error} errorSource={tx("对话", "conversation")}>{null}</Page>;

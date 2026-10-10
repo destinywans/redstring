@@ -29,7 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from api import LOCAL, call  # noqa: E402
-from drill import OUT, am_alerts, app_ids, lab, product_groups, prom_alerts, wait  # noqa: E402
+from drill import LAB, OUT, am_alerts, app_ids, lab, product_groups, prom_alerts, wait  # noqa: E402
 from golden import bearer  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -88,13 +88,27 @@ def main():
         checks[name] = {'ok': bool(ok), 'detail': detail}
         print(f"  {'PASS' if ok else 'FAIL'}  {name}  {detail}", flush=True)
 
+    # The lab must be healthy first: a node down mid-drill makes every later verdict meaningless.
+    ready = subprocess.run(['python3', 'cluster/clock-watchdog.py', 'check'], cwd=LAB, capture_output=True, text=True, timeout=180)
+    log['lab_check'] = ready.stdout.strip().splitlines()[-3:]
+    if 'READY for drills' not in ready.stdout or 'NOT READY' in ready.stdout:
+        print(f"lab not ready, drill not started: {log['lab_check']}", flush=True)
+        (OUT / ('rollback-prod-ui.json' if a.ui else 'rollback-prod.json')).write_text(json.dumps(log, ensure_ascii=False, indent=2))
+        sys.exit(2)
     before = kube_json('get', 'deployment', a.app)
     log['revision_before'] = before.get('metadata', {}).get('annotations', {}).get('deployment.kubernetes.io/revision')
-    print(f"{log['started_at']} bad release on ({a.app}, revision before {log['revision_before']}): "
-          f"{lab('drill', 'bad-release', 'on', '--app', a.app, '--ratio', a.ratio)}", flush=True)
+    on = lab('drill', 'bad-release', 'on', '--app', a.app, '--ratio', a.ratio)
+    print(f"{log['started_at']} bad release on ({a.app}, revision before {log['revision_before']}): {on}", flush=True)
     try:
         bad = kube_json('get', 'deployment', a.app)
         log['revision_bad'] = bad.get('metadata', {}).get('annotations', {}).get('deployment.kubernetes.io/revision')
+        bad_env = {e['name']: e.get('value', '') for e in bad.get('spec', {}).get('template', {}).get('spec', {}).get('containers', [{}])[0].get('env', [])}
+        # Stop here unless the bad release really rolled out: proposing against a healthy Deployment
+        # would roll it back to a faulty revision.
+        if not any('rollout complete' in line for line in on) or log['revision_bad'] == log['revision_before'] or not bad_env.get('LAB_FAULTS'):
+            check('bad release took effect', False, f"{on} revision {log['revision_before']} -> {log['revision_bad']}")
+            (OUT / ('rollback-prod-ui.json' if a.ui else 'rollback-prod.json')).write_text(json.dumps(log, ensure_ascii=False, indent=2))
+            raise SystemExit(2)
         wait('prometheus_firing', lambda: {k: v for k, v in prom_alerts(ALERTS, [a.app]).items() if v == 'firing'}, a.fire_timeout, log)
         wait('alertmanager_active', lambda: am_alerts(ALERTS, [a.app]), 180, log)
         firing = wait('product_firing', lambda: {g: s for g, s in product_groups({app_id}).items() if s == 'firing'}, 240, log)
@@ -125,7 +139,8 @@ def main():
             cjk = sum(1 for ch in head if '\u4e00' <= ch <= '\u9fff')
             check('answer starts in the reply language, no tool preamble (PA-77)',
                   cjk >= 5 and not head.lower().startswith(("i'll", 'i will', 'let me', 'i am going')), head)
-        env_changes = [c for c in target.get('changes', []) if c.get('field') == 'env' and c.get('name') == 'LAB_FAULTS']
+        env_changes = [c for c in target.get('changes', []) if c.get('field') == 'env' and c.get('name') == 'LAB_FAULTS'
+                       and c.get('to') in ('', None) and c.get('from')]
         check('target revision removes the injected fault', current.get('revision') == log['revision_bad'] and env_changes,
               json.dumps(env_changes, ensure_ascii=False)[:200])
         body = {'investigation_id': inv, 'service_id': sid, 'target_revision': target.get('revision'),

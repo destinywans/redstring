@@ -28,7 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from api import LOCAL, call  # noqa: E402
 from accounts import member_id  # noqa: E402
-from drill import OUT, lab  # noqa: E402
+from drill import LAB, OUT, lab  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 KUBECONFIG = Path.home() / 'Home/code/codex/aiops-test/.local/vm-cluster/kubeconfig'
@@ -123,11 +123,19 @@ def main():
         print(f"  {'PASS' if ok else 'FAIL'}  {name}  {detail}", flush=True)
 
     print(f"{log['started_at']} {a.drill} on {INSTANCE}/{ENV} {a.app}, before {log['before']}", flush=True)
+    ready = subprocess.run(['python3', 'cluster/clock-watchdog.py', 'check'], cwd=LAB, capture_output=True, text=True, timeout=180)
+    if 'READY for drills' not in ready.stdout or 'NOT READY' in ready.stdout:
+        print(f"lab not ready, drill not started: {ready.stdout.strip().splitlines()[-3:]}", flush=True)
+        sys.exit(2)
     inv = investigation(app_id, f'回滚边界演练：{a.drill}')
     log['investigation'] = inv
     try:
         if a.drill not in ('faulty-target', 'write-forbidden'):
-            print(f"  bad release on: {lab('drill', 'bad-release', 'on', '--app', a.app)}", flush=True)
+            on = lab('drill', 'bad-release', 'on', '--app', a.app)
+            print(f"  bad release on: {on}", flush=True)
+            if not any('rollout complete' in line for line in on):
+                check('bad release took effect', False, str(on))
+                raise SystemExit(2)
         status, cand = candidates(sid)
         cur = next((c for c in cand.get('candidates', []) if c.get('current')), {})
         others = [c for c in cand.get('candidates', []) if not c.get('current')]

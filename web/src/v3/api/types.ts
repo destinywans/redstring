@@ -126,7 +126,8 @@ export type Part =
   | { type: "citations"; items: { n: number; label: string; ref?: Ref }[] }
   | { type: "data_gap"; text: string; href: string }
   | { type: "next_steps"; items: { icon: string; label: string; action: string }[] }
-  | { type: "status"; text: string; detail?: string }
+  /** code: reply_failed / reply_interrupted (failed), evidence_limit / output_truncated / canvas_history_too_large (finished under a limit); none for evidence steps. */
+  | { type: "status"; text: string; detail?: string; code?: string }
   | { type: "artifacts"; ids: string[] };
 export type Message = {
   id: string;

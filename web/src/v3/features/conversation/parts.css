@@ -202,6 +202,16 @@
   font-size: var(--fs-sub);
   align-self: flex-start;
 }
+.part-status.danger {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.part-status.warn {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
 .todo-ring {
   width: 10px;
   height: 10px;

@@ -32,9 +32,11 @@ type Server struct {
 	// then answers 500, an ambiguous write.
 	PatchStatus           int
 	PatchAppliesThenFails bool
-	// StallRollout keeps a patched Deployment from finishing its rollout;
+	// StallRollout keeps a patched Deployment's new pods from becoming ready;
+	// LagObservation keeps the controller from observing the new generation;
 	// DeadlineExceeded marks it ProgressDeadlineExceeded.
 	StallRollout     bool
+	LagObservation   bool
 	DeadlineExceeded bool
 	// Patches counts PATCH requests that reached the object.
 	Patches int
@@ -61,6 +63,7 @@ type deployment struct {
 	selector        map[string]any
 	replicaSets     []*replicaSet
 	observed        int64
+	stalled         bool
 }
 
 // New starts a TLS fake for namespace with the given bearer token.
@@ -161,14 +164,15 @@ func (s *Server) rollout(d *deployment, template any, cause string) {
 			cause: cause, uid: fmt.Sprintf("rs-%s-%d", d.name, next), templateH: h})
 	}
 	d.annotations["deployment.kubernetes.io/revision"] = strconv.Itoa(next)
-	if !s.StallRollout {
+	d.stalled = s.StallRollout
+	if !s.LagObservation {
 		d.observed = d.generation
 	}
 }
 
 func (s *Server) deploymentJSON(d *deployment) map[string]any {
 	ready := d.replicas
-	if d.observed < d.generation {
+	if d.observed < d.generation || d.stalled {
 		ready = 0
 	}
 	conditions := []any{map[string]any{"type": "Progressing", "status": "True", "reason": "NewReplicaSetAvailable"}}
@@ -274,13 +278,28 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// Inject changes the failure fields under the server lock, for tests whose
+// executor is already running.
+func (s *Server) Inject(change func(*Server)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	change(s)
+}
+
+// PatchCount reads Patches under the server lock.
+func (s *Server) PatchCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Patches
+}
+
 // FinishRollout lets a stalled rollout complete.
 func (s *Server) FinishRollout(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.StallRollout = false
+	s.StallRollout, s.LagObservation = false, false
 	d := s.deployments[name]
-	d.observed = d.generation
+	d.observed, d.stalled = d.generation, false
 }
 
 func lookup(v any, path string) any {

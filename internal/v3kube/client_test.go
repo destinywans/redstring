@@ -98,3 +98,26 @@ func TestRollbackAgainstFakeCluster(t *testing.T) {
 		t.Fatal("plain HTTP to a remote API accepted")
 	}
 }
+
+// A ProgressDeadlineExceeded condition left by the stuck release being rolled
+// back must not fail the rollback before the controller sees the new spec.
+func TestProgressDeadlineFollowsObservedGeneration(t *testing.T) {
+	for _, c := range []struct {
+		observed int
+		want     bool
+	}{{observed: 4, want: false}, {observed: 5, want: true}} {
+		raw, _ := json.Marshal(map[string]any{
+			"metadata": map[string]any{"name": "checkout-api", "uid": "u", "generation": 5},
+			"spec":     map[string]any{"replicas": 2, "template": map[string]any{}},
+			"status": map[string]any{"observedGeneration": c.observed,
+				"conditions": []any{map[string]any{"type": "Progressing", "status": "False", "reason": "ProgressDeadlineExceeded"}}},
+		})
+		d, err := decodeDeployment(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.ProgressDeadlineExceeded() != c.want || d.RolledOut() {
+			t.Fatalf("observed %d: deadline %v rolled out %v", c.observed, d.ProgressDeadlineExceeded(), d.RolledOut())
+		}
+	}
+}

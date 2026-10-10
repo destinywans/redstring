@@ -175,7 +175,13 @@ func (d Deployment) RolledOut() bool {
 }
 
 // ProgressDeadlineExceeded reports the controller giving up on the rollout.
+// A condition from before the controller observed the current generation
+// belongs to the previous rollout (for example the stuck release being
+// rolled back) and is ignored, as kubectl rollout status does.
 func (d Deployment) ProgressDeadlineExceeded() bool {
+	if d.Status.ObservedGeneration < d.Metadata.Generation {
+		return false
+	}
 	for _, c := range d.Status.Conditions {
 		if c.Type == "Progressing" && c.Status == "False" && c.Reason == "ProgressDeadlineExceeded" {
 			return true

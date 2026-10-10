@@ -125,8 +125,8 @@ def canvas(run):
     return inv
 
 
-def sse(cid, cookie, last_event_id=None, seconds=60):
-    """Read the conversation event stream; returns [(id, event)] until it ends or times out."""
+def sse(cid, cookie, last_event_id=None, seconds=60, max_events=None):
+    """Read the conversation event stream; returns [(id, event)] until it ends, times out or max_events arrive."""
     ctx = ssl.create_default_context(cafile=str(LOCAL / 'tls/cert.pem'))
     headers = {'Origin': ORIGINS['prod'], 'Cookie': cookie, 'X-AIOps-Environment': 'prod', 'Accept': 'text/event-stream'}
     if last_event_id:
@@ -142,11 +142,19 @@ def sse(cid, cookie, last_event_id=None, seconds=60):
                     current['id'] = line[3:].strip()
                 elif line.startswith('event:'):
                     current['event'] = line[6:].strip()
+                elif line.startswith('data:') and 'event' not in current:
+                    # The stream sends data-only events; the type is in the JSON (the frontend reads it in onmessage).
+                    try:
+                        current['event'] = json.loads(line[5:].strip()).get('type')
+                    except (ValueError, AttributeError):
+                        pass
                 elif line == '' and current:
                     events.append((current.get('id'), current.get('event')))
                     if current.get('event') in ('message.completed', 'message.failed', 'done'):
                         break
                     current = {}
+                    if max_events and len(events) >= max_events:
+                        break
                 if time.time() - started > seconds:
                     break
     except (TimeoutError, urllib.error.URLError, OSError):
@@ -189,14 +197,18 @@ def conversation(run):
                       {'text': '结合附件判断 order-api 的 504 和 checkout-api 有没有关系，三句话以内。',
                        'attachments': [upload]})  # the upload object exactly as returned
     run.note(reply_id=posted.get('reply_id'))
-    first = sse(cid, run.cookie, seconds=20)
-    run.steps.append({'step': 'SSE stream (first 20 s)', 'events': len(first), 'last': first[-1] if first else None,
+    # Disconnect mid-reply (after 30 events) so the reconnect below really resumes a running stream.
+    first = sse(cid, run.cookie, seconds=20, max_events=30)
+    run.steps.append({'step': 'SSE stream (first 30 events)', 'events': len(first), 'last': first[-1] if first else None,
                       'ok': bool(first)})
     print(f"{'ok ' if first else 'FAIL'}  SSE stream: {len(first)} events, last {first[-1] if first else None}", flush=True)
     resume_from = next((e[0] for e in reversed(first) if e[0]), None)
     rest = sse(cid, run.cookie, last_event_id=resume_from, seconds=120)
     replayed = [e for e in rest if e[0] and resume_from and e[0] == resume_from]
-    ok = bool(resume_from) and not replayed and (rest or (first and first[-1][1] in ('message.completed', 'message.failed')))
+    done = ('message.completed', 'message.failed')
+    ended = (rest and rest[-1][1] in done) or (first and first[-1][1] in done and not rest)
+    ahead = all(int(e[0]) > int(resume_from) for e in rest if e[0]) if resume_from else False
+    ok = bool(resume_from) and not replayed and ahead and bool(ended)
     run.steps.append({'step': 'reconnect with Last-Event-ID resumes after the last event', 'resume_from': resume_from,
                       'events': len(rest), 'last': rest[-1] if rest else None, 'replayed_last': bool(replayed), 'ok': bool(ok)})
     print(f"{'ok ' if ok else 'FAIL'}  resume from {resume_from}: {len(rest)} events, last {rest[-1] if rest else None}", flush=True)
@@ -538,6 +550,9 @@ def main():
         knowledge(run, a.incident)
     else:
         {'canvas': canvas, 'conversation': conversation, 'knowledge': knowledge, 'settings': settings, 'agents': agents}[a.path](run)
+    # A failed check that did not stop the path still fails the run, so the regression counts it.
+    if any(step.get('ok') is False for step in run.steps):
+        raise SystemExit(run.save())
     print(run.save())
 
 

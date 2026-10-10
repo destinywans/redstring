@@ -194,7 +194,8 @@ export type CanvasNode = {
   x: number;
   y: number;
   w: number;
-  summary?: string;
+  /** Real nodes: the start of the branch's latest completed AI reply (≤ 280 chars, "…" when cut), null without one (PA-75). */
+  summary?: string | null;
   confidence?: "high" | "medium" | "low";
   evidence_refs?: string[];
   tools?: string;
@@ -215,6 +216,26 @@ export type CanvasGraph = {
   nodes: CanvasNode[];
   tray: EvidenceTrayItem[];
 };
+/**
+ * GET /investigations/{id}/nodes/{node}/replies (PA-75): one branch's AI replies, newest first, cursor-paged. answer is
+ * only set when completed; a running attempt whose lease ran out is failed/lease_expired. evidence_ids are in reading
+ * order (the numbers a rollback suggestion cites).
+ */
+export type InvestigationReply = {
+  id: string;
+  text: string;
+  author: string | null;
+  answer: string | null;
+  state: "running" | "completed" | "failed" | (string & {});
+  failure_code: string | null;
+  model: { id: string; name: string; provider: string };
+  reasoning: string | null;
+  created_at: string;
+  completed_at: string | null;
+  evidence_ids: string[];
+  rollback_suggestion: RollbackSuggestion | null;
+};
+export type InvestigationReplies = { investigation_id: string; node_id: string; replies: InvestigationReply[]; has_more: boolean; next_cursor: string | null };
 export type WritebackPreview = {
   from: { id: string; title: string; version: string };
   to: { id: string; title: string; version: string; next_version: string; hops: number };

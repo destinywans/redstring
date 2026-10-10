@@ -118,6 +118,51 @@ mock("GET", "/investigations/:id/canvas", ({ params }) =>
         investigation: params.id === "INV-231" ? graph.investigation : { ...graph.investigation, id: params.id },
       },
 );
+// GET …/nodes/:node/replies (PA-75): each branch's persisted AI replies, newest first, cursor-paged.
+const MODEL = { id: "deepseek-chat", name: "DeepSeek V3", provider: "deepseek" };
+type MockReply = { id: string; text: unknown; author: string | null; answer: unknown; state: string; failure_code: string | null; model: typeof MODEL; reasoning: string | null; created_at: string; completed_at: string | null; evidence_ids: string[]; rollback_suggestion: unknown };
+const reply = (id: string, text: unknown, answer: unknown, created: string, extra: Partial<MockReply> = {}): MockReply => ({
+  id, text, author: "王晨", answer, state: "completed", failure_code: null, model: MODEL, reasoning: "high", created_at: created, completed_at: created, evidence_ids: [], rollback_suggestion: null, ...extra,
+});
+const QUESTIONS: Record<string, unknown> = {
+  root: l("为什么 checkout-api 的 5xx 升高了？", "Why did checkout-api's 5xx rise?"),
+  "b-code": l("v2.8.1 的改动会影响库存调用吗？", "Does v2.8.1 touch inventory calls?"),
+  "b-inv": l("调用量为什么翻了三倍？", "Why did calls triple?"),
+  "b-pay": l("支付网关有没有异常？", "Is the payment gateway failing?"),
+  "b-amp": l("一个下单请求调了几次库存？", "How many inventory calls does one order make?"),
+};
+function mockReplies(investigation: string, node: string): MockReply[] {
+  if (investigation === "INV-236") {
+    if (node === "root")
+      // An on-call engineer checking the error rate every two minutes: enough replies for "load earlier".
+      return Array.from({ length: 22 }, (_, i) => {
+        const minutes = 10 * 60 + 46 + i * 2;
+        const pct = Math.max(0.2, 48 - i * 2.2).toFixed(1);
+        const hhmm = `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
+        return reply(`INR-r${i}`, l("现在 /checkout 的 5xx 比例是多少？", "What's the /checkout 5xx ratio now?"), l(`${hhmm}：最近 5 分钟 5xx 比例 ${pct}%（Prometheus）[1]。`, `${hhmm}: 5xx ratio ${pct}% over the last 5 minutes (Prometheus)[1].`), at(hhmm), { evidence_ids: ["EVD-a1"] });
+      }).reverse();
+    if (node === "b-release")
+      return [
+        reply("INR-7f31", l("回滚到哪个修订合适？", "Which revision should we roll back to?"), badRelease.nodes[1].summary, at("10:49"), { evidence_ids: ["EVD-a1", "EVD-a2", "EVD-a3"], rollback_suggestion: suggestion }),
+        reply("INR-7f20", l("是不是 10:42 的发布引起的？", "Was it the 10:42 release?"), l("先看了服务概况和错误率：/checkout 5xx 从 10:44 开始升高[1]，错误日志集中在新 Pod[2]。还需要对比修订才能确定。", "From the overview and error ratio: /checkout 5xx rose from 10:44[1], errors cluster on the new Pods[2]. Comparing revisions is still needed."), at("10:47"), { evidence_ids: ["EVD-a1", "EVD-a2"] }),
+        reply("INR-7f11", l("是不是 10:42 的发布引起的？", "Was it the 10:42 release?"), null, at("10:45"), { state: "failed", failure_code: "model_unavailable", completed_at: null }),
+      ];
+    const n = badRelease.nodes.find((x) => x.id === node);
+    if (!n) return [];
+    return [reply(n.rollback_suggestion?.reply_id ?? `INR-${node}`, n.id === "b-yesterday" ? l("昨天的告警是怎么回事？", "What was yesterday's alert?") : l("下游依赖有没有问题？", "Are dependencies failing?"), n.summary, n.id === "b-yesterday" ? at("16:41", -1) : at("10:48"), { evidence_ids: ["EVD-b1"], rollback_suggestion: n.rollback_suggestion ?? null })];
+  }
+  const n = graph.nodes.find((x) => x.id === node);
+  if (!n || !("summary" in n) || !n.summary) return [];
+  return [reply(`INR-${node}`, QUESTIONS[node] ?? l("继续分析这个分支", "Keep analysing this branch"), n.summary, at("14:14"))];
+}
+mock("GET", "/investigations/:id/nodes/:node/replies", ({ params, query }) => {
+  const all = mockReplies(params.id, params.node);
+  const size = Math.min(50, Math.max(1, Number(query.page_size ?? 20)));
+  const from = Number(query.cursor ?? 0);
+  const page = all.slice(from, from + size);
+  const next = from + size < all.length ? String(from + size) : null;
+  return { investigation_id: params.id, node_id: params.node, replies: page, has_more: next !== null, next_cursor: next };
+});
 mock("POST", "/investigations/:id/branches", ({ body }) => {
   const b = body as { parent_id: string; title: string; x: number; y: number };
   return { id: `b-${Date.now()}`, kind: "branch", parent: b.parent_id, title: b.title, subtitle: l("独立上下文 v1 · 刚刚派生", "Isolated context v1 · just forked"), status: "running", x: b.x, y: b.y, w: 240, summary: "", context: { version: "v1", inherits: "v4", tokens: 1200, messages: 0, excludes: [] }, versions: [] };

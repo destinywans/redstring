@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as RPE } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import { currentEnv } from "../../app/environment";
@@ -7,7 +8,8 @@ import { currentEnv } from "../../app/environment";
 /** Sample-only references (chat C-320, run_7f3a, report EXE-51, sample evidence sources) never show in real mode. */
 const demo = API_MODE === "mock";
 import type { CanvasGraph, CanvasNode, EvidenceTrayItem, RollbackSuggestion } from "../../api/types";
-import { RollbackSuggestionCard, useSuggestionStale } from "../events/RollbackSuggestion";
+import { useSuggestionStale } from "../events/RollbackSuggestion";
+import { NodeReplies } from "./NodeReplies";
 import { AvatarGroup, Badge, Btn, Col, Dot, Env, Icon, IconBtn, Muted, Row, Section, Segmented, Skeleton, Spacer, Strong, Tabs, Tile, KV, Mono, cx, type IconName } from "../../ui/core";
 import { BrandMark } from "../../ui/BrandMark";
 import { toast } from "../../ui/overlays";
@@ -260,6 +262,16 @@ function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin, invest
   const openRollback = useRollbackDrawer((x) => x.open);
   const card = useRef<HTMLDivElement>(null);
   const [scrollTo, setScrollTo] = useState(false);
+  // A citation in a suggestion points at one evidence item: open the evidence tab there and mark it briefly.
+  const [evFocus, setEvFocus] = useState<string | null>(null);
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (tab !== "evidence" || !evFocus || !body.current) return;
+    const el = body.current.querySelector<HTMLElement>(`[data-ev="${CSS.escape(evFocus)}"]`);
+    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const t = setTimeout(() => setEvFocus(null), 1600);
+    return () => clearTimeout(t);
+  }, [tab, evFocus]);
   // From a node's suggestion hint: open the chat tab and bring the card into view (approved design, PA-72).
   useEffect(() => {
     if (!focus) return;
@@ -310,7 +322,7 @@ function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin, invest
           { value: "agent", label: "Agent" },
         ]}
       />
-      <div className="cv-inspector-body" key={tab}>
+      <div className="cv-inspector-body" key={tab} ref={body}>
         {tab === "context" && (
           <>
             <Section title={tx("上下文隔离", "Context isolation")}>
@@ -397,31 +409,20 @@ function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin, invest
         {tab === "chat" && (
           <Col gap={12}>
             <Muted size={11.5}>{tx("这个节点自己的对话，与其他分支相互隔离。", "This node's own thread, isolated from other branches.")}</Muted>
-            {/* The sample question belongs to the sample retry-storm investigation (its nodes carry versions). */}
-            {demo && n.versions.length > 0 && <div className="cv-msg user">{tx("连接等待是从什么时候开始升高的？", "When did connection wait start rising?")}</div>}
-            {n.summary ? (
-              <div className="cv-msg">
-                <Markdown text={n.summary} />
-              </div>
-            ) : n.context.messages > 0 || n.rollback_suggestion ? (
-              // The canvas has no way to read a node's earlier replies yet (PA-75): say so instead of a bare dash.
-              <div className="cv-msg muted" role="note">
-                <Row gap={6} align="flex-start">
-                  <Icon name="info" size={13} style={{ marginTop: 3 }} />
-                  <span>{tx("这个节点的历史回复暂时无法读取（共 {n} 条消息）。继续追问后，新的回复会显示在这里。", "This node's earlier replies can't be read yet ({n} messages). New replies show here after you ask a follow-up.", { n: n.context.messages })}</span>
-                </Row>
-              </div>
-            ) : (
-              <Muted>{tx("还没有对话。在节点上追问后，回复会显示在这里。", "No conversation yet. Ask on the node and replies show here.")}</Muted>
-            )}
-            {/* The branch's latest AI rollback suggestion, right under the reply; it only opens the proposal drawer. */}
-            {n.rollback_suggestion && investigation && (
-              <RollbackSuggestionCard
-                ref={card}
-                s={n.rollback_suggestion}
-                onCite={() => setTab("evidence")}
-                onOpen={(r) => openRollback({ investigationId: investigation.id, investigationTitle: investigation.title, serviceId: r.serviceId, preselect: r.preselect || undefined })}
+            {/* Persisted replies, oldest first; each suggestion card right under the reply that produced it (PA-72/75). */}
+            {investigation ? (
+              <NodeReplies
+                investigationId={investigation.id}
+                n={n}
+                cardRef={card}
+                onOpenRollback={(r) => openRollback({ investigationId: investigation.id, investigationTitle: investigation.title, serviceId: r.serviceId, preselect: r.preselect || undefined })}
+                onCiteEvidence={(evidenceId) => {
+                  setEvFocus(evidenceId ?? null);
+                  setTab("evidence");
+                }}
               />
+            ) : (
+              <Skeleton h={120} />
             )}
             {demo && (
               <Btn icon="message" to="/conversations/C-320">
@@ -437,7 +438,7 @@ function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin, invest
               (n.evidence_refs ?? []).map((r) => {
                 const item = tray?.find((t) => t.id === r);
                 return (
-                  <Col key={r} gap={6} className="cv-ev-row" style={{ alignItems: "stretch" }}>
+                  <Col key={r} gap={6} className={cx("cv-ev-row", evFocus === r && "focus")} data-ev={r} style={{ alignItems: "stretch" }}>
                     <Row gap={8}>
                       <Tile icon={item && evidenceParts(item.body)?.kind === "logs" ? "terminal" : "file"} size={24} />
                       <Col gap={0} grow style={{ minWidth: 0 }}>
@@ -450,7 +451,7 @@ function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin, invest
                 );
               })}
             {demo && (n.evidence_refs ?? []).map((r, i) => (
-              <Row key={r} gap={10} className="cv-ev-row">
+              <Row key={r} gap={10} className={cx("cv-ev-row", evFocus === r && "focus")} data-ev={r}>
                 <Tile icon={(["code", "activity", "terminal"] as IconName[])[i % 3]} size={24} />
                 <Col gap={0} grow>
                   <span style={{ fontSize: "var(--fs-sm)" }}>{r}</span>
@@ -500,6 +501,7 @@ export default function CanvasPage() {
   const nav = useNavigate();
   const openRollback = useRollbackDrawer((x) => x.open);
   const rollbackBlocked = useRollbackBlocked();
+  const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const { data, isLoading } = useGet<CanvasGraph>(id ? `/investigations/${id}/canvas` : null);
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
@@ -746,6 +748,8 @@ export default function CanvasPage() {
   const ask = async (nodeId: string, text: string) => {
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, status: "running" } : n)));
     const res = await api<{ summary: string; new_branch?: { title: string; subtitle: string; summary: string }; rollback_suggestion?: RollbackSuggestion | null }>("POST", `/investigations/${id}/nodes/${nodeId}/messages`, { body: { text } });
+    // The inspector reads the persisted thread; reread it now that this reply is stored (PA-75).
+    void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === `/investigations/${id}/nodes/${nodeId}/replies` });
     setTimeout(() => {
       setNodes((ns) => {
         // The node shows the branch's most recent suggestion (contract): a reply without one keeps the earlier one.

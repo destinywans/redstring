@@ -360,6 +360,9 @@
   align-self: flex-end;
   background: var(--accent-soft);
 }
+.cv-ev-row.focus {
+  box-shadow: 0 0 0 2px var(--accent);
+}
 .cv-ev-row {
   padding: 8px;
   border-radius: 8px;

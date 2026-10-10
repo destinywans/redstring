@@ -10,6 +10,8 @@ import { useRollbackDrawer } from "./RollbackProposal";
 import { PlanTiles, serviceIdOf, sig, useRollbackBlocked, useRolloutText, useWhen } from "./rollback";
 
 const TERMINAL: RolloutStatus[] = ["succeeded", "failed", "needs_attention"];
+/** Settling period after verification starts; samples in it are recorded but never fail the run. */
+const SETTLE_S = 60;
 
 /**
  * Execution view of a Kubernetes rollback (approved design board §3; docs/api/v3-rollback.md §4): a five-step
@@ -29,11 +31,19 @@ export function RolloutExecutionPage({ id }: { id: string }) {
   const [tone, label] = text.status(e.status);
   const v = e.verification;
   const samples = v?.samples ?? [];
-  const slots = Math.max(2, Math.min(40, Math.round((v?.plan.observation_seconds ?? 300) / 15)));
+  // The first 60 s after verification starts are a settling period (old traffic still in the rate windows); then the
+  // reviewed observation window. Samples every 15 s, the latest 40 kept (docs/api/v3-rollback.md §4, PA-73).
+  const total = SETTLE_S + (v?.plan.observation_seconds ?? 300);
+  const slots = Math.min(40, Math.round(total / 15));
+  const settleEnd = v?.started_at ? Date.parse(v.started_at) + SETTLE_S * 1000 : null;
+  const judged = samples.filter((x) => settleEnd === null || Date.parse(x.at) >= settleEnd);
   const lastRate = [...samples].reverse().find((s) => s.request_rate !== null)?.request_rate ?? null;
   const lastErr = [...samples].reverse().find((s) => s.error_ratio !== null)?.error_ratio ?? null;
   const lastAge = [...samples].reverse().find((s) => s.sample_age_seconds !== null)?.sample_age_seconds ?? null;
-  const badSample = samples.find((s) => !s.ok);
+  // A failure is a judged sample whose value crosses a threshold; a null value is "no data", never a zero or a failure.
+  const crosses = (x: (typeof samples)[number]) => !!v && ((x.error_ratio !== null && x.error_ratio > v.plan.max_error_ratio) || (x.request_rate !== null && x.request_rate < v.plan.min_request_rate));
+  const badSample = judged.find(crosses);
+  const missing = judged.filter((x) => x.error_ratio === null || x.request_rate === null).length;
   const repropose = () => open({ investigationId: e.investigation_id, serviceId: serviceIdOf(e.application_id, e.environment_id) });
   return (
     <Page
@@ -77,6 +87,7 @@ export function RolloutExecutionPage({ id }: { id: string }) {
                   : e.status_reason
                     ? text.reason(e.status_reason)
                     : tx("执行器没有给出原因。", "The executor gave no reason.")}
+                {missing > 0 && e.status_reason === "verification_unavailable" && <> {tx("稳定期后有 {n} 次采样没有值（例如 Pod 重建时没有请求），不能判为恢复。", "{n} samples after the settling period had no value (e.g. no requests while Pods restarted), so it can't count as recovered.", { n: missing })}</>}
                 {badSample && e.status_reason === "verification_failed" && (
                   <>
                     {" "}
@@ -126,10 +137,10 @@ export function RolloutExecutionPage({ id }: { id: string }) {
               <Col gap={12} style={{ padding: "14px 16px" }}>
                 <div className="rb-charts">
                   <ChartCard title={tx("错误率", "Error ratio")} value={lastErr === null ? "—" : `${Math.round(lastErr * 1000) / 10}%`} bad={!!badSample && badSample.error_ratio !== null && badSample.error_ratio > v.plan.max_error_ratio}>
-                    <SampleChart values={samples.map((s) => s.error_ratio)} oks={samples.map((s) => s.ok)} slots={slots} threshold={v.plan.max_error_ratio} kind="max" format={(x) => `${Math.round(x * 1000) / 10}%`} start={time(v.started_at)} label={tx("错误率", "Error ratio")} />
+                    <SampleChart samples={samples.map((x) => ({ at: x.at, value: x.error_ratio }))} startedAt={v.started_at} total={total} threshold={v.plan.max_error_ratio} kind="max" format={(x) => `${Math.round(x * 1000) / 10}%`} label={tx("错误率", "Error ratio")} />
                   </ChartCard>
                   <ChartCard title={tx("请求率", "Request rate")} value={lastRate === null ? "—" : tx("{v}/秒", "{v}/s", { v: sig(lastRate) })}>
-                    <SampleChart values={samples.map((s) => s.request_rate)} oks={samples.map((s) => s.ok)} slots={slots} threshold={v.plan.min_request_rate} kind="min" format={sig} start={time(v.started_at)} label={tx("请求率", "Request rate")} />
+                    <SampleChart samples={samples.map((x) => ({ at: x.at, value: x.request_rate }))} startedAt={v.started_at} total={total} threshold={v.plan.min_request_rate} kind="min" format={sig} label={tx("请求率", "Request rate")} />
                   </ChartCard>
                 </div>
                 <Muted size={11.5}>
@@ -213,7 +224,7 @@ function Timeline({ e }: { e: RolloutExecutionDetail }) {
     { title: tx("滚动", "Roll out"), sub: e.rollout ? tx("{a}/{d} 可用", "{a}/{d} available", { a: e.rollout.available, d: e.rollout.desired }) : at(["rolling_out"]) },
     {
       title: tx("验证", "Verify"),
-      sub: v?.started_at ? (v.finished_at ? time(v.finished_at) : tx("已观察 {s}", "Observed {s}", { s: elapsed(v.started_at, v.plan.observation_seconds) })) : null,
+      sub: v?.started_at ? (v.finished_at ? time(v.finished_at) : tx("已观察 {s}", "Observed {s}", { s: elapsed(v.started_at, SETTLE_S + v.plan.observation_seconds) })) : null,
     },
     { title: tx("结果", "Result"), sub: e.status === "succeeded" ? tx("已恢复", "Recovered") : e.status === "failed" ? tx("失败 · 未自动再写", "Failed · no automatic retry") : e.status === "needs_attention" ? tx("需要人工处理", "Needs attention") : tx("观察结束后判定", "Decided after observation") },
   ];
@@ -272,23 +283,46 @@ function ChartCard({ title, value, bad, children }: { title: string; value: stri
   );
 }
 
-/** Samples on the fixed observation window (15 s slots) with the threshold line; failed samples are marked. */
-function SampleChart({ values, oks, slots, threshold, kind, format, start, label }: { values: (number | null)[]; oks: boolean[]; slots: number; threshold: number; kind: "max" | "min"; format: (v: number) => string; start: string | null; label: string }) {
+/**
+ * Samples placed by time on the whole verification window (settling period + observation) with the threshold line.
+ * A null value breaks the line and gets a grey tick at the top (no data, not zero); only samples after the settling
+ * period that cross the threshold are marked as failures (PA-73).
+ */
+function SampleChart({ samples, startedAt, total, threshold, kind, format, label }: { samples: { at: string; value: number | null }[]; startedAt: string | null; total: number; threshold: number; kind: "max" | "min"; format: (v: number) => string; label: string }) {
   const { tx } = useI18n();
+  const clock = useWhen().clock;
   const w = 300;
   const h = 96;
   const [l, r, t, b] = [38, 8, 8, 20];
   const pw = w - l - r;
   const ph = h - t - b;
-  const known = values.filter((v): v is number => v !== null);
+  const start = startedAt ? Date.parse(startedAt) : samples.length ? Date.parse(samples[0].at) : Date.now();
+  const known = samples.map((s) => s.value).filter((v): v is number => v !== null);
   const vmax = Math.max(threshold * 1.5, ...known) * 1.1 || 1;
-  const x = (i: number) => l + (pw * i) / (slots - 1);
+  const x = (at: string) => l + pw * Math.min(1, Math.max(0, (Date.parse(at) - start) / (total * 1000)));
   const y = (v: number) => t + ph * (1 - Math.min(v, vmax) / vmax);
-  const pts = values.map((v, i) => (v === null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`)).filter(Boolean) as string[];
+  const settleX = l + pw * Math.min(1, SETTLE_S / total);
+  // Contiguous runs of known values become separate lines; a lone point gets a dot so it stays visible.
+  const runs: number[][] = [];
+  let cur: number[] = [];
+  samples.forEach((s, i) => {
+    if (s.value === null) {
+      if (cur.length) runs.push(cur);
+      cur = [];
+    } else cur.push(i);
+  });
+  if (cur.length) runs.push(cur);
+  const lone = new Set(runs.filter((run) => run.length === 1).map((run) => run[0]));
+  const lastKnown = samples.map((s) => s.value !== null).lastIndexOf(true);
+  const failing = (s: { at: string; value: number | null }) => s.value !== null && Date.parse(s.at) >= start + SETTLE_S * 1000 && (kind === "max" ? s.value > threshold : s.value < threshold);
   const ty = y(threshold);
   const lineColor = kind === "max" ? "var(--danger)" : "var(--warn)";
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} width="100%" role="img" aria-label={tx("{l}：{n} 次采样，阈值 {r} {v}", "{l}: {n} samples, threshold {r} {v}", { l: label, n: values.length, r: kind === "max" ? "≤" : "≥", v: format(threshold) })} style={{ display: "block", maxWidth: w }}>
+    <svg viewBox={`0 0 ${w} ${h}`} width="100%" role="img" aria-label={tx("{l}：{n} 次采样，阈值 {r} {v}", "{l}: {n} samples, threshold {r} {v}", { l: label, n: samples.length, r: kind === "max" ? "≤" : "≥", v: format(threshold) })} style={{ display: "block", maxWidth: w }}>
+      <rect x={l} y={t} width={settleX - l} height={ph} fill="var(--sunken)" />
+      <text x={l + 3} y={t + 11} fontSize="9" fill="var(--faint)">
+        {tx("稳定期", "settling")}
+      </text>
       <line x1={l} x2={w - r} y1={t + ph} y2={t + ph} stroke="var(--border-strong)" />
       <line x1={l} x2={w - r} y1={t} y2={t} stroke="var(--border)" />
       <text x={l - 5} y={t + 4} textAnchor="end" fontSize="9.5" fill="var(--faint)">
@@ -301,12 +335,32 @@ function SampleChart({ values, oks, slots, threshold, kind, format, start, label
       <text x={w - r} y={ty - 4} textAnchor="end" fontSize="9.5" fill={lineColor}>
         {kind === "max" ? "≤" : "≥"} {format(threshold)}
       </text>
-      {pts.length > 1 && <polyline points={pts.join(" ")} fill="none" stroke="var(--accent)" strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" />}
-      {values.map((v, i) =>
-        v === null ? null : !oks[i] ? <circle key={i} cx={x(i)} cy={y(v)} r={3.5} fill="var(--danger)" /> : i === values.length - 1 ? <circle key={i} cx={x(i)} cy={y(v)} r={3} fill="var(--accent)" /> : null,
+      {runs.map((run) =>
+        run.length > 1 ? (
+          <polyline
+            key={run[0]}
+            points={run.map((i) => `${x(samples[i].at).toFixed(1)},${y(samples[i].value as number).toFixed(1)}`).join(" ")}
+            fill="none"
+            stroke="var(--accent)"
+            strokeWidth={1.6}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        ) : null,
+      )}
+      {samples.map((s, i) =>
+        s.value === null ? (
+          <line key={i} x1={x(s.at)} x2={x(s.at)} y1={t} y2={t + 6} stroke="var(--faint)" strokeWidth={1.5}>
+            <title>{tx("{t} 没有值", "No value at {t}", { t: clock(s.at) ?? "" })}</title>
+          </line>
+        ) : failing(s) ? (
+          <circle key={i} cx={x(s.at)} cy={y(s.value)} r={3.5} fill="var(--danger)" />
+        ) : i === lastKnown || lone.has(i) ? (
+          <circle key={i} cx={x(s.at)} cy={y(s.value)} r={3} fill="var(--accent)" />
+        ) : null,
       )}
       <text x={l} y={h - 5} fontSize="9.5" fill="var(--faint)">
-        {start ?? ""}
+        {startedAt ? clock(startedAt) : ""}
       </text>
       <text x={w - r} y={h - 5} textAnchor="end" fontSize="9.5" fill="var(--faint)">
         {tx("观察结束", "end")}

@@ -205,6 +205,12 @@ function RollbackProposalDrawer({ req, onClose }: { req: RollbackRequest; onClos
               <span className="grow">{tx("修订列表已过期：读取后 Deployment 变化了。已重新读取，请重新选择。", "The revision list was out of date: the Deployment changed after it was read. It's been reread; choose again.")}</span>
             </div>
           )}
+          {req.preselect && target === req.preselect && !stale && (
+            <div className="unk-banner" role="status">
+              <Icon name="sparkles" size={14} />
+              <span className="grow">{tx("已按 AI 建议预选修订 {r}，请确认后再提交。", "Revision {r} is preselected from the AI suggestion; check it before you submit.", { r: req.preselect })}</span>
+            </div>
+          )}
           {preselectLost && !stale && (
             <div className="unk-banner warn" role="status">
               <Icon name="alert" size={14} />

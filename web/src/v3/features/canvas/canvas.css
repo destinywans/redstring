@@ -478,6 +478,39 @@
   background: var(--ok-soft);
   color: var(--ok);
 }
+.cv-lite-tag.neutral {
+  background: var(--sunken);
+  color: var(--muted);
+}
+/* AI rollback suggestion hint on a node (PA-72): same size as the evidence and writeback badges. */
+.cv-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--fs-cap);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cv-hint:hover {
+  filter: brightness(0.97);
+}
+.cv-hint:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.cv-hint.stale {
+  background: var(--sunken);
+  color: var(--muted);
+  font-weight: 500;
+}
 .cv-lite-tag.accent {
   background: var(--accent-soft);
   color: var(--accent-text);

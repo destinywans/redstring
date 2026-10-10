@@ -128,11 +128,8 @@ export type Part =
   | { type: "next_steps"; items: { icon: string; label: string; action: string }[] }
   /** code: reply_failed / reply_interrupted (failed), evidence_limit / output_truncated / canvas_history_too_large (finished under a limit); none for evidence steps. */
   | { type: "status"; text: string; detail?: string; code?: string }
-  /**
-   * AI rollback suggestion in an investigation conversation (approved design, PA-08). Not in the backend contract yet:
-   * this is the shape the frontend reads; the card only opens the proposal drawer and never submits.
-   */
-  | { type: "rollback_suggestion"; service_id: string; workload: string; from_revision: string; target_revision: string; target_created_at?: string | null; target_change_cause?: string | null; reasons: { text: string; cites?: number[] }[] }
+  /** AI rollback suggestion as a message part (sample conversations); the card only opens the proposal drawer. */
+  | ({ type: "rollback_suggestion" } & RollbackSuggestion)
   | { type: "artifacts"; ids: string[] };
 export type Message = {
   id: string;
@@ -203,6 +200,8 @@ export type CanvasNode = {
   tools?: string;
   series?: number[];
   writeback?: { to: string; version: string };
+  /** The branch's most recent AI rollback suggestion, null when there is none (PA-72, docs/api/v3-rollback.md). */
+  rollback_suggestion?: RollbackSuggestion | null;
   /** Conclusions written back into this node, with the nodes they came from (PA-62). */
   writebacks?: { received: number; sources: string[] };
   evidence?: EvidenceBody & { source: string; color: string };
@@ -406,6 +405,22 @@ export type Proposal = {
 };
 
 /* ---------------- Kubernetes rollback (docs/api/v3-rollback.md, PA-08) ---------------- */
+/**
+ * AI rollback suggestion (PA-72). service_id is the encoded service ID for /services/{id}/rollback-candidates; cite n
+ * is evidence_ids[n-1]. Only target_revision and reasons come from the model (server-checked); the rest from evidence.
+ */
+export type RollbackSuggestion = {
+  service_id: string;
+  workload: string;
+  from_revision: string;
+  target_revision: string;
+  target_created_at?: string | null;
+  target_change_cause?: string | null;
+  reasons: { text: string; cites?: number[] }[];
+  reply_id?: string;
+  evidence_ids?: string[];
+  suggested_at?: string;
+};
 export const ROLLBACK_KIND = "kubernetes.deployment.rollback";
 /** One container-level difference; `to` null means the field goes away. Secret/ConfigMap values are never shown (value_hidden). */
 export type RollbackChange = { container: string; field: "image" | "env" | "resources" | "command" | "other" | (string & {}); name: string | null; from: string | null; to: string | null; value_hidden: boolean };

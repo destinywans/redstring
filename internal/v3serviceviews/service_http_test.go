@@ -296,6 +296,11 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	if err = json.Unmarshal(w.Body.Bytes(), &d); err != nil {
 		t.Fatal(err)
 	}
+	// PA-83: the times inside the change and AI text also come in RFC 3339.
+	if len(d.Changes) != 1 || d.Changes[0].Time == "" || !strings.HasPrefix(d.Changes[0].Meta, d.Changes[0].Time) ||
+		d.AI == nil || d.AI.At == "" || !strings.Contains(d.AI.Meta, d.AI.At) || !strings.Contains(d.AI.Text, d.AI.At) {
+		t.Fatalf("structured times: %+v %+v", d.Changes, d.AI)
+	}
 	if d.AI == nil || d.AI.Investigation != "INV-checkout" || !strings.Contains(d.AI.Text, "Observed elevated") ||
 		d.Deps == nil || len(d.Deps.Downstream) != 1 || d.Deps.Downstream[0].Name != "Payments" || str(d.Deps.Downstream[0].Status) != "ok" ||
 		len(d.Changes) != 1 || num(d.Tabs["deps"]) != 1 || num(d.Tabs["incidents"]) != 1 || len(d.Signals) != 5 ||

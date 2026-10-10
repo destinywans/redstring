@@ -28,10 +28,15 @@ type profileContact struct {
 	Verified *bool  `json:"verified"`
 	Note     string `json:"note,omitempty"`
 }
+
+// SignedInAt and ExpiresAt are the times inside Sub, in RFC 3339 (PA-83);
+// SignedInAt is null for a session that predates the sign-in record.
 type profileSession struct {
-	ID     string  `json:"id"`
-	Device *string `json:"device"`
-	Sub    string  `json:"sub"`
+	ID         string  `json:"id"`
+	Device     *string `json:"device"`
+	Sub        string  `json:"sub"`
+	SignedInAt *string `json:"signed_in_at"`
+	ExpiresAt  string  `json:"expires_at"`
 	// Current marks the session making this request; always present (PA-69).
 	Current bool `json:"current"`
 }

@@ -94,12 +94,14 @@ type stage struct {
 	Jobs []job  `json:"jobs"`
 }
 type detail struct {
-	ID     string  `json:"id"`
-	Title  string  `json:"title"`
-	Meta   string  `json:"meta"`
-	Brand  string  `json:"brand"`
-	Stages []stage `json:"stages"`
-	Diff   struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Meta  string `json:"meta"`
+	// ReviewedAt is the review time inside Meta, in RFC 3339 (PA-83).
+	ReviewedAt *string `json:"reviewed_at"`
+	Brand      string  `json:"brand"`
+	Stages     []stage `json:"stages"`
+	Diff       struct {
 		Path  string `json:"path"`
 		Minus string `json:"minus"`
 		Plus  string `json:"plus"`
@@ -115,12 +117,15 @@ type detail struct {
 	} `json:"alert"`
 }
 type viewResponse struct {
-	KPIs      []kpi         `json:"kpis"`
-	Sources   []sourceCount `json:"sources"`
-	Lanes     []lane        `json:"lanes"`
-	Axis      []string      `json:"axis"`
-	Pipelines []pipeline    `json:"pipelines"`
-	Detail    detail        `json:"detail"`
+	KPIs    []kpi         `json:"kpis"`
+	Sources []sourceCount `json:"sources"`
+	Lanes   []lane        `json:"lanes"`
+	Axis    []string      `json:"axis"`
+	// AxisTimes are the instants of Axis ("Jan 02 15:04 UTC" text kept for
+	// older clients) in RFC 3339 (PA-83).
+	AxisTimes []string   `json:"axis_times"`
+	Pipelines []pipeline `json:"pipelines"`
+	Detail    detail     `json:"detail"`
 }
 
 var errIncomplete = errors.New("complete change evidence unavailable")

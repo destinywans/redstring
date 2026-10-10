@@ -71,14 +71,17 @@ type adminMapping struct {
 	Param string `json:"param"`
 }
 
+// CheckedAt is the metadata check time inside Checks, in RFC 3339 (PA-83);
+// null when this process has no check.
 type adminDetail struct {
-	Model    string         `json:"model"`
-	APIChain []adminAPIStep `json:"api_chain"`
-	Mapping  []adminMapping `json:"mapping"`
-	Checks   []string       `json:"checks"`
-	Roles    string         `json:"roles"`
-	Agents   string         `json:"agents"`
-	Limits   string         `json:"limits"`
+	Model     string         `json:"model"`
+	APIChain  []adminAPIStep `json:"api_chain"`
+	Mapping   []adminMapping `json:"mapping"`
+	Checks    []string       `json:"checks"`
+	CheckedAt *string        `json:"checked_at"`
+	Roles     string         `json:"roles"`
+	Agents    string         `json:"agents"`
+	Limits    string         `json:"limits"`
 }
 
 type adminUsage struct {
@@ -318,12 +321,14 @@ func (u adminUsage) description() string {
 
 func adminModelDetail(model inference.Model, observation adminObservation, usage adminUsage, instanceID string) adminDetail {
 	checks := []string{"Generation, streaming, tools, and vision have not been checked."}
+	var checkedAt *string
 	if observation.Status == "" {
 		checks = append(checks, "No model metadata check is recorded.")
 	} else if observation.InstanceID != instanceID {
 		checks = append(checks, "A metadata check belongs to another process instance; current process is unverified.")
 	} else {
 		stamp := observation.CheckedAt.UTC().Format(time.RFC3339)
+		checkedAt = &stamp
 		switch observation.Status {
 		case "verified":
 			checks = append(checks, "Local credential-free metadata lookup succeeded at "+stamp+".")
@@ -350,10 +355,10 @@ func adminModelDetail(model inference.Model, observation adminObservation, usage
 		Model:    model.ID,
 		APIChain: []adminAPIStep{{API: adminAPIName(model.API), Note: "Only configured API; no automatic fallback."}},
 		Mapping:  mapping,
-		Checks:   checks,
-		Roles:    "No model-specific role binding; conversation and canvas route grants plus environment scope apply.",
-		Agents:   fmt.Sprintf("No active Agent-model binding; %d historical Agent LLM spans.", usage.AgentSpans),
-		Limits:   fmt.Sprintf("Configured context window: %d tokens; input budget: %d tokens.", model.ContextWindow, model.InputBudget),
+		Checks:   checks, CheckedAt: checkedAt,
+		Roles:  "No model-specific role binding; conversation and canvas route grants plus environment scope apply.",
+		Agents: fmt.Sprintf("No active Agent-model binding; %d historical Agent LLM spans.", usage.AgentSpans),
+		Limits: fmt.Sprintf("Configured context window: %d tokens; input budget: %d tokens.", model.ContextWindow, model.InputBudget),
 	}
 }
 

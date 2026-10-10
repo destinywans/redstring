@@ -13,6 +13,9 @@ import (
 
 // persistedInboxItem is an alert backed by one persisted incident. A read receipt is
 // not stored, so unread must remain null until that state has a real source.
+// Time ("15:04") and Day ("today"/"yesterday") follow the server's time zone
+// and are kept for older clients; At is the same instant in RFC 3339, for the
+// viewer's time zone (PA-83).
 type persistedInboxItem struct {
 	ID      string `json:"id"`
 	Kind    string `json:"kind"`
@@ -20,6 +23,7 @@ type persistedInboxItem struct {
 	Title   string `json:"title"`
 	Sub     string `json:"sub"`
 	Time    string `json:"time"`
+	At      string `json:"at"`
 	Unread  *bool  `json:"unread"`
 	Day     string `json:"day"`
 	Href    string `json:"href"`
@@ -152,7 +156,7 @@ func (s *Service) Inbox(w http.ResponseWriter, r *http.Request) {
 		itemID := "alert:" + v.ID
 		items = append(items, persistedInboxItem{
 			ID: itemID, Kind: "alert", Tone: inboxTone(severity), Title: v.Title,
-			Sub: v.Summary, Time: at.Format("15:04"), Day: day,
+			Sub: v.Summary, Time: at.Format("15:04"), At: at.UTC().Format(time.RFC3339), Day: day,
 			Href: "/inbox?item=" + url.QueryEscape(itemID), AlertID: v.ID,
 		})
 	}

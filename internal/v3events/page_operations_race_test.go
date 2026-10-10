@@ -154,6 +154,11 @@ func (f *pageRaceFixture) notificationIDs(w *httptest.ResponseRecorder) []string
 	}
 	ids := []string{}
 	for _, v := range body.Items {
+		// PA-83: each item carries its instant in RFC 3339 besides the
+		// server-zone "15:04" text.
+		if at, err := time.Parse(time.RFC3339, v.At); err != nil || at.Location() != time.UTC || v.Time == "" {
+			f.t.Fatalf("inbox item time: %+v %v", v, err)
+		}
 		ids = append(ids, v.ID)
 	}
 	return ids

@@ -343,7 +343,7 @@ func (s *Service) readAssignmentNotifications(r *http.Request, tx pgx.Tx, since 
 			day = "yesterday"
 		}
 		id := "assignment:" + n.id
-		items = append(items, persistedInboxItem{ID: id, Kind: "assignment", Tone: "neutral", Title: title, Sub: "Assigned to you", Time: at.Format("15:04"), Day: day, Href: "/inbox?item=" + url.QueryEscape(id)})
+		items = append(items, persistedInboxItem{ID: id, Kind: "assignment", Tone: "neutral", Title: title, Sub: "Assigned to you", Time: at.Format("15:04"), At: at.UTC().Format(time.RFC3339), Day: day, Href: "/inbox?item=" + url.QueryEscape(id)})
 	}
 	return items, nil
 }

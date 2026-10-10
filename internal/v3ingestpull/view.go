@@ -41,9 +41,12 @@ type draft struct {
 		Rate   string      `json:"rate"`
 		Paging string      `json:"paging"`
 	} `json:"request"`
+	// Sample.CapturedAt is the read time inside Meta, in RFC 3339 (PA-83);
+	// null without a successful read.
 	Sample struct {
 		Status     int        `json:"status"`
 		Meta       string     `json:"meta"`
+		CapturedAt *string    `json:"captured_at"`
 		Body       string     `json:"body"`
 		Highlights []struct{} `json:"highlights"`
 	} `json:"sample"`
@@ -79,7 +82,9 @@ func pullDraft(source SourceConfig, initial snapshot, mapping mapping, observed 
 	view.Request.Rate = "10 reads per user per source and 60 per source each minute; 4 concurrent; 5 s upstream timeout"
 	view.Request.Paging = "None; one bounded query_range request. Partial or truncated results fail."
 	view.Sample.Status = 200
-	view.Sample.Meta = "Normalized preview from a successful upstream read at " + observed.Captured.UTC().Format(time.RFC3339)
+	capturedAt := observed.Captured.UTC().Format(time.RFC3339)
+	view.Sample.Meta = "Normalized preview from a successful upstream read at " + capturedAt
+	view.Sample.CapturedAt = &capturedAt
 	sample := observed.Rows
 	if len(sample) > 5 {
 		sample = sample[:5]

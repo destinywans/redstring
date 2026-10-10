@@ -120,9 +120,12 @@ func (s *Service) Draft(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem evidence is unavailable")
 		return
 	}
-	incident := map[string]any{"id": id, "title": title, "severity": sev, "window": nil, "duration": nil}
+	// window is "<RFC 3339> – <RFC 3339>" text kept for older clients;
+	// started_at and closed_at are its ends (PA-83).
+	incident := map[string]any{"id": id, "title": title, "severity": sev, "window": nil, "duration": nil, "started_at": nil, "closed_at": nil}
 	missing := []string{"verified_impact", "root_cause", "action_recommendations", "war_room_messages"}
 	if started != nil {
+		incident["started_at"], incident["closed_at"] = started.UTC().Format(time.RFC3339), closed.UTC().Format(time.RFC3339)
 		incident["window"] = started.UTC().Format(time.RFC3339) + " – " + closed.UTC().Format(time.RFC3339)
 		incident["duration"] = duration(*started, *closed)
 	} else {

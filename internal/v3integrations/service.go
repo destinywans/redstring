@@ -464,7 +464,15 @@ func summary(c connector, lang string) map[string]any {
 	if kind == "" {
 		kind = c.Provider
 	}
-	return map[string]any{"id": c.ID, "brand": c.Provider, "name": c.Name, "kind": kindCopy(kind, lang), "category": c.Category, "status": c.Status, "tags": tags, "meta": meta}
+	// checked_at is the last connection test (the time in meta and in the
+	// detail's checked) in RFC 3339, null when never tested (PA-83).
+	var checkedAt *string
+	if c.Checked != nil {
+		at := c.Checked.UTC().Format(time.RFC3339)
+		checkedAt = &at
+	}
+	return map[string]any{"id": c.ID, "brand": c.Provider, "name": c.Name, "kind": kindCopy(kind, lang), "category": c.Category, "status": c.Status, "tags": tags, "meta": meta,
+		"checked_at": checkedAt}
 }
 
 func displayTools(items []tool, lang string) []tool {

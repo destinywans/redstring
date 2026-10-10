@@ -81,7 +81,7 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 		// P-level mapping. Null remains unknown to the frontend adapter.
 		out.Attention = append(out.Attention, Attention{ID: row.id, Severity: frontendSeverity(row.severity),
 			Service: serviceName(targets, row.appID, row.env), Env: row.env,
-			Symptom: cleanTitle(row.title), Meta: t.incidentMeta(row), AI: nil,
+			Symptom: cleanTitle(row.title), Meta: t.incidentMeta(row), At: incidentMetaAt(row), AI: nil,
 			Owner: row.owner, Href: "/alerts/" + row.id, AlertState: alertState(row.alertStatus)})
 	}
 	pending := len(proposals)
@@ -372,8 +372,9 @@ func (s *Service) recentConversations(ctx context.Context, tx pgx.Tx, user core.
 		if len(out.Recent) == 8 {
 			continue
 		}
+		at := updated.UTC().Format(time.RFC3339)
 		out.Recent = append(out.Recent, Recent{ID: id, Kind: "conversation", Title: title,
-			Meta: env + " · " + updated.UTC().Format(time.RFC3339), Href: "/conversations/" + id})
+			Meta: env + " · " + at, At: at, Href: "/conversations/" + id})
 	}
 	if err == nil {
 		err = rows.Err()

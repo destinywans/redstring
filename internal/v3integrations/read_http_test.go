@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -138,7 +139,8 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 	if err := json.Unmarshal(listed.Body.Bytes(), &list); err != nil {
 		t.Fatal(err)
 	}
-	if len(list.Items) != 1 || list.Items[0].ID != "metrics" || list.Items[0].Kind != "指标" || list.Items[0].Meta != "尚未检查连接" || list.Items[0].Tags == nil || len(list.Items[0].Tags) != 0 || list.Counts["unverified"] != 3 || list.Counts["error"] != 0 {
+	if len(list.Items) != 1 || list.Items[0].ID != "metrics" || list.Items[0].Kind != "指标" || list.Items[0].Meta != "尚未检查连接" || list.Items[0].Tags == nil || len(list.Items[0].Tags) != 0 || list.Counts["unverified"] != 3 || list.Counts["error"] != 0 ||
+		!strings.Contains(listed.Body.String(), `"checked_at":null`) {
 		t.Fatalf("unexpected list: %s", listed.Body.String())
 	}
 	if w := request("/api/v1/connectors/code", "all", token); w.Code != http.StatusNotFound {
@@ -219,15 +221,23 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 		t.Fatalf("missing-credential detail: %d %s", unusable.Code, unusable.Body.String())
 	}
 	var state struct {
-		Status  string `json:"status"`
-		Meta    string `json:"meta"`
-		Checked string `json:"checked"`
+		Status    string  `json:"status"`
+		Meta      string  `json:"meta"`
+		Checked   string  `json:"checked"`
+		CheckedAt *string `json:"checked_at"`
 	}
 	if err := json.Unmarshal(unusable.Body.Bytes(), &state); err != nil {
 		t.Fatal(err)
 	}
 	if state.Status != "unverified" || state.Meta != "未启用 · 凭据未配置" || state.Checked == "" || state.Checked == "尚未检查" {
 		t.Fatalf("missing credentials appeared healthy: %s", unusable.Body.String())
+	}
+	// PA-83: the last test time comes in RFC 3339 as checked_at.
+	if state.CheckedAt == nil || *state.CheckedAt != state.Checked {
+		t.Fatalf("checked_at: %s", unusable.Body.String())
+	}
+	if _, err := time.Parse(time.RFC3339, *state.CheckedAt); err != nil {
+		t.Fatal(err)
 	}
 	if strings.Contains(detail.Body.String(), "vault://") {
 		t.Fatal("credential reference leaked")

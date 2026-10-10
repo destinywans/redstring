@@ -16,11 +16,14 @@ type link struct {
 	Name  string `json:"name"`
 	URL   string `json:"url"`
 }
+
+// At is the "as of" time inside Text and Meta, in RFC 3339 (PA-83).
 type aiNarrative struct {
 	Text          string `json:"text"`
 	Investigation string `json:"investigation"`
 	Proposal      string `json:"proposal,omitempty"`
 	Meta          string `json:"meta"`
+	At            string `json:"at"`
 }
 type dependency struct {
 	Brand       string            `json:"brand,omitempty"`
@@ -267,7 +270,7 @@ func (s *Service) narrative(ctx context.Context, user core.User, row serviceRow,
 	if at.Before(now.Add(-time.Hour)) {
 		return aiNarrative{}, unknown(reasonStale)
 	}
-	out := aiNarrative{Text: t.narrative(at, content), Investigation: inv, Meta: t.narrativeMeta(model, at)}
+	out := aiNarrative{Text: t.narrative(at, content), Investigation: inv, Meta: t.narrativeMeta(model, at), At: at.UTC().Format(time.RFC3339)}
 	// Proposal links expose no content, but still require a current proposal
 	// grant and a pending proposal bound to the selected investigation.
 	proposalAllowed, e := s.canView(ctx, user, row, "proposals")

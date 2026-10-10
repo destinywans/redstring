@@ -250,10 +250,11 @@ func buildAgentTraceList(source v3agents.TraceRunObservations, filters []agentTr
 	result.Total = len(selected)
 	agents, models, statuses, versions, services := map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}
 	result.Histogram.Counts = make([][2]int, 12)
-	result.Histogram.Axis = make([]string, 12)
+	result.Histogram.Axis, result.Histogram.AxisTimes = make([]string, 12), make([]string, 12)
 	width := source.WindowEndAt.Sub(source.WindowStartAt)
 	for i := range result.Histogram.Axis {
-		result.Histogram.Axis[i] = source.WindowStartAt.UTC().Add(time.Duration(i) * width / 12).Format("15:04")
+		at := source.WindowStartAt.UTC().Add(time.Duration(i) * width / 12)
+		result.Histogram.Axis[i], result.Histogram.AxisTimes[i] = at.Format("15:04"), at.Format(time.RFC3339)
 	}
 	maxMS := 1.0
 	for _, v := range selected {

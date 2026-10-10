@@ -2,11 +2,12 @@
 S['V3TagChip'] = obj({'label':string(),'tone':string(),'mono':v3_bool()},['label'])
 S['V3Connector'] = obj({**fieldnames('id brand name kind meta'),
     'category':string(enum=['model','observe','delivery','infra','im','knowledge','agent_obs','security']),
-    'status':string(enum=['ok','unverified','error']), 'tags':arr(ref('V3TagChip'))})
+    'status':string(enum=['ok','unverified','error']), 'tags':arr(ref('V3TagChip')),
+    'checked_at':{**v3_nullable(string(format='date-time')),'description':'PA-83: the last connection test (the time in meta and in the detail checked) in RFC 3339, null when never tested'}})
 S['V3ConnectorDetail'] = obj({**S['V3Connector']['properties'], **fieldnames('scope address checked deeplink'),
     'auth':v3_object('brand text', required=['text']), 'services':arr(string()), 'queries':arr(string()),
     'tools':arr(obj({**fieldnames('name desc'),'enabled':v3_bool()})),'agent_execution_available':v3_bool()},
-    ['id','brand','name','kind','category','status','tags','meta','scope','address','auth','checked','services','queries','tools'])
+    ['id','brand','name','kind','category','status','tags','meta','checked_at','scope','address','auth','checked','services','queries','tools'])
 S['V3RegisteredConnectorTool'] = obj({**fieldnames('name desc'),'enabled':v3_bool()},['name','desc','enabled'])
 S['V3ConnectorToolSettings'] = obj({'connector_id':string(),'environment_id':string(),
     'connector_enabled':v3_bool(),'registered_tools':arr(ref('V3RegisteredConnectorTool')),
@@ -70,7 +71,8 @@ S['V3ModelAdminDetail'] = obj({
     'api_chain':arr(obj({'api':string(),'note':string()},['api','note'])),
     'mapping':arr(obj({'level':string(),'param':string(),'is_default':v3_bool()},['level','param'])),
     'checks':arr(string()), 'roles':string(), 'agents':string(), 'limits':string(),
-}, ['model','api_chain','mapping','checks','roles','agents','limits'])
+    'checked_at':{**v3_nullable(string(format='date-time')),'description':'PA-83: the metadata check time inside checks, in RFC 3339; null when this process has no check'},
+}, ['model','api_chain','mapping','checks','checked_at','roles','agents','limits'])
 S['V3ModelAdminView'] = obj({
     'providers':arr(ref('V3ModelAdminProvider')),
     'items':arr(ref('V3ModelAdminItem')),

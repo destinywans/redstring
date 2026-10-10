@@ -109,7 +109,8 @@ func (s *Service) nativeWebhookView(ctx context.Context, tx pgx.Tx, user core.Us
 			Verify: "Bearer", Count: strconv.FormatInt(count, 10), Last: "unknown",
 			Status: "unverified", StatusBasis: "health_unverified"}
 		if last != nil {
-			item.Last = "202 · " + last.UTC().Format(time.RFC3339)
+			lastAt, lastCode := last.UTC().Format(time.RFC3339), 202
+			item.Last, item.LastAt, item.LastCode = "202 · "+lastAt, &lastAt, &lastCode
 		}
 		items = append(items, item)
 	}

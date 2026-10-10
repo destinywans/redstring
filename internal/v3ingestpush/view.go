@@ -37,8 +37,12 @@ type pushEndpointView struct {
 	Example   string              `json:"example"`
 	Responses []map[string]string `json:"responses"`
 }
+
+// Time is "2006-01-02 15:04 UTC" text kept for older clients; At is the same
+// instant in RFC 3339 (PA-83).
 type pushDeliveryView struct {
 	Time   string `json:"time"`
+	At     string `json:"at"`
 	Source string `json:"source"`
 	Key    string `json:"key"`
 	Code   string `json:"code"`
@@ -354,7 +358,7 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 			if label, ok := resultLabels[result]; ok {
 				result = label
 			}
-			view.Deliveries = append(view.Deliveries, pushDeliveryView{Time: at.UTC().Format("2006-01-02 15:04 UTC"), Source: sourceID, Key: key, Code: fmt.Sprint(code), Tone: tone, Result: result, MS: fmt.Sprintf("%d ms", ms)})
+			view.Deliveries = append(view.Deliveries, pushDeliveryView{Time: at.UTC().Format("2006-01-02 15:04 UTC"), At: at.UTC().Format(time.RFC3339), Source: sourceID, Key: key, Code: fmt.Sprint(code), Tone: tone, Result: result, MS: fmt.Sprintf("%d ms", ms)})
 		}
 		if err == nil {
 			err = rows.Err()

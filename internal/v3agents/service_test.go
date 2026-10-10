@@ -587,7 +587,17 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		PolicyRevision: mandatoryDecision.Revision, ObservedAt: mandatoryDecision.ObservedAt}); err == nil {
 		t.Fatal("secret-shaped guard reason accepted")
 	}
-	assert(request("GET", "/api/v1/guardrails", adminToken, "dev", ""), 200, `"id":"guard1"`)
+	guards := request("GET", "/api/v1/guardrails", adminToken, "dev", "")
+	assert(guards, 200, `"id":"guard1"`)
+	// PA-83: each UTC trend day also comes as the instant it starts.
+	var trend struct {
+		Days   []string `json:"trend_days"`
+		Starts []string `json:"trend_starts_at"`
+	}
+	if json.Unmarshal(guards.Body.Bytes(), &trend) != nil || len(trend.Days) != 7 || len(trend.Starts) != 7 ||
+		trend.Starts[6] != trend.Days[6]+"T00:00:00Z" {
+		t.Fatalf("trend days: %+v", trend)
+	}
 	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_guard_events
  (id,run_id,policy_id,action,target_kind,reason_code,created_at,observed_at,policy_revision)
  SELECT 'hidden-guard-'||lpad(g::text,3,'0'),'hidden-run-'||lpad(g::text,3,'0'),

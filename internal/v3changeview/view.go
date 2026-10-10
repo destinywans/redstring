@@ -156,17 +156,19 @@ func buildView(row serviceRow, selected runRecord, runs []runRecord, deployments
 		return out, err
 	}
 	out.Pipelines = []pipeline{pipe}
+	reviewedAt := review.ReviewedAt.UTC().Format(time.RFC3339)
 	out.Detail = detail{ID: pipe.ID, Title: pipe.Title, Brand: pipe.Brand,
-		Meta:   "Reviewed run " + pipe.Ref + " · audit #" + review.ID + " · " + review.ReviewedAt.UTC().Format(time.RFC3339),
-		Stages: stages}
+		Meta:       "Reviewed run " + pipe.Ref + " · audit #" + review.ID + " · " + reviewedAt,
+		ReviewedAt: &reviewedAt, Stages: stages}
 	out.Detail.Diff.Path, out.Detail.Diff.Minus, out.Detail.Diff.Plus = review.DiffPath, review.DiffMinus, review.DiffPlus
 	out.Detail.Risk.Title, out.Detail.Risk.Meta, out.Detail.Risk.Text = review.RiskTitle, review.RiskMeta, review.RiskText
 	out.Detail.Alert.Text, out.Detail.Alert.Incident = review.AlertText, review.IncidentID
 	out.Sources = []sourceCount{{Brand: "argo", Name: "Argo Workflows (local delivery)", Count: len(runs), On: true}}
 	out.Lanes = []lane{{Service: row.Name, Marks: []mark{}, Alerts: [][2]float64{}}}
-	out.Axis = make([]string, 0, 5)
+	out.Axis, out.AxisTimes = make([]string, 0, 5), make([]string, 0, 5)
 	for i := 0; i < 5; i++ {
-		out.Axis = append(out.Axis, start.Add(time.Duration(i)*end.Sub(start)/4).UTC().Format("Jan 02 15:04 UTC"))
+		at := start.Add(time.Duration(i) * end.Sub(start) / 4).UTC()
+		out.Axis, out.AxisTimes = append(out.Axis, at.Format("Jan 02 15:04 UTC")), append(out.AxisTimes, at.Format(time.RFC3339))
 	}
 	runSeries, successSeries, failedSeries, deploySeries := make([]float64, 7), make([]float64, 7), make([]float64, 7), make([]float64, 7)
 	success, failed := 0, 0

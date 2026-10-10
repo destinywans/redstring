@@ -1,10 +1,12 @@
 # Alerts and incidents: document the real partial responses explicitly, while
 # completion status remains tracked separately in the human contract.
-S['V3InboxItem'] = obj({**fieldnames('id title sub time href alert_id'),
+S['V3InboxItem'] = obj({**fieldnames('id title sub href alert_id'),
+    'time':string(description='"15:04" in the server time zone (timezone), kept for older clients; use at (PA-83)'),
+    'at':string(format='date-time',description='PA-83: the item time in RFC 3339, for display in the viewer time zone'),
     'kind':string(enum=['alert']),
     'tone':string(enum=['neutral','warn','danger']),
-    'unread':{'type':'null'},'day':string(enum=['today','yesterday'])},
-    ['id','kind','tone','title','sub','time','unread','day','href','alert_id'])
+    'unread':{'type':'null'},'day':string(enum=['today','yesterday'],description='Calendar day in the server time zone (timezone)')},
+    ['id','kind','tone','title','sub','time','at','unread','day','href','alert_id'])
 S['V3InboxPartial'] = obj({'items':arr(ref('V3InboxItem')),
     'counts':obj({'all':integer(minimum=0),'mine':integer(minimum=0),
         'mentions':{'type':'null'},'subscribed':{'type':'null'}},

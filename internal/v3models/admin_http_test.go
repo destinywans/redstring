@@ -129,6 +129,11 @@ func TestModelAdminBoundViewObservationsAndHistoricalUse(t *testing.T) {
 		!strings.Contains(strings.Join(checked.Detail.Checks, " "), "metadata lookup succeeded") {
 		t.Fatalf("metadata check was misrepresented as continuous health: %+v", checked)
 	}
+	// PA-83: the check time inside checks also comes in RFC 3339.
+	if checked.Detail.CheckedAt == nil || !strings.Contains(strings.Join(checked.Detail.Checks, " "), *checked.Detail.CheckedAt) ||
+		initial.Detail.CheckedAt != nil {
+		t.Fatalf("checked_at: %+v / %+v", checked.Detail, initial.Detail)
+	}
 	insertAdminHistoricalUse(t, st, user.ID)
 	used := readAdminResponse(t, dev())
 	if !strings.Contains(used.Items[0].UsedBy, "1 completed conversation turns") ||

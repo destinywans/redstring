@@ -333,9 +333,22 @@ func TestChangesViewHTTPSourceBackedAndFailClosed(t *testing.T) {
 		Lanes     []lane     `json:"lanes"`
 		Pipelines []pipeline `json:"pipelines"`
 		Detail    detail     `json:"detail"`
+		Axis      []string   `json:"axis"`
+		AxisTimes []string   `json:"axis_times"`
 	}
 	if err = json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
+	}
+	// PA-83: the axis and the review time come in RFC 3339 too.
+	if len(body.AxisTimes) != len(body.Axis) || len(body.Axis) != 5 || body.Detail.ReviewedAt == nil ||
+		!strings.HasSuffix(body.Detail.Meta, *body.Detail.ReviewedAt) {
+		t.Fatalf("structured times: %s", w.Body.String())
+	}
+	for i, at := range body.AxisTimes {
+		parsed, err := time.Parse(time.RFC3339, at)
+		if err != nil || parsed.UTC().Format("Jan 02 15:04 UTC") != body.Axis[i] {
+			t.Fatalf("axis %d: %q %q %v", i, body.Axis[i], at, err)
+		}
 	}
 	if len(body.Pipelines) != 1 || body.Detail.ID != body.Pipelines[0].ID || body.Detail.ID != run.ID ||
 		len(body.KPIs) != 4 || body.KPIs[0].Value != "1" || body.KPIs[3].Value != "1" ||

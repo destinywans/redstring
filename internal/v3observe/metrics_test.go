@@ -647,3 +647,39 @@ func TestDashboardKeepsBlocksThroughAnOutage(t *testing.T) {
 		t.Fatalf("NaN leaked into JSON: %v", err)
 	}
 }
+
+// PA-83: the window's labels and ticks come with their instants in RFC 3339,
+// so a client can show them in the viewer's time zone; the UTC "15:04" text
+// stays for older clients.
+func TestDashboardWindowCarriesRFC3339Times(t *testing.T) {
+	end := time.Now().UTC().Truncate(100 * time.Second)
+	window := testDashboardWindow(end)
+	incidentStart, incidentEnd := end.Add(-25*time.Minute), end.Add(-5*time.Minute)
+	out := newDashboard(window, dashboardMarkers{incidentStart: &incidentStart, incidentEnd: &incidentEnd})
+	if len(out.Window.LabelTimes) != dashboardPoints || len(out.Window.TickTimes) != len(out.Window.Ticks) {
+		t.Fatalf("times: %d labels, %d ticks", len(out.Window.LabelTimes), len(out.Window.TickTimes))
+	}
+	for i, label := range out.Window.Labels {
+		at, err := time.Parse(time.RFC3339, out.Window.LabelTimes[i])
+		if err != nil || at.UTC().Format("15:04") != label || (i > 0 && at.Sub(mustParse(t, out.Window.LabelTimes[i-1])) != dashboardStep*time.Second) {
+			t.Fatalf("label %d: %q %q %v", i, label, out.Window.LabelTimes[i], err)
+		}
+	}
+	if out.Window.TickTimes[0] != out.Window.LabelTimes[0] || out.Window.TickTimes[4] != out.Window.LabelTimes[35] ||
+		out.Window.IncidentStartAt == nil || *out.Window.IncidentStartAt != incidentStart.Format(time.RFC3339) ||
+		out.Window.IncidentEndAt == nil || *out.Window.IncidentEndAt != incidentEnd.Format(time.RFC3339) {
+		t.Fatalf("ticks or incident: %+v", out.Window)
+	}
+	if none := newDashboard(window, dashboardMarkers{}); none.Window.IncidentStartAt != nil || none.Window.IncidentEndAt != nil {
+		t.Fatalf("an unrecorded incident has bounds: %+v", none.Window)
+	}
+}
+
+func mustParse(t *testing.T, value string) time.Time {
+	t.Helper()
+	at, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return at
+}

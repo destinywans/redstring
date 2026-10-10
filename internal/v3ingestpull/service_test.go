@@ -236,7 +236,9 @@ func TestPullActualReadMappingBudgetAndAudit(t *testing.T) {
 	}
 	var draft struct {
 		Sample struct {
-			Body string `json:"body"`
+			Body       string  `json:"body"`
+			Meta       string  `json:"meta"`
+			CapturedAt *string `json:"captured_at"`
 		} `json:"sample"`
 		Fields  []field `json:"fields"`
 		Preview struct {
@@ -244,7 +246,8 @@ func TestPullActualReadMappingBudgetAndAudit(t *testing.T) {
 		} `json:"preview"`
 	}
 	if err := json.Unmarshal(get.Body.Bytes(), &draft); err != nil || len(draft.Preview.Rows) != 2 ||
-		!strings.Contains(draft.Sample.Body, "checkout_requests") || len(draft.Fields) < 2 || draft.Fields[1].State != "warn" {
+		!strings.Contains(draft.Sample.Body, "checkout_requests") || len(draft.Fields) < 2 || draft.Fields[1].State != "warn" ||
+		draft.Sample.CapturedAt == nil || !strings.HasSuffix(draft.Sample.Meta, *draft.Sample.CapturedAt) { // PA-83
 		t.Fatalf("unexpected normalized draft: %v %s", err, get.Body.String())
 	}
 	if w := f.call("POST", path+"/test", `{}`, f.viewerSID, "dev"); w.Code != 403 {

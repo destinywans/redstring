@@ -58,9 +58,12 @@ type Attention struct {
 	Env      string  `json:"env"`
 	Symptom  string  `json:"symptom"`
 	Meta     string  `json:"meta"`
-	AI       *string `json:"ai"`
-	Owner    string  `json:"owner,omitempty"`
-	Href     string  `json:"href"`
+	// At is the time inside Meta (the alert start while firing, otherwise
+	// the last update) in RFC 3339 (PA-83).
+	At    string  `json:"at"`
+	AI    *string `json:"ai"`
+	Owner string  `json:"owner,omitempty"`
+	Href  string  `json:"href"`
 	// AlertState is the incident's current alert state, firing or resolved,
 	// or null when the source reports neither (PA-58). Resolved incidents
 	// stay listed until claimed (D7).
@@ -88,11 +91,13 @@ type Activity struct {
 	Href string `json:"href"`
 }
 
+// At is the update time inside Meta in RFC 3339 (PA-83).
 type Recent struct {
 	ID    string `json:"id"`
 	Kind  string `json:"kind"`
 	Title string `json:"title"`
 	Meta  string `json:"meta"`
+	At    string `json:"at"`
 	Href  string `json:"href"`
 }
 

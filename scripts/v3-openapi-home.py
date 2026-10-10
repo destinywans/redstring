@@ -6,11 +6,13 @@ S['V3HomeKPI'] = obj({'id': string(), 'label': string(), 'value': string(),
     ['id', 'label', 'value', 'series'])
 S['V3HomeAttention'] = obj({'id': string(), 'severity': {'type': ['string', 'null'],
     'enum': ['P1', 'P2', 'P3', 'P4', None]}, 'service': string(), 'env': string(),
-    'symptom': string(), 'meta': string(), 'ai': {'type': ['string', 'null'],
+    'symptom': string(), 'meta': string(),
+    'at': string(format='date-time', description='PA-83: the time inside meta (the alert start while firing, otherwise the last update) in RFC 3339'),
+    'ai': {'type': ['string', 'null'],
     'enum': ['done', 'running', None]}, 'owner': string(), 'href': string(),
     'alert_state': {'type': ['string', 'null'], 'enum': ['firing', 'resolved', None],
         'description': 'Current alert state of the incident; null when the source reports neither. Resolved incidents stay listed until claimed (PA-58, D7).'}},
-    ['id', 'severity', 'service', 'env', 'symptom', 'meta', 'ai', 'href', 'alert_state'])
+    ['id', 'severity', 'service', 'env', 'symptom', 'meta', 'at', 'ai', 'href', 'alert_state'])
 S['V3HomeService'] = obj({'id': string(), 'name': string(), 'env': string(),
     'tier': {'type': ['string', 'null'], 'enum': ['T0', 'T1', 'T2', None]},
     'status': {'type': ['string', 'null'], 'enum': ['ok', 'warn', 'danger', None]},
@@ -20,8 +22,9 @@ S['V3HomeService'] = obj({'id': string(), 'name': string(), 'env': string(),
     ['id', 'name', 'env', 'tier', 'status', 'budget_pct', 'p99', 'error_rate', 'series'])
 S['V3HomeActivity'] = obj({**fieldnames('id time kind tone text href')},
     ['id', 'time', 'kind', 'tone', 'text', 'href'])
-S['V3HomeRecent'] = obj({**fieldnames('id kind title meta href')},
-    ['id', 'kind', 'title', 'meta', 'href'])
+S['V3HomeRecent'] = obj({**fieldnames('id kind title meta href'),
+    'at': string(format='date-time', description='PA-83: the update time inside meta, in RFC 3339')},
+    ['id', 'kind', 'title', 'meta', 'at', 'href'])
 S['V3HomeBriefing'] = obj({'summary': string(),
     'generated_at': string(format='date-time'),
     'citations': arr(obj({'n': integer(), 'label': string(), 'href': string()},

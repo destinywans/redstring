@@ -18,7 +18,8 @@ func TestWebhookViewProjectsOnlyVisibleRealPushReceipts(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(view.Inbound) != 2 || len(view.Deliveries) != 0 || view.Inbound[0].Status != "unverified" ||
-			view.Inbound[0].Count != "0" || view.Availability.APITokens != "not_connected" ||
+			view.Inbound[0].Count != "0" || view.Inbound[0].LastAt != nil || view.Inbound[0].LastCode != nil ||
+			view.Availability.APITokens != "not_connected" ||
 			view.Availability.NativeInbound != "not_connected" || view.Availability.PublicMCP != "not_connected" ||
 			view.Availability.Outbound != "not_connected" || strings.Contains(got.Body.String(), "source-b") {
 			t.Fatalf("unobserved or cross-environment source was misrepresented: %s", got.Body.String())
@@ -44,7 +45,12 @@ func TestWebhookViewProjectsOnlyVisibleRealPushReceipts(t *testing.T) {
 			change = &view.Inbound[i]
 		}
 	}
-	if change == nil || change.Status != "ok" || change.Count != "1" ||
+	// PA-83: the latest receipt in Last also comes as code and RFC 3339.
+	if change == nil || change.LastAt == nil || change.LastCode == nil || *change.LastCode != 202 ||
+		change.Last != "202 · "+*change.LastAt || mustRFC3339(t, *change.LastAt).IsZero() {
+		t.Fatalf("latest receipt: %s", got.Body.String())
+	}
+	if change.Status != "ok" || change.Count != "1" ||
 		change.URL != "/api/v1/events/change" || change.StatusBasis != "latest_receipt_in_window" ||
 		view.Deliveries[0].Code != "202" || strings.Contains(got.Body.String(), "source-b") ||
 		strings.Contains(got.Body.String(), f.token) || strings.Contains(got.Body.String(), f.secret) {

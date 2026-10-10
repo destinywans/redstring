@@ -445,7 +445,8 @@ func (v *profileView) withoutEvidence(r *http.Request, a profileAccount, session
 	v.Security.Sessions = make([]profileSession, 0, len(sessions))
 	for _, row := range sessions {
 		v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: row.ID,
-			Sub:     sessionSignedIn(r, row) + localize(r, "到期时间 ", "Expires ") + row.ExpiresAt.UTC().Format(time.RFC3339),
+			Sub:        sessionSignedIn(r, row) + localize(r, "到期时间 ", "Expires ") + row.ExpiresAt.UTC().Format(time.RFC3339),
+			SignedInAt: sessionSignedInAt(row), ExpiresAt: row.ExpiresAt.UTC().Format(time.RFC3339),
 			Current: row.ID == currentID})
 	}
 	currentSessionFirst(v.Security.Sessions)
@@ -539,6 +540,7 @@ func profileViewFromRows(ctx context.Context, r *http.Request, tx pgx.Tx, reques
 				v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: row.ID, Device: &device,
 					Sub: method + " · " + sessionSignedIn(r, row) + localize(r, "到期时间 ", "Expires ") +
 						row.ExpiresAt.UTC().Format(time.RFC3339),
+					SignedInAt: sessionSignedInAt(row), ExpiresAt: row.ExpiresAt.UTC().Format(time.RFC3339),
 					Current: row.ID == request.CurrentSessionID})
 				break
 			}
@@ -558,6 +560,15 @@ func sessionSignedIn(r *http.Request, row profileSessionRow) string {
 		return ""
 	}
 	return localize(r, "登录于 ", "Signed in ") + row.IssuedAt.UTC().Format(time.RFC3339) + " · "
+}
+
+// sessionSignedInAt is the sign-in time in RFC 3339, null when not recorded.
+func sessionSignedInAt(row profileSessionRow) *string {
+	if row.IssuedAt == nil {
+		return nil
+	}
+	at := row.IssuedAt.UTC().Format(time.RFC3339)
+	return &at
 }
 
 // currentSessionFirst moves the requesting session to the top, keeping the
@@ -599,7 +610,8 @@ func decodeProfile(w http.ResponseWriter, r *http.Request) (profileView, bool) {
 	if !ok || !profileItems(fields["contacts"], []string{"kind", "label", "value", "verified"}, []string{"verified"}) ||
 		!profileArrayFieldsPresent(fields["notifications"], "event", "label", "channels") ||
 		!(isJSONNull(securityFields["factors"]) || profileArrayFieldsPresent(securityFields["factors"], "kind", "name", "sub")) ||
-		!profileItems(securityFields["sessions"], []string{"id", "device", "sub"}, []string{"device"}) ||
+		// signed_in_at and expires_at (PA-83) may be echoed or left out.
+		!profileItems(securityFields["sessions"], []string{"id", "device", "sub"}, []string{"device", "signed_in_at"}, "signed_in_at", "expires_at") ||
 		!profileNotificationChannelsPresent(fields["notifications"]) {
 		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_body", "Missing, duplicate, or invalid profile field")
 		return profileView{}, false
@@ -650,13 +662,16 @@ func profileObject(raw []byte, required, nullable, optional []string) (map[strin
 
 // profileItems is profileArrayFieldsPresent for arrays whose listed nullable
 // keys must be present but may hold an explicit null.
-func profileItems(raw json.RawMessage, required, nullable []string) bool {
+// profileItems checks an array of objects with the required fields; note,
+// current and the extra fields may be left out, and only nullable ones may be
+// null.
+func profileItems(raw json.RawMessage, required, nullable []string, extra ...string) bool {
 	var items []json.RawMessage
 	if len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '[' || json.Unmarshal(raw, &items) != nil || items == nil {
 		return false
 	}
 	for _, item := range items {
-		fields, ok := profileObject(item, required, nullable, []string{"note", "current"})
+		fields, ok := profileObject(item, required, nullable, append([]string{"note", "current"}, extra...))
 		if !ok {
 			return false
 		}

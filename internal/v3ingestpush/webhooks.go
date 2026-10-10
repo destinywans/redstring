@@ -27,17 +27,21 @@ type webhookView struct {
 }
 
 type webhookInbound struct {
-	ID          string `json:"id"`
-	SourceID    string `json:"source_id"`
-	EventType   string `json:"event_type"`
-	Brand       string `json:"brand"`
-	Name        string `json:"name"`
-	URL         string `json:"url"`
-	Verify      string `json:"verify"`
-	Count       string `json:"count"`
-	Last        string `json:"last"`
-	Status      string `json:"status"` // latest accepted/invalid receipt or unverified
-	StatusBasis string `json:"status_basis"`
+	ID        string `json:"id"`
+	SourceID  string `json:"source_id"`
+	EventType string `json:"event_type"`
+	Brand     string `json:"brand"`
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	Verify    string `json:"verify"`
+	Count     string `json:"count"`
+	Last      string `json:"last"`
+	// LastAt and LastCode are the latest receipt inside Last ("202 ·
+	// <RFC 3339>" or "unknown"), null when unknown (PA-83).
+	LastAt      *string `json:"last_at"`
+	LastCode    *int    `json:"last_code"`
+	Status      string  `json:"status"` // latest accepted/invalid receipt or unverified
+	StatusBasis string  `json:"status_basis"`
 }
 
 type webhookReceipt struct {
@@ -155,7 +159,8 @@ func (s *Service) webhooks(w http.ResponseWriter, r *http.Request) {
 				URL: "/api/v1/events/" + entry.eventType, Verify: "Bearer + HMAC-SHA256",
 				Count: strconv.FormatInt(stat.count, 10), Last: "unknown", Status: "unverified", StatusBasis: "no_receipt_in_window"}
 			if !stat.at.IsZero() {
-				item.Last = fmt.Sprintf("%d · %s", stat.code, stat.at.UTC().Format(time.RFC3339))
+				lastAt, lastCode := stat.at.UTC().Format(time.RFC3339), stat.code
+				item.Last, item.LastAt, item.LastCode = fmt.Sprintf("%d · %s", lastCode, lastAt), &lastAt, &lastCode
 				item.StatusBasis = "latest_receipt_in_window"
 				if stat.code == http.StatusAccepted {
 					item.Status = "ok"

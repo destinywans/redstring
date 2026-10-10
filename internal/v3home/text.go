@@ -77,7 +77,15 @@ func (t text) trendSummary(d time.Duration, total int) string {
 
 func (t text) incidentMeta(row incident) string {
 	if row.alertStatus == "firing" {
-		return t.pick("已入库告警 · ", "Stored alert · ") + row.starts.UTC().Format(time.RFC3339)
+		return t.pick("已入库告警 · ", "Stored alert · ") + incidentMetaAt(row)
 	}
-	return t.pick("已入库事件 · ", "Stored incident · ") + row.updated.UTC().Format(time.RFC3339)
+	return t.pick("已入库事件 · ", "Stored incident · ") + incidentMetaAt(row)
+}
+
+// incidentMetaAt is the time incidentMeta shows, in RFC 3339.
+func incidentMetaAt(row incident) string {
+	if row.alertStatus == "firing" {
+		return row.starts.UTC().Format(time.RFC3339)
+	}
+	return row.updated.UTC().Format(time.RFC3339)
 }

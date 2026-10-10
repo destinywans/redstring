@@ -10,11 +10,13 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 )
 
+// Time is At in RFC 3339, the time inside Meta (PA-83).
 type change struct {
 	Brand    string    `json:"brand"`
 	Title    string    `json:"title"`
 	Meta     string    `json:"meta"`
 	Tag      string    `json:"tag,omitempty"`
+	Time     string    `json:"at"`
 	At       time.Time `json:"-"`
 	revision string
 }
@@ -55,7 +57,8 @@ func (s *Service) changes(ctx context.Context, row serviceRow, t text) ([]change
 		if len(revision) > 16 {
 			revision = revision[:16]
 		}
-		out = append(out, change{Brand: kind, Title: t.deployment(revision), Meta: t.deploymentMeta(at), At: at, revision: revision})
+		out = append(out, change{Brand: kind, Title: t.deployment(revision), Meta: t.deploymentMeta(at), Time: at.UTC().Format(time.RFC3339),
+			At: at, revision: revision})
 	}
 	return out, rows.Err()
 }

@@ -50,12 +50,14 @@ func (s *Service) Guardrails(w http.ResponseWriter, r *http.Request) {
 	utc := dbNow.UTC()
 	today := time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
 	start, end := today.AddDate(0, 0, -6), today.AddDate(0, 0, 1)
-	trendDays := make([]string, 7)
+	// trend_days are UTC calendar days; trend_starts_at are the instants
+	// each day's bucket starts, in RFC 3339 (PA-83).
+	trendDays, trendStarts := make([]string, 7), make([]string, 7)
 	trend := make([][]int64, 7)
 	dayIndex := make(map[string]int, 7)
 	for i := range trend {
 		day := start.AddDate(0, 0, i).Format("2006-01-02")
-		trendDays[i] = day
+		trendDays[i], trendStarts[i] = day, start.AddDate(0, 0, i).Format(time.RFC3339)
 		dayIndex[day] = i
 		trend[i] = []int64{0, 0}
 	}
@@ -220,7 +222,7 @@ func (s *Service) Guardrails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"policies": policies, "trend": trend,
-		"trend_days": trendDays, "events": events, "counts": counts, "detail": detail,
+		"trend_days": trendDays, "trend_starts_at": trendStarts, "events": events, "counts": counts, "detail": detail,
 		"aggregation_basis": "reported_events", "coverage": "unknown", "partial": true,
 		"manual_execution_connected": s.ExecutionRuntime() != nil, "execution_scope": "governed_manual_runs",
 		"truncated": len(allEvents) > 200 || len(allPolicies) > 200,

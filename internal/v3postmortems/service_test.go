@@ -245,6 +245,19 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 		t.Fatalf("team scope: %d %s", teamCandidates.Code, teamCandidates.Body.String())
 	}
 	draft := call("GET", "/api/v1/postmortems/draft?incident=ready", "dev", teamToken, "")
+	// PA-83: the window's ends also come in RFC 3339, or null with it.
+	var drafted struct {
+		Incident struct {
+			Window    *string `json:"window"`
+			StartedAt *string `json:"started_at"`
+			ClosedAt  *string `json:"closed_at"`
+		} `json:"incident"`
+	}
+	if json.Unmarshal(draft.Body.Bytes(), &drafted) != nil || (drafted.Incident.Window == nil) != (drafted.Incident.StartedAt == nil) ||
+		(drafted.Incident.Window != nil && (drafted.Incident.ClosedAt == nil ||
+			*drafted.Incident.Window != *drafted.Incident.StartedAt+" – "+*drafted.Incident.ClosedAt)) {
+		t.Fatalf("draft window: %s", draft.Body.String())
+	}
 	if draft.Code != 200 || !strings.Contains(draft.Body.String(), `"draft_mode":"evidence_only"`) ||
 		!strings.Contains(draft.Body.String(), `"text":"investigation.closed"`) ||
 		!strings.Contains(draft.Body.String(), `"key":"root"`) ||

@@ -3,6 +3,7 @@ package v3home
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,6 +81,12 @@ func TestAttentionCarriesAlertStateAndFiringServices(t *testing.T) {
 	}
 	got := map[string]string{}
 	for _, item := range out.Attention {
+		// PA-83: the time inside meta also comes in RFC 3339 (the start while
+		// firing, otherwise the last update).
+		if at, err := time.Parse(time.RFC3339, item.At); err != nil || !strings.HasSuffix(item.Meta, item.At) ||
+			(item.ID == "firing" && time.Since(at) < 50*time.Minute) || (item.ID == "resolved" && time.Since(at) > 10*time.Minute) {
+			t.Fatalf("attention time: %+v %v", item, err)
+		}
 		state := "null"
 		if item.AlertState != nil {
 			state = *item.AlertState

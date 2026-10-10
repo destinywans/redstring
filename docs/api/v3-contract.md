@@ -570,6 +570,36 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 2026-10-07 新增辅助入口：`POST /roles`、`GET/PUT /members/{id}/access` 见[成员授权](v3-member-access.md)；`POST /mcp-servers` 见[MCP 首次登记](v3-mcp-registration.md)。普通 Chat 及调查节点知识工具接线见[取证边界](v3-investigation-evidence-tools.md)。同日随后经用户授权补充[记忆生产](v3-memory-production.md)、[单案例评测执行](v3-evaluation-execution.md)与[正式手动 Agent 治理](v3-agent-execution.md)；实现和验证边界见[交付记录](../releases/2026-10-07-runtime-production.md)。
 
+## 时间字段的显示（PA-83）
+
+后端返回给前端的时间一律应是结构化的 RFC 3339（UTC，`Z` 结尾），由前端按用户时区和应用语言显示（PA-82 的 `web/src/v3/ui/when.ts`）。下表是 2026-10-10 盘点出的、后端已经格式化成文字的时间字段，以及本次补上的结构化字段。旧字段在过渡期保留、内容不变，前端切换到新字段后再删除。
+
+| 接口 | 原字段 | 原格式 | 时区 | 结构化字段 |
+| --- | --- | --- | --- | --- |
+| `GET /metrics/dashboard` | `window.labels`、`window.ticks` | `15:04` | UTC，未标注 | `window.label_times[]`、`window.tick_times[]`（与原数组一一对应） |
+| `GET /metrics/dashboard` | `window.incident_label` | `Incident · 15:04–15:04 UTC` | UTC | `window.incident_start_at`、`window.incident_end_at`（事件未结束时为窗口终点；没有事件时为 `null`） |
+| `GET /traces`（应用与 Agent 范围） | `histogram.axis` | `15:04` | UTC，未标注 | `histogram.axis_times[]`（各桶起点） |
+| `GET /changes` | `axis` | `Jan 02 15:04 UTC` | UTC | `axis_times[]` |
+| `GET /changes` | `detail.meta` | `Reviewed run … · audit #… · <RFC 3339>` | UTC | `detail.reviewed_at` |
+| `GET /inbox` | `items[].time` | `15:04` | 服务器时区（响应里的 `timezone`） | `items[].at` |
+| `GET /inbox` | `items[].day` | `today` / `yesterday` | 服务器时区 | 由 `items[].at` 在本地判断；列表范围仍是服务器时区的昨天零点至今 |
+| `GET /ingest/push` | `deliveries[].time` | `2006-01-02 15:04 UTC` | UTC | `deliveries[].at` |
+| `GET /webhooks` | `inbound[].last` | `202 · <RFC 3339>` 或 `unknown` | UTC | `inbound[].last_at`、`inbound[].last_code`（未知时为 `null`） |
+| `GET /home` | `attention[].meta` | `已入库告警 · <RFC 3339>` / `已入库事件 · <RFC 3339>` | UTC | `attention[].at`（告警中为开始时间，否则为最近更新） |
+| `GET /home` | `recent[].meta` | `<环境> · <RFC 3339>` | UTC | `recent[].at` |
+| `GET /home` | `alert_trend.labels` | `15:04` | UTC | 已有 `alert_trend.start`、`step_seconds`，不改 |
+| `GET /services/{id}` | `changes[].meta` | `<RFC 3339> · 成功` | UTC | `changes[].at` |
+| `GET /services/{id}` | `ai.text`、`ai.meta` | `调查记录（截至 <RFC 3339>）：…`、`模型 <id> · <RFC 3339>` | UTC | `ai.at` |
+| `GET /me/profile` | `security.sessions[].sub` | `登录于 <RFC 3339> · 到期时间 <RFC 3339>` | UTC | `sessions[].signed_in_at`（未记录时为 `null`）、`sessions[].expires_at`；`PUT` 回传时可带可不带 |
+| `GET /connectors`、`GET /connectors/{id}` | `meta`、详情的 `checked` | `已检查 <RFC 3339>`、`上次连接检查 <RFC 3339> · 已过期` 等；`checked` 为 RFC 3339 或“尚未检查” | UTC | `checked_at`（从未检查时为 `null`） |
+| `GET /ingest/pull/{id}` | `sample.meta` | `Normalized preview … at <RFC 3339>` | UTC | `sample.captured_at` |
+| `GET /models/admin` | `detail.checks[]` | `… succeeded at <RFC 3339>.` | UTC | `detail.checked_at`（本进程没有检查时为 `null`） |
+| `GET /postmortems/draft` | `incident.window` | `<RFC 3339> – <RFC 3339>` | UTC | `incident.started_at`、`incident.closed_at` |
+| `GET /guardrails` | `trend_days` | `2006-01-02` | UTC 日历日 | `trend_starts_at[]`（各日 UTC 零点）；分桶仍按 UTC 日 |
+| `GET /silences` | `window` | `2006-01-02 15:04 -07:00 – …` | Alertmanager 返回的偏移 | 已有 `starts_at`、`ends_at`，不改 |
+
+不改的：韧性提案的 `requirement` 文字里的调查更新时间（随提案持久化，属于摘要内容）；邀请邮件正文的到期时间（邮件，不经前端）；审计 `volume`（按 UTC 日分桶，不带时间标签）。其余返回时间的字段本来就是 RFC 3339。
+
 ## 变更记录
 
 | 日期 | 变更 |
@@ -578,6 +608,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | 2026-10-10 | PA-19 P4：删除 `legacy`、`compare` 模式和 `AIOPS_V3_SOURCE_REGISTRY`、`AIOPS_V3_UNIFIED_READERS`（设了只记一条警告），覆盖度、服务映射、日志、Trace、AI 指标与日志工具、`list_services` 只读统一登记，连接器详情 `tools` 无条件列出已保存开关；服务映射不再返回 `registry_cutover`、`registry_not_enabled`，已存绑定不再按遥测文件和 Kubernetes 登记校验；V3 实例不再注册 `internal/actions` 的旧回滚路由（404），迁移 173 让已批准、未执行的旧回滚计划到期。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-19 P4：V3 实例不再读 `AIOPS_TELEMETRY_CONFIG`（设了只记一条警告；旧模式和 `aiops connectors import-legacy` 照旧读）；客户端上限改取统一目录的 `limits`，Trace 搜索完整声明改为目录的 `tempo_search_fail_closed` 连接器列表。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-19 P4：V3 实例不再读 `AIOPS_KUBERNETES_REGISTRY`，也不加载演示 Kubernetes 连接器 `AIOPS_CONNECTOR_CONFIG`（`demo-kubernetes`），设了只记一条警告；工作负载只从统一登记读，旧模式照旧。路由与响应形状不变（相关旧路由在 V3 上本来就是 501）。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
+| 2026-10-10 | PA-83：后端预格式化的时间字段补上 RFC 3339 结构化字段（看板 `label_times`/`tick_times`/事件起止、Trace 与变更 `axis_times`、收件箱 `at`、推送与 Webhook、首页、服务详情、账号会话、连接器 `checked_at`、Pull 样例、模型检查、复盘草稿、护栏 `trend_starts_at`），旧字段过渡期保留；盘点见“时间字段的显示（PA-83）” |
 | 2026-10-09 | 生产验收 PA-05/PA-16：新增「未知」约定（`null` + `unavailable` 原因）。`/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard` 在可选证据缺失时返回 200，受影响字段可空；`ProfileView`、`SecurityView`、`LogSearch`、`TraceList`、`MetricsDashboard` 字段由必有改为可空，属于破坏性语义修改，`types.ts` 与页面由前端轮同步。OpenAPI 已重新生成。 |
 | 2026-10-07 | 后端对齐 v1.1：27 个新接口具备持久化/真实读取，5 个可信来源缺口已接线并按用户决定明确 503；服务端参数、迁移 158～161、OpenAPI 与定向隔离验证已同步，原 166 项不升级。 |
 | 2026-10-07 | 契约 v1.1：新增「v1.1 页面交互接口」一节。第 1 张表列出前端需对齐的已实现约束（令牌有效期与权限、邀请角色、护栏内置策略、新建实验和 Agent 的请求体），第 2 张表补入后端已实现的 19 个接口，第 3 张表新定义 32 个待实现接口，并补充查询参数。原 166 项的路径和字段不变，没有破坏性修改。 |

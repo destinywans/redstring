@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
@@ -279,18 +278,8 @@ type logSource struct {
 func serviceLogBinding(ctx context.Context, opts ServiceLogsToolOptions, service string) (logSource, error) {
 	if opts.Unified {
 		var binding logSource
-		err := opts.DB.QueryRow(ctx, `SELECT a.id,COALESCE(a.owner_team_id,'')
- FROM applications a
- JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
- JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
- WHERE a.key=$1 AND NOT a.archived`, service, opts.EnvironmentID).Scan(&binding.appID, &binding.teamID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return binding, inference.NewToolError(inference.ToolNotConfigured, "no log source is configured for service "+service)
-		}
-		if err != nil {
-			return binding, logsUnavailable("binding lookup")
-		}
-		binding.source, err = opts.Registry.Resolve(ctx, opts.DB, binding.appID, opts.EnvironmentID, v3telemetry.Logs)
+		var err error
+		binding.appID, binding.teamID, binding.source, err = registeredSource(ctx, opts.DB, opts.Registry, service, opts.EnvironmentID, v3telemetry.Logs)
 		switch {
 		case errors.Is(err, v3telemetry.ErrNotConfigured):
 			return binding, inference.NewToolError(inference.ToolNotConfigured, "no log source is registered for service "+service)

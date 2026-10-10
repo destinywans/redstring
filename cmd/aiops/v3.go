@@ -700,6 +700,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		LookupService: catalog.LookupServiceEvidence, ListServices: catalog.ListServiceEvidence, Access: policy, Telemetry: telemetry,
 		SourceCompare: sourceCompare, Workloads: rollouts,
 		Registry: sourceResolver, Clients: sourceClients, UnifiedLogs: unifiedReaders.Unified(v3telemetry.ReaderLogs),
+		UnifiedMetrics: unifiedReaders.Unified(v3telemetry.ReaderAIMetrics),
 		KnowledgeTool: func(actorID, applicationID, environmentID string) (inference.EvidenceTool, bool) {
 			return v3knowledge.NewKnowledgeEvidenceTool(v3knowledge.KnowledgeEvidenceToolOptions{
 				Enabled: true, Service: knowledgeV3, ActorID: actorID, ApplicationID: applicationID,

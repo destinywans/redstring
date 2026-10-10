@@ -84,6 +84,7 @@ aiops connectors compare -out report.json
   - `mappings`（第 2 步）：服务映射的指标、日志、链路、工作负载读统一登记的目标（真实连接器 ID），在第 6 步之前只读（`registry_cutover`）；代码绑定和 GitLab 候选接受照旧；部署和看板只读（`system_not_supported`）。编辑器的选项见 `GET /services/{id}/external-targets/options`。
   - `logs`（第 3 步）：日志页 `GET /logs` 和 AI 工具 `read_service_logs` 读统一登记的 `log_stream`（Loki）、`log_index`（Elasticsearch）目标，见下文“日志读取方”。
   - `traces`（第 4 步）：Trace 列表 `GET /traces`（应用范围）和详情 `GET /traces/{id}` 读统一登记的 `trace_service` 目标，见下文“Trace 读取方”。
+  - `ai_metrics`（第 5 步）：AI 工具 `read_service_metrics` 读统一登记的 `metric_resource` 目标，`list_services` 的指标和日志两列也由统一登记给出，见下文“AI 指标工具与服务清单”。
   - 写了还没开放的名称，或者同一个名称写了两次，服务都拒绝启动；
   - 启动日志 `source registry` 打印模式和已切换的读取方。
 - 回退：从变量里去掉该读取方并重启，不删任何数据。第 6 步（`mapping_writes`）之后回退前先跑一次 `aiops connectors compare`，见设计稿第 10.4 节。
@@ -124,6 +125,19 @@ Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `d
 - **未就绪与凭据**：503 `source_not_ready`（`message` 列出原因码），凭据读不到 503 `source_unavailable`。
 - **GET 与 URL 长度**：TraceQL 搜索仍是 GET（Tempo 没有 POST 形式）。请求 URI（路径加查询串）超过 8 KiB 时不发送，列表返回 422 `query_too_long`。目录里每条 Tempo 范围的选择器 URL 编码后不得超过 6 KiB，加上最长 512 字符的 `q`（编码后最多约 1.5 KiB）仍在 8 KiB 以内，所以登记的范围只会因用户过滤条件过长而触发这个错误。旧文件里的范围不受目录校验，超长时同样 422。按 ID 读 Trace 的 URL 很短，不受影响。
 - `tempo_search_fail_closed` 目前仍取自 `AIOPS_TELEMETRY_CONFIG`，对所有登记的 Tempo 连接器生效；P4 删除遥测文件之前要给它换位置。
+
+### AI 指标工具与服务清单（第二阶段第 5 步）
+
+- **`read_service_metrics`**：
+  - 按服务键找到该服务在本环境唯一的 `metric_resource` 目标；
+  - 查询 ID 取自统一目录（同一连接器、应用、环境和资源下的查询），表达式只留在服务端；看板专用的复合查询 `dashboard` 不提供给模型（它靠模型看不到的面板标签区分序列）；
+  - 用该 Prometheus 连接器的客户端发 POST 查询，凭据经批准从 Vault 读取，缓存 60 秒；
+  - 证据形状、标题（“Prometheus 样本：<服务> / <查询 ID>”）和权限不变：仍然只要求服务可见，不额外要求 `connectors.view`，所以没有复用看板用的 `PrometheusReader`（它要求 `connectors.view`，证据里也没有截断和告警信息）。
+- **失败**：没有目标或只有旧绑定返回 `not_configured`（“no metrics source is registered”）；两条目标 `not_configured`；未就绪 `not_configured` 并带原因码；查询 ID 不在目录里时列出已配置的 ID；凭据读不到 `source_unavailable`。
+- **`list_services`** 与 `read_service_metrics` 用同一个开关，两列一起切：
+  - `metrics`：`configured`、`not_configured`、`ambiguous`、`not_ready`；只有 `configured` 时列出 `metric_queries`（目录里的查询 ID，按字母排序）；
+  - `logs`：同样四种取值，来自日志目标。切换前这一列看旧绑定和遥测文件，所以第 3 步之后到第 5 步之前，它与 `read_service_logs` 的来源不同；切换后一致。
+  - 工具说明里多一句 `not_ready` 的解释；返回内容的 `boundary` 不变。
 
 ### Elasticsearch basic 认证（设计稿第 10.9 节决定 3）
 

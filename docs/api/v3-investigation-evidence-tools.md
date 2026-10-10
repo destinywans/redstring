@@ -35,6 +35,7 @@
 - 不返回端点、表达式或标签选择器，也不列出无权查看的服务。
 - 问题里没写服务名时，模型应先调用它，不要猜。
 - 调查节点只能读本调查的服务，所以不提供这个工具；改为在工具说明里直接写明本调查的服务键。
+- `AIOPS_V3_UNIFIED_READERS` 含 `ai_metrics` 时（PA-19 第二阶段第 5 步），指标和日志两列都由统一登记给出：指标来源是该服务唯一的 `metric_resource` 目标，查询 ID 取自统一目录；日志来源是唯一的日志目标。旧绑定不再计入。已登记但还不能读的来源显示 `not_ready`（连接器或工具未开、凭据未批准、目录缺范围），这时不列查询 ID。
 
 **错误代码**：工具失败时，模型看到的错误以代码开头，后面说明下一步：
 
@@ -46,7 +47,7 @@
 | `not_configured` | 该服务没有这类来源，或没有这个查询 ID；平台未配置知识检索时也是这个代码 |
 | `source_unavailable` | 已配置的来源或目录暂时失败，可以稍后重试 |
 
-`read_service_metrics` 在 `not_configured` 时会列出该服务已配置的查询 ID。
+`read_service_metrics` 在 `not_configured` 时会列出该服务已配置的查询 ID。切换到统一登记后（`ai_metrics`），它读该服务唯一的 `metric_resource` 目标，用该 Prometheus 连接器和 Vault 凭据发查询，查询 ID 取自统一目录，证据形状和标题不变；来源未就绪时返回 `not_configured` 并带原因码，凭据读不到为 `source_unavailable`。
 
 **指标查询 ID**：
 - 不再写死四个。服务能用哪些 ID，由服务端审查过的每服务查询目录决定：当前读取 `AIOPS_TELEMETRY_CONFIG` 中 `applications.<资源>.prometheus_queries`（PA-19 切换后改读统一目录）。

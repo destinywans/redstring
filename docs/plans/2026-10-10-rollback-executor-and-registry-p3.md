@@ -669,6 +669,12 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 - **URL 长度**：新增 8 KiB 请求 URI 上限（发送前检查，旧路径同样生效）和目录 6 KiB 选择器上限，取值依据见 `v3-telemetry-registry.md`。验收实例的选择器 URL 约 240 字节。
 - **遗留**：`tempo_search_fail_closed` 仍在遥测文件里，P4 要换位置（例如连接器 `options`）。
 
+**第 5 步（AI 指标工具与服务清单）**：
+- **读取方式**：`read_service_metrics` 用 `v3telemetry.Clients`，不用看板的 `PrometheusReader`。后者要求 `connectors.view`，会让只能看服务的用户在对话里读不到指标；它的证据也不带截断和告警。用 `Clients` 后走同一段 `QueryMetrics`，证据与切换前逐字段相同。
+- **`list_services` 整体跟随 `ai_metrics`**：日志一列本可以跟 `logs` 读取方，但那样部署第 5 步时它会在没有新开关的情况下改变来源。放在同一个开关下，一次切换、一组对照。
+- **不给模型 `dashboard`**：统一目录是遥测文件的超集，prod 的 checkout-api、order-api 多一个看板用的复合查询 `dashboard`。它把各面板编进一个结果，靠 `label_replace` 的面板标签区分，而模型证据不保留这些标签，读到的是无法解读的序列，所以两个工具都不提供它。这样切换前后查询 ID 列表一致。
+- **新取值 `not_ready`**：已登记但还不能读的来源不再显示为 `configured`，工具说明里解释；它只在配置有问题时出现，正常的对照基线里看不到。
+
 ## 附录 A：对照前提的命令
 
 在仓库根目录，使用与验收实例相同的环境变量（`AIOPS_TELEMETRY_CONFIG`、`AIOPS_V3_SOURCE_CATALOG`、`AIOPS_KUBERNETES_REGISTRY`（如有）、数据库连接），对两个实例分别执行：

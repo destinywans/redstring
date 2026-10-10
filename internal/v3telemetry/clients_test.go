@@ -117,7 +117,7 @@ func TestParseReaders(t *testing.T) {
 	if readers, err := ParseReaders(" "); err != nil || len(readers) != 0 {
 		t.Fatalf("empty: %v %v", readers, err)
 	}
-	if _, err := ParseReaders("ai_metrics"); err == nil {
+	if _, err := ParseReaders("mapping_writes"); err == nil {
 		t.Fatal("a reader whose step is not built was accepted")
 	}
 	if _, err := ParseReaders("nonsense"); err == nil {
@@ -126,8 +126,9 @@ func TestParseReaders(t *testing.T) {
 	if readers, err := ParseReaders("coverage"); err != nil || !readers.Unified(ReaderCoverage) || readers.Unified(ReaderLogs) {
 		t.Fatalf("coverage: %v %v", readers, err)
 	}
-	if readers, err := ParseReaders("coverage,mappings,logs,traces"); err != nil || !readers.Unified(ReaderTraces) || readers.Unified(ReaderAIMetrics) {
-		t.Fatalf("through step 4: %v %v", readers, err)
+	if readers, err := ParseReaders("coverage,mappings,logs,traces,ai_metrics"); err != nil || !readers.Unified(ReaderAIMetrics) ||
+		readers.Unified(ReaderMappingWrites) {
+		t.Fatalf("through step 5: %v %v", readers, err)
 	}
 	if _, err := ParseReaders("coverage,coverage"); err == nil {
 		t.Fatal("repeated reader accepted")

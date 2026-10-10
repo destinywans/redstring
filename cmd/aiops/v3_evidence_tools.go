@@ -38,10 +38,12 @@ type v3ReadTools struct {
 	// Workloads backs read_service_workload in investigations (PA-72).
 	Workloads *v3rollouts.Service
 	// Registry and Clients serve read_service_logs from the connector
-	// registry when UnifiedLogs is set (PA-19 P3 stage 2 step 3).
-	Registry    *v3telemetry.Resolver
-	Clients     *v3telemetry.Clients
-	UnifiedLogs bool
+	// registry when UnifiedLogs is set (PA-19 P3 stage 2 step 3), and
+	// read_service_metrics and list_services when UnifiedMetrics is (step 5).
+	Registry       *v3telemetry.Resolver
+	Clients        *v3telemetry.Clients
+	UnifiedLogs    bool
+	UnifiedMetrics bool
 }
 
 var errV3EvidenceUnavailable = errors.New("read evidence unavailable")
@@ -143,12 +145,17 @@ func (f v3ReadTools) ForTurn(ctx context.Context, ownerID, applicationID, enviro
 				Content: string(content), Source: "service_catalog", TargetID: profile.ID}, nil
 		},
 	}}
-	if f.Telemetry != nil {
-		if tool, ok := v3conversation.NewServiceMetricsTool(v3conversation.ServiceMetricsToolOptions{
+	if f.Telemetry != nil || f.UnifiedMetrics {
+		options := v3conversation.ServiceMetricsToolOptions{
 			DB: f.DB, OwnerID: ownerID, EnvironmentID: environmentID,
-			CurrentUser: f.CurrentUser, LookupService: lookup, Telemetry: f.Telemetry,
+			CurrentUser: f.CurrentUser, LookupService: lookup,
 			SourceCompare: f.SourceCompare,
-		}); ok {
+			Unified:       f.UnifiedMetrics, Registry: f.Registry, Clients: f.Clients,
+		}
+		if f.Telemetry != nil {
+			options.Telemetry = f.Telemetry
+		}
+		if tool, ok := v3conversation.NewServiceMetricsTool(options); ok {
 			tools = append(tools, tool)
 		}
 	}
@@ -218,6 +225,7 @@ func (f v3ReadTools) ForTurn(ctx context.Context, ownerID, applicationID, enviro
 		if tool, ok := v3conversation.NewServiceListTool(v3conversation.ServiceListToolOptions{
 			DB: f.DB, OwnerID: ownerID, EnvironmentID: environmentID, CurrentUser: f.CurrentUser,
 			ListServices: f.ListServices, Telemetry: f.Telemetry,
+			Unified: f.UnifiedMetrics, Registry: f.Registry,
 		}); ok {
 			tools = append([]inference.EvidenceTool{tool}, tools...)
 		}

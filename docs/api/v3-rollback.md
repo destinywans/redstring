@@ -84,7 +84,7 @@
 | `write_not_approved` | 没有该命名空间和 Deployment 的写入批准 | 说明需要部署方批准 |
 | `deployment_paused` | Deployment 处于暂停状态 | 先在集群恢复 |
 | `credential_unavailable` | 读凭据未批准或 Vault 读取失败 | 指向连接器凭据 |
-| `executor_not_ready` | 回滚执行器未运行 | 稍后重试 |
+| `executor_not_ready` | 回滚执行器未运行，或写令牌读不到（例如 dev 模式 Vault 重启后为空；结果缓存 15 秒） | 稍后重试 |
 
 **集群读不到**：返回 `503 workload_unavailable`。
 
@@ -199,7 +199,11 @@
 | `failed` | 滚动失败或验证不通过（见 `status_reason`），不会自动再写 | 是 |
 | `needs_attention` | 漂移、授权变化、写入被拒、对账仍不明等，需要人处理 | 是 |
 
-**`status_reason`**：失败和需要处理时非空，取值为 `drift`、`approval_invalid`、`authorization_changed`、`binding_changed`、`write_forbidden`、`write_unavailable`、`reconcile_unknown`、`rollout_timeout`、`progress_deadline_exceeded`、`verification_failed`、`verification_unavailable`、`target_changed` 之一。
+**`status_reason`**：失败和需要处理时非空，取值为 `drift`、`approval_invalid`、`authorization_changed`、`binding_changed`、`write_forbidden`、`write_unavailable`、`reconcile_unknown`、`rollout_timeout`、`progress_deadline_exceeded`、`verification_failed`、`verification_unavailable`、`target_changed` 之一。执行器读不到 Deployment 时不下结论：
+- 写入后结果不明且 5 分钟内读不到，或者滚动阶段到超时一直读不到，都是 `needs_attention` + `reconcile_unknown`；
+- 观察窗口结束时读不到 Deployment，会再采样最多 2 分钟，仍读不到就是 `needs_attention` + `verification_unavailable`。
+
+`failed` 只用于确实观察到的失败。
 
 **其他字段**：
 - `verification.result` 取 `pending`、`passed`、`failed`、`unavailable`。`samples` 每 15 秒一条，最多保留最近 40 条。

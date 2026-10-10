@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -64,13 +65,30 @@ func (fakePasskeys) VerifyProposalAssertionWithTx(ctx context.Context, tx pgx.Tx
 		VerifiedAt: now, UserID: actor.UserID, InstanceID: "rollout-test", RPID: "example.invalid"}, nil
 }
 
-type mapSecrets map[string]string
+// mapSecrets stands in for Vault; set with an empty value empties a field,
+// as a restarted dev-mode Vault does.
+type mapSecrets struct {
+	mu sync.Mutex
+	m  map[string]string
+}
 
-func (m mapSecrets) Resolve(_ context.Context, ref string) (string, error) {
-	if v, ok := m[ref]; ok {
+func (s *mapSecrets) Resolve(_ context.Context, ref string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v, ok := s.m[ref]; ok {
 		return v, nil
 	}
 	return "", v3integrations.ErrCredentialUnavailable
+}
+
+func (s *mapSecrets) set(ref, value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if value == "" {
+		delete(s.m, ref)
+	} else {
+		s.m[ref] = value
+	}
 }
 
 type rolloutFixture struct {
@@ -83,6 +101,7 @@ type rolloutFixture struct {
 	errRatio atomic.Value
 	cancel   context.CancelFunc
 	done     chan struct{}
+	secrets  *mapSecrets
 }
 
 const catalogTemplate = `{"queries":[
@@ -212,8 +231,9 @@ func newRolloutFixture(t *testing.T) *rolloutFixture {
 	binding := v3integrations.CredentialBinding{Tier: "nonprod", EnvironmentID: "dev", ConnectorID: "k8s", Provider: "kubernetes",
 		Endpoint: f.cluster.URL, CredentialRef: "vault://kv/lab/k8s-reader#token"}
 	caPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: f.cluster.Certificate().Raw}))
-	secrets := mapSecrets{"vault://kv/lab/k8s-reader#token": "token", "vault://kv/lab/k8s-reader#ca": caPEM,
-		"vault://kv/lab/k8s-rollback#token": "token"}
+	secrets := &mapSecrets{m: map[string]string{"vault://kv/lab/k8s-reader#token": "token", "vault://kv/lab/k8s-reader#ca": caPEM,
+		"vault://kv/lab/k8s-rollback#token": "token"}}
+	f.secrets = secrets
 	policy := &rbac.V3Policy{Store: st}
 	metrics, err := v3integrations.NewPrometheusReader(f.db, "nonprod", nil, catalog.Queries)
 	if err != nil {
@@ -538,4 +558,54 @@ func TestRollbackProposalErrors(t *testing.T) {
 		t.Fatalf("paused candidates: %+v", candidates)
 	}
 	expectError(f.call("GET", "/api/v1/services/"+ServiceID("app", "prod")+"/rollback-candidates", "requester", ""), 404, "not_found")
+}
+
+// A restarted dev-mode Vault is empty: reads report credential_unavailable,
+// a missing write token makes the executor not ready (approval refused), and
+// losing the read token mid-rollout ends in needs_attention, never in a
+// failed or succeeded verdict the executor could not observe.
+func TestRollbackWithEmptyVault(t *testing.T) {
+	f := newRolloutFixture(t)
+	service := ServiceID("app", "dev")
+	blocked := func(want string) {
+		t.Helper()
+		var candidates candidatesResponse
+		f.decode(f.call("GET", "/api/v1/services/"+service+"/rollback-candidates", "requester", ""), 200, &candidates)
+		if candidates.BlockedReason == nil || *candidates.BlockedReason != want || len(candidates.Candidates) != 0 {
+			t.Fatalf("candidates: %+v, want %s", candidates, want)
+		}
+	}
+	reader, writer := "vault://kv/lab/k8s-reader#token", "vault://kv/lab/k8s-rollback#token"
+	f.secrets.set(reader, "")
+	f.secrets.set(writer, "")
+	blocked("credential_unavailable")
+	body := fmt.Sprintf(`{"investigation_id":"INV-1","service_id":"%s","target_revision":"1","expected_template_digest":"%s","reason":"bad release"}`,
+		service, strings.Repeat("0", 64))
+	if w := f.call("POST", "/api/v1/rollback-proposals", "requester", body, "Idempotency-Key", "rollback-empty"); w.Code != 409 ||
+		!strings.Contains(w.Body.String(), `"credential_unavailable"`) {
+		t.Fatalf("propose with empty Vault: %d %s", w.Code, w.Body.String())
+	}
+	f.secrets.set(reader, "token")
+	blocked("executor_not_ready")
+
+	// With both tokens back a proposal is made; approval is refused while
+	// the write token is missing again.
+	f.secrets.set(writer, "token")
+	f.cluster.Inject(func(s *kubetest.Server) { s.StallRollout = true })
+	id := f.propose("rollback-key-vault")
+	f.approve(id, "approver1", 202)
+	f.secrets.set(writer, "")
+	if w := f.call("POST", "/api/v1/proposals/"+id+"/approve/options", "approver2", `{"confirm":true}`); w.Code != 503 {
+		t.Fatalf("approval without write token: %d %s", w.Code, w.Body.String())
+	}
+	// The read token disappears before the write: approval and the write
+	// path do not use it (the CA is its own field), the rollout cannot be
+	// observed afterwards.
+	f.secrets.set(writer, "token")
+	f.secrets.set(reader, "")
+	f.approve(id, "approver2", 200)
+	out := f.waitExecution(id, "approver1")
+	if out.Status != "needs_attention" || out.StatusReason == nil || *out.StatusReason != "reconcile_unknown" || f.cluster.PatchCount() != 1 {
+		t.Fatalf("read token lost during rollout: %+v patches=%d", out, f.cluster.PatchCount())
+	}
 }

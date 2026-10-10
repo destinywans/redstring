@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -55,7 +56,19 @@ type Service struct {
 	workerID string
 	running  atomic.Bool
 	beat     atomic.Int64
+
+	credMu      sync.Mutex
+	credChecked map[string]credentialCheck
 }
+
+// credentialCheck caches whether a write credential was readable, so the
+// readiness check does not read Vault on every request.
+type credentialCheck struct {
+	ok bool
+	at time.Time
+}
+
+const credentialCheckTTL = 15 * time.Second
 
 const (
 	defaultPollInterval   = 3 * time.Second
@@ -214,17 +227,49 @@ func bindingFingerprint(w v3telemetry.Workload, b WriteBinding) string {
 }
 
 // Ready reports that the executor loop is running and recently polled, and
-// that the environment has at least one write binding (PA-08 approval gate).
-func (s *Service) Ready(_ context.Context, env string) error {
+// that the environment has write bindings whose write credentials are
+// readable (PA-08 approval gate). An emptied Vault therefore blocks approval
+// instead of failing the execution after it.
+func (s *Service) Ready(ctx context.Context, env string) error {
 	if s == nil || !s.running.Load() || time.Since(time.Unix(0, s.beat.Load())) > 75*time.Second {
 		return errExecutorNotReady
 	}
+	found := false
 	for _, b := range s.WriteBindings {
-		if b.Tier == s.Tier && b.Environment == env {
-			return nil
+		if b.Tier != s.Tier || b.Environment != env {
+			continue
+		}
+		found = true
+		if !s.writeCredentialReadable(ctx, b.CredentialRef) {
+			return errExecutorNotReady
 		}
 	}
-	return errExecutorNotReady
+	if !found {
+		return errExecutorNotReady
+	}
+	return nil
+}
+
+func (s *Service) writeCredentialReadable(ctx context.Context, reference string) bool {
+	now := s.now()
+	s.credMu.Lock()
+	check, cached := s.credChecked[reference]
+	s.credMu.Unlock()
+	if cached && now.Sub(check.at) < credentialCheckTTL && !now.Before(check.at) {
+		return check.ok
+	}
+	ok := false
+	if s.Secrets != nil {
+		token, err := s.Secrets.Resolve(ctx, reference)
+		ok = err == nil && token != ""
+	}
+	s.credMu.Lock()
+	if s.credChecked == nil {
+		s.credChecked = map[string]credentialCheck{}
+	}
+	s.credChecked[reference] = credentialCheck{ok: ok, at: now}
+	s.credMu.Unlock()
+	return ok
 }
 
 var errExecutorNotReady = errors.New("rollback executor not ready")

@@ -419,7 +419,13 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 - **采样方式**：每 15 秒一次，用执行器专用的只读查询路径，只能查目录里该应用和环境的已审查查询。每条查询取最近 60 秒内最后一个值，必须恰好一条序列。POST 读取随第二阶段（PA-43）一起改。
 - **滚动判断**：`ProgressDeadlineExceeded` 只在 `observedGeneration` 追上之后才算数。否则回滚一个本身卡住的发布时，旧条件会让回滚立刻失败；这与 `kubectl rollout status` 的规则一致。
 - **执行器范围**：每 5 秒轮询一次，只认领本实例层级写入批准覆盖的环境，避免共用数据库的另一层级实例误认领。认领时任何一项检查失败都直接记为 `needs_attention`，原因为 `approval_invalid`、`authorization_changed` 或 `binding_changed`，不会写集群。
-- **审批门槛**：执行器在运行、最近 75 秒内有心跳、本环境有写入批准，三条同时满足才允许批准回滚提案。
+- **审批门槛**：同时满足以下几条才允许批准回滚提案，否则批准接口返回 503 `proposal_approval_unavailable`，候选接口显示 `executor_not_ready`：
+  - 执行器在运行，且最近 75 秒内有心跳；
+  - 本环境有写入批准；
+  - 写令牌能从 Vault 读到，结果缓存 15 秒。
+
+  dev 模式 Vault 重启后为空时：读令牌缺失，候选接口返回 `credential_unavailable`，提交提案返回 409；只缺写令牌时显示 `executor_not_ready`，批准被拒。执行 `init` 后最多 15 秒恢复。
+- **读不到时不下结论**：滚动阶段一直读不到 Deployment 直到超时，记为 `needs_attention/reconcile_unknown`，不记 `failed/rollout_timeout`。观察窗口结束时读不到，最多再采样 2 分钟，仍读不到则记为 `needs_attention/verification_unavailable`，不判成功。
 - **启动检查**：配置了写入批准但缺少 `AIOPS_VAULT_URL` 或 `AIOPS_VAULT_TOKEN`，或写令牌引用与某个连接器读凭据相同，服务都拒绝启动。
 - **权限码**：没有 `resources.view` 返回 404；能看服务但缺少 `resources.change` 或 `proposals.change`，返回 403。同一幂等键重放时先按键识别，即使 Deployment 已经变化（例如回滚已执行），也返回原提案。
 - **调查事件**：本阶段不往调查里追加事件。V3 没有通用的调查事件表；改调查还会推高 `updated_at`，使同一调查上的其他待批提案失效。执行结果通过提案和执行视图关联到调查（执行投影带 `investigation_id`）。

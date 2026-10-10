@@ -68,6 +68,10 @@ type verificationState struct {
 
 const maxSamples = 40
 
+// confirmGrace is how long verification keeps sampling past the window when
+// the Deployment cannot be read at its end.
+const confirmGrace = 2 * time.Minute
+
 // ledgerRow is one execution as the executor holds it.
 type ledgerRow struct {
 	ProposalID   string
@@ -443,6 +447,10 @@ func (s *Service) step(ctx context.Context, row *ledgerRow, a v3proposals.Rollba
 				r.Rollout = snapshot(outcome.Deployment, s.now())
 				r.Verification = &verificationState{Plan: a.Plan(), Result: "pending", Samples: []verificationSample{}}
 			})
+		case s.now().Sub(since) > or(s.RolloutTimeout, defaultRolloutTimeout) && err != nil:
+			// The Deployment could not be read (for example the read
+			// credential is gone): the rollout's outcome is unknown, not failed.
+			return s.finish(ctx, row, a, stateNeedsAttention, "reconcile_unknown")
 		case s.now().Sub(since) > or(s.RolloutTimeout, defaultRolloutTimeout):
 			return s.finish(ctx, row, a, stateFailed, "rollout_timeout")
 		case err == nil:
@@ -525,7 +533,16 @@ func (s *Service) verify(ctx context.Context, row *ledgerRow, a v3proposals.Roll
 				rw.Verification.FinishedAt = &now
 			})
 		}
-		if now.Sub(started) >= settle+observation {
+		if now.Sub(started) >= settle+observation+confirmGrace && err != nil {
+			// Recovery cannot be confirmed without seeing the Deployment
+			// still at the target; a short read outage only extends the
+			// sampling by up to confirmGrace.
+			return s.finish(ctx, row, a, stateNeedsAttention, "verification_unavailable", func(rw *ledgerRow) {
+				rw.Verification.Result = "unavailable"
+				rw.Verification.FinishedAt = &now
+			})
+		}
+		if now.Sub(started) >= settle+observation && err == nil {
 			return s.finish(ctx, row, a, stateSucceeded, "", func(rw *ledgerRow) {
 				rw.Verification.Result = "passed"
 				rw.Verification.FinishedAt = &now

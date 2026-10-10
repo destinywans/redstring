@@ -59,8 +59,11 @@ def investigate(app_id, question, ask=True):
         return {'investigation': inv, 'root': root, 'status': None, 'seconds': 0, 'summary': ''}
     started = time.time()
     status, reply = op('POST', f'/investigations/{inv}/nodes/{root}/messages', {'text': question})
+    _, after = op('GET', f'/investigations/{inv}/canvas')
+    projected = next((n.get('rollback_suggestion') for n in after.get('nodes', []) if n.get('id') == root), None)
     return {'investigation': inv, 'root': root, 'status': status, 'seconds': round(time.time() - started),
-            'summary': (reply or {}).get('summary', '')[:4000]}
+            'summary': (reply or {}).get('summary', '')[:4000], 'rollback_suggestion': (reply or {}).get('rollback_suggestion'),
+            'projected_suggestion': projected}
 
 
 def main():
@@ -109,6 +112,13 @@ def main():
         target = next((c for c in cand.get('candidates', []) if not c.get('current')), {})
         check('candidates readable, not blocked', status == 200 and cand.get('blocked_reason') is None and target,
               f"{status} blocked={cand.get('blocked_reason')} current={current.get('revision')} target={target.get('revision')}")
+        if not a.skip_ai:
+            sug = log['investigation'].get('rollback_suggestion') or {}
+            check('AI suggests rolling back (PA-72)', bool(sug), json.dumps(sug, ensure_ascii=False)[:300])
+            check('AI suggests the previous healthy revision', sug.get('target_revision') == target.get('revision'),
+                  f"suggested {sug.get('target_revision')} from {sug.get('from_revision')}, candidate {target.get('revision')}")
+            check('suggestion carries the encoded service id', sug.get('service_id') == sid, str(sug.get('service_id')))
+            check('suggestion is on the canvas node after a re-read', log['investigation'].get('projected_suggestion') == sug and bool(sug), '')
         env_changes = [c for c in target.get('changes', []) if c.get('field') == 'env' and c.get('name') == 'LAB_FAULTS']
         check('target revision removes the injected fault', current.get('revision') == log['revision_bad'] and env_changes,
               json.dumps(env_changes, ensure_ascii=False)[:200])

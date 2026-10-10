@@ -101,8 +101,9 @@ export function useGet<T>(path: string | null, query?: Query, options?: Partial<
   // X-AIOps-Environment (422 on non-production instances) and then refetches under the real key.
   const ready = useEnv((s) => s.instance !== null) || path === "/instance" || API_MODE === "mock";
   return useQuery<T>({
-    // Switching environment refetches, like switching language.
-    queryKey: [path, query ?? {}, locale, env],
+    // Switching environment refetches, like switching language. /instance is what settles the environment and
+    // doesn't depend on it; keying it by env fetched it twice on every fresh load (PA-14).
+    queryKey: [path, query ?? {}, locale, path === "/instance" ? "" : env],
     queryFn: () => api<T>("GET", path!, { query }),
     // Keep showing the same resource while it refetches for another environment or language;
     // a different path or query is a different resource and must not show the old one.

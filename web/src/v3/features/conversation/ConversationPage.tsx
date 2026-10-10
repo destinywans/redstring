@@ -121,6 +121,8 @@ function SidePanel({ conv }: { conv: Conversation }) {
   const s = conv.side;
   const { used, budget } = s.context;
   const pct = used !== null && budget ? Math.round((100 * used) / budget) : null;
+  // The server labels the measured part in Chinese only.
+  const partLabel = (l: string) => (l === "模型输入" ? tx("模型输入", "Model input") : l);
   return (
     <aside className="conv-side">
       <Row gap={8}>
@@ -151,14 +153,14 @@ function SidePanel({ conv }: { conv: Conversation }) {
         <Muted size={11.5}>{tx("上下文", "Context")}</Muted>
         <div className="ctx-bar">
           {s.context.parts.map((p) => (
-            <span key={p.label} title={`${p.label} · ${fmtTokens(p.tokens)}`} style={{ width: budget ? `${(100 * p.tokens) / budget}%` : 0, background: p.color }} />
+            <span key={p.label} title={`${partLabel(p.label)} · ${fmtTokens(p.tokens)}`} style={{ width: budget ? `${(100 * p.tokens) / budget}%` : 0, background: p.color }} />
           ))}
         </div>
         <Row gap={10} wrap style={{ fontSize: "var(--fs-cap)" }}>
           {s.context.parts.map((p) => (
             <span key={p.label} className="v3-row muted" style={{ gap: 4 }}>
               <i style={{ width: 7, height: 7, borderRadius: 2, background: p.color }} />
-              {p.label}
+              {partLabel(p.label)}
             </span>
           ))}
         </Row>

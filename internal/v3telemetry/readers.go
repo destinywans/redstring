@@ -21,7 +21,7 @@ const (
 // availableReaders are the readers whose registry path is implemented; a
 // reader that is not here yet cannot be named, so a configuration never
 // claims a switch the build cannot make.
-var availableReaders = map[string]bool{ReaderCoverage: true}
+var availableReaders = map[string]bool{ReaderCoverage: true, ReaderMappings: true}
 
 // Readers is the set of readers that read the registry.
 type Readers map[string]bool

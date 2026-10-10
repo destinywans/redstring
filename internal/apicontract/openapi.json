@@ -52327,7 +52327,7 @@
       "get": {
         "summary": "Read persisted service connector mappings",
         "operationId": "get_service_mappings",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. A single-environment row includes an additive save snapshot with exact service/environment IDs, binding revision and persisted binding identities only for callers with current services view/change and connectors view/manage; unsupported or duplicate stored categories set editable=false. An all-environment aggregate has no save snapshot. A suggested code cell carries the exact candidate ID, review version, target identity and binding revision needed for accept. Pending suggestions are shown only if their explicit GitLab project target, activation evidence and binding revision remain current. A V3-only validator permits exactly that source-derived GitLab binding while passing every other binding to the unchanged platform validator. Activation is historical project-access evidence; a recent generic connector probe does not prove current project access. More than 1000 visible services returns 422 result_limit instead of an incomplete map.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Shows only bindings for authorized applications and environments; missing means no persisted binding, not a health check. A single-environment row includes an additive save snapshot with exact service/environment IDs, binding revision and persisted binding identities only for callers with current services view/change and connectors view/manage; unsupported or duplicate stored categories set editable=false. An all-environment aggregate has no save snapshot. A suggested code cell carries the exact candidate ID, review version, target identity and binding revision needed for accept. Pending suggestions are shown only if their explicit GitLab project target, activation evidence and binding revision remain current. A V3-only validator permits exactly that source-derived GitLab binding while passing every other binding to the unchanged platform validator. Activation is historical project-access evidence; a recent generic connector probe does not prove current project access. More than 1000 visible services returns 422 result_limit instead of an incomplete map. With the mappings reader switched to the connector registry (AIOPS_V3_UNIFIED_READERS contains mappings), the metrics, logs, traces and workload cells and save bindings come from v3_connector_targets: connector_id is the real connector ID, kind the provider and resource the target external_id; code, deploy and dash keep their stored bindings. A save snapshot whose registry system has more than one target is editable=false with unavailable_reason ambiguous_targets.",
         "responses": {
           "200": {
             "description": "Success",
@@ -52422,7 +52422,7 @@
       "put": {
         "summary": "Replace versioned service connector mappings",
         "operationId": "put_service_mappings",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment matching environment_id. Each of 1-50 distinct service and service-environment identities replaces its complete mapping set using a current binding_revision; stale or changed identities return 409. Changed items, their revision increments and audit are committed atomically; an identical item returns its current revision. Empty body, display-only cells and duplicate or unknown system IDs are rejected. A code GitLab binding may only be retained when identical to the persisted binding; new or changed GitLab mappings must use discover/accept. Other bindings must pass the configured runtime binding validator. Current services view/change and connectors view/manage grants and the active session are rechecked in the transaction. The response contains persisted binding identities and post-write revisions. The frozen frontend still sends an empty PUT and cannot use this route until it submits the versioned request.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment matching environment_id. Each of 1-50 distinct service and service-environment identities replaces its complete mapping set using a current binding_revision; stale or changed identities return 409. Changed items, their revision increments and audit are committed atomically; an identical item returns its current revision. Empty body, display-only cells and duplicate or unknown system IDs are rejected. A code GitLab binding may only be retained when identical to the persisted binding; new or changed GitLab mappings must use discover/accept. Other bindings must pass the configured runtime binding validator. Current services view/change and connectors view/manage grants and the active session are rechecked in the transaction. The response contains persisted binding identities and post-write revisions. The frozen frontend still sends an empty PUT and cannot use this route until it submits the versioned request. In registry mode (until mapping writes switch in step 6) the metrics, logs, traces and workload bindings must equal the registry projection (422 registry_cutover otherwise), deploy and dash must equal their stored bindings (422 system_not_supported), more than one target for a system is 409 ambiguous_targets, and only the code binding may be kept or removed; the stored legacy bindings of the other systems are left as they are for readers not switched yet. The response returns the registry projection.",
         "responses": {
           "200": {
             "description": "Success",
@@ -52774,6 +52774,131 @@
           }
         },
         "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/services/{id}/external-targets/options": {
+      "get": {
+        "summary": "Read the service mapping editor options of one service",
+        "operationId": "get_services_id_external_targets_options",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. PA-19 P3 stage 2 step 2. id is the service ID (base64url of application ID, NUL, environment ID) in a selected environment. Requires services.view on the application or its owner team (404 otherwise) and connectors.view in the environment (403 otherwise). One entry per mapping system in mapping order: editable and unavailable_reason (registry_not_enabled while the mappings reader is not switched; registry_cutover for metrics, logs, traces and workload until mapping writes switch; system_not_supported for deploy and dash; ambiguous_targets for more than one target; forbidden without services.change and connectors.manage), the current target or stored binding, and the connectors of the environment that can serve the system with their readiness and the catalog resource IDs reviewed for this service. Read-only; readiness is configuration, not live data.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "service_id": {
+                      "type": "string"
+                    },
+                    "environment_id": {
+                      "type": "string"
+                    },
+                    "systems": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/V3MappingOptionSystem"
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "service_id",
+                    "environment_id",
+                    "systems"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "services"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "X-AIOps-Environment",
             "in": "header",
@@ -85915,6 +86040,135 @@
         "required": [
           "environment_id",
           "items"
+        ]
+      },
+      "V3MappingOptionCurrent": {
+        "type": "object",
+        "properties": {
+          "target_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Registry target ID; null for a stored binding without a target"
+          },
+          "connector_id": {
+            "type": "string"
+          },
+          "resource_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "target_id",
+          "connector_id",
+          "resource_id"
+        ]
+      },
+      "V3MappingOptionConnector": {
+        "type": "object",
+        "properties": {
+          "connector_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "not_ready": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "connector_disabled",
+                "tool_disabled",
+                "options_invalid",
+                "credential_missing",
+                "credential_not_approved"
+              ]
+            },
+            "description": "Why the connector cannot serve reads yet; empty when ready"
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Resource IDs the catalog reviewed for this connector and service environment; for code, the GitLab project targets bound to the service"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "connector_id",
+          "name",
+          "provider",
+          "ready",
+          "not_ready",
+          "resources"
+        ]
+      },
+      "V3MappingOptionSystem": {
+        "type": "object",
+        "properties": {
+          "system_id": {
+            "type": "string",
+            "enum": [
+              "metrics",
+              "logs",
+              "traces",
+              "code",
+              "deploy",
+              "dash",
+              "workload"
+            ]
+          },
+          "editable": {
+            "type": "boolean"
+          },
+          "unavailable_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              null,
+              "registry_not_enabled",
+              "registry_cutover",
+              "system_not_supported",
+              "ambiguous_targets",
+              "forbidden"
+            ]
+          },
+          "current": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3MappingOptionCurrent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3MappingOptionConnector"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "system_id",
+          "editable",
+          "unavailable_reason",
+          "current",
+          "options"
         ]
       },
       "V3ChangeKpi": {

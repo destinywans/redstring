@@ -299,6 +299,37 @@ func (s *Service) mappingSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		after := saveCoreBindings(*item.Bindings)
+		var serviceTargets []registryTarget
+		if s.MappingsUnified && !s.MappingWritesUnified {
+			// Registry systems are read-only until step 6; only the code
+			// binding may change (be removed).
+			targets, err := mappingRegistryTargets(ctx, tx, []string{envs[0]}, appID)
+			if err != nil {
+				httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
+				return
+			}
+			serviceTargets = targets[appID+"\x00"+envs[0]]
+			var code string
+			after, code = registrySaveCheck(before, serviceTargets, *item.Bindings)
+			switch code {
+			case "":
+			case "ambiguous_targets":
+				httpapi.Error(w, 409, code, "More than one registry target serves a system of this service")
+				return
+			case "system_not_supported":
+				httpapi.Error(w, 422, code, "Deploy and dashboard mappings are read-only")
+				return
+			default:
+				httpapi.Error(w, 422, code, "Metrics, logs, traces and workload mappings are read-only during the registry cutover")
+				return
+			}
+		}
+		respond := func(persisted []core.Binding) []mappingSaveBinding {
+			if s.MappingsUnified && !s.MappingWritesUnified {
+				return registryResponseBindings(persisted, serviceTargets)
+			}
+			return saveResponseBindings(persisted)
+		}
 		if !mappingSaveGitLabSafe(before, after) {
 			httpapi.Error(w, 409, "code_mapping_requires_accept", "GitLab projects must be accepted from a verified candidate")
 			return
@@ -309,7 +340,7 @@ func (s *Service) mappingSave(w http.ResponseWriter, r *http.Request) {
 		}
 		if reflect.DeepEqual(before, after) {
 			committed = append(committed, mappingSaveCommittedItem{ServiceID: appID,
-				ServiceEnvironmentID: envID, BindingRevision: revision, Bindings: saveResponseBindings(before)})
+				ServiceEnvironmentID: envID, BindingRevision: revision, Bindings: respond(before)})
 			continue
 		}
 		serialized, err := json.Marshal(after)
@@ -349,7 +380,7 @@ func (s *Service) mappingSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		committed = append(committed, mappingSaveCommittedItem{ServiceID: appID,
-			ServiceEnvironmentID: envID, BindingRevision: nextRevision, Bindings: saveResponseBindings(persisted)})
+			ServiceEnvironmentID: envID, BindingRevision: nextRevision, Bindings: respond(persisted)})
 	}
 	if err := lockMappingWriteSession(ctx, tx, r, user.ID); err != nil {
 		policyError(w, err)

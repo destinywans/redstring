@@ -19,6 +19,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 type Access interface {
@@ -32,6 +33,12 @@ type Service struct {
 	// The legacy environment writer validates runtime connector bindings.
 	// A suggested mapping cannot bypass that policy when accepted here.
 	MappingBindingValidator func([]core.Binding) error
+	// Registry and MappingsUnified switch the service mapping's metrics,
+	// logs, traces and workload systems to the connector registry (PA-19 P3
+	// stage 2 step 2); MappingWritesUnified (step 6) will make them editable.
+	Registry             *v3telemetry.Resolver
+	MappingsUnified      bool
+	MappingWritesUnified bool
 }
 
 // The configured instance environment set is independent of the selected
@@ -81,6 +88,9 @@ func (s *Service) registerRoutes(api *httpapi.Server, serviceReads bool) {
 	api.Register("POST /api/v1/service-mappings/accept", "viewer", s.mappingAccept)
 	api.MarkV3ObjectRoute("POST /api/v1/service-mappings/discover", "services", "change")
 	api.MarkV3ObjectRoute("POST /api/v1/service-mappings/accept", "services", "change")
+	// PA-19 P3 stage 2 step 2: the editor's choices for one service.
+	api.Register("GET /api/v1/services/{id}/external-targets/options", "viewer", s.mappingOptions)
+	api.MarkV3ObjectRoute("GET /api/v1/services/{id}/external-targets/options", "services", "view")
 }
 
 type registration struct {

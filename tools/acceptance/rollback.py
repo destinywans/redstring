@@ -16,7 +16,8 @@ Stages, each timed:
   9. the alert clears in Prometheus and the product group resolves.
 The lab knob is turned off at the end in any case; once the rollback restored the old template that
 only touches the Deployment's change-cause annotation, not the Pod template.
-Writes .local/acceptance/e2e/drills/rollback-prod.json.
+--ui proposes through the browser from the AI suggestion on the canvas (golden-rollback-canvas.spec.ts) instead of
+the API. Writes .local/acceptance/e2e/drills/rollback-prod.json (rollback-prod-ui.json with --ui).
 """
 import argparse
 import json
@@ -71,6 +72,7 @@ def main():
     ap.add_argument('--app', default='checkout-api')
     ap.add_argument('--ratio', default='0.5')
     ap.add_argument('--skip-ai', action='store_true', help='open the investigation but do not ask the model')
+    ap.add_argument('--ui', action='store_true', help='propose from the AI suggestion on the canvas (golden-rollback-canvas.spec.ts)')
     ap.add_argument('--fire-timeout', type=int, default=600)
     ap.add_argument('--exec-timeout', type=int, default=1200)
     a = ap.parse_args()
@@ -131,12 +133,22 @@ def main():
         check('propose the current revision is refused (422)', status == 422, f'{status} {(r or {}).get("error", r)}')
         status, r = op('POST', '/rollback-proposals', {**body, 'reason': ''}, key=secrets.token_hex(12))
         check('propose without a reason is refused (422)', status == 422, f'{status} {(r or {}).get("error", r)}')
-        key = secrets.token_hex(16)
-        status, created = op('POST', '/rollback-proposals', body, key=key)
-        pid = (created or {}).get('proposal_id')
-        check('propose (201)', status == 201 and pid, f'{status} {created}')
-        status, again = op('POST', '/rollback-proposals', body, key=key)
-        check('replay with the same key returns the same proposal (200)', status == 200 and (again or {}).get('proposal_id') == pid, f'{status} {again}')
+        if a.ui:
+            # A person presses the suggestion on the canvas, checks the preselected revision and submits.
+            out = LOCAL / 'e2e/golden/rollback-canvas-proposal.txt'
+            out.unlink(missing_ok=True)
+            r = subprocess.run(['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', 'golden-rollback-canvas.spec.ts'], cwd=ROOT / 'web',
+                               env={**__import__('os').environ, 'GOLDEN_INVESTIGATION': inv}, capture_output=True, text=True, timeout=600)
+            pid = out.read_text().strip() if out.exists() else None
+            check('proposed from the canvas suggestion (golden-rollback-canvas.spec.ts)', r.returncode == 0 and pid,
+                  ' | '.join((r.stdout + r.stderr).strip().splitlines()[-3:]))
+        else:
+            key = secrets.token_hex(16)
+            status, created = op('POST', '/rollback-proposals', body, key=key)
+            pid = (created or {}).get('proposal_id')
+            check('propose (201)', status == 201 and pid, f'{status} {created}')
+            status, again = op('POST', '/rollback-proposals', body, key=key)
+            check('replay with the same key returns the same proposal (200)', status == 200 and (again or {}).get('proposal_id') == pid, f'{status} {again}')
         log['proposal'] = pid
         log['proposed_at'] = round(time.time() - log['t0'])
         (LOCAL / 'e2e/golden/rollback-proposal.txt').write_text(pid or '')
@@ -153,6 +165,11 @@ def main():
         _, detail = op('GET', f'/proposals/{pid}')
         log['proposal_detail'] = {k: detail.get(k) for k in ('title', 'status', 'action_kind', 'rollback', 'risk', 'verification')}
         check('proposal is a pending rollback', detail.get('action_kind') == 'kubernetes.deployment.rollback', f"{detail.get('status')} {detail.get('title')}")
+        if a.ui:
+            sug = log['investigation'].get('rollback_suggestion') or {}
+            check('the proposal targets the suggested revision', (detail.get('rollback') or {}).get('target_revision') == sug.get('target_revision'),
+                  f"{(detail.get('rollback') or {}).get('target_revision')} vs suggested {sug.get('target_revision')}")
+        check('proposer display name is returned (PA-74)', bool(detail.get('proposed_by_name')), str(detail.get('proposed_by_name')))
 
         print('  approving with two passkeys…', flush=True)
         r = subprocess.run(['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', 'golden-approval.spec.ts'], cwd=ROOT / 'web',
@@ -203,8 +220,8 @@ def main():
     log['lab_status'] = lab('status')
     passed = sum(c['ok'] for c in checks.values())
     print(f'{passed}/{len(checks)} checks passed')
-    (OUT / 'rollback-prod.json').write_text(json.dumps(log, ensure_ascii=False, indent=2))
-    print(f"report: {OUT / 'rollback-prod.json'}")
+    (OUT / ('rollback-prod-ui.json' if a.ui else 'rollback-prod.json')).write_text(json.dumps(log, ensure_ascii=False, indent=2))
+    print(f"report: {OUT / ('rollback-prod-ui.json' if a.ui else 'rollback-prod.json')}")
 
 
 if __name__ == '__main__':

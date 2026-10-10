@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strings"
@@ -242,6 +243,7 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err != nil || result.Source.Failure != nil {
+				logQueryFailure(target, err, result.Source.Failure)
 				httpapi.Error(w, 503, "telemetry_unavailable", "Log query is unavailable")
 				return
 			}
@@ -285,6 +287,8 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 			}
 			for _, entry := range result.Entries {
 				if strings.ToLower(entry.Level) != level {
+					slog.Warn("log query failed", "application_id", target.ApplicationID, "provider", target.Provider,
+						"error", "sample level "+entry.Level+" does not match the requested "+level)
 					httpapi.Error(w, 503, "telemetry_unavailable", "Log sample level does not match the scoped query")
 					return
 				}
@@ -380,4 +384,25 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		out.Unavailable["patterns"] = patternReason
 	}
 	httpapi.WriteJSON(w, 200, out)
+}
+
+// logQueryFailure logs why a log query failed (PA-87): the telemetry error's
+// kind, message and upstream status, and the wrapped cause (its text has the
+// request URL without credentials).
+func logQueryFailure(target observationTarget, err error, failure *connectors.TelemetryError) {
+	attrs := []any{"application_id", target.ApplicationID, "environment_id", target.EnvironmentID, "provider", target.Provider}
+	var telemetryError *connectors.TelemetryError
+	if !errors.As(err, &telemetryError) {
+		telemetryError = failure
+	}
+	if err != nil {
+		attrs = append(attrs, "error", err.Error())
+	}
+	if telemetryError != nil {
+		attrs = append(attrs, "kind", telemetryError.Kind, "message", telemetryError.Message, "http_status", telemetryError.HTTPStatus)
+		if cause := telemetryError.Unwrap(); cause != nil {
+			attrs = append(attrs, "cause", cause.Error())
+		}
+	}
+	slog.Warn("log query failed", attrs...)
 }

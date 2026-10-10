@@ -93,10 +93,13 @@ type ObservedTraceList struct {
 	// (the window is [window_start_at, window_end_at)), search_unattested
 	// when only the search completeness is not attested, and not_configured
 	// without a Tempo source (PA-78).
-	PartialReason string            `json:"partial_reason"`
-	WindowStartAt string            `json:"window_start_at,omitempty"`
-	WindowEndAt   string            `json:"window_end_at,omitempty"`
-	Unavailable   map[string]string `json:"unavailable"`
+	PartialReason string `json:"partial_reason"`
+	// ExcludedIncomplete counts found traces left out because Tempo returned
+	// an incomplete tree (PA-87); absent when none.
+	ExcludedIncomplete int               `json:"excluded_incomplete,omitempty"`
+	WindowStartAt      string            `json:"window_start_at,omitempty"`
+	WindowEndAt        string            `json:"window_end_at,omitempty"`
+	Unavailable        map[string]string `json:"unavailable"`
 }
 
 type TraceHistogram struct {

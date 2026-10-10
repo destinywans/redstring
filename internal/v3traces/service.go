@@ -3,6 +3,7 @@ package v3traces
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"reflect"
 	"strings"
@@ -198,10 +199,12 @@ func sourceError(w http.ResponseWriter, err error, detail bool) {
 }
 
 // readError reports a failed trace read: the registry's own failures, then
-// the provider's as before.
+// the provider's as before. Every failure is logged with its cause (PA-87),
+// since the response only carries a stable code.
 func (s *Service) readError(w http.ResponseWriter, err error, detail bool) {
 	var notReady notReadyError
 	var telemetry *connectors.TelemetryError
+	logReadError(err, detail)
 	switch {
 	case errors.Is(err, errAmbiguous):
 		targetError(w, err)
@@ -219,6 +222,22 @@ func (s *Service) readError(w http.ResponseWriter, err error, detail bool) {
 	default:
 		sourceError(w, err, detail)
 	}
+}
+
+// logReadError logs why a trace read failed: the telemetry error's kind,
+// message and upstream status, and the wrapped cause (a network or timeout
+// error, whose text has the request URL without credentials).
+func logReadError(err error, detail bool) {
+	attrs := []any{"detail", detail, "error", err.Error()}
+	var telemetry *connectors.TelemetryError
+	if errors.As(err, &telemetry) {
+		attrs = append(attrs, "kind", telemetry.Kind, "message", telemetry.Message, "http_status", telemetry.HTTPStatus,
+			"retryable", telemetry.Retryable)
+		if cause := telemetry.Unwrap(); cause != nil {
+			attrs = append(attrs, "cause", cause.Error())
+		}
+	}
+	slog.Warn("trace read failed", attrs...)
 }
 
 // observed runs the list search per registered connector.
@@ -407,12 +426,20 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	}
 	startAt, endAt := covered.Start.UTC().Format(time.RFC3339), covered.End.UTC().Format(time.RFC3339)
 	if !observed.PopulationComplete {
-		// Search completeness is not attested for this deployment: return
-		// the closed traces found, never counts or charts of that sample.
+		// Search completeness is not attested for this deployment, or an
+		// incomplete trace was left out (PA-87): return the closed traces
+		// found, never counts or charts of that sample.
 		list := BuildObservedList(observed.Traces, view, service, time.Since(start), "not_configured")
 		list.WindowStartAt, list.WindowEndAt, list.PartialReason = startAt, endAt, "search_unattested"
-		if observed.Truncated {
+		list.ExcludedIncomplete = observed.Incomplete
+		switch {
+		case observed.SearchAttested && observed.Incomplete > 0:
+			list.PartialReason = "incomplete_traces"
+		case observed.Truncated:
 			list.PartialReason = "search_budget"
+		}
+		if observed.Incomplete > 0 {
+			slog.Info("trace list left out incomplete traces", "count", observed.Incomplete)
 		}
 		httpapi.WriteJSON(w, 200, list)
 		return

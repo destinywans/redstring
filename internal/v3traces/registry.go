@@ -161,7 +161,7 @@ func registryObserved(ctx context.Context, groups []traceGroup, q connectors.Com
 		// Each connector gets a share of the trace budget.
 		q.MaxTraceIDs = max(1, connectors.CompleteTraceIDLimit/searched)
 	}
-	out := connectors.TraceObservation{Traces: []connectors.CompleteTrace{}, PopulationComplete: true}
+	out := connectors.TraceObservation{Traces: []connectors.CompleteTrace{}, PopulationComplete: true, SearchAttested: true}
 	type found struct {
 		trace connectors.CompleteTrace
 		from  time.Time
@@ -178,6 +178,8 @@ func registryObserved(ctx context.Context, groups []traceGroup, q connectors.Com
 			return connectors.TraceObservation{}, err
 		}
 		out.PopulationComplete = out.PopulationComplete && observed.PopulationComplete
+		out.SearchAttested = out.SearchAttested && observed.SearchAttested
+		out.Incomplete += observed.Incomplete
 		out.Truncated = out.Truncated || observed.Truncated
 		if out.WindowEnd.IsZero() || observed.WindowStart.After(out.WindowStart) {
 			out.WindowStart = observed.WindowStart

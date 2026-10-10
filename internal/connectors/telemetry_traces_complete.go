@@ -3,6 +3,7 @@ package connectors
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"regexp"
 	"sort"
@@ -167,6 +168,14 @@ type TraceObservation struct {
 	WindowStart time.Time
 	WindowEnd   time.Time
 	Truncated   bool
+	// SearchAttested is the deployment's attestation alone; PopulationComplete
+	// also needs every found trace to be listed.
+	SearchAttested bool
+	// Incomplete counts the found traces Tempo returned as an incomplete tree
+	// (a missing parent span, not exactly one root, a cycle), for example
+	// after a span was lost in transit. The list leaves them out instead of
+	// failing; leaving any out withdraws PopulationComplete (PA-87).
+	Incomplete int
 }
 
 // QueryCompleteTraces returns a complete, bounded search population or an
@@ -190,13 +199,17 @@ func (t *Telemetry) QueryObservedTraces(ctx context.Context, q CompleteTraceQuer
 	if err != nil {
 		return TraceObservation{}, err
 	}
-	return TraceObservation{Traces: traces, PopulationComplete: t.config.TempoSearchFailClosed,
+	return TraceObservation{Traces: traces, PopulationComplete: t.config.TempoSearchFailClosed && coverage.incomplete == 0,
+		SearchAttested: t.config.TempoSearchFailClosed, Incomplete: coverage.incomplete,
 		WindowStart: coverage.from, WindowEnd: coverage.end, Truncated: coverage.from.After(coverage.start)}, nil
 }
 
-// searchCoverage is the window a list search asked for (start to end) and
-// the start of its covered part.
-type searchCoverage struct{ start, from, end time.Time }
+// searchCoverage is the window a list search asked for (start to end), the
+// start of its covered part and the found traces left out as incomplete.
+type searchCoverage struct {
+	start, from, end time.Time
+	incomplete       int
+}
 
 func (t *Telemetry) queryStoredTraces(ctx context.Context, q CompleteTraceQuery, requireAttested, truncate bool) ([]CompleteTrace, searchCoverage, error) {
 	var coverage searchCoverage
@@ -306,6 +319,15 @@ func (t *Telemetry) queryStoredTraces(ctx context.Context, q CompleteTraceQuery,
 			return nil, coverage, err
 		}
 		trace, err := projectCompleteTrace(&source, id, raw, registrations)
+		var telemetryErr *TelemetryError
+		if truncate && q.TraceID == "" && errors.As(err, &telemetryErr) && telemetryErr.Kind == "partial" {
+			// A list leaves an incomplete tree out (PA-87): one trace that
+			// lost a span must not fail the whole list. Other failures
+			// (scope, protocol, span limit) still do.
+			coverage.incomplete++
+			source.Failure = nil
+			continue
+		}
 		if err != nil {
 			return nil, coverage, err
 		}

@@ -531,6 +531,8 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 
 ### 10.5 P4 的影响（单独确认时机）
 
+> 2026-10-10 更新：可交给用户确认时间的清单（含不可逆项、D21 的影响和逐项估算）见 10.11。
+
 **会失效的东西**：
 - **旧回滚计划**：迁移 173 把所有"已批准、未执行"的旧计划（`action_plans` 已批准，没有对应 `executions`，或执行停在 `queued`）标为 `expired`，写审计，原因是 `legacy_plan_expired_registry_cutover`。**不可逆**：到期后不能再入队，需要回滚的按第 5 节重新提案。V3 不运行旧 Worker，实际影响为零，仍要写进发布说明。
 - **旧路由下线**：`internal/actions` 的创建、批准、执行路由不再注册，旧前端的回滚页随之不可用。历史计划和执行只读保留，`GET /executions/{id}` 继续能投影历史记录。
@@ -688,6 +690,35 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 - **只列有目录范围的目标**：与旧接口“只列遥测文件里登记了范围的资源”对应。
 - **连接器详情多了 `agent_execution_available: false`**：不论是否切换都返回，只是新增字段。
 
+
+**第 8 步（默认统一登记）**：
+- **模式**：`AIOPS_V3_SOURCE_REGISTRY` 缺省为 `unified`，全部读取方读统一登记，`AIOPS_V3_UNIFIED_READERS` 被忽略并警告。`legacy`、`compare` 保留到 P4，只让列出的读取方读统一登记；`legacy` 加空列表就是第 8 步之前的缺省，作为回退。
+- **启动日志**：`source registry targets` 打印各类目标数、各供应商连接器数和目录条目数；未就绪的连接器、一个目标都没有的已切换读取方各打一条警告。统计失败不阻止启动。
+- **验收实例**：环境文件里的 `AIOPS_V3_SOURCE_REGISTRY=compare` 加完整的 `AIOPS_V3_UNIFIED_READERS`，与新缺省的行为相同；改成删掉这两个变量即可。
+
+### 10.11 P4 清单（2026-10-10，供用户确认时间）
+
+**前提**（10.9 决定 7）：第 8 步在两个实例上都以缺省 `unified` 稳定跑过一轮完整回归，并且一轮回滚演练通过。
+
+| # | 内容 | 可逆性 | 估算 |
+| --- | --- | --- | --- |
+| 1 | 迁移 173：所有“已批准、未执行”的旧回滚计划（`action_plans` 已批准，没有对应 `executions` 或执行停在 `queued`）标为 `expired`，写审计 `legacy_plan_expired_registry_cutover` | **不可逆**（数据）：到期后不能再入队，需要回滚的按第 5 节重新提案 | 0.5 人日 |
+| 2 | 旧路由下线：`internal/actions` 的创建、批准、执行路由不再注册，历史计划和执行只读保留，`GET /executions/{id}` 继续能投影历史 | 代码层面可退回旧版本，但与第 1 项一起后旧计划不可恢复；旧前端回滚页不可用 | 0.25 人日 |
+| 3 | 取消 `legacy`、`compare` 模式和 `AIOPS_V3_UNIFIED_READERS`（设了只记一条警告），删除比对器（`Comparer`）以及七个读取方里的旧绑定分支；连接器详情的 `tools` 无条件投影 | **运行时不可逆**：只能部署 P4 之前的版本回到旧读取；且第 6 步之后的映射修改不在旧绑定里，旧版本会读到旧来源 | 1 人日 |
+| 4 | 旧 Worker 的 `query_metrics`/`query_logs` 和自动巡查改用解析器：只读服务在统一登记里的目标；没有目标时巡查结论为 `indeterminate`，不回退读遥测文件；查询 ID 取自目录；凭据从 Vault 读（Vault 为空时 `indeterminate`） | 行为变化（10.5 已列），代码可退回 | 1–1.5 人日 |
+| 5 | `connectors.Telemetry` 不再读端点和凭据，遥测文件只剩目录部分或完全不设；时间与大小限制（`max_window_seconds`、`max_lookback_seconds`、超时等）和 Tempo 的 `tempo_search_fail_closed` 需要换位置（建议：限制放进统一目录的 `limits`，搜索完整声明放进 Tempo 连接器的 `options`） | 配置格式变化，可退回 | 0.5–1 人日 |
+| 6 | 删除 `AIOPS_KUBERNETES_REGISTRY` 和演示连接器 `demo-kubernetes` | 演示回滚路径消失，可退回 | 0.5 人日 |
+| 7 | **D21**：删除第 7 步的旧接口投影代码（`cmd/aiops/v3_registrations.go`、`Resolver.Registered`、`httpapi.Server` 的两个钩子、`Integration` 的两个字段及测试） | 可逆 | 0.1 人日 |
+| 8 | 文档、契约、发布说明；验收实例清理环境变量（`AIOPS_TELEMETRY_CONFIG` 的端点和凭据、`AIOPS_KUBERNETES_REGISTRY`、演示 Kubernetes 变量、`AIOPS_V3_SOURCE_REGISTRY`、`AIOPS_V3_UNIFIED_READERS`、空的 `AIOPS_V3_PROMETHEUS_QUERIES_CONFIG`） | — | 0.5 人日 |
+| | **合计** | | **约 4.4–5.4 人日** |
+
+**按 D21 少做的事**：不给 `GET /connector-registrations` 加 `Deprecation` 头，也没有“下一轮再移除”；验收不用核对旧前端的登记页和能力标签在 V3 实例上的表现（它们本来就是 501）。省下的工作约 0.25 人日。
+
+**比 10.8 的估算（2.5–3.5 人日）多的原因**：第二阶段为了能逐个回退，每个读取方都保留了旧绑定分支（第 3 项要逐个删除）；限制和搜索完整声明换位置（第 5 项）之前没有估算。
+
+**需要用户先决定的一点**：第 5 项让遥测文件不再提供端点和凭据。非 V3 部署（旧前端在旧模式下运行）的读取完全依赖这些字段。P4 要么同时退役非 V3 部署，要么把这一项限定在 V3 实例、旧模式继续读遥测文件。两种做法的工作量差别不大，但第一种会让旧模式彻底不可用。
+
+**保留**：`application_environments.bindings` 列、`binding_revision`、历史计划和执行行、`aiops connectors import-legacy`（新环境导入仍有用）；`aiops connectors compare` 在旧绑定不再有读取方之后只作诊断，可以一并删除，留待确认。
 
 ## 附录 A：对照前提的命令
 

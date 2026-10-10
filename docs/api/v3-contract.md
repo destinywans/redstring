@@ -574,6 +574,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-10-10 | PA-19 第二阶段第 8 步：`AIOPS_V3_SOURCE_REGISTRY` 缺省改为 `unified`，全部读取方读统一登记，本契约里写成“`AIOPS_V3_UNIFIED_READERS` 含某读取方时”的行为即缺省行为；`legacy`、`compare` 只保留列出的读取方，作为回退保留到 P4。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-09 | 生产验收 PA-05/PA-16：新增「未知」约定（`null` + `unavailable` 原因）。`/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard` 在可选证据缺失时返回 200，受影响字段可空；`ProfileView`、`SecurityView`、`LogSearch`、`TraceList`、`MetricsDashboard` 字段由必有改为可空，属于破坏性语义修改，`types.ts` 与页面由前端轮同步。OpenAPI 已重新生成。 |
 | 2026-10-07 | 后端对齐 v1.1：27 个新接口具备持久化/真实读取，5 个可信来源缺口已接线并按用户决定明确 503；服务端参数、迁移 158～161、OpenAPI 与定向隔离验证已同步，原 166 项不升级。 |
 | 2026-10-07 | 契约 v1.1：新增「v1.1 页面交互接口」一节。第 1 张表列出前端需对齐的已实现约束（令牌有效期与权限、邀请角色、护栏内置策略、新建实验和 Agent 的请求体），第 2 张表补入后端已实现的 19 个接口，第 3 张表新定义 32 个待实现接口，并补充查询参数。原 166 项的路径和字段不变，没有破坏性修改。 |

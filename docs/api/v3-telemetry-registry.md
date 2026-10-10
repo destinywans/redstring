@@ -1,6 +1,6 @@
-# V3 遥测来源统一登记：导入与对照（PA-19 P0–P2，P3 的 Kubernetes 部分）
+# V3 遥测来源统一登记（PA-19）
 
-用户 2026-10-09 批准 [连接器登记统一设计](../plans/2026-10-09-connector-registry-unification.md) 的方案 A，本轮只做前三步：P0 导入计划（dry run）、P1 应用、P2 对照模式。日志页、Trace 页、AI 日志/指标工具仍然读 `AIOPS_TELEMETRY_CONFIG`；切换（P3）和清理（P4）要等对照没有差异后再单独决定。
+用户 2026-10-09 批准 [连接器登记统一设计](../plans/2026-10-09-connector-registry-unification.md) 的方案 A：P0 导入计划（dry run）、P1 应用、P2 对照模式，P3 把读取方逐个切到统一登记（第二阶段第 0–8 步，见设计稿 [第 10 节](../plans/2026-10-10-rollback-executor-and-registry-p3.md)）。**第二阶段第 8 步起缺省读统一登记**（`AIOPS_V3_SOURCE_REGISTRY=unified`）；遥测文件 `AIOPS_TELEMETRY_CONFIG` 只在 `legacy`、`compare` 回退模式下被读取方使用，另提供列表和日志的时间与大小限制。清理（P4）单独确认时间。
 
 ## 统一目录 `AIOPS_V3_SOURCE_CATALOG`
 
@@ -68,19 +68,19 @@ aiops connectors compare -out report.json
 | `scope_conflict` | 目录里同键已有不同范围 |
 | `workload_name_invalid` | Kubernetes 命名空间或 Deployment 不是 DNS-1123 标签 |
 
-## 对照模式 `AIOPS_V3_SOURCE_REGISTRY`
+## 读取模式 `AIOPS_V3_SOURCE_REGISTRY`
 
-- `legacy`（缺省）：与以前完全一样。
-- `compare`：读取结果仍来自遥测文件。日志页、Trace 页（含 `/traces`）、`read_service_logs` 和 `read_service_metrics` 每次读到旧绑定时，后台再用登记解析一次并比较。
+- `unified`（缺省，第二阶段第 8 步起）：全部读取方读统一登记。设了 `AIOPS_V3_UNIFIED_READERS` 也会被忽略，启动日志打一条警告。
+- `legacy`：只有 `AIOPS_V3_UNIFIED_READERS` 列出的读取方读统一登记，其余读遥测文件；变量为空时全部读遥测文件，也就是第 8 步之前的缺省。保留到 P4，作为回退。
+- `compare`：在 `legacy` 的基础上，读到遥测文件的读取方在后台再用登记解析一次并比较。读取结果仍来自遥测文件。日志页、Trace 页（含 `/traces`）、`read_service_logs` 和 `read_service_metrics` 每次读到旧绑定时，后台再用登记解析一次并比较。
   - 不阻塞读取：队列满时丢弃并计数。同一绑定 10 分钟内只比较一次。
   - 结果有变化时写日志 `source registry compare`。字段只有数据面、应用 ID、环境 ID、旧供应商、`state` 和 `reasons`，不含端点、选择器或表达式。
   - 每 15 分钟写一条 `source registry compare summary` 计数。进程没有指标导出器，所以计数只写在日志里。
-- `unified`：第二阶段第 8 步才开放，现在设置会启动失败。
 
-### 逐个读取方切换 `AIOPS_V3_UNIFIED_READERS`（第二阶段过渡期）
+### 读取方开关 `AIOPS_V3_UNIFIED_READERS`（只在 `legacy`、`compare` 下有效，P4 删除）
 
-- 取值为逗号分隔的读取方，列出的读取方改读统一登记，其余照旧；`compare` 模式下没列出的读取方继续记录对照日志。
-- 可选名称随实施步骤开放（设计稿第 10.3 节）：`coverage`、`mappings`、`logs`、`traces`、`ai_metrics`、`mapping_writes`、`registrations`。目前已开放：
+- 取值为逗号分隔的读取方，列出的读取方改读统一登记，其余照旧；`compare` 模式下没列出的读取方继续记录对照日志。`unified` 模式下忽略。
+- 名称（设计稿第 10.3 节），全部已开放：
   - `coverage`（第 1 步）：覆盖度的指标、日志、链路单元格由解析器给出，未就绪时 `availability=not_ready` 并写明原因，旧应用绑定不再计入。
   - `mappings`（第 2 步）：服务映射的指标、日志、链路、工作负载读统一登记的目标（真实连接器 ID），在第 6 步之前只读（`registry_cutover`）；代码绑定和 GitLab 候选接受照旧；部署和看板只读（`system_not_supported`）。编辑器的选项见 `GET /services/{id}/external-targets/options`。
   - `logs`（第 3 步）：日志页 `GET /logs` 和 AI 工具 `read_service_logs` 读统一登记的 `log_stream`（Loki）、`log_index`（Elasticsearch）目标，见下文“日志读取方”。
@@ -88,9 +88,14 @@ aiops connectors compare -out report.json
   - `ai_metrics`（第 5 步）：AI 工具 `read_service_metrics` 读统一登记的 `metric_resource` 目标，`list_services` 的指标和日志两列也由统一登记给出，见下文“AI 指标工具与服务清单”。
   - `registrations`（第 7 步）：旧前端和运维看板读的 `GET /integrations`、`GET /connector-registrations` 改为从统一登记投影，连接器详情 `GET /connectors/{id}` 的 `tools` 显示已保存的工具开关，见下文“能力标签与旧登记接口”。
   - `mapping_writes`（第 6 步）：服务映射的保存改为增删目标，见下文“映射写入”。它要求 `mappings`、`logs`、`traces`、`ai_metrics` 都已列出，否则启动失败：编辑的数据面必须已经由统一登记读取，改了才能在页面和 AI 工具里看到。
-  - 写了还没开放的名称，或者同一个名称写了两次，服务都拒绝启动；
-  - 启动日志 `source registry` 打印模式和已切换的读取方。
-- 回退：从变量里去掉该读取方并重启，不删任何数据。第 6 步（`mapping_writes`）之后回退前先跑一次 `aiops connectors compare`，见下文“映射写入”和设计稿第 10.4 节。
+  - 写了未知的名称，或者同一个名称写了两次，服务都拒绝启动。
+- **启动日志**：
+  - `source registry`：模式和实际读统一登记的读取方；
+  - `source registry targets`（第 8 步）：本实例各环境按类型的目标数、按供应商的连接器数、目录里的查询、范围和工作负载条目数；
+  - `source registry connector not ready`：每个读取方暂时读不了的遥测或 Kubernetes 连接器，带原因码（`connector_disabled`、`tool_disabled`、`options_invalid`、`credential_missing`、`credential_not_approved`）；
+  - `source registry readers without targets`：已切换、却一个对应目标都没有的读取方（`coverage`、`logs`、`traces`、`ai_metrics`），这些读取方对每个服务都会回答 `not_configured`；
+  - 统计失败只打警告，不阻止启动。
+- **回退**：设 `AIOPS_V3_SOURCE_REGISTRY=legacy`（`AIOPS_V3_UNIFIED_READERS` 可以保留一部分读取方），重启即可，不删任何数据。第 6 步（`mapping_writes`）之后，回退前先跑一次 `aiops connectors compare`，`diverged_services` 为 0 才能保证旧读取方读到的与现在相同，见下文“映射写入”和设计稿第 10.4 节。P4 之后不能再回退。
 - **改读统一登记的日志和 Trace 读取方怎样读取**：
   - 按目标构造客户端：端点、租户和认证方式取连接器的，范围取目录的；
   - 凭据经凭据批准从 Vault 读取，在内存里缓存 60 秒，收到 401/403 立即丢弃；

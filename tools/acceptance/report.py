@@ -24,8 +24,8 @@ E2E = LOCAL / 'e2e'
 
 # verified · partial (backend done, frontend pending, or part of the scope) · open · later (next round) · gap
 STATUS_OVERRIDES = {
-    'PA-05': 'verified', 'PA-08': 'later', 'PA-09': 'partial', 'PA-12': 'verified', 'PA-19': 'partial', 'PA-68': 'verified',
-    'PA-21': 'verified', 'PA-43': 'later', 'PA-67': 'later',
+    'PA-05': 'verified', 'PA-08': 'verified', 'PA-09': 'partial', 'PA-12': 'verified', 'PA-19': 'partial', 'PA-68': 'verified',
+    'PA-21': 'verified', 'PA-43': 'later', 'PA-67': 'later', 'PA-72': 'verified', 'PA-73': 'verified', 'PA-74': 'verified',
 }
 STATUS_LABEL = {'verified': '已验证', 'partial': '部分完成', 'open': '处理中', 'later': '后续轮次', 'gap': '缺能力'}
 
@@ -35,7 +35,19 @@ PHASES = [
     ('2', '黄金路径', 'done', '登录与会话、告警闭环、调查画布、对话、知识、Agent 运行台、集成中心、设置均端到端走通；变更与发布按 D11 记为缺来源。'),
     ('3', '权限、隔离、故障、边界', 'done', '权限矩阵 130 条路由 × 4 角色 0 不一致；环境隔离 25/25；输入边界 12/12；登录与会话 10/10；五个数据源停机与四类产品故障都明确降级并自动恢复。'),
     ('4', '实验集群故障演练', 'done', '坏发布、重试风暴、Pod OOM、Pod 崩溃、消费者停止、节点压力六个场景：注入 → 告警 → 产品 → AI 取证 → 恢复，修复后重跑。'),
-    ('5', '修复后全量回归', 'running', '基线与第二轮回归已完成（第二轮对拍 216 次加载 212 干净、0 个未捕获异常，权限矩阵复核后 0 不一致）；剩余小项合入后做最终一轮。'),
+    ('5', '修复后全量回归', 'done', '基线、第二轮与回滚部署后的回归均已完成；最终一轮见下方“回归”数字。'),
+    ('6', 'Kubernetes 回滚闭环', 'done', '下一轮第一段（用户 10-10 批准）：实验 Vault 凭据、独立执行器、两人通行密钥批准、恢复验证、AI 回滚建议与画布卡片；prod 端到端与 nonprod 五个失败与边界场景都通过。'),
+]
+
+# Rollback drills (PA-08/72/73): report file, scenario, what should happen.
+ROLLBACK = [
+    ('rollback-prod-ui.json', 'prod · 从画布 AI 建议发起', '坏发布 → AI 读修订并建议 → 画布卡片打开抽屉预选修订 → 提交 → 两人通行密钥批准 → 执行 → 验证恢复'),
+    ('rollback-prod.json', 'prod · 接口发起（含 AI 建议）', '同上，提案走接口；含 428/422、幂等重放、发起人与 API 令牌不能批准'),
+    ('rollback-edge-faulty-target.json', 'nonprod · 回滚到带故障修订', '稳定期后验证失败，只写一次、不再写'),
+    ('rollback-edge-restart.json', 'nonprod · 验证中重启进程', '新进程接管后仍成功，空档不计入观察时长'),
+    ('rollback-edge-drift.json', 'nonprod · 批准前对象被改', 'needs_attention/drift，不写入'),
+    ('rollback-edge-revoked.json', 'nonprod · 两票之间撤销审批人', '首票作废，不执行'),
+    ('rollback-edge-write-forbidden.json', 'nonprod · 写入超出实验账号 RBAC', 'Kubernetes 拒绝，needs_attention/write_forbidden，未改动'),
 ]
 
 DRILLS = [
@@ -49,10 +61,9 @@ DRILLS = [
 
 LATER = [
     ('性能压测与连续 24 小时运行', '计划阶段即后置。'),
-    ('Kubernetes 回滚执行闭环（PA-08）', '用户 10-09 决定另起一轮；本轮静默创建、取消两种执行动作已闭环。'),
-    ('变更与发布、启用告警规则（D11）', '需要原生交付来源与私有 GitOps 目标（GitLab），与回滚同一轮。'),
-    ('统一来源登记的读取方切换（PA-19 后续、PA-43、PA-67）', '方案 A 前三步已完成，第 4–5 步需单独决定。'),
-    ('缺陷登记到 Linear', '外部写操作，执行前需用户确认。'),
+    ('统一来源登记第二阶段（PA-19 其余读取方、PA-43、PA-67）', '用户 10-10 批准分两段；第一段（Kubernetes 部分与回滚）已完成，第二段：其余读取方切换、POST/8 KiB、默认 unified、覆盖度、P4 清理。'),
+    ('变更与发布、启用告警规则（D11）', '实验 GitLab 交付链路已就绪，产品侧接入留到后续。'),
+    ('实验虚拟机时钟跳变（D12、D16）', '已两次人工修复；根因与自动修复交实验会话处理。'),
 ]
 
 RERUN = [
@@ -298,6 +309,22 @@ footer {{ color: var(--muted); font-size: 13px; }}
                  f'<td class="num">{esc(product)}</td><td>{esc(recover)}</td><td>{esc(ai)}</td></tr>')
     p.append('</tbody></table></div></section>')
 
+    # Rollback loop
+    p.append('<section><h2>Kubernetes 回滚闭环</h2><p class="note">实验集群 aiops-lab；写入只经独立执行器和两人通行密钥批准，'
+             '写令牌只在 Vault；结果取自 <code>.local/acceptance/e2e/drills/rollback-*.json</code>。</p><div class="panel scroll"><table><thead><tr>'
+             '<th>场景</th><th>应有结果</th><th>执行状态</th><th>检查</th></tr></thead><tbody>')
+    for fname, name, expect in ROLLBACK:
+        d = load(E2E / 'drills' / fname)
+        if not d:
+            p.append(f'<tr><td>{esc(name)}</td><td>{esc(expect)}</td><td>—</td><td>未运行</td></tr>')
+            continue
+        ex = d.get('execution') or {}
+        state = ' / '.join(x for x in (ex.get('status'), ex.get('status_reason')) if x) or '—'
+        ok = sum(1 for c in d.get('checks', {}).values() if c.get('ok'))
+        p.append(f'<tr><td>{esc(name)}</td><td>{esc(expect)}</td><td><code>{esc(state)}</code></td>'
+                 f'<td class="num">{ok}/{len(d.get("checks", {}))}</td></tr>')
+    p.append('</tbody></table></div></section>')
+
     # Phase 3
     p.append('<section><h2>权限、隔离与故障恢复</h2><div class="two">')
     p.append('<div class="panel kv"><h3>检查</h3>')
@@ -363,7 +390,9 @@ footer {{ color: var(--muted); font-size: 13px; }}
 
 VERDICT = ('本轮在两个独立验收实例和三节点实验集群上完成了功能、权限和故障三个层面的验收。'
            '主流程（登录、告警进入产品、AI 只读取证、调查画布、静默提案经两人通行密钥批准后由执行器写入、知识与 Agent 治理）都已端到端走通，'
-           '权限矩阵与环境隔离没有越权。仍有少量缺陷在修，性能与 24 小时稳定性、Kubernetes 回滚与交付链路按计划放到后续轮次。')
+           '权限矩阵与环境隔离没有越权。下一轮第一段的 Kubernetes 回滚闭环也已在实验集群上验证：AI 读修订并建议、人从画布提交、'
+           '两人通行密钥批准、独立执行器写入并验证恢复，五个失败与边界场景都按设计停下、没有误写。'
+           '性能与 24 小时稳定性、统一来源登记第二阶段与交付链路放到后续。')
 
 
 def main():

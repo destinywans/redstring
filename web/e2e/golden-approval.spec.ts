@@ -83,10 +83,13 @@ async function approve(page: Page, expected: RegExp, shot: string) {
 
 test("proposal: two approvers with passkeys", async ({ browser }) => {
   const results: Record<string, unknown> = { proposal };
-  for (const [role, expected] of [
+  // GOLDEN_APPROVERS=approver1 (or approver2) casts one vote only, e.g. to change permissions in between.
+  const only = (process.env.GOLDEN_APPROVERS ?? "approver1,approver2").split(",");
+  const votes = [
     ["approver1", /还需要 1 位审批人/],
     ["approver2", /已批准，执行器开始执行/],
-  ] as const) {
+  ] as const;
+  for (const [role, expected] of votes.filter(([r]) => only.includes(r))) {
     const { context, page } = await approverPage(browser, role);
     const m = monitor(page);
     await registerPasskey(page, `验收密钥 ${role}`);

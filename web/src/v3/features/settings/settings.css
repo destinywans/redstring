@@ -67,7 +67,7 @@
   font-weight: 500;
 }
 .warn-bar,
-.bulk-bar {
+.member-bulk-bar {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -82,7 +82,7 @@
 .warn-bar > span {
   color: var(--text);
 }
-.bulk-bar {
+.member-bulk-bar {
   border: 1px solid var(--accent-line);
   background: var(--accent-soft);
 }

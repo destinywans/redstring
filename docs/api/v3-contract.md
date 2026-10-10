@@ -121,10 +121,10 @@
 | POST | `/canvases/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ reply }` | implemented |
 | GET | `/canvas-templates` | | `{ items: CanvasTemplateOption[] }`；系统空白模板与当前本人有权环境中的私有通用画布模板，超过 500 项受控 422 | implemented |
 | POST | `/canvas-templates` | `{ from_canvas, name, keep: { nodes, steps?, runbooks?, content? } }`；`nodes` 必须显式给出 | 本人同环境私有模板；按选项保留安全复核后的步骤、文字与精确 Runbook 引用，不复制执行结果 | implemented |
-| GET | `/investigations/{id}/canvas` | | `CanvasGraph`；持久分支、上下文修订、证据及布局，未知 token 用量为 `null` | implemented |
+| GET | `/investigations/{id}/canvas` | | `CanvasGraph`；持久分支、上下文修订、证据及布局，未知 token 用量为 `null`；每个节点带 `rollback_suggestion`：该分支最近一次 AI 回滚建议，或 `null`（PA-72，见 [回滚契约](v3-rollback.md)） | implemented |
 | POST | `/investigations/{id}/branches` | `{ parent_id?, parent?, title, x?, y?, expected_parent_revision? }`；至少一个父 ID | `CanvasNode`；锁定父修订后复制上下文，分支、布局、事件、审计同事务 | implemented |
 | PATCH | `/investigations/{id}/nodes/{node}` | `{ x?, y?, collapsed?, title?, expected_layout_version, expected_title? }`；改标题必带 `expected_title` | `CanvasNode`；版本冲突 409、缺前置条件 428 | implemented |
-| POST | `/investigations/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ summary }`；当前回复不会自动派生子分支 | implemented |
+| POST | `/investigations/{id}/nodes/{node}/messages` | `{ text, model?, reasoning? }` | `{ summary, rollback_suggestion }`；当前回复不会自动派生子分支；每次回复最多 6 次取证、7 次模型调用，可用只读工具 `read_service_workload`；`rollback_suggestion` 由服务端校验后给出，否则为 `null`，AI 不提交提案（PA-72） | implemented |
 | GET | `/investigations/{id}/writeback-preview` | `node` 或 `from`，可选严格祖先 `target` | 当前分支可选助手消息、目标修订与历史时间线；预算未知为 `null` | implemented |
 | POST | `/investigations/{id}/writeback` | `{ node 或 from, target, items 或 conclusions, mode, expected_source_revision, expected_target_revision }` | `{ version, source_revision, target_revision }`；修订冲突 409、缺前置条件 428 | implemented |
 | GET | `/investigation-templates` | `owner?=all\|official\|team`, `q?` | `{ items: InvestigationTemplate[], counts: { all, official, team } }`；空目录返回空列表 | implemented |
@@ -308,7 +308,7 @@ Agent Trace 后端只能读受信生产者上报的有界 Span 元数据；模�
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
 | GET | `/connectors` | `category`, `q`（名称、标识和供应商支持中文及拼音检索） | `ConnectorList`；计数基于当前可见全集，筛选只影响 `items`；`ok/error` 是最近 15 分钟的连接探测结果，不代表持续健康，过期、缺凭据或服务端凭据绑定缺失显示 `unverified`；登记工具偏好不生成 Agent 能力标签；未分页的可见记录超过 1000 条返回 413 | implemented |
-| GET | `/connectors/{id}` | | `ConnectorDetail`：只返回当前有权的服务绑定；凭据文案区分未配置、服务端绑定缺失与已登记 Vault 引用，最近探测不代表持续健康；没有 Agent 执行器或查询绑定时 `tools`、`queries` 与能力标签为空，服务超过 1000 条返回 422 | implemented |
+| GET | `/connectors/{id}` | | `ConnectorDetail`：只返回当前有权的服务绑定；凭据文案区分未配置、服务端绑定缺失与已登记 Vault 引用，最近探测不代表持续健康；没有 Agent 执行器或查询绑定时 `tools`、`queries` 与能力标签为空，服务超过 1000 条返回 422；`kubernetes` 连接器另带只读的 `workloads` 和 `capabilities`（PA-72），其他类型不返回这两个字段 | implemented |
 | POST | `/connectors/{id}/test` | | `{ ok, latency_ms }`；禁用返回 409，凭据用途未由服务端绑定返回 503，探测失败如实返回错误并审计 | implemented |
 | PATCH | `/connectors/{id}` | `{ tools: [{ name, enabled }] }`；至少一项，`enabled` 必须是显式布尔值 | `{ ok: true, tools: [{ name, desc, enabled }] }`；在行锁下部分合并工具偏好并同事务审计；旧目录工具冲突返回 409，不静默删除；`enabled` 仅门控部分只读来源，不授予 Agent 执行能力；前端开关尚未发起此请求 | implemented |
 | POST | `/connectors` | `{ type, url, auth, tools, webhook, credential_ref? }`；凭据仅传 Vault 引用；所有需要凭据的创建请求先保存为未启用登记，`webhook` 仅记录意图，不自动创建 Webhook | `{ id }`；未启用登记不可测试连接或启用工具，生成 ID 后由部署方配置精确凭据绑定，再通过辅助接口激活；无认证且不请求 Webhook 的非 GitLab 只读来源可直接启用 | implemented |

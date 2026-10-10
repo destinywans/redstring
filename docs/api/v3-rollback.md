@@ -211,3 +211,68 @@
 - `rollout` 和 `verification` 在对应阶段开始前为 `null`。
 
 **权限**：与旧执行视图相同，要求该应用或所属团队的 `proposals.view`，无权时返回 404。
+
+## AI 回滚建议（PA-72）
+
+方案与决定见 [PA-72 方案](../plans/2026-10-10-pa72-ai-rollback-suggestion.md)。AI 只建议，不创建提案，也不预填提交。
+
+### 只读工具 `read_service_workload`（只在调查画布）
+
+- **输入**：服务键，或 `{"service":"<服务键>"}`。调查里只能读本调查的服务。
+- **鉴权与读取**：
+  - 要求该应用或所属团队的 `services.view` 和 `resources.view`；
+  - 读取方式与候选接口相同：连接器的已批准读凭据，只调用 `GET deployment` 和 `list replicasets`，不读 Secret。
+- **证据**：`kind: workload`、`source: kubernetes`，内容是：
+  - 当前修订、是否暂停；
+  - 滚动状态：副本数和 `Progressing` 的原因；
+  - 最近 5 个修订：是否当前、创建时间、`change_cause`（截断到 200 字）、容器镜像，以及回滚到该修订会改变什么；
+  - 回滚可行性：`blocked_reason`，以及观察时长和阈值。
+- **差异对模型脱敏**：只有 `image` 和 `resources` 带新旧值。`env` 只给变量名，`command`、`other` 只给字段名。
+- **错误码**：
+  - `unknown_service`；
+  - `not_configured`：没有工作负载目标或目录范围；
+  - `source_unavailable`：读凭据读不到或集群读不到，dev 模式 Vault 为空时也是这个。
+- **取证预算**：画布每次回复最多 6 次取证、7 次模型调用。这个工具计 1 次，同一输入重复调用不计数。
+
+### 建议的生成与字段
+
+- **触发**：以下三条同时满足，才在回复后做一次不带工具的模型调用：
+  - 本次回复读过工作负载；
+  - 证据里有非当前修订；
+  - `blocked_reason` 不是 `workload_not_configured` 或 `rollback_not_allowed`。
+- **校验**：
+  - 目标必须是证据里的非当前修订，否则没有建议；
+  - 理由 1–3 条，每条不超过 200 字，超长的整条丢弃；
+  - `cites` 只保留本次回复证据范围内的编号。
+- **结果**：抽取失败或校验不通过时 `rollback_suggestion` 为 `null`，回复照常成功。审计 `v3.ai.rollback_suggested` 记录结果：`suggested`、`declined`、`rejected` 或 `unavailable`。
+- **出现位置**：
+  - `POST /investigations/{id}/nodes/{node}/messages` 返回 `{ summary, rollback_suggestion }`；
+  - `GET /investigations/{id}/canvas` 的每个节点带 `rollback_suggestion`：该分支最近一次建议，没有则为 `null`。
+- **字段**：
+
+```json
+{"service_id": "<编码后的服务 ID>", "workload": "aiops-lab/checkout-api",
+ "from_revision": "8", "target_revision": "7",
+ "target_created_at": "2026-10-10T09:15:00Z", "target_change_cause": "release 1.4.2",
+ "reasons": [{"text": "修订 8 上线后 5xx 升高", "cites": [1]}, {"text": "修订 7 只少了 LAB_FAULTS", "cites": [2]}],
+ "reply_id": "INR-…", "evidence_ids": ["EVD-…", "EVD-…"], "suggested_at": "2026-10-10T10:50:00Z"}
+```
+
+  - `service_id` 是编码后的服务 ID，可以直接请求 `/services/{id}/rollback-candidates`；
+  - `cites` 中的 n 对应 `evidence_ids[n-1]`；
+  - `target_revision` 和 `reasons` 来自模型并经服务端校验，其余字段都由服务端从证据填写。
+
+### 连接器详情的 `workloads` 与 `capabilities`
+
+只有 `kubernetes` 连接器返回这两个字段，其他类型不返回。
+
+- **`workloads[]`**：
+  - `key`：目标的 `external_id`；
+  - `namespace`、`deployment`：来自目录，目录里没有这个键时为空串；
+  - `service`：服务键，应用已归档或未映射时为 `null`；
+  - `rollback`：`{allowed, observation_seconds}`，`observation_seconds` 是生效值；目录没有范围时为 `null`；
+  - `write_approved`：是否有写入批准。
+- **`capabilities`**：
+  - `workload.read`、`revisions.read`：连接器已启用、`read_workloads` 已开、读凭据已批准；
+  - `rollback.propose`：再加上至少一个工作负载允许回滚、有写入批准，并且执行器就绪。
+- 不返回任何凭据引用。

@@ -168,7 +168,7 @@
 3. 删除 `AIOPS_KUBERNETES_REGISTRY` 和演示连接器 `demo-kubernetes`。`internal/actions` 的创建、批准、执行路由下线，历史计划和执行只读保留，`GET /executions/{id}` 继续能投影历史记录。
 4. **旧回滚计划到期规则**：P4 迁移把所有“已批准、未执行”的旧计划（`action_plans` 已批准、没有对应 `executions`，或执行停在 `queued`）标为 `expired`，并写一条审计，原因是 `legacy_plan_expired_registry_cutover`。旧 Worker 已不运行，到期后也不能再入队。需要回滚的，按第 5 节重新提案和审批。
 5. 移除 `legacy` 和 `compare` 两个取值；`AIOPS_V3_SOURCE_REGISTRY` 只接受 `unified`，或者干脆删掉这个变量。
-6. `GET /connector-registrations` 加 `Deprecation` 头。
+6. ~~`GET /connector-registrations` 加 `Deprecation` 头。~~ 按 D21 取消：删除第 7 步的投影代码，见 10.5。
 7. 保留：`application_environments.bindings` 列、`binding_revision`、历史计划和执行行。
 
 P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验收通过之后再做。
@@ -537,7 +537,7 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 - **`legacy` 和 `compare` 两个模式取消**：`AIOPS_V3_SOURCE_REGISTRY` 和 `AIOPS_V3_UNIFIED_READERS` 删除，设了也只记一条警告。**代码层面不可逆**，要回到旧读取只能部署 P4 之前的版本。而且第 6 步之后的映射修改不在旧绑定里，回到旧版本会读到旧来源。
 - **`connectors.Telemetry` 不再读端点和凭据**：遥测文件只剩目录部分。目录已经迁到 `AIOPS_V3_SOURCE_CATALOG` 的部署，可以完全不设 `AIOPS_TELEMETRY_CONFIG`。
 - **删除 `AIOPS_KUBERNETES_REGISTRY` 和演示连接器 `demo-kubernetes`**。
-- **`GET /connector-registrations` 返回 `Deprecation` 头**，下一轮移除。
+- **删除第 7 步的旧接口投影（D21，2026-10-10 改）**：`GET /integrations` 和 `GET /connector-registrations` 在 V3 实例上没有登记为 V3 路由，被 `v3_routes.go` 的路由闸门拦成 501 `v3_not_implemented`；读同一份数据的旧运维看板（`GET /dashboard`）和设置概览（`GET /settings/overview`）也一样。非 V3 部署不执行 V3 初始化，投影的钩子不会装上。所以第 7 步的投影在任何部署形态下都不生效。P4 直接删除这份代码：`cmd/aiops/v3_registrations.go`、`Resolver.Registered`、`httpapi.Server` 的 `RegistryIntegrations`/`RegistryRegistrations` 钩子、`Integration` 的 `FileConfigured`/`TargetApplicationIDs` 字段及测试；不加 `Deprecation` 头，也没有“下一轮移除”。两条路由本身只在非 V3 部署里服务旧前端，随旧模式退役另行决定。第 7 步里实际生效的只有连接器详情的 `tools` 投影，P4（读取方默认 `unified`）后无条件生效。
 
 **旧 Worker 和自动巡查改用解析器后的行为变化**：
 - `query_metrics`、`query_logs` 只读该服务在统一登记里的目标。没有目标的服务，巡查结论是 `indeterminate`（"Telemetry configuration unavailable"），不会回退去读遥测文件。
@@ -562,7 +562,7 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 | 连接器详情 `GET /connectors/{id}` | `tools` 投影已保存的开关；新增 `agent_execution_available: false` | 详情页的工具列表组件已有，原来收到的是空数组；如要在这里开关，需要接上已有的 `PATCH /connectors/{id}` | 只读展示不需要；要加开关就需要 |
 | `GET /logs`、`GET /traces*` | 形状不变；服务在登记里没有目标时返回 `not_configured`，不再回退读旧文件；来源未就绪时返回 503，带原因码 | 已有"未接入"和"不可用"状态，核对文案 | 不需要 |
 | AI 工具 | 无形状变化；没有目标的服务返回 `not_configured` | 无 | — |
-| `GET /connector-registrations`、旧 `GET /integrations` | 从登记投影；P4 加 `Deprecation` 头 | V3 前端不用；旧前端照常读 | — |
+| `GET /connector-registrations`、旧 `GET /integrations` | 从登记投影；P4 加 `Deprecation` 头（D21：V3 实例上两者都是 501，投影不生效，P4 改为删除投影代码） | V3 前端不用；旧前端照常读 | — |
 
 ### 10.7 验证
 

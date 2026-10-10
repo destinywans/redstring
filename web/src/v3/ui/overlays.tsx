@@ -91,28 +91,34 @@ export function Dialog({ open, onClose, title, children, footer, width = 520 }: 
 
 /* ---------- Anchored popover ---------- */
 type Place = "bottom-start" | "bottom-end" | "top-start" | "top-end" | "right-start";
-function usePosition(anchor: HTMLElement | null, open: boolean, place: Place, pop: HTMLElement | null) {
+function usePosition(anchor: HTMLElement | null, open: boolean, place: Place, pop: HTMLElement | null, fit?: number) {
   const [pos, setPos] = useState<CSSProperties>({ left: -9999, top: -9999 });
   useLayoutEffect(() => {
     if (!open || !anchor) return;
     const update = () => {
       const r = anchor.getBoundingClientRect();
       const pw = pop?.offsetWidth ?? 240;
-      const ph = pop?.offsetHeight ?? 200;
+      // `fit`: no taller than `fit` or the roomier side of the anchor, scrolling inside, so it never leaves the viewport.
+      const maxHeight = fit ? Math.max(120, Math.min(fit, Math.max(window.innerHeight - r.bottom - 14, r.top - 14))) : undefined;
+      const ph = Math.min(pop?.offsetHeight ?? 200, maxHeight ?? Infinity);
       let left = place.endsWith("end") ? r.right - pw : place === "right-start" ? r.right + 8 : r.left;
       let top = place.startsWith("top") ? r.top - ph - 6 : place === "right-start" ? r.top : r.bottom + 6;
       if (top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 6);
       left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
-      setPos({ left, top });
+      setPos(maxHeight ? { left, top, maxHeight, overflowY: "auto" } : { left, top });
     };
     update();
     window.addEventListener("resize", update);
     window.addEventListener("scroll", update, true);
+    // A list that fills in while open (e.g. options still loading) is placed again for its new height.
+    const ro = fit && pop ? new ResizeObserver(update) : null;
+    if (ro && pop) ro.observe(pop);
     return () => {
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
+      ro?.disconnect();
     };
-  }, [anchor, open, place, pop]);
+  }, [anchor, open, place, pop, fit]);
   return pos;
 }
 
@@ -147,9 +153,9 @@ export function useAnchoredPanel(open: boolean, anchor: HTMLElement | null, span
   return style;
 }
 
-export function Popover({ anchor, open, onClose, children, place = "bottom-start", style }: { anchor: HTMLElement | null; open: boolean; onClose: () => void; children: ReactNode; place?: Place; style?: CSSProperties }) {
+export function Popover({ anchor, open, onClose, children, place = "bottom-start", style, fit }: { anchor: HTMLElement | null; open: boolean; onClose: () => void; children: ReactNode; place?: Place; style?: CSSProperties; /** Cap the height (px) to this and the room beside the anchor; the rest scrolls. */ fit?: number }) {
   const [pop, setPop] = useState<HTMLDivElement | null>(null);
-  const pos = usePosition(anchor, open, place, pop);
+  const pos = usePosition(anchor, open, place, pop, fit);
   useEscape(open, onClose);
   useEffect(() => {
     if (!open) return;

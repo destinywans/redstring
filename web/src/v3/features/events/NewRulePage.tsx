@@ -507,7 +507,7 @@ export default function NewRulePage() {
                 </span>
               </button>
             ))}
-            {saveMode === "enabled" && <InvestigationPicker value={invId} onChange={setInvId} items={invs.items} />}
+            {saveMode === "enabled" && <InvestigationPicker value={invId} onChange={setInvId} items={invs.items} more={invs.more} />}
           </Col>
         </Dialog>
       )}

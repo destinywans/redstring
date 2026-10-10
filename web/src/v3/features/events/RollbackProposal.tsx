@@ -49,7 +49,7 @@ function RollbackProposalDrawer({ req, onClose }: { req: RollbackRequest; onClos
   const blockedText = useBlockedText();
   const permission = useRollbackBlocked();
   const fmtAt = useWhen().at;
-  const { items: investigations } = useOpenInvestigations(true);
+  const { items: investigations, more: moreInvestigations } = useOpenInvestigations(true);
   // Also names the service in the header when the workload can't be read.
   const services = useGet<ServiceCatalog>("/services", undefined, { staleTime: 5 * 60_000 });
   const [invPick, setInvPick] = useState(req.investigationId ?? "");
@@ -181,7 +181,7 @@ function RollbackProposalDrawer({ req, onClose }: { req: RollbackRequest; onClos
               </span>
             </Row>
           ) : (
-            <InvestigationPicker value={invPick} onChange={setInvPick} items={invItems} />
+            <InvestigationPicker value={invPick} onChange={setInvPick} items={invItems} more={moreInvestigations} />
           )}
           <Muted size={11.5}>{req.investigationId ? tx("提案会挂在这个调查下。", "The proposal hangs off this investigation.") : tx("回滚必须挂在同一应用的开放调查下，方便事后追溯。", "A rollback hangs off an open investigation of the same application so it can be traced later.")}</Muted>
         </Section>

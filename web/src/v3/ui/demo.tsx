@@ -96,6 +96,7 @@ export function ChipSelect({
   ariaLabel,
   disabled,
   openNonce,
+  footer,
 }: {
   label: ReactNode;
   options: (ChipOption | string)[];
@@ -114,6 +115,8 @@ export function ChipSelect({
   disabled?: boolean;
   /** Opens the menu whenever this changes to a new non-zero value (e.g. a "choose a service" shortcut elsewhere). */
   openNonce?: number;
+  /** A muted line under the options (e.g. that the list isn't complete). */
+  footer?: ReactNode;
 }) {
   const [own, setOwn] = useState<string | string[]>(defaultValue ?? (multi ? [] : ""));
   const cur = value ?? own;
@@ -151,7 +154,8 @@ export function ChipSelect({
           shown[0]
         )}
       </Chip>
-      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} style={{ minWidth: 200, padding: 4 }}>
+      {/* Long lists scroll inside the menu instead of running off the screen (PA-85); usual lists keep their full height. */}
+      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} style={{ minWidth: 200, padding: 4 }} fit={Math.max(420, Math.round(window.innerHeight * 0.6))}>
         <div className="v3-menu demo-menu" role="listbox" aria-multiselectable={multi || undefined}>
           {allLabel && (
             <button type="button" role="option" aria-selected={selected.length === 0} className={cx(selected.length === 0 && "on")} onClick={() => { set(multi ? [] : ""); setOpen(false); }}>
@@ -172,6 +176,7 @@ export function ChipSelect({
             );
           })}
         </div>
+        {footer && <div className="demo-menu-foot">{footer}</div>}
       </Popover>
     </span>
   );

@@ -516,6 +516,8 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | DELETE | `/me/contacts/feishu` | | `503 contact_unlink_unavailable`；权威解绑和已验证后备通知待接入 | 个人资料 › 解绑飞书 | v1.1·待实现 |
 | PUT | `/me/avatar` | multipart `file`（PNG/JPG，≤ 2 MB，≥ 256×256） | `{ url }` | 个人资料 › 上传头像 | v1.1·已实现 |
 | DELETE | `/me/avatar` | | `204` | 个人资料 › 移除头像 | v1.1·已实现 |
+| GET | `/services/{id}/rollback-candidates` | | `{ service_id, application_id, environment_id, workload, verification, candidates, blocked_reason, observed_at }`；详见 [回滚契约](v3-rollback.md) | 服务详情 / 调查 › 提议回滚 | v1.1·已实现 |
+| POST | `/rollback-proposals` | `{ investigation_id, service_id, target_revision, expected_template_digest, reason }` + `Idempotency-Key` | `201 { proposal_id, status: pending, action_kind }`；详见 [回滚契约](v3-rollback.md) | 提案抽屉 › 提交回滚提案 | v1.1·已实现 |
 
 **服务端查询参数**。以下参数已进入真实查询、聚合或排序；维度内多值 OR、不同维度 AND，均保留当前 ACL。`sort`、`tab`、`source`、`range` 是单值参数：
 
@@ -557,7 +559,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 - `GET /changes/merge-requests?service_id=…&binding_id=…&page=1&state=all&target_branch=…`：同一显式绑定的 GitLab 项目只读合并请求元数据；须单独启用 `list_merge_requests` 工具。每页 20 条，最多第 1000 页；返回分支、状态、提交标识及上游时间，不含差异、部署或风险推断。筛选非法为 422，来源或授权变化明确失败，不替代主 `GET /changes`。
 - `GET /changes/commits/{sha}?service_id=…&binding_id=…`：只读绑定项目中完整 40/64 位十六进制 SHA 的提交元数据；须单独启用 `get_commit` 工具，`get_commit_diff` 不等于授权。只返回标题、时间和父提交标识，不返回正文、差异或作者邮箱，也不推断部署或风险。两接口的 `service_id` 均为应用 ID、NUL 和环境 ID 拼接后的 base64url；服务端按当前环境及绑定再核对。
 - `GET /services/{id}/external-targets`：按服务 ID 内的应用与环境读取显式登记的外部目标，需 `services.view` 与 `connectors.view`；每个服务环境最多登记 100 条，不返回端点或凭据。读取时不从旧绑定推断；只有运维导入命令（PA-19，见 [遥测来源统一登记](v3-telemetry-registry.md)）会把审核过的旧绑定写成 `log_stream`、`log_index`、`trace_service` 或 `metric_resource` 目标，这些类型也会出现在列表中。
-- `POST /services/{id}/external-targets`：传 `connector_id`、`target_kind`、`external_id`，当前仅接受同环境 GitLab 连接器的正整数项目 ID；需 `services.change` 与 `connectors.manage`，同一外部目标不可归属于两个服务，成功写入审计。该登记本身不授予外部写入权限。
+- `POST /services/{id}/external-targets`：传 `connector_id`、`target_kind`、`external_id`，当前接受同环境 GitLab 连接器的正整数项目 ID，以及 Kubernetes 连接器的 `workload`（目录键，见 [统一来源登记](v3-telemetry-registry.md)）；需 `services.change` 与 `connectors.manage`，同一外部目标不可归属于两个服务，成功写入审计。该登记本身不授予外部写入权限。
 - `DELETE /services/{id}/external-targets/{bindingId}`：在相同范围与权限下删除指定登记并审计；不删除外部项目。
 - `GET /postmortems/records?tab=all|draft|review|published`：按当前环境及事件、知识对象权限读取已保存复盘的事件、级别、结案时间、持续时长、状态与行动项数量；最多返回 1000 条可见记录。此接口不替代 `PostmortemSummary`，不推测根因分类、行动完成率或看板 KPI。
 - `PUT /mcp-servers/{id}/environment-binding`：用请求头选择单一环境，把现有声明为只读且已经人工审核的 MCP 登记显式绑定到该环境；要求对所属应用有 `connectors.manage`，幂等并记录变更审计。该绑定仅使登记元数据可见，不代表端点、固定参数或凭据已经通过所选环境的执行安全审查。

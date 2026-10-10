@@ -120,6 +120,9 @@ func (s *Service) investigationNodeMessage(w http.ResponseWriter, r *http.Reques
 		RunID: id, AttemptID: id, BranchID: r.PathValue("node"),
 		EnvironmentID: envs[0], ModelID: model.ID, Reasoning: in.Reasoning, Messages: snapshot,
 		Tools: tools, MaxCalls: maxCalls, MaxToolCalls: maxInvestigationToolCalls, TimeoutSeconds: int(nodeRunTimeout.Seconds()),
+		// PA-77: the stored answer is what the model wrote after its tool
+		// calls, in the request's language.
+		Language: replyLanguage(english), FinalRoundOnly: true,
 	}, collected.handle)
 	// PA-52 (and PA-46): an answer given after the evidence-tool limit closed
 	// the tools, or cut at the output limit, is kept with a note for readers.
@@ -510,4 +513,12 @@ func replyLimitNote(acceptLanguage string, notice error) string {
 		}
 	}
 	return note
+}
+
+// replyLanguage is the inference language of a request (PA-77).
+func replyLanguage(english bool) string {
+	if english {
+		return "en"
+	}
+	return "zh"
 }

@@ -132,8 +132,8 @@ func (s *Service) suggestRollback(ctx context.Context, model inference.Model, re
 	}
 	output, err := s.Runtime.Run(ctx, inference.Request{RunID: replyID, AttemptID: replyID + "-suggestion", BranchID: branchID,
 		EnvironmentID: env, ModelID: model.ID, Reasoning: reasoning, MaxCalls: 1, MaxToolCalls: 1,
-		TimeoutSeconds: suggestionTimeoutSeconds,
-		Messages:       []inference.Message{{Role: "system", Content: suggestionSystem}, {Role: "user", Content: prompt.String()}},
+		TimeoutSeconds: suggestionTimeoutSeconds, Language: replyLanguage(english),
+		Messages: []inference.Message{{Role: "system", Content: suggestionSystem}, {Role: "user", Content: prompt.String()}},
 	}, func(inference.Event) error { return nil })
 	if err != nil || len(output) > maxSuggestionOutput {
 		return suggestionOutcome{Outcome: "unavailable"}

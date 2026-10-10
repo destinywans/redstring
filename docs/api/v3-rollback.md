@@ -1,8 +1,8 @@
 # Kubernetes 回滚接口契约（PA-08）
 
-**状态**：接口契约先行，供前端出设计图。后端实现中，属第一阶段，见 [设计稿](../plans/2026-10-10-rollback-executor-and-registry-p3.md)。
+**状态**：第一阶段后端已实现（`claude/nifty-raman-d45327`，`c731e5a`），隔离库测试通过；实验和验收实例上的端到端验收待部署后执行。字段名和枚举值与契约先行版本一致；之后只补充了错误码（401、403、`investigation_changed`、428），以及重放和稳定期的说明。见 [设计稿](../plans/2026-10-10-rollback-executor-and-registry-p3.md) 第 9 节。
 
-**机器契约**：`scripts/v3-openapi-rollback.py`。路由注册之后才会并入 `internal/apicontract/openapi.json`，因为契约检查要求文档里的路由都已实现。
+**机器契约**：`scripts/v3-openapi-rollback.py`，已并入 `internal/apicontract/openapi.json`。
 
 **字段约定**：
 - 字段名和枚举值在第一阶段内保持稳定；如需变动，先通知前端。
@@ -202,7 +202,8 @@
 **`status_reason`**：失败和需要处理时非空，取值为 `drift`、`approval_invalid`、`authorization_changed`、`binding_changed`、`write_forbidden`、`write_unavailable`、`reconcile_unknown`、`rollout_timeout`、`progress_deadline_exceeded`、`verification_failed`、`verification_unavailable`、`target_changed` 之一。
 
 **其他字段**：
-- `verification.result` 取 `pending`、`passed`、`failed`、`unavailable`。`samples` 每 15 秒一条，最多 40 条。
+- `verification.result` 取 `pending`、`passed`、`failed`、`unavailable`。`samples` 每 15 秒一条，最多保留最近 40 条。
+- 验证开始（`verification.started_at`）后的前 60 秒是稳定期：采样照常记录，`ok: false` 也不导致失败，因为速率窗口里还有坏版本的流量。之后每个样本都必须 `ok`，满 60 秒 + `plan.observation_seconds` 判为通过。画图时可以用 `started_at + 60s` 标出稳定期结束。
 - `rollout` 和 `verification` 在对应阶段开始前为 `null`。
 
 **权限**：与旧执行视图相同，要求该应用或所属团队的 `proposals.view`，无权时返回 404。

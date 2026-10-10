@@ -1,25 +1,28 @@
 import { test, expect, type Browser, type Page } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { INSTANCES, LOCAL, roleAccounts, signIn } from "./support/env";
+import { INSTANCES, LOCAL, roleAccounts, signIn, type InstanceName } from "./support/env";
 import { statePath } from "./support/global-setup";
 import { monitor } from "./support/monitor";
 
 /**
- * Golden path · two-person passkey approval of a pending silence proposal (prod).
+ * Golden path · two-person passkey approval of a pending proposal (silence or rollback).
+ * GOLDEN_INSTANCE=nonprod and GOLDEN_ENV=<environment> run it on the other instance (default prod / prod).
  * GOLDEN_PROPOSAL=<id> python3 tools/acceptance/... creates it beforehand (operator, POST /silences).
  * Each approver registers a passkey through Account security with a CDP virtual authenticator,
  * then approves on the review page. Writes evidence to .local/acceptance/e2e/golden/.
  */
 const proposal = process.env.GOLDEN_PROPOSAL ?? "";
-const origin = INSTANCES.prod.origin;
+const instance = (process.env.GOLDEN_INSTANCE ?? "prod") as InstanceName;
+const envId = process.env.GOLDEN_ENV ?? (instance === "prod" ? "prod" : "test");
+const origin = INSTANCES[instance].origin;
 const OUT = resolve(LOCAL, "e2e/golden");
 mkdirSync(OUT, { recursive: true });
 test.setTimeout(180_000);
 test.skip(!proposal, "set GOLDEN_PROPOSAL to a pending proposal id");
 
 async function approverPage(browser: Browser, role: string) {
-  const context = await browser.newContext({ storageState: statePath("prod", role), viewport: { width: 1440, height: 1000 } });
+  const context = await browser.newContext({ storageState: statePath(instance, role), viewport: { width: 1440, height: 1000 } });
   await context.addInitScript(() => localStorage.setItem("aiops-v3-preferences", JSON.stringify({ locale: "zh-CN", theme: "light" })));
   const page = await context.newPage();
   const cdp = await context.newCDPSession(page);
@@ -36,7 +39,7 @@ async function approverPage(browser: Browser, role: string) {
  */
 async function registerPasskey(page: Page, label: string) {
   // Changing a passkey needs a recent sign-in (403 passkey_recent_login_required otherwise).
-  await signIn(page, "prod", roleAccounts("prod")[label.split(" ").pop() ?? ""]);
+  await signIn(page, instance, roleAccounts(instance)[label.split(" ").pop() ?? ""]);
   if (process.env.GOLDEN_UI_REGISTER) {
     await page.goto(origin + "/settings/account-security");
     await page.getByRole("button", { name: "添加" }).first().click();
@@ -46,11 +49,11 @@ async function registerPasskey(page: Page, label: string) {
     return;
   }
   await page.goto(origin + "/");
-  const status = await page.evaluate(async (label) => {
-    const env = { "Content-Type": "application/json", "X-AIOps-Environment": "prod" };
+  const status = await page.evaluate(async ({ label, envId }) => {
+    const env = { "Content-Type": "application/json", "X-AIOps-Environment": envId };
     const b64 = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(s.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
     const url = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-    const res = await fetch("/api/v1/me/passkeys/registration/options", { method: "POST", headers: { "X-AIOps-Environment": "prod", "Idempotency-Key": crypto.randomUUID() } });
+    const res = await fetch("/api/v1/me/passkeys/registration/options", { method: "POST", headers: { "X-AIOps-Environment": envId, "Idempotency-Key": crypto.randomUUID() } });
     const o = await res.json();
     if (!o.options) return `${res.status} ${JSON.stringify(o)}`;
     const pk = o.options.publicKey;
@@ -62,7 +65,7 @@ async function registerPasskey(page: Page, label: string) {
     const f = await fetch("/api/v1/me/passkeys/registration/finish", { method: "POST", headers: { ...env, "Idempotency-Key": crypto.randomUUID() },
       body: JSON.stringify({ challenge_id: o.id, credential, label }) });
     return f.status < 300 ? "ok" : `${f.status} ${await f.text()}`;
-  }, label);
+  }, { label, envId });
   expect(status).toBe("ok");
 }
 
@@ -78,7 +81,7 @@ async function approve(page: Page, expected: RegExp, shot: string) {
   return (await dialog.innerText()).trim();
 }
 
-test("silence proposal: two approvers with passkeys", async ({ browser }) => {
+test("proposal: two approvers with passkeys", async ({ browser }) => {
   const results: Record<string, unknown> = { proposal };
   for (const [role, expected] of [
     ["approver1", /还需要 1 位审批人/],

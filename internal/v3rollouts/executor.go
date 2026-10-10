@@ -513,6 +513,7 @@ func (s *Service) verify(ctx context.Context, row *ledgerRow, a v3proposals.Roll
 		}
 		sample, queryErr := s.sample(ctx, a, now)
 		if queryErr != nil {
+			log.Printf("v3 rollout verification query failed (execution=%s): %v", row.ExecutionID, queryErr)
 			return s.finish(ctx, row, a, stateNeedsAttention, "verification_unavailable", func(rw *ledgerRow) {
 				rw.Verification.Result = "unavailable"
 				rw.Verification.FinishedAt = &now
@@ -562,8 +563,10 @@ func (s *Service) sample(ctx context.Context, a v3proposals.RollbackAction, now 
 	}
 	v := a.Verification
 	// The query window is wall time: the reader rejects windows in the
-	// future, and the injectable clock only governs elapsed time.
-	wall := time.Now().UTC()
+	// future, and the injectable clock only governs elapsed time. Whole
+	// seconds: Prometheus answers with millisecond timestamps, and the reader
+	// rejects a first sample that falls before a nanosecond start.
+	wall := time.Now().UTC().Truncate(time.Second)
 	window := connectors.TimeWindow{Start: wall.Add(-60 * time.Second), End: wall, StepSeconds: 15}
 	read := func(queryID string) (*float64, error) {
 		series, err := s.Metrics.QueryForExecutor(ctx, a.ApplicationID, a.EnvironmentID, v.ConnectorID, v.ResourceID, queryID, window)

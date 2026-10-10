@@ -113,35 +113,6 @@ func TestClientsBuildCacheAndCredential(t *testing.T) {
 	}
 }
 
-func TestParseReaders(t *testing.T) {
-	if readers, err := ParseReaders(" "); err != nil || len(readers) != 0 {
-		t.Fatalf("empty: %v %v", readers, err)
-	}
-	if _, err := ParseReaders("registrations"); err != nil {
-		t.Fatalf("step 7: %v", err)
-	}
-	if _, err := ParseReaders("nonsense"); err == nil {
-		t.Fatal("unknown reader accepted")
-	}
-	if readers, err := ParseReaders("coverage"); err != nil || !readers.Unified(ReaderCoverage) || readers.Unified(ReaderLogs) {
-		t.Fatalf("coverage: %v %v", readers, err)
-	}
-	if readers, err := ParseReaders("coverage,mappings,logs,traces,ai_metrics"); err != nil || !readers.Unified(ReaderAIMetrics) ||
-		readers.Unified(ReaderMappingWrites) {
-		t.Fatalf("through step 5: %v %v", readers, err)
-	}
-	// Mapping writes need every reader of the systems they edit.
-	if _, err := ParseReaders("coverage,mappings,logs,traces,mapping_writes"); err == nil || !strings.Contains(err.Error(), "ai_metrics") {
-		t.Fatalf("mapping writes without ai_metrics: %v", err)
-	}
-	if readers, err := ParseReaders("coverage,mappings,logs,traces,ai_metrics,mapping_writes"); err != nil || !readers.Unified(ReaderMappingWrites) {
-		t.Fatalf("through step 6: %v %v", readers, err)
-	}
-	if _, err := ParseReaders("coverage,coverage"); err == nil {
-		t.Fatal("repeated reader accepted")
-	}
-}
-
 type passwordResolver string
 
 func (p passwordResolver) Resolve(context.Context, string) (string, error) { return string(p), nil }

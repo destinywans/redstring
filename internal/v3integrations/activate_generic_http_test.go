@@ -225,19 +225,12 @@ func TestGenericConnectorDraftActivationCompletesHTTPChain(t *testing.T) {
 	if !strings.Contains(settings.Body.String(), `"enabled":true`) || !strings.Contains(settings.Body.String(), `"agent_execution_available":false`) {
 		t.Fatalf("tool preference not read back: %s", settings.Body.String())
 	}
-	// The detail lists no tools until the registrations reader is switched
-	// (PA-19 P3 stage 2 step 7); then it shows the saved switches, which
+	// The detail shows the saved switches (PA-19 P3 stage 2 step 7), which
 	// still grant no Agent execution.
-	if body := request(http.MethodGet, path, "dev", session, "").Body.String(); !strings.Contains(body, `"tools":[]`) ||
-		!strings.Contains(body, `"agent_execution_available":false`) {
-		t.Fatalf("detail tools before the switch: %s", body)
-	}
-	svc.RegistryTools = true
 	if body := request(http.MethodGet, path, "dev", session, "").Body.String(); !strings.Contains(body, `"name":"query_metrics"`) ||
 		!strings.Contains(body, `"enabled":true`) || !strings.Contains(body, `"agent_execution_available":false`) {
-		t.Fatalf("detail tools after the switch: %s", body)
+		t.Fatalf("detail tools: %s", body)
 	}
-	svc.RegistryTools = false
 	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE target=$1 AND action='connector.activated'`, draft.ID).Scan(&auditCount); err != nil || auditCount != 1 {
 		t.Fatalf("activation audit count=%d err=%v", auditCount, err)
 	}

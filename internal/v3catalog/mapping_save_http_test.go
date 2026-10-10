@@ -16,6 +16,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
@@ -80,6 +81,8 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
  ('env-checkout','app-checkout','dev','Dev'),('env-payments','app-payments','dev','Dev')`,
 		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES
  ('app-checkout','dev'),('app-payments','dev')`,
+		`INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,enabled,tools) VALUES
+ ('prom','dev','prometheus','Prometheus','observe','http://127.0.0.1:19090','none','',true,'[{"name":"query_metrics","desc":"","enabled":true}]')`,
 		`INSERT INTO rbac_roles(id,name) VALUES('mapping-writer','Mapping Writer')`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('mapping-writer','environment','view','environment','dev'),
@@ -96,18 +99,17 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 	if _, err := db.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'mapping-writer')`, writer.ID); err != nil {
 		t.Fatal(err)
 	}
+	catalog, err := v3telemetry.ParseCatalog([]byte(`{"queries":[
+ {"connector_id":"prom","application_id":"app-checkout","environment_id":"dev","resource_id":"checkout-api","query_id":"request_rate","expression":"sum(rate(x[5m]))"},
+ {"connector_id":"prom","application_id":"app-payments","environment_id":"dev","resource_id":"payments-api","query_id":"request_rate","expression":"sum(rate(y[5m]))"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	New(st, policy, "dev", "test").Register(api)
-	api.ValidateBindings = func(bindings []core.Binding) error {
-		for _, binding := range bindings {
-			if binding.Kind != "prometheus" || binding.ConnectorID != "prometheus" ||
-				(binding.Resource != "job=checkout" && binding.Resource != "job=payments") {
-				return store.ErrInvalidReference
-			}
-		}
-		return nil
-	}
+	svc := New(st, policy, "dev", "test")
+	svc.Registry = &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: v3telemetry.NewApprovals(nil)}
+	svc.Register(api)
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev",
 		EnvironmentIDs: []string{"dev", "test"}}, policy, st.Session, nil); err != nil {
 		t.Fatal(err)
@@ -130,7 +132,7 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 		return request(http.MethodPut, "/service-mappings", environment, token, body)
 	}
 	binding := func(resource string) string {
-		return fmt.Sprintf(`{"system_id":"metrics","kind":"prometheus","connector_id":"prometheus","resource":%q}`, resource)
+		return fmt.Sprintf(`{"system_id":"metrics","kind":"prometheus","connector_id":"prom","resource":%q}`, resource)
 	}
 	item := func(appID, envID string, revision int64, bindings string) string {
 		return fmt.Sprintf(`{"service_id":%q,"service_environment_id":%q,"binding_revision":%d,"bindings":%s}`,
@@ -139,25 +141,37 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 	batch := func(items ...string) string {
 		return `{"environment_id":"dev","items":[` + strings.Join(items, ",") + `]}`
 	}
-	assertState := func(envID string, revision int64, bindings []core.Binding) {
+	// The token is the target revision (migration 172), 1 until the first
+	// change of the service environment's targets or stored bindings.
+	revisionOf := func(appID string) int64 {
 		t.Helper()
-		var stored []byte
-		var actualRevision int64
-		if err := db.QueryRow(ctx, `SELECT bindings,binding_revision FROM application_environments WHERE id=$1`, envID).Scan(&stored, &actualRevision); err != nil {
+		var revision int64
+		if err := db.QueryRow(ctx, `SELECT COALESCE((SELECT revision FROM v3_service_target_revisions
+ WHERE application_id=$1 AND environment_id='dev'),1)`, appID).Scan(&revision); err != nil {
 			t.Fatal(err)
 		}
-		var actual []core.Binding
-		if err := json.Unmarshal(stored, &actual); err != nil {
+		return revision
+	}
+	// assertState checks the revision and the metrics target the save wrote.
+	assertState := func(appID string, revision int64, resource string) {
+		t.Helper()
+		var actual string
+		err := db.QueryRow(ctx, `SELECT external_id FROM v3_connector_targets
+ WHERE application_id=$1 AND environment_id='dev' AND target_kind='metric_resource'`, appID).Scan(&actual)
+		if err != nil && err != pgx.ErrNoRows {
 			t.Fatal(err)
 		}
-		if actualRevision != revision || len(actual) != len(bindings) {
-			t.Fatalf("persisted mapping revision=%d bindings=%+v; want %d %+v", actualRevision, actual, revision, bindings)
+		if got := revisionOf(appID); got != revision || actual != resource {
+			t.Fatalf("%s: revision=%d metrics target=%q; want %d %q", appID, got, actual, revision, resource)
 		}
-		for i := range bindings {
-			if actual[i] != bindings[i] {
-				t.Fatalf("persisted binding %d=%+v; want %+v", i, actual[i], bindings[i])
-			}
+	}
+	storedBindings := func(envID string) string {
+		t.Helper()
+		var stored string
+		if err := db.QueryRow(ctx, `SELECT bindings::text FROM application_environments WHERE id=$1`, envID).Scan(&stored); err != nil {
+			t.Fatal(err)
 		}
+		return stored
 	}
 	auditCount := func() int {
 		t.Helper()
@@ -174,18 +188,18 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 		batch(item("app-checkout", "env-checkout", 1, `["not-a-binding"]`)),
 		`{"environment_id":"dev","Environment_ID":"test","items":[]}`,
 		`{"environment_id":"dev","environment_id":"test","items":[]}`,
-		batch(item("app-checkout", "env-checkout", 1, `[`+binding("job=checkout")+`,`+binding("job=payments")+`]`)),
+		batch(item("app-checkout", "env-checkout", 1, `[`+binding("checkout-api")+`,`+binding("payments-api")+`]`)),
 	} {
 		if w := put("dev", writerToken, body); w.Code != 422 {
 			t.Fatalf("invalid mapping save status=%d body=%s request=%s", w.Code, w.Body.String(), body)
 		}
 	}
-	assertState("env-checkout", 1, nil)
+	assertState("app-checkout", 1, "")
 	if got := auditCount(); got != 0 {
 		t.Fatalf("invalid requests wrote %d audits", got)
 	}
-	valid := batch(item("app-payments", "env-payments", 1, `[`+binding("job=payments")+`]`),
-		item("app-checkout", "env-checkout", 1, `[`+binding("job=checkout")+`]`))
+	valid := batch(item("app-payments", "env-payments", 1, `[`+binding("payments-api")+`]`),
+		item("app-checkout", "env-checkout", 1, `[`+binding("checkout-api")+`]`))
 	w := put("dev", writerToken, valid)
 	if w.Code != 200 {
 		t.Fatalf("valid mapping save status=%d body=%s", w.Code, w.Body.String())
@@ -199,10 +213,8 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 		saved.Items[1].ServiceID != "app-payments" || saved.Items[1].BindingRevision != 2 {
 		t.Fatalf("saved response is not committed identities: %+v err=%v", saved, err)
 	}
-	checkoutBinding := core.Binding{Kind: "prometheus", ConnectorID: "prometheus", Resource: "job=checkout"}
-	paymentsBinding := core.Binding{Kind: "prometheus", ConnectorID: "prometheus", Resource: "job=payments"}
-	assertState("env-checkout", 2, []core.Binding{checkoutBinding})
-	assertState("env-payments", 2, []core.Binding{paymentsBinding})
+	assertState("app-checkout", 2, "checkout-api")
+	assertState("app-payments", 2, "payments-api")
 	if got := auditCount(); got != 2 {
 		t.Fatalf("valid save audits=%d, want 2", got)
 	}
@@ -218,7 +230,7 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 	}
 	for _, row := range view.Rows {
 		if row.Save == nil || !row.Save.Editable || row.Save.BindingRevision != 2 || len(row.Save.Bindings) != 1 ||
-			row.Save.Bindings[0].SystemID != "metrics" {
+			row.Save.Bindings[0].SystemID != "metrics" || row.Save.Bindings[0].ConnectorID != "prom" {
 			t.Fatalf("GET omitted save identity: %+v", row)
 		}
 	}
@@ -246,10 +258,10 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if w := put("dev", writerToken, batch(item("app-checkout", "env-checkout", 2, `[`+binding("job=checkout")+`]`))); w.Code != 200 {
+	if w := put("dev", writerToken, batch(item("app-checkout", "env-checkout", 2, `[`+binding("checkout-api")+`]`))); w.Code != 200 {
 		t.Fatalf("same-value save status=%d body=%s", w.Code, w.Body.String())
 	}
-	assertState("env-checkout", 2, []core.Binding{checkoutBinding})
+	assertState("app-checkout", 2, "checkout-api")
 	if got := auditCount(); got != 2 {
 		t.Fatalf("same-value save created audit: %d", got)
 	}
@@ -261,7 +273,7 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 		{"wrong environment identity", "dev", batch(item("app-checkout", "env-payments", 2, `[]`)), 409},
 		{"header and body mismatch", "test", batch(item("app-checkout", "env-checkout", 2, `[]`)), 422},
 		{"GitLab bypass", "dev", batch(item("app-checkout", "env-checkout", 2,
-			`[`+binding("job=checkout")+`,{"system_id":"code","kind":"gitlab","connector_id":"gitlab-1","resource":"123"}]`)), 409},
+			`[`+binding("checkout-api")+`,{"system_id":"code","kind":"gitlab","connector_id":"gitlab-1","resource":"123"}]`)), 409},
 		{"unknown service", "dev", batch(item("app-hidden", "env-hidden", 1, `[]`)), 404},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -271,38 +283,41 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 			}
 		})
 	}
-	// A later stale item rolls back a valid earlier replacement and its audit.
+	// A later stale item rolls back a valid earlier unbinding and its audit.
 	if w := put("dev", writerToken, batch(
 		item("app-checkout", "env-checkout", 2, `[]`),
 		item("app-payments", "env-payments", 1, `[]`))); w.Code != 409 {
 		t.Fatalf("mixed stale batch status=%d body=%s", w.Code, w.Body.String())
 	}
-	assertState("env-checkout", 2, []core.Binding{checkoutBinding})
-	assertState("env-payments", 2, []core.Binding{paymentsBinding})
+	assertState("app-checkout", 2, "checkout-api")
+	assertState("app-payments", 2, "payments-api")
 	if got := auditCount(); got != 2 {
 		t.Fatalf("rejected saves created audit: %d", got)
 	}
-	// An old unsupported binding cannot disappear through a generic full-save.
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"grafana","connector_id":"grafana","resource":"dash-1"}]',
- binding_revision=binding_revision+1 WHERE id='env-payments'`); err != nil {
+	// A stored dashboard binding is read-only: a save cannot drop it. It is
+	// not checked against legacy registrations (PA-19 P4), so the snapshot
+	// stays editable.
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"grafana","connector_id":"grafana","resource":"dash-1"}]'
+ WHERE id='env-payments'`); err != nil {
 		t.Fatal(err)
 	}
 	get = request(http.MethodGet, "/service-mappings", "dev", writerToken, "")
-	if get.Code != 200 || !strings.Contains(get.Body.String(), `"unavailable_reason":"unsupported_persisted_bindings"`) {
-		t.Fatalf("unsupported binding was marked editable: %d %s", get.Code, get.Body.String())
+	if get.Code != 200 || strings.Contains(get.Body.String(), `"unavailable_reason"`) {
+		t.Fatalf("a stored dashboard binding made the mapping read-only: %d %s", get.Code, get.Body.String())
 	}
-	if w := put("dev", writerToken, batch(item("app-payments", "env-payments", 3, `[]`))); w.Code != 409 {
-		t.Fatalf("unsupported persisted mapping was dropped: %d %s", w.Code, w.Body.String())
+	if w := put("dev", writerToken, batch(item("app-payments", "env-payments", revisionOf("app-payments"), `[`+binding("payments-api")+`]`))); w.Code != 422 ||
+		!strings.Contains(w.Body.String(), `"system_not_supported"`) {
+		t.Fatalf("stored dashboard binding was dropped: %d %s", w.Code, w.Body.String())
 	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[]',binding_revision=binding_revision+1 WHERE id='env-payments'`); err != nil {
-		t.Fatal(err)
+	if stored := storedBindings("env-payments"); !strings.Contains(stored, "dash-1") {
+		t.Fatalf("stored dashboard binding changed: %s", stored)
 	}
 	// A historical binding may carry fields unknown to core.Binding. The
-	// display can still read its known fields, but a full save cannot drop the
-	// unknown field while serializing a replacement.
+	// display can still read its known fields, but a save cannot drop the
+	// unknown field while serializing the stored bindings.
 	if _, err := db.Exec(ctx, `UPDATE application_environments
- SET bindings='[{"kind":"prometheus","connector_id":"prometheus","resource":"job=payments","legacy_note":"must preserve"}]',
- binding_revision=binding_revision+1 WHERE id='env-payments'`); err != nil {
+ SET bindings='[{"kind":"grafana","connector_id":"grafana","resource":"dash-1","legacy_note":"must preserve"}]'
+ WHERE id='env-payments'`); err != nil {
 		t.Fatal(err)
 	}
 	get = request(http.MethodGet, "/service-mappings", "dev", writerToken, "")
@@ -324,21 +339,15 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 	if legacySave == nil || legacySave.Editable || legacySave.UnavailableReason != "unsupported_persisted_bindings" {
 		t.Fatalf("legacy binding exposed as editable: %+v", legacySave)
 	}
-	var legacyRawBefore, legacyRawAfter []byte
-	var legacyRevisionBefore, legacyRevisionAfter int64
-	if err := db.QueryRow(ctx, `SELECT bindings,binding_revision FROM application_environments WHERE id='env-payments'`).Scan(&legacyRawBefore, &legacyRevisionBefore); err != nil {
-		t.Fatal(err)
-	}
-	if w := put("dev", writerToken, batch(item("app-payments", "env-payments", legacyRevisionBefore, `[]`))); w.Code != 409 {
+	legacyRawBefore, legacyRevisionBefore := storedBindings("env-payments"), revisionOf("app-payments")
+	if w := put("dev", writerToken, batch(item("app-payments", "env-payments", legacyRevisionBefore, `[`+binding("payments-api")+`]`))); w.Code != 409 {
 		t.Fatalf("legacy field was dropped by save: %d %s", w.Code, w.Body.String())
 	}
-	if err := db.QueryRow(ctx, `SELECT bindings,binding_revision FROM application_environments WHERE id='env-payments'`).Scan(&legacyRawAfter, &legacyRevisionAfter); err != nil {
-		t.Fatal(err)
+	if storedBindings("env-payments") != legacyRawBefore || revisionOf("app-payments") != legacyRevisionBefore || auditCount() != 2 {
+		t.Fatalf("legacy raw JSON changed: before=%s/%d after=%s/%d", legacyRawBefore, legacyRevisionBefore,
+			storedBindings("env-payments"), revisionOf("app-payments"))
 	}
-	if string(legacyRawAfter) != string(legacyRawBefore) || legacyRevisionAfter != legacyRevisionBefore || auditCount() != 2 {
-		t.Fatalf("legacy raw JSON changed: before=%s/%d after=%s/%d", legacyRawBefore, legacyRevisionBefore, legacyRawAfter, legacyRevisionAfter)
-	}
-	// Audit failure must roll back the binding and revision in the same tx.
+	// Audit failure must roll back the target and revision in the same tx.
 	if _, err := db.Exec(ctx, `CREATE FUNCTION deny_mapping_save_audit() RETURNS trigger LANGUAGE plpgsql AS $$
  BEGIN IF NEW.action='v3.service_mapping.saved' THEN RAISE EXCEPTION 'blocked test audit'; END IF; RETURN NEW; END $$;
  CREATE TRIGGER deny_mapping_save_audit BEFORE INSERT ON management_audit FOR EACH ROW EXECUTE FUNCTION deny_mapping_save_audit()`); err != nil {
@@ -347,7 +356,7 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 	if w := put("dev", writerToken, batch(item("app-checkout", "env-checkout", 2, `[]`))); w.Code != 503 {
 		t.Fatalf("audit failure status=%d body=%s", w.Code, w.Body.String())
 	}
-	assertState("env-checkout", 2, []core.Binding{checkoutBinding})
+	assertState("app-checkout", 2, "checkout-api")
 	if got := auditCount(); got != 2 {
 		t.Fatalf("audit failure changed count: %d", got)
 	}
@@ -361,7 +370,7 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 		!strings.Contains(w.Body.String(), `"bindings":[]`) {
 		t.Fatalf("explicit clear status=%d body=%s", w.Code, w.Body.String())
 	}
-	assertState("env-checkout", 3, nil)
+	assertState("app-checkout", 3, "")
 	if got := auditCount(); got != 3 {
 		t.Fatalf("explicit clear audit count=%d", got)
 	}
@@ -382,7 +391,7 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 	response := make(chan *httptest.ResponseRecorder, 1)
 	go func() {
 		response <- put("dev", writerToken, batch(item("app-checkout", "env-checkout", 3,
-			`[`+binding("job=checkout")+`]`)))
+			`[`+binding("checkout-api")+`]`)))
 	}()
 	waitForMappingServiceLock(t, db, blockerPID)
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='mapping-writer' AND module='services' AND action='change'`); err != nil {
@@ -395,7 +404,7 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 	if w.Code != 404 {
 		t.Fatalf("revoked save status=%d body=%s", w.Code, w.Body.String())
 	}
-	assertState("env-checkout", 3, nil)
+	assertState("app-checkout", 3, "")
 	if got := auditCount(); got != 3 {
 		t.Fatalf("revoked save created audit: %d", got)
 	}
@@ -407,29 +416,32 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec(ctx, `UPDATE application_environments
- SET bindings='[{"kind":"gitlab","connector_id":"gitlab-1","resource":"123"}]',
- binding_revision=binding_revision+1 WHERE id='env-payments'`); err != nil {
+ SET bindings='[{"kind":"gitlab","connector_id":"gitlab-1","resource":"123"}]' WHERE id='env-payments'`); err != nil {
 		t.Fatal(err)
 	}
 	code := `{"system_id":"code","kind":"gitlab","connector_id":"gitlab-1","resource":"123"}`
-	if w := put("dev", writerToken, batch(item("app-payments", "env-payments", 6, `[`+code+`]`))); w.Code != 200 {
+	revision := revisionOf("app-payments")
+	if w := put("dev", writerToken, batch(item("app-payments", "env-payments", revision, `[`+binding("payments-api")+`,`+code+`]`))); w.Code != 200 {
 		t.Fatalf("persisted GitLab retention status=%d body=%s", w.Code, w.Body.String())
 	}
 	if got := auditCount(); got != 3 {
 		t.Fatalf("identical GitLab retention wrote audit: %d", got)
 	}
-	w = put("dev", writerToken, batch(item("app-payments", "env-payments", 6, `[]`)))
+	w = put("dev", writerToken, batch(item("app-payments", "env-payments", revision, `[`+binding("payments-api")+`]`)))
 	if w.Code != 200 {
 		t.Fatalf("GitLab removal status=%d body=%s", w.Code, w.Body.String())
 	}
-	assertState("env-payments", 7, nil)
+	assertState("app-payments", revision+1, "payments-api")
+	if stored := storedBindings("env-payments"); stored != "[]" {
+		t.Fatalf("GitLab removal left %s", stored)
+	}
 	if got := auditCount(); got != 4 {
 		t.Fatalf("GitLab removal audit count=%d", got)
 	}
-	if w := put("dev", writerToken, batch(item("app-payments", "env-payments", 7, `[`+code+`]`))); w.Code != 409 {
+	if w := put("dev", writerToken, batch(item("app-payments", "env-payments", revision+1, `[`+binding("payments-api")+`,`+code+`]`))); w.Code != 409 {
 		t.Fatalf("GitLab re-add bypass status=%d body=%s", w.Code, w.Body.String())
 	}
-	assertState("env-payments", 7, nil)
+	assertState("app-payments", revision+1, "payments-api")
 }
 
 func TestMappingStoredBindingShapeRejectsLossyHistoricalJSON(t *testing.T) {

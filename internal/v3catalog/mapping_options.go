@@ -206,8 +206,6 @@ func (s *Service) optionSystems(ctx context.Context, tx pgx.Tx, app, env string,
 		item := mappingOptionSystem{SystemID: system.ID, Options: []mappingOptionConnector{}}
 		reason := ""
 		switch {
-		case !s.MappingsUnified:
-			reason = "registry_not_enabled"
 		case legacyOnlySystem(system.ID):
 			reason = "system_not_supported"
 		case registrySystem(system.ID):
@@ -217,11 +215,8 @@ func (s *Service) optionSystems(ctx context.Context, tx pgx.Tx, app, env string,
 					current = append(current, target)
 				}
 			}
-			switch {
-			case len(current) > 1:
+			if len(current) > 1 {
 				reason = "ambiguous_targets"
-			case !s.MappingWritesUnified:
-				reason = "registry_cutover"
 			}
 			if len(current) == 1 {
 				id := current[0].TargetID
@@ -235,8 +230,8 @@ func (s *Service) optionSystems(ctx context.Context, tx pgx.Tx, app, env string,
 		if reason != "" {
 			item.UnavailableReason = &reason
 		}
-		// Read-only and legacy systems show their stored binding.
-		if !registrySystem(system.ID) || !s.MappingsUnified {
+		// Code and the read-only systems show their stored binding.
+		if !registrySystem(system.ID) {
 			for _, binding := range legacy {
 				if mappingKind(binding.Kind) != system.ID {
 					continue

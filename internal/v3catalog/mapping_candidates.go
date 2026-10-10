@@ -131,28 +131,26 @@ func mappingBindings(raw []byte) ([]core.Binding, bool, error) {
 	return bindings, false, nil
 }
 
-// The platform environment writer only validates its legacy connector kinds.
 // A V3 mapping may add exactly the GitLab project verified by the candidate
-// source; every other binding must still pass that unchanged runtime policy.
-// Callers must derive expected from the enrolled target, never request input.
-func (s *Service) mappingBindingSupported(bindings []core.Binding, expected core.Binding) bool {
-	if s.MappingBindingValidator == nil || expected.Kind != "gitlab" ||
-		expected.ConnectorID == "" || !validMappingProject(expected.Resource) {
+// source, as its only code binding. The other stored bindings are kept as
+// they are and only need a known system, each at most once. Since PA-19 P4
+// they are no longer checked against the legacy telemetry file and Kubernetes
+// registrations, which a V3 instance does not load (the registry answers
+// metrics, logs, traces and workload). Callers must derive expected from the
+// enrolled target, never request input.
+func mappingBindingSupported(bindings []core.Binding, expected core.Binding) bool {
+	if expected.Kind != "gitlab" || expected.ConnectorID == "" || !validMappingProject(expected.Resource) {
 		return false
 	}
-	legacy := make([]core.Binding, 0, len(bindings))
-	matched := false
+	seen := map[string]bool{}
 	for _, binding := range bindings {
-		if mappingKind(binding.Kind) == "code" {
-			if matched || binding != expected {
-				return false
-			}
-			matched = true
-			continue
+		system := mappingKind(binding.Kind)
+		if system == "" || seen[system] || (system == "code" && binding != expected) {
+			return false
 		}
-		legacy = append(legacy, binding)
+		seen[system] = true
 	}
-	return matched && s.MappingBindingValidator(legacy) == nil
+	return seen["code"]
 }
 
 func authorizeMappingService(ctx context.Context, access transactionalAccess, tx pgx.Tx, user core.User, app, env, team, action string) error {
@@ -419,7 +417,7 @@ func (s *Service) mappingDiscover(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		expected := core.Binding{Kind: "gitlab", ConnectorID: item.connectorID, Resource: item.externalID}
-		supported := s.mappingBindingSupported(append(bindings, expected), expected)
+		supported := mappingBindingSupported(append(bindings, expected), expected)
 		// A previous candidate from a removed target cannot make today's
 		// unique reviewed target ambiguous at accept time.
 		if _, err := tx.Exec(ctx, `DELETE FROM v3_service_mapping_candidates
@@ -729,7 +727,7 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 		}
 		expected := core.Binding{Kind: "gitlab", ConnectorID: candidate.connectorID, Resource: candidate.externalID}
 		bindings = append(bindings, expected)
-		if !s.mappingBindingSupported(bindings, expected) {
+		if !mappingBindingSupported(bindings, expected) {
 			httpapi.Error(w, 409, "mapping_binding_unavailable", "This mapping is not supported by the current environment")
 			return
 		}

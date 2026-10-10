@@ -30,7 +30,7 @@ func TestPageSLOAndTeamTraceViews(t *testing.T) {
 	}
 	api := httpapi.New(st, nil, true)
 	New(st, policy, nil, nil).Register(api)
-	v3traces.New(st, policy, nil).Register(api)
+	v3traces.New(st, policy).Register(api)
 	if e = api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "test", EnvironmentIDs: []string{"test"}}, policy, st.Session, func(ctx context.Context, u core.User, module, action, env string) error {
 		return policy.Authorize(ctx, u, rbac.V3Decision{Module: module, Action: action, EnvironmentID: env})
 	}); e != nil {

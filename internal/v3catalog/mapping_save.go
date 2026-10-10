@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -187,14 +186,6 @@ func mappingSaveResource(value string) bool {
 		!strings.ContainsAny(value, "\x00\r\n")
 }
 
-func saveCoreBindings(input []mappingSaveBinding) []core.Binding {
-	bindings := make([]core.Binding, 0, len(input))
-	for _, item := range input {
-		bindings = append(bindings, core.Binding{Kind: item.Kind, ConnectorID: item.ConnectorID, Resource: item.Resource})
-	}
-	return bindings
-}
-
 func saveResponseBindings(persisted []core.Binding) []mappingSaveBinding {
 	bindings := make([]mappingSaveBinding, 0, len(persisted))
 	for _, binding := range persisted {
@@ -293,112 +284,13 @@ func (s *Service) mappingSave(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if s.MappingsUnified && s.MappingWritesUnified {
-			// Step 6: registry systems are written as targets (mapping_write.go).
-			saved, ok := s.registryMappingWrite(ctx, tx, w, user, mappingCatalogRow{appID: appID, env: envs[0], envID: envID,
-				bindings: raw, revision: revision}, item)
-			if !ok {
-				return
-			}
-			committed = append(committed, saved)
-			continue
-		}
-		if envID != item.ServiceEnvironmentID || revision != item.BindingRevision {
-			httpapi.Error(w, 409, "stale_mapping", "Mapping identity or revision changed")
+		// Registry systems are written as targets (mapping_write.go).
+		saved, ok := s.registryMappingWrite(ctx, tx, w, user, mappingCatalogRow{appID: appID, env: envs[0], envID: envID,
+			bindings: raw, revision: revision}, item)
+		if !ok {
 			return
 		}
-		var before []core.Binding
-		if err := json.Unmarshal(raw, &before); err != nil {
-			httpapi.Error(w, 503, "catalog_unavailable", "Stored mapping is invalid")
-			return
-		}
-		if !s.mappingSaveProjection(mappingCatalogRow{appID: appID, envID: envID, revision: revision, bindings: raw}, before).Editable {
-			httpapi.Error(w, 409, "unsupported_mapping", "Stored bindings require repair before full save")
-			return
-		}
-		after := saveCoreBindings(*item.Bindings)
-		var serviceTargets []registryTarget
-		if s.MappingsUnified && !s.MappingWritesUnified {
-			// Registry systems are read-only until step 6; only the code
-			// binding may change (be removed).
-			targets, err := mappingRegistryTargets(ctx, tx, []string{envs[0]}, appID)
-			if err != nil {
-				httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
-				return
-			}
-			serviceTargets = targets[appID+"\x00"+envs[0]]
-			var code string
-			after, code = registrySaveCheck(before, serviceTargets, *item.Bindings)
-			switch code {
-			case "":
-			case "ambiguous_targets":
-				httpapi.Error(w, 409, code, "More than one registry target serves a system of this service")
-				return
-			case "system_not_supported":
-				httpapi.Error(w, 422, code, "Deploy and dashboard mappings are read-only")
-				return
-			default:
-				httpapi.Error(w, 422, code, "Metrics, logs, traces and workload mappings are read-only during the registry cutover")
-				return
-			}
-		}
-		respond := func(persisted []core.Binding) []mappingSaveBinding {
-			if s.MappingsUnified && !s.MappingWritesUnified {
-				return registryResponseBindings(persisted, serviceTargets)
-			}
-			return saveResponseBindings(persisted)
-		}
-		if !mappingSaveGitLabSafe(before, after) {
-			httpapi.Error(w, 409, "code_mapping_requires_accept", "GitLab projects must be accepted from a verified candidate")
-			return
-		}
-		if !s.mappingSaveBindingsSupported(after) {
-			httpapi.Error(w, 409, "mapping_binding_unavailable", "Binding is not supported by the current environment")
-			return
-		}
-		if reflect.DeepEqual(before, after) {
-			committed = append(committed, mappingSaveCommittedItem{ServiceID: appID,
-				ServiceEnvironmentID: envID, BindingRevision: revision, Bindings: respond(before)})
-			continue
-		}
-		serialized, err := json.Marshal(after)
-		if err != nil {
-			httpapi.Error(w, 503, "catalog_unavailable", "Mapping serialization failed")
-			return
-		}
-		var persistedRaw []byte
-		var nextRevision int64
-		err = tx.QueryRow(ctx, `UPDATE application_environments
- SET bindings=$1,binding_revision=binding_revision+1
- WHERE id=$2 AND application_id=$3 AND key=$4 AND binding_revision=$5
- RETURNING bindings,binding_revision`, serialized, envID, appID, envs[0], revision).Scan(&persistedRaw, &nextRevision)
-		if errors.Is(err, pgx.ErrNoRows) {
-			httpapi.Error(w, 409, "stale_mapping", "Mapping changed after selection")
-			return
-		}
-		if err != nil {
-			httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
-			return
-		}
-		var persisted []core.Binding
-		if err := json.Unmarshal(persistedRaw, &persisted); err != nil {
-			httpapi.Error(w, 503, "catalog_unavailable", "Saved mapping could not be read")
-			return
-		}
-		changes, err := json.Marshal(map[string]any{"environment": envs[0],
-			"binding_revision_before": revision, "binding_revision_after": nextRevision,
-			"bindings_before": before, "bindings_after": persisted})
-		if err != nil {
-			httpapi.Error(w, 503, "audit_unavailable", "Mapping audit unavailable")
-			return
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
- VALUES($1,$2,'v3.service_mapping.saved',$3,'success',$4)`, user.ID, appID, envID, changes); err != nil {
-			httpapi.Error(w, 503, "audit_unavailable", "Mapping audit unavailable")
-			return
-		}
-		committed = append(committed, mappingSaveCommittedItem{ServiceID: appID,
-			ServiceEnvironmentID: envID, BindingRevision: nextRevision, Bindings: respond(persisted)})
+		committed = append(committed, saved)
 	}
 	if err := lockMappingWriteSession(ctx, tx, r, user.ID); err != nil {
 		policyError(w, err)
@@ -480,17 +372,4 @@ func mappingSaveGitLabSafe(before, after []core.Binding) bool {
 		}
 	}
 	return desired == nil || (existing != nil && *existing == *desired)
-}
-
-func (s *Service) mappingSaveBindingsSupported(bindings []core.Binding) bool {
-	if s.MappingBindingValidator == nil {
-		return false
-	}
-	legacy := make([]core.Binding, 0, len(bindings))
-	for _, binding := range bindings {
-		if mappingKind(binding.Kind) != "code" {
-			legacy = append(legacy, binding)
-		}
-	}
-	return s.MappingBindingValidator(legacy) == nil
 }

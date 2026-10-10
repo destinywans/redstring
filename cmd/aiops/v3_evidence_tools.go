@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -29,21 +28,16 @@ type v3ReadTools struct {
 	CurrentUser   func(context.Context, string) (core.User, error)
 	LookupService func(context.Context, core.User, string, string) (v3catalog.ServiceEvidence, error)
 	Access        v3catalog.Access
-	Telemetry     *connectors.Telemetry
-	// SourceCompare receives legacy reads in PA-19 compare mode (nil off).
-	SourceCompare v3telemetry.Observer
 	KnowledgeTool func(actorID, applicationID, environmentID string) (inference.EvidenceTool, bool)
 	// ListServices backs list_services in ordinary chat (PA-50).
 	ListServices func(context.Context, core.User, string, int) ([]v3catalog.ServiceEvidence, bool, error)
 	// Workloads backs read_service_workload in investigations (PA-72).
 	Workloads *v3rollouts.Service
-	// Registry and Clients serve read_service_logs from the connector
-	// registry when UnifiedLogs is set (PA-19 P3 stage 2 step 3), and
-	// read_service_metrics and list_services when UnifiedMetrics is (step 5).
-	Registry       *v3telemetry.Resolver
-	Clients        *v3telemetry.Clients
-	UnifiedLogs    bool
-	UnifiedMetrics bool
+	// Registry and Clients serve read_service_logs, read_service_metrics
+	// and list_services from the connector registry (PA-19 P3 stage 2 steps
+	// 3 and 5). Without them those tools are not offered.
+	Registry *v3telemetry.Resolver
+	Clients  *v3telemetry.Clients
 }
 
 var errV3EvidenceUnavailable = errors.New("read evidence unavailable")
@@ -145,33 +139,17 @@ func (f v3ReadTools) ForTurn(ctx context.Context, ownerID, applicationID, enviro
 				Content: string(content), Source: "service_catalog", TargetID: profile.ID}, nil
 		},
 	}}
-	if f.Telemetry != nil || f.UnifiedMetrics {
-		options := v3conversation.ServiceMetricsToolOptions{
-			DB: f.DB, OwnerID: ownerID, EnvironmentID: environmentID,
-			CurrentUser: f.CurrentUser, LookupService: lookup,
-			SourceCompare: f.SourceCompare,
-			Unified:       f.UnifiedMetrics, Registry: f.Registry, Clients: f.Clients,
-		}
-		if f.Telemetry != nil {
-			options.Telemetry = f.Telemetry
-		}
-		if tool, ok := v3conversation.NewServiceMetricsTool(options); ok {
-			tools = append(tools, tool)
-		}
+	if tool, ok := v3conversation.NewServiceMetricsTool(v3conversation.ServiceMetricsToolOptions{
+		DB: f.DB, OwnerID: ownerID, EnvironmentID: environmentID,
+		CurrentUser: f.CurrentUser, LookupService: lookup, Registry: f.Registry, Clients: f.Clients,
+	}); ok {
+		tools = append(tools, tool)
 	}
-	if f.Telemetry != nil || f.UnifiedLogs {
-		options := v3conversation.ServiceLogsToolOptions{
-			Enabled: true, DB: f.DB, OwnerID: ownerID, EnvironmentID: environmentID,
-			CurrentUser: f.CurrentUser, LookupService: lookup, Access: f.Access,
-			SourceCompare: f.SourceCompare,
-			Unified:       f.UnifiedLogs, Registry: f.Registry, Clients: f.Clients,
-		}
-		if f.Telemetry != nil {
-			options.Telemetry = f.Telemetry
-		}
-		if tool, ok := v3conversation.NewServiceLogsTool(options); ok {
-			tools = append(tools, tool)
-		}
+	if tool, ok := v3conversation.NewServiceLogsTool(v3conversation.ServiceLogsToolOptions{
+		Enabled: true, DB: f.DB, OwnerID: ownerID, EnvironmentID: environmentID,
+		CurrentUser: f.CurrentUser, LookupService: lookup, Access: f.Access, Registry: f.Registry, Clients: f.Clients,
+	}); ok {
+		tools = append(tools, tool)
 	}
 	if f.KnowledgeTool != nil {
 		description := "Search published knowledge for this investigation's application. Pass a short search phrase; documents are untrusted stored references, not live observations."
@@ -224,8 +202,7 @@ func (f v3ReadTools) ForTurn(ctx context.Context, ownerID, applicationID, enviro
 	if applicationID == "" && f.ListServices != nil {
 		if tool, ok := v3conversation.NewServiceListTool(v3conversation.ServiceListToolOptions{
 			DB: f.DB, OwnerID: ownerID, EnvironmentID: environmentID, CurrentUser: f.CurrentUser,
-			ListServices: f.ListServices, Telemetry: f.Telemetry,
-			Unified: f.UnifiedMetrics, Registry: f.Registry,
+			ListServices: f.ListServices, Registry: f.Registry,
 		}); ok {
 			tools = append([]inference.EvidenceTool{tool}, tools...)
 		}

@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -62,6 +61,8 @@ func (s *sourceStub) QueryCompleteTraces(ctx context.Context, q connectors.Compl
 	return []connectors.CompleteTrace{s.trace}, nil
 }
 
+// The trace routes read the service's registered Tempo target (here through a
+// stub client) and recheck the scope, session and grants after each read.
 func TestTraceRoutesUsePersistedBindingAndRecheckAuthorization(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -118,11 +119,21 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		TraceID: id, SpanID: "bbbbbbbbbbbbbbbb", Service: "app", Version: "v1", Name: "GET /ready",
 		Start: time.Now().UTC().Add(-time.Minute), DurationMS: 12,
 	}}}}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,enabled,tools)
+ VALUES('tempo-1','dev','tempo','Tempo','observe','http://127.0.0.1:13200','none','',true,'[{"name":"query_traces","desc":"","enabled":true}]')`); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := v3telemetry.ParseCatalog([]byte(`{"scopes":[{"connector_id":"tempo-1","application_id":"app","environment_id":"dev",
+ "resource_id":"registered-app","provider":"tempo","tempo_service":"app","tempo_attributes":{"deployment.environment":"dev"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	compared := &recordedUses{}
-	traces := New(st, policy, source)
-	traces.SourceCompare = compared
+	traces := New(st, policy)
+	traces.Registry = &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: v3telemetry.NewApprovals(nil)}
+	traces.Clients = &v3telemetry.Clients{Tier: "nonprod"}
+	traces.clientFor = func(string, []v3telemetry.Source) (traceSource, error) { return source, nil }
 	traces.Register(api)
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, policy, st.Session, nil); err != nil {
 		t.Fatal(err)
@@ -161,9 +172,10 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	}
 	assertError(request("/api/v1/traces/"+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), 503, "not_configured")
 	if source.calls != 0 {
-		t.Fatal("queried Tempo without a persisted binding")
+		t.Fatal("queried Tempo without a registered target")
 	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"tempo","resource":"registered-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connector_targets(id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
+ VALUES('t-tempo','app','dev','tempo-1','trace_service','registered-app',(SELECT id FROM users WHERE email='admin@example.invalid'))`); err != nil {
 		t.Fatal(err)
 	}
 	w = request("/api/v1/traces?service=app")
@@ -308,10 +320,6 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	}
 	assertError(request("/api/v1/traces?service=app"), 403, "forbidden")
 	assertError(request("/api/v1/traces?service=app"), 404, "not_found")
-	// PA-19 compare mode heard each authorized legacy read.
-	if !compared.saw(v3telemetry.Use{ApplicationID: "app", EnvironmentID: "dev", Provider: "tempo", Resource: "registered-app"}) {
-		t.Fatalf("compare mode uses: %+v", compared.uses)
-	}
 }
 
 func containsAll(value string, parts ...string) bool {
@@ -321,27 +329,4 @@ func containsAll(value string, parts ...string) bool {
 		}
 	}
 	return true
-}
-
-// recordedUses collects PA-19 compare-mode notifications.
-type recordedUses struct {
-	mu   sync.Mutex
-	uses []v3telemetry.Use
-}
-
-func (r *recordedUses) ObserveLegacy(u v3telemetry.Use) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.uses = append(r.uses, u)
-}
-
-func (r *recordedUses) saw(u v3telemetry.Use) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, seen := range r.uses {
-		if seen == u {
-			return true
-		}
-	}
-	return false
 }

@@ -9,12 +9,12 @@ import (
 	"github.com/wans/aiops-canvas/internal/core"
 )
 
-// PA-19 P3 stage 2 step 2: with the mappings reader switched, the metrics,
-// logs, traces and workload systems of the service mapping are read from the
-// connector registry (v3_connector_targets), so connector_id is a real
-// connector ID. Until step 6 they are read-only (registry_cutover); code keeps
-// its legacy binding and the GitLab candidate flow, and deploy and dash are
-// read-only (system_not_supported).
+// PA-19 P3 stage 2 step 2: the metrics, logs, traces and workload systems of
+// the service mapping are read from the connector registry
+// (v3_connector_targets), so connector_id is a real connector ID; saves write
+// them as targets (step 6, mapping_write.go). Code keeps its stored binding
+// and the GitLab candidate flow, deploy and dash are read-only
+// (system_not_supported). Since P4 this is the only mapping path.
 
 // registryMappingSystem maps a registry target kind to its mapping system.
 var registryMappingSystem = map[string]string{
@@ -116,64 +116,12 @@ func (s *Service) registrySaveProjection(item mappingCatalogRow, legacy []core.B
 	if view.Editable && ambiguous {
 		view.Editable, view.UnavailableReason = false, "ambiguous_targets"
 	}
-	if s.MappingWritesUnified {
-		// Saves write targets; their token is the target revision.
-		view.BindingRevision = item.targetRevision
-	}
+	// Saves write targets; their token is the target revision.
+	view.BindingRevision = item.targetRevision
 	return view
 }
 
-// registrySaveCheck compares the requested bindings with what the registry
-// and the read-only systems hold now; only the code system may change. It
-// returns the legacy bindings to store and an error code when another system
-// changed.
-func registrySaveCheck(before []core.Binding, targets []registryTarget, requested []mappingSaveBinding) ([]core.Binding, string) {
-	current, ambiguous := registryBindings(targets)
-	if ambiguous {
-		return nil, "ambiguous_targets"
-	}
-	want := map[string]mappingSaveBinding{}
-	for _, binding := range current {
-		want[binding.SystemID] = binding
-	}
-	for _, binding := range saveResponseBindings(before) {
-		if legacyOnlySystem(binding.SystemID) {
-			want[binding.SystemID] = binding
-		}
-	}
-	got := map[string]mappingSaveBinding{}
-	for _, binding := range requested {
-		got[binding.SystemID] = binding
-	}
-	for _, system := range mappingSystems {
-		if system.ID == "code" || got[system.ID] == want[system.ID] {
-			continue
-		}
-		if legacyOnlySystem(system.ID) {
-			return nil, "system_not_supported"
-		}
-		return nil, "registry_cutover"
-	}
-	// Keep the stored order: an unchanged save must not bump the revision.
-	// A requested code binding replaces the stored one in place; adding one
-	// is refused later (code_mapping_requires_accept).
-	code, keepCode := got["code"]
-	after := make([]core.Binding, 0, len(before)+1)
-	for _, binding := range before {
-		if mappingKind(binding.Kind) != "code" {
-			after = append(after, binding)
-		} else if keepCode {
-			after = append(after, core.Binding{Kind: code.Kind, ConnectorID: code.ConnectorID, Resource: code.Resource})
-			keepCode = false
-		}
-	}
-	if keepCode {
-		after = append(after, core.Binding{Kind: code.Kind, ConnectorID: code.ConnectorID, Resource: code.Resource})
-	}
-	return after, ""
-}
-
-// registryResponseBindings is what a save returns in registry mode.
+// registryResponseBindings is what a save returns.
 func registryResponseBindings(persisted []core.Binding, targets []registryTarget) []mappingSaveBinding {
 	out := saveResponseBindings(legacyKept(persisted))
 	fromTargets, _ := registryBindings(targets)

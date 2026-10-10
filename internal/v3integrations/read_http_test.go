@@ -170,7 +170,10 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 	if err := json.Unmarshal(detail.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Auth.Brand != "" || got.Auth.Text != "无需认证" || got.Checked != "尚未检查" || got.Tools == nil || len(got.Tools) != 0 || got.Tags == nil || len(got.Tags) != 0 || got.Queries == nil || len(got.Queries) != 0 {
+	// The saved tool switches are shown (PA-19 P3 stage 2 step 7); they grant
+	// no Agent execution, so no capability tag is derived from them.
+	if got.Auth.Brand != "" || got.Auth.Text != "无需认证" || got.Checked != "尚未检查" || len(got.Tools) != 1 || got.Tools[0].Name != "query_metrics" ||
+		got.Tags == nil || len(got.Tags) != 0 || got.Queries == nil || len(got.Queries) != 0 {
 		t.Fatalf("unexpected detail: %s", detail.Body.String())
 	}
 	for _, tc := range []struct {
@@ -194,11 +197,14 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 			Tags    []any    `json:"tags"`
 			Queries []string `json:"queries"`
 			Tools   []tool   `json:"tools"`
+			Agent   *bool    `json:"agent_execution_available"`
 		}
 		if err := json.Unmarshal(w.Body.Bytes(), &item); err != nil {
 			t.Fatal(err)
 		}
-		if item.Status != "unverified" || item.Meta != tc.meta || item.Auth.Brand != tc.brand || item.Auth.Text != tc.text || item.Checked != tc.checked || item.Tags == nil || len(item.Tags) != 0 || item.Queries == nil || len(item.Queries) != 0 || item.Tools == nil || len(item.Tools) != 0 {
+		// Saved tool switches are listed but grant nothing: no tag, query or
+		// Agent execution.
+		if item.Status != "unverified" || item.Meta != tc.meta || item.Auth.Brand != tc.brand || item.Auth.Text != tc.text || item.Checked != tc.checked || item.Tags == nil || len(item.Tags) != 0 || item.Queries == nil || len(item.Queries) != 0 || item.Tools == nil || item.Agent == nil || *item.Agent {
 			t.Fatalf("unverified connector %s advertised capability: %s", tc.id, w.Body.String())
 		}
 		if strings.Contains(w.Body.String(), "vault://") {

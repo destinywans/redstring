@@ -4,7 +4,6 @@ package v3coverage
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -26,12 +25,12 @@ type Access interface {
 type Service struct {
 	DB     *pgxpool.Pool
 	Access Access
-	// Registry, with Unified, makes the metrics, logs and traces cells
-	// answer from the connector registry (PA-19 P3 stage 2 step 1, PA-67):
-	// ready, registered but not ready (with the reasons), ambiguous or not
-	// registered. Legacy application bindings no longer count then.
+	// Registry answers the metrics, logs and traces cells from the
+	// connector registry (PA-19 P3 stage 2 step 1, PA-67): ready, registered
+	// but not ready (with the reasons), ambiguous or not registered. Legacy
+	// application bindings do not count (P4). Without it those cells stay
+	// unknown.
 	Registry *v3telemetry.Resolver
-	Unified  bool
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
@@ -114,7 +113,6 @@ var columns = textFor("").columns()
 
 type profile struct {
 	AppID, Key, EnvironmentID, EnvironmentRowID, TeamID, Tier, Owner string
-	Bindings                                                         []byte
 }
 
 func (s *Service) coverage(w http.ResponseWriter, r *http.Request) {
@@ -201,7 +199,7 @@ var errLimit = errors.New("coverage candidate limit")
 
 func (s *Service) loadProfiles(ctx context.Context, environments []string, app string, cursor profile) ([]profile, error) {
 	rows, err := s.DB.Query(ctx, `SELECT a.id,a.key,ve.environment_id,e.id,COALESCE(a.owner_team_id,''),
- COALESCE(ep.tier,''),COALESCE(NULLIF(ep.owner_label,''),u.name,''),e.bindings
+ COALESCE(ep.tier,''),COALESCE(NULLIF(ep.owner_label,''),u.name,'')
  FROM applications a
  JOIN v3_application_environments ve ON ve.application_id=a.id
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
@@ -220,7 +218,7 @@ func (s *Service) loadProfiles(ctx context.Context, environments []string, app s
 	for rows.Next() {
 		var p profile
 		if err := rows.Scan(&p.AppID, &p.Key, &p.EnvironmentID, &p.EnvironmentRowID,
-			&p.TeamID, &p.Tier, &p.Owner, &p.Bindings); err != nil {
+			&p.TeamID, &p.Tier, &p.Owner); err != nil {
 			return nil, err
 		}
 		items = append(items, p)
@@ -280,27 +278,11 @@ func (s *Service) project(ctx context.Context, user core.User, p profile, t text
 	if err != nil {
 		return row, nil, err
 	}
-	if canConnect && s.Unified && s.Registry != nil {
+	if canConnect && s.Registry != nil {
 		if err := s.registryCells(ctx, p, t, &row, &fixes); err != nil {
 			return row, nil, err
 		}
-	} else if canConnect {
-		bindings, err := s.connectorBindings(ctx, p)
-		if err != nil {
-			return row, nil, err
-		}
-		for _, id := range []string{"metrics", "logs", "traces", "changes"} {
-			if brand := bindings[id]; brand != "" {
-				row.Cells[id] = configured(brand, t.pick("来源已登记，实时数据覆盖未验证", "Source registered; live data coverage not verified"))
-			} else {
-				row.Cells[id] = absent(t.pick("未登记精确来源", "No exact source registered"))
-				if len(fixes) == 0 {
-					fixes = append(fixes, fix{Text: p.Key + " · " + p.EnvironmentID + t.pick("：配置"+t.label(id)+"来源", ": configure a "+strings.ToLower(t.label(id))+" source"),
-						Impact: t.pick("影响未量化", "Impact not quantified"), Action: t.pick("查看连接器", "View connectors"), Href: "/integrations"})
-				}
-			}
-		}
-	} else {
+	} else if !canConnect {
 		for _, id := range []string{"metrics", "logs", "traces", "changes"} {
 			row.Cells[id] = unknown(t.pick("无权查看连接器配置", "No permission to view connector configuration"))
 		}
@@ -386,64 +368,6 @@ func (s *Service) registryCells(ctx context.Context, p profile, t text, row *cov
 		addFix("changes")
 	}
 	return nil
-}
-
-// Only a persisted V3 connector in the same environment can make a legacy
-// application binding an identified configuration fact. No probe status is
-// interpreted as live coverage or successful data delivery.
-func (s *Service) connectorBindings(ctx context.Context, p profile) (map[string]string, error) {
-	var bindings []core.Binding
-	if err := json.Unmarshal(p.Bindings, &bindings); err != nil {
-		return nil, err
-	}
-	ids := make([]string, 0, len(bindings))
-	for _, b := range bindings {
-		if b.ConnectorID != "" && strings.TrimSpace(b.Resource) != "" {
-			ids = append(ids, b.ConnectorID)
-		}
-	}
-	known := map[string]string{}
-	if len(ids) > 0 {
-		rows, err := s.DB.Query(ctx, `SELECT id,provider FROM v3_connectors WHERE environment_id=$1 AND id=ANY($2::text[])`,
-			p.EnvironmentID, ids)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			var id, provider string
-			if err = rows.Scan(&id, &provider); err != nil {
-				break
-			}
-			known[id] = strings.ToLower(provider)
-		}
-		if err == nil {
-			err = rows.Err()
-		}
-		rows.Close()
-		if err != nil {
-			return nil, err
-		}
-	}
-	result := map[string]string{}
-	for _, b := range bindings {
-		provider, ok := known[b.ConnectorID]
-		if !ok || provider != strings.ToLower(b.Kind) || strings.TrimSpace(b.Resource) == "" {
-			continue
-		}
-		if id := connectorColumn(provider); id != "" {
-			result[id] = provider
-		}
-	}
-	// Target registration is stronger than the historical application binding
-	// for code/deployment sources, but still only proves configuration.
-	targets, err := s.targetColumns(ctx, p)
-	if err != nil {
-		return nil, err
-	}
-	for id, provider := range targets {
-		result[id] = provider
-	}
-	return result, nil
 }
 
 // targetColumns maps the providers of the service's registered targets to

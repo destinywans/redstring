@@ -20,10 +20,10 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
-// PA-19 P3 stage 2 step 2: with the mappings reader switched, metrics, logs,
-// traces and workload come from registry targets (real connector IDs) and
-// are read-only; code keeps its legacy binding; deploy and dash are
-// read-only; the options route lists what the editor may offer.
+// PA-19 P3 stage 2 step 2: metrics, logs, traces and workload come from
+// registry targets (real connector IDs); code keeps its legacy binding;
+// deploy and dash are read-only; the options route lists what the editor may
+// offer. Writes of the registry systems: mapping_write_http_test.go.
 func TestServiceMappingFromTheRegistry(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -109,7 +109,6 @@ func TestServiceMappingFromTheRegistry(t *testing.T) {
 	}
 	policy := &rbac.V3Policy{Store: st}
 	svc := New(st, policy, "dev")
-	svc.MappingBindingValidator = func([]core.Binding) error { return nil }
 	svc.Registry = &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: v3telemetry.NewApprovals(nil)}
 	api := httpapi.New(st, nil, true)
 	svc.Register(api)
@@ -175,15 +174,6 @@ func TestServiceMappingFromTheRegistry(t *testing.T) {
 		return *s.UnavailableReason
 	}
 
-	// Before the switch: legacy display, and the options say so.
-	if before := read(); before.Rows[0].Cells["metrics"].Value != "checkout-legacy" {
-		t.Fatalf("legacy metrics: %+v", before.Rows[0].Cells)
-	}
-	if o := options(); reason(o["metrics"]) != "registry_not_enabled" || o["metrics"].Editable {
-		t.Fatalf("options before the switch: %+v", o["metrics"])
-	}
-
-	svc.MappingsUnified = true
 	page := read()
 	cells := page.Rows[0].Cells
 	if cells["metrics"].Value != "checkout-api" || cells["metrics"].Brand != "prometheus" ||
@@ -197,7 +187,11 @@ func TestServiceMappingFromTheRegistry(t *testing.T) {
 	for _, b := range save.Bindings {
 		connectors[b.SystemID] = b.ConnectorID
 	}
-	if save == nil || !save.Editable || save.BindingRevision != 3 || connectors["metrics"] != "prom" || connectors["logs"] != "loki-1" ||
+	var targetRevision int64
+	if err := db.QueryRow(ctx, `SELECT revision FROM v3_service_target_revisions WHERE application_id='app' AND environment_id='dev'`).Scan(&targetRevision); err != nil {
+		t.Fatal(err)
+	}
+	if save == nil || !save.Editable || save.BindingRevision != targetRevision || connectors["metrics"] != "prom" || connectors["logs"] != "loki-1" ||
 		connectors["workload"] != "k8s" || connectors["code"] != "gitlab-1" || connectors["deploy"] != "argo" {
 		t.Fatalf("save snapshot: %+v", save)
 	}
@@ -227,10 +221,10 @@ func TestServiceMappingFromTheRegistry(t *testing.T) {
 			t.Fatalf("status %d body %s, want %d %s", w.Code, w.Body.String(), status, code)
 		}
 	}
-	expectCode(put(replace("metrics", "checkout-other")), 422, "registry_cutover")
-	expectCode(put(replace("logs", "")), 422, "registry_cutover")
+	revisionField := fmt.Sprintf(`"binding_revision":%d`, targetRevision)
+	expectCode(put(replace("metrics", "checkout-other")), 422, "resource_not_in_catalog")
 	expectCode(put(replace("deploy", "other-app")), 422, "system_not_supported")
-	if w := put(save.Bindings); w.Code != 200 || !strings.Contains(w.Body.String(), `"binding_revision":3`) {
+	if w := put(save.Bindings); w.Code != 200 || !strings.Contains(w.Body.String(), revisionField) {
 		t.Fatalf("unchanged save: %d %s", w.Code, w.Body.String())
 	}
 	// The save snapshot sent back exactly as GET returned it is accepted;
@@ -239,16 +233,16 @@ func TestServiceMappingFromTheRegistry(t *testing.T) {
 	if !strings.Contains(string(snapshot), `"editable":true`) {
 		t.Fatalf("snapshot shape: %s", snapshot)
 	}
-	if w := call("PUT", "/service-mappings", string(snapshot)); w.Code != 200 || !strings.Contains(w.Body.String(), `"binding_revision":3`) {
+	if w := call("PUT", "/service-mappings", string(snapshot)); w.Code != 200 || !strings.Contains(w.Body.String(), revisionField) {
 		t.Fatalf("snapshot sent back: %d %s", w.Code, w.Body.String())
 	}
 	if w := call("PUT", "/service-mappings", strings.Replace(string(snapshot), `"editable":true`, `"editable":"yes"`, 1)); w.Code != 422 {
 		t.Fatalf("editable must stay a boolean: %d", w.Code)
 	}
-	// Removing the code binding is the one write; the legacy telemetry
-	// bindings stay for the readers not switched yet.
+	// Removing the code binding changes the stored bindings; the legacy
+	// telemetry bindings stay as they are.
 	w := put(replace("code", ""))
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `"binding_revision":4`) || !strings.Contains(w.Body.String(), `"connector_id":"prom"`) {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), fmt.Sprintf(`"binding_revision":%d`, targetRevision+1)) || !strings.Contains(w.Body.String(), `"connector_id":"prom"`) {
 		t.Fatalf("remove code: %d %s", w.Code, w.Body.String())
 	}
 	var stored string
@@ -261,7 +255,7 @@ func TestServiceMappingFromTheRegistry(t *testing.T) {
 	// resources; code lists the service's GitLab projects.
 	o := options()
 	metrics, logs, workload, code, deploy, dash := o["metrics"], o["logs"], o["workload"], o["code"], o["deploy"], o["dash"]
-	if metrics.Editable || reason(metrics) != "registry_cutover" || metrics.Current == nil || *metrics.Current.TargetID != "t-metrics" ||
+	if !metrics.Editable || reason(metrics) != "" || metrics.Current == nil || *metrics.Current.TargetID != "t-metrics" ||
 		metrics.Current.ConnectorID != "prom" || metrics.Current.ResourceID != "checkout-api" || len(metrics.Options) != 1 ||
 		!metrics.Options[0].Ready || fmt.Sprint(metrics.Options[0].Resources) != "[checkout-api]" {
 		t.Fatalf("metrics options: %+v", metrics)

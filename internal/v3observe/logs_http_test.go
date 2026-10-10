@@ -7,20 +7,21 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
+// The log page reads the registry targets of the service (PA-19 P3 stage 2
+// step 3; the only path since P4) and proves counts and patterns only when
+// the source does.
 func TestLogsRegisteredRouteUsesScopedElasticsearchAndRealCounts(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -189,20 +190,20 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	defer upstream.Close()
 	loki := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		lokiCalls.Add(1)
-		query := r.URL.Query().Get("query")
+		query := r.FormValue("query")
 		if !strings.Contains(query, `{application="checkout",environment="dev"}`) ||
 			!strings.Contains(query, `|= "checkout"`) || !strings.Contains(query, "level") {
 			t.Errorf("Loki query escaped registered scope or filters: %s", query)
 		}
 		switch r.URL.Path {
 		case "/loki/api/v1/query_range":
-			if r.URL.Query().Get("limit") != "100" || r.URL.Query().Get("direction") != "backward" ||
-				r.URL.Query().Get("start") == "" || r.URL.Query().Get("end") == "" {
+			if r.FormValue("limit") != "100" || r.FormValue("direction") != "backward" ||
+				r.FormValue("start") == "" || r.FormValue("end") == "" {
 				t.Errorf("unbounded Loki sample: %s", r.URL)
 			}
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[]}}`))
 		case "/loki/api/v1/query":
-			if r.URL.Query().Get("time") == "" || !strings.Contains(query, "count_over_time(") {
+			if r.FormValue("time") == "" || !strings.Contains(query, "count_over_time(") {
 				t.Errorf("unbounded Loki aggregation: %s", r.URL)
 			}
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
@@ -212,30 +213,49 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		}
 	}))
 	defer loki.Close()
-	telemetry, err := connectors.NewTelemetry(connectors.TelemetryConfig{
-		Elasticsearch: connectors.TelemetryEndpoint{URL: upstream.URL, AllowHTTP: true},
-		Loki:          connectors.TelemetryEndpoint{URL: loki.URL, AllowHTTP: true},
-		Applications: map[string]connectors.ApplicationTelemetry{
-			"registered-app": {
-				ElasticsearchIndex: "app-logs", ElasticsearchPatternField: "message_template.keyword", ElasticsearchFilters: map[string]string{"cluster": "lab"},
-			},
-			"same-app-different-source": {
-				LokiLabels:       map[string]string{"application": "checkout", "environment": "dev"},
-				LokiPatternField: "message_template", LokiCompleteLookbackSeconds: 7200,
-			},
-			"loki-without-lookback": {
-				LokiLabels: map[string]string{"application": "checkout", "environment": "dev"},
-			},
-		},
-	})
+	var adminID string
+	if err := db.QueryRow(ctx, `SELECT id FROM users WHERE email='admin@example.invalid'`).Scan(&adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,enabled,tools) VALUES
+ ('es-1','dev','elasticsearch','Elasticsearch','observe',$1,'none','',true,'[{"name":"search_logs","desc":"","enabled":true}]'),
+ ('loki-1','dev','loki','Loki','observe',$2,'none','',true,'[{"name":"search_logs","desc":"","enabled":true}]')`, upstream.URL, loki.URL); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := v3telemetry.ParseCatalog([]byte(`{"scopes":[
+ {"connector_id":"es-1","application_id":"app","environment_id":"dev","resource_id":"registered-app","provider":"elasticsearch",
+  "elasticsearch_index":"app-logs","elasticsearch_pattern_field":"message_template.keyword","elasticsearch_filters":{"cluster":"lab"}},
+ {"connector_id":"loki-1","application_id":"app","environment_id":"dev","resource_id":"same-app-different-source","provider":"loki",
+  "loki_labels":{"application":"checkout","environment":"dev"},"loki_pattern_field":"message_template","loki_complete_lookback_seconds":7200},
+ {"connector_id":"loki-1","application_id":"app","environment_id":"dev","resource_id":"loki-without-lookback","provider":"loki",
+  "loki_labels":{"application":"checkout","environment":"dev"}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
+	// bind replaces the service's log targets: each is "connector/external ID".
+	bind := func(targets ...string) {
+		t.Helper()
+		if _, err := db.Exec(ctx, `DELETE FROM v3_connector_targets WHERE application_id='app'`); err != nil {
+			t.Fatal(err)
+		}
+		for _, target := range targets {
+			connector, external, _ := strings.Cut(target, "/")
+			kind := "log_index"
+			if connector == "loki-1" {
+				kind = "log_stream"
+			}
+			if _, err := db.Exec(ctx, `INSERT INTO v3_connector_targets(id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
+ VALUES($1,'app','dev',$2,$3,$4,$5)`, "t-"+connector, connector, kind, external, adminID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	const es, lokiTarget, lokiWithoutLookback = "es-1/registered-app", "loki-1/same-app-different-source", "loki-1/loki-without-lookback"
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	compared := &recordedUses{}
-	observe := New(st, policy, telemetry)
-	observe.SourceCompare = compared
+	observe := New(st, policy)
+	observe.Registry = &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: v3telemetry.NewApprovals(nil)}
+	observe.Clients = &v3telemetry.Clients{Tier: "nonprod"}
 	observe.Register(api)
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{
 		Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"},
@@ -284,11 +304,9 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		t.Fatalf("unbound log scope must be explicitly not configured, not empty: %+v", unbound)
 	}
 	if providerCalls.Load() != 0 {
-		t.Fatal("provider queried without persisted binding")
+		t.Fatal("provider queried without a registered target")
 	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
-		t.Fatal(err)
-	}
+	bind(es)
 	w := request("?service=app&levels=INFO&q=checkout")
 	if w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status=%d headers=%v body=%s", w.Code, w.Header(), w.Body.String())
@@ -354,26 +372,25 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	case <-time.After(5 * time.Second):
 		t.Fatal("Elasticsearch query did not start")
 	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"replacement-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
+	if _, err := db.Exec(ctx, `UPDATE v3_connector_targets SET external_id='replacement-app' WHERE id='t-es-1'`); err != nil {
 		t.Fatal(err)
 	}
 	close(releaseBindingQuery)
 	checkError(<-changedResult, 409, "log_scope_changed")
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
-		t.Fatal(err)
-	}
+	bind(es)
 	before := providerCalls.Load()
 	w = request("?service=app&levels=")
 	if w.Code != 200 || providerCalls.Load() != before || !strings.Contains(w.Body.String(), `"total":"0"`) {
 		t.Fatalf("empty explicit level selection queried provider: %d %s", w.Code, w.Body.String())
 	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"},{"kind":"loki","resource":"same-app-different-source"}]'::jsonb WHERE id='app-dev'`); err != nil {
-		t.Fatal(err)
-	}
+	// Two log targets are ambiguous whichever provider is selected.
+	bind(es, lokiTarget)
 	checkError(request("?service=app&levels=INFO"), 409, "ambiguous_binding")
+	checkError(request("?service=app&levels=INFO&source=elasticsearch"), 409, "ambiguous_binding")
 	if providerCalls.Load() != before {
 		t.Fatal("ambiguous log providers must not be queried")
 	}
+	bind(es)
 	w = request("?service=app&levels=INFO&q=checkout&source=elasticsearch&range=1h")
 	if w.Code != 200 || providerCalls.Load() != before+1 {
 		t.Fatalf("explicit persisted Elasticsearch source failed: status=%d calls=%d body=%s", w.Code, providerCalls.Load(), w.Body.String())
@@ -387,15 +404,14 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		t.Fatal("unsupported provider window should not fall back or query")
 	}
 	checkError(request("?service=app&source=loki&provider=elasticsearch"), 422, "conflicting_source")
+	bind(lokiTarget)
 	before = providerCalls.Load()
 	w = request("?service=app&levels=INFO&q=checkout&provider=loki")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"total":"0"`) ||
 		!strings.Contains(w.Body.String(), `"patterns":[]`) || lokiCalls.Load() == 0 {
 		t.Fatalf("configured Loki exact zero failed: status=%d calls=%d body=%s", w.Code, lokiCalls.Load(), w.Body.String())
 	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"loki","resource":"loki-without-lookback"}]'::jsonb WHERE id='app-dev'`); err != nil {
-		t.Fatal(err)
-	}
+	bind(lokiWithoutLookback)
 	countQueries := lokiCalls.Load()
 	unregistered := decodePartial(request("?service=app&levels=INFO,ERROR&q=checkout&provider=loki"))
 	if unregistered.Items == nil || len(unregistered.Items) != 0 || unregistered.Total != nil || unregistered.Errors != nil ||
@@ -406,17 +422,13 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	if lokiCalls.Load() != countQueries+2 {
 		t.Fatalf("unregistered Loki lookback must not issue count queries: %d", lokiCalls.Load()-countQueries)
 	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"},{"kind":"loki","resource":"same-app-different-source"}]'::jsonb WHERE id='app-dev'`); err != nil {
-		t.Fatal(err)
-	}
+	bind(es, lokiTarget)
 	checkError(request("?service=app&levels=INFO&provider=unknown"), 422, "invalid_provider")
 	checkError(request("?service=app&levels=INFO&provider=loki&provider=elasticsearch"), 422, "invalid_provider")
 	if providerCalls.Load() != before {
 		t.Fatal("unconfigured or invalid source queried Elasticsearch")
 	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"}]'::jsonb WHERE id='app-dev'`); err != nil {
-		t.Fatal(err)
-	}
+	bind(es)
 	blockRevocation.Store(true)
 	revokedResult := make(chan *httptest.ResponseRecorder, 1)
 	go func() { revokedResult <- request("?service=app&levels=INFO&q=checkout") }()
@@ -435,39 +447,10 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	if providerCalls.Load() != before {
 		t.Fatal("provider queried after logs grant was revoked")
 	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"registered-app"},{"kind":"loki","resource":"same-app-different-source"}]'::jsonb WHERE id='app-dev'`); err != nil {
-		t.Fatal(err)
-	}
+	bind(es, lokiTarget)
 	lokiBefore := lokiCalls.Load()
 	checkError(request("?service=app&levels=INFO&provider=loki"), 403, "forbidden")
 	if lokiCalls.Load() != lokiBefore {
 		t.Fatal("Loki queried after logs grant was revoked")
 	}
-	// PA-19 compare mode heard each authorized legacy read.
-	if !compared.saw(v3telemetry.Use{ApplicationID: "app", EnvironmentID: "dev", Provider: "elasticsearch", Resource: "registered-app"}) {
-		t.Fatalf("compare mode uses: %+v", compared.uses)
-	}
-}
-
-// recordedUses collects PA-19 compare-mode notifications.
-type recordedUses struct {
-	mu   sync.Mutex
-	uses []v3telemetry.Use
-}
-
-func (r *recordedUses) ObserveLegacy(u v3telemetry.Use) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.uses = append(r.uses, u)
-}
-
-func (r *recordedUses) saw(u v3telemetry.Use) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, seen := range r.uses {
-		if seen == u {
-			return true
-		}
-	}
-	return false
 }

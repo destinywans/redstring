@@ -10,9 +10,8 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
-// PA-19 P3 stage 2 step 4: with the traces reader switched, the trace list
-// and detail read registered trace_service targets instead of the legacy
-// tempo bindings. The targets of one connector are read together with that
+// PA-19 P3 stage 2 step 4: the trace list and detail read registered
+// trace_service targets (the legacy tempo bindings are not read since P4). The targets of one connector are read together with that
 // connector's client, so a trace is still checked against every authorized
 // registration of its Tempo at once; several connectors are read one after
 // another under one search budget, so grouping never raises a limit.
@@ -30,7 +29,7 @@ func (e notReadyError) Error() string {
 }
 
 // registryBatch lists the trace targets of the given environments (and
-// service), keyed like the legacy batch.
+// service) after cursor.
 func (s *Service) registryBatch(ctx context.Context, environments []string, service string, cursor target, hasCursor bool) ([]target, error) {
 	rows, err := s.Store.DB.Query(ctx, `SELECT a.id,ve.environment_id,COALESCE(a.owner_team_id,''),c.provider,t.external_id,t.connector_id,t.id
  FROM applications a JOIN v3_application_environments ve ON ve.application_id=a.id
@@ -58,11 +57,28 @@ func (s *Service) registryBatch(ctx context.Context, environments []string, serv
 	return batch, rows.Err()
 }
 
+// traceSource reads the traces of one connector's targets; the connector's
+// client (*connectors.Telemetry) is one.
+type traceSource interface {
+	QueryCompleteTraces(context.Context, connectors.CompleteTraceQuery) ([]connectors.CompleteTrace, error)
+	// QueryObservedTraces serves the list without requiring a deployment
+	// attestation of search completeness; it reports whether one exists.
+	QueryObservedTraces(context.Context, connectors.CompleteTraceQuery) (connectors.TraceObservation, error)
+}
+
 // traceGroup is the targets of one connector and that connector's client.
 type traceGroup struct {
-	client   *connectors.Telemetry
+	client   traceSource
 	all      []string
 	selected []string
+}
+
+// groupClient builds the client of one connector's targets.
+func (s *Service) groupClient(env string, sources []v3telemetry.Source) (traceSource, error) {
+	if s.clientFor != nil {
+		return s.clientFor(env, sources)
+	}
+	return s.Clients.ForGroup(env, sources)
 }
 
 // registryGroups resolves every authorized target and builds one client per
@@ -117,7 +133,7 @@ func (s *Service) registryGroups(ctx context.Context, all, selected []target) ([
 	groups := make([]traceGroup, 0, len(order))
 	for _, connector := range order {
 		group := byConnector[connector]
-		client, err := s.Clients.ForGroup(group.env, group.sources)
+		client, err := s.groupClient(group.env, group.sources)
 		if err != nil {
 			return nil, errClient
 		}

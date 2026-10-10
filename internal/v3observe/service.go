@@ -23,12 +23,6 @@ type Access interface {
 	Authorize(context.Context, core.User, rbac.V3Decision) error
 }
 
-type Telemetry interface {
-	QueryMetrics(context.Context, string, string, connectors.TimeWindow) (connectors.MetricEvidence, error)
-	QueryLogsOptions(context.Context, string, string, string, string, bool, connectors.TimeWindow, int) (connectors.LogEvidence, error)
-	QueryTracesBatchID(context.Context, []string, connectors.TimeWindow, int, string) (map[string]connectors.TraceEvidence, error)
-}
-
 type MetricSamplesReader interface {
 	QueryService(context.Context, httpapi.V3EnvironmentScope, core.User, string, string, string,
 		connectors.TimeWindow) (v3integrations.PrometheusMetricEvidence, error)
@@ -45,18 +39,14 @@ type MetricsConversation interface {
 type Service struct {
 	Store               *store.Store
 	Access              Access
-	Telemetry           Telemetry
 	MetricReader        MetricSamplesReader
 	MetricsConversation MetricsConversation
-	// SourceCompare, when set, is told which file-configured bindings were
-	// read (PA-19 compare mode). It never changes the result.
-	SourceCompare v3telemetry.Observer
-	// Registry, Clients and UnifiedLogs switch the log page to the connector
-	// registry (PA-19 P3 stage 2 step 3): its targets replace the legacy
-	// bindings, and each target is read with its own connector's client.
-	Registry    *v3telemetry.Resolver
-	Clients     *v3telemetry.Clients
-	UnifiedLogs bool
+	// Registry and Clients serve the log page from the connector registry
+	// (PA-19 P3 stage 2 step 3; the only path since P4): each target is read
+	// with its own connector's client. Without them the page is not
+	// configured.
+	Registry *v3telemetry.Resolver
+	Clients  *v3telemetry.Clients
 }
 
 type observationTarget struct {
@@ -65,8 +55,7 @@ type observationTarget struct {
 	TeamID        string
 	Resource      string
 	Provider      string
-	// TargetID and ConnectorID name a registry target; both are empty for a
-	// legacy binding.
+	// TargetID and ConnectorID name the registry target.
 	TargetID    string
 	ConnectorID string
 }
@@ -74,8 +63,8 @@ type observationTarget struct {
 var errAmbiguousObservationBinding = errors.New("multiple telemetry bindings for one application and environment")
 var errObservationScopeLimit = errors.New("authorized observation scope exceeds bound")
 
-func New(st *store.Store, access Access, telemetry Telemetry) *Service {
-	return &Service{Store: st, Access: access, Telemetry: telemetry}
+func New(st *store.Store, access Access) *Service {
+	return &Service{Store: st, Access: access}
 }
 
 func (s *Service) Register(api *httpapi.Server) {
@@ -120,24 +109,15 @@ func (s *Service) allowedEnvironments(w http.ResponseWriter, r *http.Request, mo
 	return allowed, true
 }
 
-// registrySurface reports whether module's reader is switched to the
-// connector registry, and the surface it reads there.
-func (s *Service) registrySurface(module string) (v3telemetry.Surface, bool) {
-	if module == "logs" && s.UnifiedLogs {
-		return v3telemetry.Logs, true
-	}
-	return "", false
-}
-
-// observationTargets use only persisted application/environment bindings, or
-// with the module's reader switched, registry targets. An arbitrary query
-// string never becomes a provider URL or an unbounded scope.
-func (s *Service) observationTargets(ctx context.Context, user core.User, environments []string, module, service string, providers []string) ([]observationTarget, error) {
-	// A broad grant can scan many hidden bindings. Bound the full database and
+// observationTargets use only the registry targets of surface, authorized
+// for module. An arbitrary query string never becomes a provider URL or an
+// unbounded scope.
+func (s *Service) observationTargets(ctx context.Context, user core.User, environments []string, module string, surface v3telemetry.Surface,
+	service string, providers []string) ([]observationTarget, error) {
+	// A broad grant can scan many hidden targets. Bound the full database and
 	// policy walk by elapsed time without treating hidden rows as a result cap.
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	surface, unified := s.registrySurface(module)
 	result := []observationTarget{}
 	seen := map[string]observationTarget{}
 	var cursor observationTarget
@@ -148,13 +128,7 @@ func (s *Service) observationTargets(ctx context.Context, user core.User, enviro
 		// the same pool. The cursor covers the complete sort key; identical
 		// duplicate bindings are interchangeable and may be skipped at a page
 		// boundary. Hidden candidates never consume the authorized result cap.
-		var batch []observationTarget
-		var err error
-		if unified {
-			batch, err = s.registryObservationBatch(ctx, environments, service, surface, cursor, hasCursor)
-		} else {
-			batch, err = s.observationBatch(ctx, environments, service, providers, cursor, hasCursor)
-		}
+		batch, err := s.registryObservationBatch(ctx, environments, service, surface, cursor, hasCursor)
 		if err != nil {
 			return nil, err
 		}
@@ -188,7 +162,7 @@ func (s *Service) observationTargets(ctx context.Context, user core.User, enviro
 				continue
 			}
 			seen[key] = target
-			if unified && !contains(providers, target.Provider) {
+			if !contains(providers, target.Provider) {
 				continue
 			}
 			result = append(result, target)
@@ -206,12 +180,6 @@ func (s *Service) observationTargets(ctx context.Context, user core.User, enviro
 	if hadCandidates && !authorized {
 		return nil, store.ErrForbidden
 	}
-	if s.SourceCompare != nil && !unified {
-		for _, target := range result {
-			s.SourceCompare.ObserveLegacy(v3telemetry.Use{ApplicationID: target.ApplicationID, EnvironmentID: target.EnvironmentID,
-				Provider: target.Provider, Resource: target.Resource})
-		}
-	}
 	return result, nil
 }
 
@@ -223,40 +191,9 @@ func (s *Service) authorizeObservationTarget(ctx context.Context, user core.User
 	return err
 }
 
-func (s *Service) observationBatch(ctx context.Context, environments []string, service string, providers []string, cursor observationTarget, hasCursor bool) ([]observationTarget, error) {
-	rows, err := s.Store.DB.Query(ctx, `SELECT a.id,ve.environment_id,COALESCE(a.owner_team_id,''),b.kind,b.resource
- FROM applications a JOIN v3_application_environments ve ON ve.application_id=a.id
- JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
- JOIN LATERAL jsonb_to_recordset(e.bindings) AS b(kind text, resource text) ON b.kind=ANY($3::text[])
- WHERE NOT a.archived AND ve.environment_id=ANY($1::text[]) AND ($2='' OR a.id=$2 OR a.key=$2)
- AND b.resource<>''
- AND (NOT $4::boolean OR (a.id,ve.environment_id,b.kind,b.resource)>($5,$6,$7,$8))
- ORDER BY a.id,ve.environment_id,b.kind,b.resource LIMIT 200`, environments, service, providers,
-		hasCursor, cursor.ApplicationID, cursor.EnvironmentID, cursor.Provider, cursor.Resource)
-	if err != nil {
-		return nil, err
-	}
-	batch := make([]observationTarget, 0, 200)
-	for rows.Next() {
-		var target observationTarget
-		if err = rows.Scan(&target.ApplicationID, &target.EnvironmentID, &target.TeamID, &target.Provider, &target.Resource); err != nil {
-			break
-		}
-		batch = append(batch, target)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	return batch, nil
-}
-
-// registryObservationBatch is observationBatch over the registry targets
-// serving surface, for every provider of it (the caller filters providers
-// after the ambiguity check).
+// registryObservationBatch lists a page of the registry targets serving
+// surface, for every provider of it (the caller filters providers after the
+// ambiguity check).
 func (s *Service) registryObservationBatch(ctx context.Context, environments []string, service string, surface v3telemetry.Surface, cursor observationTarget, hasCursor bool) ([]observationTarget, error) {
 	rows, err := s.Store.DB.Query(ctx, `SELECT a.id,ve.environment_id,COALESCE(a.owner_team_id,''),c.provider,t.external_id,t.connector_id,t.id
  FROM applications a JOIN v3_application_environments ve ON ve.application_id=a.id

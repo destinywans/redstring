@@ -122,8 +122,7 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	_, unified := s.registrySurface("logs")
-	if (!unified && s.Telemetry == nil) || (unified && (s.Registry == nil || s.Clients == nil)) {
+	if s.Registry == nil || s.Clients == nil {
 		httpapi.Error(w, 503, "not_configured", "Log provider is not configured")
 		return
 	}
@@ -153,7 +152,7 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_levels", "Choose ERROR, WARN or INFO")
 		return
 	}
-	targets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "logs", service, providers)
+	targets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "logs", v3telemetry.Logs, service, providers)
 	if err != nil {
 		if errors.Is(err, errObservationScopeLimit) {
 			httpapi.Error(w, 422, "scope_limit", "Narrow the service or environment")
@@ -189,15 +188,10 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 			Patterns: []logPattern{}, Unavailable: map[string]string{}})
 		return
 	}
-	// Each target is read with the file-configured client, or once the logs
-	// reader is switched, with its registered connector's client.
+	// Each target is read with its registered connector's client.
 	readers := make([]logReader, len(targets))
 	resources := make([]string, len(targets))
 	for i, target := range targets {
-		if !unified {
-			readers[i], resources[i] = s.Telemetry, target.Resource
-			continue
-		}
 		client, resource, err := s.registryClient(r.Context(), target, v3telemetry.Logs)
 		var notReady sourceNotReadyError
 		switch {
@@ -241,7 +235,7 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 				httpapi.Error(w, 503, "not_configured", "Selected log provider is not configured")
 				return
 			}
-			if unified && errors.As(err, &telemetryError) && telemetryError.Kind == "credentials" {
+			if errors.As(err, &telemetryError) && telemetryError.Kind == "credentials" {
 				// The approved Vault credential could not be read (an empty
 				// Vault after a dev-mode restart, a revoked approval).
 				httpapi.Error(w, 503, "source_unavailable", "Log source credential is unavailable")
@@ -302,7 +296,7 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	// An external aggregation can outlive a grant or binding revision. Resolve
 	// the same persisted target set again before returning either full results
 	// or partial evidence, so a changed scope cannot leak old-source lines.
-	currentTargets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "logs", service, providers)
+	currentTargets, err := s.observationTargets(r.Context(), httpapi.CurrentUser(r), envs, "logs", v3telemetry.Logs, service, providers)
 	if err != nil {
 		if errors.Is(err, store.ErrForbidden) {
 			httpapi.Error(w, 403, "forbidden", "Logs are outside your authorized scope")

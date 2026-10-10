@@ -109,9 +109,9 @@ func (s *Service) mappingSaveProjection(item mappingCatalogRow, persisted []core
 	if !mappingStoredBindingShape(item.bindings) {
 		view.Editable = false
 	}
-	if view.Editable && !s.mappingSaveBindingsSupported(persisted) {
-		view.Editable = false
-	}
+	// A save keeps the stored bindings of the other systems as they are, so
+	// they are not checked against the legacy telemetry file and Kubernetes
+	// registrations, which a V3 instance no longer loads (PA-19 P4).
 	if !view.Editable {
 		view.UnavailableReason = "unsupported_persisted_bindings"
 	}
@@ -221,18 +221,14 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 	visibleBindings := map[string][]core.Binding{}
 	visibleRows := map[string]mappingCatalogRow{}
 	visibleTargets := map[string][]registryTarget{}
-	var targets map[string][]registryTarget
-	if s.MappingsUnified {
-		var err error
-		targets, err = mappingRegistryTargets(ctx, s.Store.DB, envs, "")
-		if errors.Is(err, errMappingTargetLimit) {
-			httpapi.Error(w, 422, "result_limit", "Narrow the environment scope")
-			return
-		}
-		if err != nil {
-			httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
-			return
-		}
+	targets, err := mappingRegistryTargets(ctx, s.Store.DB, envs, "")
+	if errors.Is(err, errMappingTargetLimit) {
+		httpapi.Error(w, 422, "result_limit", "Narrow the environment scope")
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
+		return
 	}
 	order := []string{}
 	count := 0
@@ -296,15 +292,12 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 				}
 				row.Cells[id] = cell
 			}
-			cellBindings := bindings
-			if s.MappingsUnified {
-				// Registry systems come from targets, the rest stays legacy.
-				cellBindings = legacyKept(bindings)
-				for _, target := range serviceTargets {
-					addCell(target.System, target.Resource, target.Provider)
-				}
+			// Registry systems come from targets, the rest from the stored
+			// bindings.
+			for _, target := range serviceTargets {
+				addCell(target.System, target.Resource, target.Provider)
 			}
-			for _, b := range cellBindings {
+			for _, b := range legacyKept(bindings) {
 				addCell(mappingKind(b.Kind), b.Resource, b.Kind)
 			}
 		}
@@ -347,10 +340,7 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 					httpapi.Error(w, 503, "authorization_unavailable", "Mapping policy unavailable")
 					return
 				}
-				view := s.mappingSaveProjection(item, visibleBindings[appID])
-				if s.MappingsUnified {
-					view = s.registrySaveProjection(item, visibleBindings[appID], visibleTargets[appID])
-				}
+				view := s.registrySaveProjection(item, visibleBindings[appID], visibleTargets[appID])
 				byName[item.key].Save = &view
 			}
 			pending, err := s.currentMappingSuggestions(ctx, envs[0], visibleAppIDs)
@@ -389,7 +379,7 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 				bindings := append([]core.Binding(nil), visibleBindings[candidate.appID]...)
 				expected := core.Binding{Kind: "gitlab", ConnectorID: candidate.connectorID, Resource: candidate.externalID}
 				bindings = append(bindings, expected)
-				if !s.mappingBindingSupported(bindings, expected) {
+				if !mappingBindingSupported(bindings, expected) {
 					continue
 				}
 				row := byName[candidate.key]

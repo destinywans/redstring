@@ -16,7 +16,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -41,12 +40,11 @@ func (v *labVault) Resolve(_ context.Context, reference string) (string, error) 
 	return "", v3integrations.ErrCredentialUnavailable
 }
 
-// PA-19 P3 stage 2 step 3: with the logs reader switched, the log page reads
-// registry targets through each connector's own client (Loki bearer and
-// Elasticsearch basic with the Vault password), answers as before, never
-// falls back to a legacy binding, and fails closed on unready, ambiguous or
-// unreadable sources.
-func TestLogsReadTheRegistryWhenSwitched(t *testing.T) {
+// PA-19 P3 stage 2 step 3: the log page reads registry targets through each
+// connector's own client (Loki bearer and Elasticsearch basic with the Vault
+// password), never falls back to a legacy binding, and fails closed on
+// unready, ambiguous or unreadable sources.
+func TestLogsReadTheRegistry(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL required; test uses an isolated schema")
@@ -189,29 +187,17 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := connectors.NewTelemetry(connectors.TelemetryConfig{
-		Loki:          connectors.TelemetryEndpoint{URL: loki.URL, AllowHTTP: true},
-		Elasticsearch: connectors.TelemetryEndpoint{URL: es.URL, AllowHTTP: true},
-		Applications: map[string]connectors.ApplicationTelemetry{
-			"checkout": {LokiLabels: map[string]string{"app": "checkout"}},
-			"search":   {ElasticsearchIndex: "lab-search-logs", ElasticsearchFilters: map[string]string{"service.name": "search"}},
-			"orders":   {LokiLabels: map[string]string{"app": "orders"}},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	vault := &labVault{}
 	var clock atomic.Int64
 	clock.Store(time.Now().UnixNano())
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	observe := New(st, policy, legacy)
+	observe := New(st, policy)
 	observe.Registry = &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: v3telemetry.NewApprovals([]v3integrations.CredentialBinding{
 		{Tier: "nonprod", EnvironmentID: "dev", ConnectorID: "loki-1", Provider: "loki", Endpoint: loki.URL, CredentialRef: "vault://kv/lab/loki#token"},
 		{Tier: "nonprod", EnvironmentID: "dev", ConnectorID: "es-1", Provider: "elasticsearch", Endpoint: es.URL, CredentialRef: "vault://aiops/lab/elasticsearch#password"},
 	})}
-	observe.Clients = &v3telemetry.Clients{Tier: "nonprod", Credentials: vault, Limits: legacy.Registration(),
+	observe.Clients = &v3telemetry.Clients{Tier: "nonprod", Credentials: vault,
 		Now: func() time.Time { return time.Unix(0, clock.Load()) }}
 	observe.Register(api)
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}},
@@ -265,22 +251,14 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		}
 	}
 
-	// The baseline through the legacy bindings and file registration.
+	// Each service's lines, read with its connector's Vault credential.
 	const checkout = "?service=checkout&levels=ERROR&range=1h"
-	before := read(checkout)
-	beforeSearch := read("?service=search&levels=ERROR&range=1h")
-	if len(before.Items) != 1 || len(beforeSearch.Items) != 1 {
-		t.Fatalf("legacy baseline: %+v %+v", before, beforeSearch)
-	}
-
-	// Switched: the same answers, read with each connector's Vault credential.
-	observe.UnifiedLogs = true
 	after := read(checkout)
 	afterSearch := read("?service=search&levels=ERROR&range=1h")
-	if !reflect.DeepEqual(lines(after), lines(before)) || !reflect.DeepEqual(after.Unavailable, before.Unavailable) ||
-		(after.Total == nil) != (before.Total == nil) || !reflect.DeepEqual(lines(afterSearch), lines(beforeSearch)) ||
-		*afterSearch.Total != *beforeSearch.Total || *afterSearch.Errors != *beforeSearch.Errors {
-		t.Fatalf("switched answers differ:\n%+v\n%+v\n%+v\n%+v", before, after, beforeSearch, afterSearch)
+	if !reflect.DeepEqual(lines(after), []string{`app ERROR {"level":"error","msg":"checkout failed"}`}) ||
+		!reflect.DeepEqual(lines(afterSearch), []string{"app2 ERROR search failed"}) ||
+		afterSearch.Total == nil || *afterSearch.Total != "1" || afterSearch.Errors == nil || *afterSearch.Errors != "1" {
+		t.Fatalf("registry answers:\n%+v\n%+v", after, afterSearch)
 	}
 	mu.Lock()
 	lastLoki, lastES := lokiAuth[len(lokiAuth)-1], esAuth[len(esAuth)-1]

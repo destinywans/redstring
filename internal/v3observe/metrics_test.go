@@ -23,28 +23,6 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3metricpanels"
 )
 
-// The legacy telemetry stub is shared by independent target and trace tests.
-type metricTelemetryStub struct {
-	calls []string
-	empty bool
-}
-
-func (m *metricTelemetryStub) QueryMetrics(_ context.Context, app, query string, _ connectors.TimeWindow) (connectors.MetricEvidence, error) {
-	m.calls = append(m.calls, app+"/"+query)
-	result := connectors.MetricEvidence{Source: connectors.TelemetrySource{HTTPStatus: 200, QueryID: query}, Empty: m.empty}
-	if !m.empty {
-		result.Series = []connectors.MetricSeries{{Samples: []connectors.MetricSample{{Timestamp: 1, Value: "1"}}}}
-	}
-	return result, nil
-}
-
-func (*metricTelemetryStub) QueryLogsOptions(context.Context, string, string, string, string, bool, connectors.TimeWindow, int) (connectors.LogEvidence, error) {
-	return connectors.LogEvidence{}, nil
-}
-func (*metricTelemetryStub) QueryTracesBatchID(context.Context, []string, connectors.TimeWindow, int, string) (map[string]connectors.TraceEvidence, error) {
-	return nil, nil
-}
-
 func TestDashboardSeriesRequiresFullGridAndReviewedLabels(t *testing.T) {
 	end := time.Now().UTC().Truncate(100 * time.Second)
 	window := testDashboardWindow(end)
@@ -413,7 +391,7 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 	}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	s := New(st, policy, nil)
+	s := New(st, policy)
 	s.MetricReader = reader
 	s.Register(api)
 	if err = api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, policy, st.Session, nil); err != nil {

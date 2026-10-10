@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -35,7 +34,7 @@ func (v *metricsVault) Resolve(_ context.Context, reference string) (string, err
 // its connector's client and the catalog's query IDs, and list_services
 // answers its metrics and logs columns from the registry. The evidence is
 // the same as through the legacy binding; legacy bindings are no source.
-func TestMetricsToolsReadTheRegistryWhenSwitched(t *testing.T) {
+func TestMetricsToolsReadTheRegistry(t *testing.T) {
 	db := isolatedConversationDB(t)
 	ctx := context.Background()
 	var mu sync.Mutex
@@ -96,25 +95,13 @@ func TestMetricsToolsReadTheRegistryWhenSwitched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := connectors.NewTelemetry(connectors.TelemetryConfig{
-		Prometheus: connectors.TelemetryEndpoint{URL: prometheus.URL, AllowHTTP: true},
-		Loki:       connectors.TelemetryEndpoint{URL: "http://127.0.0.1:3100", AllowHTTP: true},
-		Applications: map[string]connectors.ApplicationTelemetry{
-			"checkout": {PrometheusQueries: map[string]string{"error_rate": expression, "request_rate": `sum(rate(http_requests_total{app="checkout"}[5m]))`},
-				LokiLabels: map[string]string{"app": "checkout"}},
-			"orders": {PrometheusQueries: map[string]string{"request_rate": `sum(rate(http_requests_total{app="orders"}[5m]))`}},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	registry := &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: v3telemetry.NewApprovals([]v3integrations.CredentialBinding{{
 		Tier: "nonprod", EnvironmentID: "test", ConnectorID: "prom-1", Provider: "prometheus", Endpoint: prometheus.URL,
 		CredentialRef: "vault://kv/lab/prometheus#token"}})}
 	vault := &metricsVault{}
 	var clock atomic.Int64
 	clock.Store(time.Now().UnixNano())
-	clients := &v3telemetry.Clients{Tier: "nonprod", Credentials: vault, Limits: legacy.Registration(),
+	clients := &v3telemetry.Clients{Tier: "nonprod", Credentials: vault,
 		Now: func() time.Time { return time.Unix(0, clock.Load()) }}
 	owner := func(_ context.Context, id string) (core.User, error) { return core.User{ID: id}, nil }
 	lookup := func(_ context.Context, _ core.User, env, key string) (v3catalog.ServiceEvidence, error) {
@@ -128,21 +115,12 @@ func TestMetricsToolsReadTheRegistryWhenSwitched(t *testing.T) {
 		return []v3catalog.ServiceEvidence{{ID: "app-checkout", Key: "checkout", Name: "checkout", Environment: env},
 			{ID: "app-orders", Key: "orders", Name: "orders", Environment: env}}, false, nil
 	}
-	toolsFor := func(unified bool) (inference.EvidenceTool, inference.EvidenceTool) {
-		t.Helper()
-		metricsOptions := ServiceMetricsToolOptions{DB: db, OwnerID: "owner", EnvironmentID: "test", CurrentUser: owner,
-			LookupService: lookup, Unified: unified, Registry: registry, Clients: clients}
-		listOptions := ServiceListToolOptions{DB: db, OwnerID: "owner", EnvironmentID: "test", CurrentUser: owner,
-			ListServices: listed, Telemetry: legacy, Unified: unified, Registry: registry}
-		if !unified {
-			metricsOptions.Telemetry = legacy
-		}
-		metrics, ok := NewServiceMetricsTool(metricsOptions)
-		list, listOK := NewServiceListTool(listOptions)
-		if !ok || !listOK {
-			t.Fatalf("tools not registered (unified %v)", unified)
-		}
-		return metrics, list
+	metrics, ok := NewServiceMetricsTool(ServiceMetricsToolOptions{DB: db, OwnerID: "owner", EnvironmentID: "test", CurrentUser: owner,
+		LookupService: lookup, Registry: registry, Clients: clients})
+	list, listOK := NewServiceListTool(ServiceListToolOptions{DB: db, OwnerID: "owner", EnvironmentID: "test", CurrentUser: owner,
+		ListServices: listed, Registry: registry})
+	if !ok || !listOK {
+		t.Fatal("tools not registered")
 	}
 	type sample struct {
 		Status string `json:"status"`
@@ -169,35 +147,26 @@ func TestMetricsToolsReadTheRegistryWhenSwitched(t *testing.T) {
 		return body.Services
 	}
 
-	// Baseline through the legacy bindings and file registration.
-	legacyMetrics, legacyList := toolsFor(false)
-	beforeEvidence, before, err := readMetrics(legacyMetrics, "checkout", "error_rate")
-	if err != nil || before.Status != "observed" {
-		t.Fatalf("legacy read: %+v %v", before, err)
-	}
-	beforeList := readList(legacyList)
-
-	// Switched: the same evidence and list, read with the Vault credential.
-	metrics, list := toolsFor(true)
-	afterEvidence, after, err := readMetrics(metrics, "checkout", "error_rate")
-	if err != nil || !reflect.DeepEqual(after, before) || afterEvidence.Title != beforeEvidence.Title ||
-		afterEvidence.Source != beforeEvidence.Source || afterEvidence.TargetID != beforeEvidence.TargetID ||
-		strings.Contains(afterEvidence.Content, "10.0.0.7") || strings.Contains(afterEvidence.Content, "http_errors_total") {
-		t.Fatalf("switched read:\n%+v %+v\n%+v %+v %v", beforeEvidence, before, afterEvidence, after, err)
+	// Read with the Vault credential; the expression and labels stay here.
+	evidence, observed, err := readMetrics(metrics, "checkout", "error_rate")
+	if err != nil || observed.Status != "observed" || len(observed.Series) != 1 || len(observed.Series[0].Samples) != 2 ||
+		evidence.Source != "prometheus" || evidence.TargetID != "app-checkout" ||
+		strings.Contains(evidence.Content, "10.0.0.7") || strings.Contains(evidence.Content, "http_errors_total") {
+		t.Fatalf("registered read: %+v %+v %v", evidence, observed, err)
 	}
 	mu.Lock()
 	if auth[len(auth)-1] != "Bearer prom-token" || methods[len(methods)-1] != http.MethodPost {
 		t.Fatalf("registered read: %v %v", auth, methods)
 	}
 	mu.Unlock()
-	afterList := readList(list)
-	if afterList[0].Metrics != "configured" || !reflect.DeepEqual(afterList[0].MetricQueries, beforeList[0].MetricQueries) ||
-		afterList[0].Logs != beforeList[0].Logs || !reflect.DeepEqual(afterList[0].MetricQueries, []string{"error_rate", "request_rate"}) {
-		t.Fatalf("list differs:\n%+v\n%+v", beforeList, afterList)
+	listedItems := readList(list)
+	if listedItems[0].Metrics != "configured" || listedItems[0].Logs != "configured" ||
+		!reflect.DeepEqual(listedItems[0].MetricQueries, []string{"error_rate", "request_rate"}) {
+		t.Fatalf("list: %+v", listedItems)
 	}
-	// orders has only a legacy binding: no source once switched.
-	if beforeList[1].Metrics != "configured" || afterList[1].Metrics != "not_configured" || len(afterList[1].MetricQueries) != 0 {
-		t.Fatalf("legacy-only service: %+v / %+v", beforeList[1], afterList[1])
+	// orders has only a legacy binding: no source.
+	if listedItems[1].Metrics != "not_configured" || len(listedItems[1].MetricQueries) != 0 {
+		t.Fatalf("legacy-only service: %+v", listedItems[1])
 	}
 	expect := func(service, query, code, message string) {
 		t.Helper()
@@ -239,7 +208,7 @@ func TestMetricsToolsReadTheRegistryWhenSwitched(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, ok := NewServiceMetricsTool(ServiceMetricsToolOptions{DB: db, OwnerID: "owner", EnvironmentID: "test", CurrentUser: owner,
-		LookupService: lookup, Unified: true}); ok {
-		t.Fatal("switched tool registered without a registry")
+		LookupService: lookup}); ok {
+		t.Fatal("tool registered without a registry")
 	}
 }

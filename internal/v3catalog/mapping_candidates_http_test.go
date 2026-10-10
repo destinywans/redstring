@@ -3,7 +3,6 @@ package v3catalog
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,23 +20,11 @@ import (
 	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
-func TestMappingBindingSupportedUsesLegacyRuntimePolicy(t *testing.T) {
-	// Model a legacy platform with one Kubernetes registration. Match its
-	// duplicate-kind and exact-registration checks, including GitLab rejection.
-	legacyValidator := func(bindings []core.Binding) error {
-		seen := map[string]bool{}
-		for _, binding := range bindings {
-			if seen[binding.Kind] || binding != (core.Binding{Kind: "kubernetes", ConnectorID: "cluster-1", Resource: "deployment"}) {
-				return store.ErrInvalidReference
-			}
-			seen[binding.Kind] = true
-		}
-		return nil
-	}
+// PA-19 P4: the code binding must be exactly the candidate's project; the
+// other stored bindings need a known system, each at most once, and are not
+// checked against the legacy registrations a V3 instance no longer loads.
+func TestMappingBindingSupportedChecksTheCodeBinding(t *testing.T) {
 	expected := core.Binding{Kind: "gitlab", ConnectorID: "gitlab-1", Resource: "123"}
-	if !errors.Is(legacyValidator([]core.Binding{expected}), store.ErrInvalidReference) {
-		t.Fatal("global legacy policy unexpectedly accepts a GitLab binding")
-	}
 	registered := core.Binding{Kind: "kubernetes", ConnectorID: "cluster-1", Resource: "deployment"}
 	cases := []struct {
 		name     string
@@ -45,25 +32,27 @@ func TestMappingBindingSupportedUsesLegacyRuntimePolicy(t *testing.T) {
 		want     bool
 	}{
 		{"exact", []core.Binding{registered, expected}, true},
+		{"only GitLab", []core.Binding{expected}, true},
+		{"other registered system", []core.Binding{expected, {Kind: "kubernetes", ConnectorID: "cluster-2", Resource: "deployment"}}, true},
+		{"deploy binding", []core.Binding{expected, {Kind: "argocd", ConnectorID: "argo-1", Resource: "checkout"}}, true},
 		{"missing GitLab", []core.Binding{registered}, false},
 		{"wrong project", []core.Binding{registered, {Kind: "gitlab", ConnectorID: "gitlab-1", Resource: "124"}}, false},
 		{"wrong connector", []core.Binding{registered, {Kind: "gitlab", ConnectorID: "gitlab-2", Resource: "123"}}, false},
 		{"duplicate code", []core.Binding{expected, expected}, false},
 		{"other code family", []core.Binding{expected, {Kind: "github", ConnectorID: "github-1", Resource: "123"}}, false},
-		{"unregistered legacy", []core.Binding{expected, {Kind: "kubernetes", ConnectorID: "cluster-2", Resource: "deployment"}}, false},
-		{"duplicate legacy", []core.Binding{registered, registered, expected}, false},
+		{"duplicate system", []core.Binding{registered, registered, expected}, false},
+		{"unknown kind", []core.Binding{expected, {Kind: "custom", ConnectorID: "x", Resource: "y"}}, false},
 	}
-	service := &Service{MappingBindingValidator: legacyValidator}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := service.mappingBindingSupported(tc.bindings, expected); got != tc.want {
+			if got := mappingBindingSupported(tc.bindings, expected); got != tc.want {
 				t.Fatalf("supported=%t, want %t", got, tc.want)
 			}
 		})
 	}
-	service.MappingBindingValidator = nil
-	if service.mappingBindingSupported([]core.Binding{expected}, expected) {
-		t.Fatal("missing legacy runtime validator did not fail closed")
+	if mappingBindingSupported([]core.Binding{{Kind: "gitlab", ConnectorID: "gitlab-1", Resource: "not-a-project"}},
+		core.Binding{Kind: "gitlab", ConnectorID: "gitlab-1", Resource: "not-a-project"}) {
+		t.Fatal("an invalid project was accepted")
 	}
 }
 
@@ -85,23 +74,10 @@ func waitForMappingServiceLock(t *testing.T, db *pgxpool.Pool, lockerPID int32) 
 	t.Fatal("mapping writer did not reach the service lock")
 }
 
+// The service mapping reads and writes the registry systems as targets
+// (PA-19 P3 stage 2); code keeps its stored binding and the GitLab candidate
+// flow.
 func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
-	testMappingCandidateDiscoveryAndAcceptance(t, false)
-}
-
-// PA-19 P3 stage 2 step 2: with the mappings reader switched to the registry,
-// the GitLab code candidates are still reviewed and accepted as before.
-func TestMappingCandidateAcceptanceWithRegistryMappings(t *testing.T) {
-	testMappingCandidateDiscoveryAndAcceptance(t, true)
-}
-
-// Step 6: with mapping writes switched too, code keeps its stored binding,
-// so candidates are accepted exactly as before.
-func TestMappingCandidateAcceptanceWithRegistryWrites(t *testing.T) {
-	testMappingCandidateDiscoveryAndAcceptance(t, true, true)
-}
-
-func testMappingCandidateDiscoveryAndAcceptance(t *testing.T, unified bool, writes ...bool) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL required; creates and drops one isolated schema")
@@ -172,24 +148,8 @@ func testMappingCandidateDiscoveryAndAcceptance(t *testing.T, unified bool, writ
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
 	catalogService := New(st, policy, "dev")
-	if unified {
-		catalogService.Registry = &v3telemetry.Resolver{Tier: "nonprod"}
-		catalogService.MappingsUnified = true
-		catalogService.MappingWritesUnified = len(writes) > 0 && writes[0]
-	}
+	catalogService.Registry = &v3telemetry.Resolver{Tier: "nonprod"}
 	catalogService.Register(api)
-	// No legacy connector is registered in this fixture. Model the platform
-	// policy: an empty legacy set passes; every unregistered kind, including
-	// GitLab, is rejected by the global writer.
-	legacyValidator := func(bindings []core.Binding) error {
-		if len(bindings) != 0 {
-			return store.ErrInvalidReference
-		}
-		return nil
-	}
-	if !errors.Is(legacyValidator([]core.Binding{{Kind: "gitlab", ConnectorID: "gitlab-1", Resource: "123"}}), store.ErrInvalidReference) {
-		t.Fatal("global legacy validator accepted GitLab")
-	}
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, policy, st.Session, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +241,6 @@ func testMappingCandidateDiscoveryAndAcceptance(t *testing.T, unified bool, writ
 	}
 	// A migrated enabled connector has no activation evidence for its target.
 	// Even an otherwise valid binding shape cannot turn it into a suggestion.
-	api.ValidateBindings = legacyValidator
 	if w := request(http.MethodPost, "/service-mappings/discover", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"suggestions":0`) {
 		t.Fatalf("unactivated discover status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -307,16 +266,6 @@ func testMappingCandidateDiscoveryAndAcceptance(t *testing.T, unified bool, writ
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_service_mapping_candidates WHERE accepted_at IS NULL`).Scan(&pendingCount); err != nil || pendingCount != 2 {
 		t.Fatalf("historical project candidates missing: count=%d err=%v", pendingCount, err)
 	}
-	api.ValidateBindings = nil
-	// A registration that the runtime environment writer cannot validate is
-	// not offered as an actionable suggestion.
-	if w := request(http.MethodPost, "/service-mappings/discover", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"suggestions":0`) {
-		t.Fatalf("unsupported discover status=%d body=%s", w.Code, w.Body.String())
-	}
-	if err := db.QueryRow(ctx, `SELECT count(*) FROM v3_service_mapping_candidates WHERE accepted_at IS NULL`).Scan(&pendingCount); err != nil || pendingCount != 2 {
-		t.Fatalf("unsupported candidate snapshot not persisted: count=%d err=%v", pendingCount, err)
-	}
-	api.ValidateBindings = legacyValidator
 	discovery := request(http.MethodPost, "/service-mappings/discover", "")
 	if discovery.Code != 200 || !strings.Contains(discovery.Body.String(), `"suggestions":2`) {
 		t.Fatalf("discover status=%d body=%s", discovery.Code, discovery.Body.String())
@@ -402,9 +351,6 @@ func testMappingCandidateDiscoveryAndAcceptance(t *testing.T, unified bool, writ
 	if err := json.Unmarshal(allResponse.Body.Bytes(), &allView); err != nil || allView.Suggestions != 0 {
 		t.Fatalf("all-environment view offered unacceptably ambiguous suggestions: %+v err=%v", allView, err)
 	}
-	api.ValidateBindings = nil
-	readAccepted(acceptBody(checkout), 409, 0)
-	api.ValidateBindings = legacyValidator
 	if _, err := db.Exec(ctx, `DELETE FROM v3_role_grants
  WHERE role_id='admin' AND module='services' AND action='change'`); err != nil {
 		t.Fatal(err)

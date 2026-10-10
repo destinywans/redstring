@@ -164,7 +164,7 @@ INSERT INTO v3_application_environments(application_id,environment_id)
 	}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	New(st, policy, nil).Register(api)
+	New(st, policy).Register(api)
 	api.MarkV3ObjectRoute("GET /api/v1/services/discover", "services", "view")
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, policy, st.Session, nil); err != nil {
 		t.Fatal(err)

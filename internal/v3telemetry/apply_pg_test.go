@@ -1,11 +1,9 @@
 package v3telemetry
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"log/slog"
 	"os"
 	"reflect"
 	"strings"
@@ -197,16 +195,13 @@ func TestImportAppliesTheReviewedPlanAndCompares(t *testing.T) {
  tools='[{"name":"search_logs","desc":"Read-only","enabled":true}]' WHERE provider='loki'`); err != nil {
 		t.Fatal(err)
 	}
-	var buffer bytes.Buffer
-	comparer := NewComparer(db, resolver, input.Telemetry, slog.New(slog.NewJSONHandler(&buffer, nil)))
-	use := Use{ApplicationID: "app-lab-checkout", EnvironmentID: "prod", Provider: "loki", Resource: "lab-checkout"}
-	if result := comparer.Compare(ctx, use); result.State != StateMatch {
-		t.Fatalf("activated loki: %+v", result)
+	compareLoki := func(r *Resolver, resource string) Result {
+		legacy, ok := LegacySource(input.Telemetry, "loki", resource)
+		unified, err := r.Resolve(ctx, db, "app-lab-checkout", "prod", Logs)
+		return Compare(legacy, ok, unified, err)
 	}
-	comparer.check(ctx, use)
-	comparer.check(ctx, use) // deduplicated: no second check or log line
-	if counts, _ := comparer.Counts(); counts[StateMatch] != 1 || strings.Count(buffer.String(), "source registry compare") != 1 {
-		t.Fatalf("dedupe: %v %s", counts, buffer.String())
+	if result := compareLoki(resolver, "lab-checkout"); result.State != StateMatch {
+		t.Fatalf("activated loki: %+v", result)
 	}
 	changed := catalog.Clone()
 	for key, scope := range changed.Scopes {
@@ -215,25 +210,13 @@ func TestImportAppliesTheReviewedPlanAndCompares(t *testing.T) {
 			changed.Scopes[key] = scope
 		}
 	}
-	comparer.resolver = &Resolver{Tier: "production", Catalog: changed, Approvals: NewApprovals(nil)}
-	comparer.check(ctx, Use{ApplicationID: "app-lab-checkout", EnvironmentID: "prod", Provider: "loki", Resource: "lab-checkout-other"})
-	log := buffer.String()
-	if !strings.Contains(log, `"state":"legacy_unregistered"`) || strings.Contains(log, "127.0.0.1") || strings.Contains(log, "namespace") {
-		t.Fatalf("compare log: %s", log)
+	changedResolver := &Resolver{Tier: "production", Catalog: changed, Approvals: NewApprovals(nil)}
+	if result := compareLoki(changedResolver, "lab-checkout-other"); result.State != StateLegacyUnregistered {
+		t.Fatalf("unregistered legacy resource: %+v", result)
 	}
-	if result := comparer.Compare(ctx, use); !reflect.DeepEqual(result, Result{StateDiffers, []string{"scope.loki_labels"}}) {
+	if result := compareLoki(changedResolver, "lab-checkout"); !reflect.DeepEqual(result, Result{StateDiffers, []string{"scope.loki_labels"}}) {
 		t.Fatalf("changed selector: %+v", result)
 	}
-
-	// A full queue drops reads instead of blocking the reader.
-	for i := 0; i < compareQueue+10; i++ {
-		comparer.ObserveLegacy(use)
-	}
-	if _, dropped := comparer.Counts(); dropped != 10 {
-		t.Fatalf("dropped: %d", dropped)
-	}
-	var nilComparer *Comparer
-	nilComparer.ObserveLegacy(use)
 
 	// The importer refuses a database without migration 163.
 	if _, err := db.Exec(ctx, `ALTER TABLE v3_connectors DROP COLUMN options`); err != nil {

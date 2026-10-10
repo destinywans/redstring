@@ -29,16 +29,30 @@ func (m *metricToolTelemetry) QueryMetrics(_ context.Context, resource, queryID 
 	return m.result, m.err
 }
 
+// The tool reads the service's registered Prometheus target (here through a
+// stub client), fails closed and keeps the provider configuration out of the
+// evidence.
 func TestServiceMetricsToolFailsClosedAndRedactsProviderConfiguration(t *testing.T) {
 	db := isolatedConversationDB(t)
 	ctx := context.Background()
 	_, err := db.Exec(ctx, `
-		CREATE TABLE applications (id text PRIMARY KEY,key text NOT NULL,archived boolean NOT NULL DEFAULT false);
+		CREATE TABLE applications (id text PRIMARY KEY,key text NOT NULL,owner_team_id text,archived boolean NOT NULL DEFAULT false);
 		CREATE TABLE v3_application_environments (application_id text NOT NULL,environment_id text NOT NULL);
 		CREATE TABLE application_environments (application_id text NOT NULL,key text NOT NULL,archived boolean NOT NULL DEFAULT false,bindings jsonb NOT NULL DEFAULT '[]');
+		CREATE TABLE v3_connectors (id text PRIMARY KEY,environment_id text NOT NULL,provider text NOT NULL,endpoint text NOT NULL,
+		 auth_method text NOT NULL,credential_ref text NOT NULL DEFAULT '',enabled boolean NOT NULL,tools jsonb NOT NULL,options jsonb NOT NULL DEFAULT '{}');
+		CREATE TABLE v3_connector_targets (id text PRIMARY KEY,application_id text NOT NULL,environment_id text NOT NULL,connector_id text NOT NULL,
+		 target_kind text NOT NULL,external_id text NOT NULL);
 		INSERT INTO applications(id,key) VALUES('app-1','checkout');
 		INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app-1','test');
-		INSERT INTO application_environments(application_id,key) VALUES('app-1','test');`)
+		INSERT INTO application_environments(application_id,key) VALUES('app-1','test');
+		INSERT INTO v3_connectors(id,environment_id,provider,endpoint,auth_method,enabled,tools)
+		 VALUES('prom-1','test','prometheus','http://127.0.0.1:9090','none',true,'[{"name":"query_metrics","enabled":true}]');`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := v3telemetry.ParseCatalog([]byte(`{"queries":[{"connector_id":"prom-1","application_id":"app-1","environment_id":"test",
+ "resource_id":"registered-checkout","query_id":"request_rate","expression":"sum(rate(http_requests_total[5m]))"}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,9 +63,13 @@ func TestServiceMetricsToolFailsClosedAndRedactsProviderConfiguration(t *testing
 		Source: connectors.TelemetrySource{Provider: "prometheus", ApplicationID: "registered-checkout", QueryID: "request_rate", Query: "secret-promql", URL: "https://secret.metrics.internal", CapturedAt: time.Now().UTC()},
 		Series: []connectors.MetricSeries{{Labels: map[string]string{"job": "checkout", "sensitive": "secret-label"}, Samples: []connectors.MetricSample{{Timestamp: 100, Value: "2.5"}}}},
 	}}
-	compared := &recordedUses{}
 	tool, ok := NewServiceMetricsTool(ServiceMetricsToolOptions{
-		DB: db, OwnerID: "owner", EnvironmentID: "test", Telemetry: provider, SourceCompare: compared,
+		DB: db, OwnerID: "owner", EnvironmentID: "test",
+		Registry: &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: v3telemetry.NewApprovals(nil)},
+		Clients:  &v3telemetry.Clients{Tier: "nonprod"},
+		clientFor: func(_ string, source v3telemetry.Source) (metricsReader, string, error) {
+			return provider, source.ResourceID, nil
+		},
 		CurrentUser: func(_ context.Context, owner string) (core.User, error) {
 			identityCalls++
 			if owner != "owner" || !memberActive {
@@ -100,9 +118,16 @@ func TestServiceMetricsToolFailsClosedAndRedactsProviderConfiguration(t *testing
 	}
 	serviceVisible = true
 	if err := read(input); err == nil {
-		t.Fatal("missing persisted binding reached provider")
+		t.Fatal("missing registered target reached provider")
 	}
+	// A legacy binding is not a source.
 	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"prometheus","resource":"registered-checkout"}]'::jsonb`); err != nil {
+		t.Fatal(err)
+	}
+	if err := read(input); err == nil {
+		t.Fatal("legacy binding reached provider")
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connector_targets VALUES('t-metrics','app-1','test','prom-1','metric_resource','registered-checkout')`); err != nil {
 		t.Fatal(err)
 	}
 	evidence, err := tool.Read(ctx, input)
@@ -111,9 +136,6 @@ func TestServiceMetricsToolFailsClosedAndRedactsProviderConfiguration(t *testing
 	}
 	if provider.calls != 1 || provider.resource != "registered-checkout" || provider.queryID != "request_rate" || provider.window.End.Sub(provider.window.Start) != 15*time.Minute || provider.window.StepSeconds != 30 {
 		t.Fatalf("unscoped provider call: %+v", provider)
-	}
-	if use := compared.last(); use != (v3telemetry.Use{ApplicationID: "app-1", EnvironmentID: "test", Provider: "prometheus", Resource: "registered-checkout"}) {
-		t.Fatalf("compare mode was not told the legacy binding: %+v", use)
 	}
 	if evidence.TargetID != "app-1" || evidence.Source != "prometheus" || !strings.Contains(evidence.Content, `"status":"observed"`) || strings.Contains(evidence.Content, "secret-") {
 		t.Fatalf("unsafe or missing metric evidence: %#v", evidence)
@@ -151,7 +173,7 @@ func TestServiceMetricsToolFailsClosedAndRedactsProviderConfiguration(t *testing
 	provider.result.LimitReached = false
 	provider.result.Series = []connectors.MetricSeries{{Samples: []connectors.MetricSample{{Timestamp: 100, Value: "2.5"}}}}
 	provider.result.Empty = false
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"prometheus","resource":"registered-checkout"},{"kind":"prometheus","resource":"other"}]'::jsonb`); err != nil {
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connector_targets VALUES('t-metrics-2','app-1','test','prom-1','metric_resource','other')`); err != nil {
 		t.Fatal(err)
 	}
 	if err := read(input); err == nil || provider.calls != 5 {
@@ -163,14 +185,13 @@ func TestServiceMetricsToolRejectsMissingDependencies(t *testing.T) {
 	if _, ok := NewServiceMetricsTool(ServiceMetricsToolOptions{OwnerID: "owner", EnvironmentID: "all"}); ok {
 		t.Fatal("all-environments scope exposed tool")
 	}
-	var missing *connectors.Telemetry
 	if _, ok := NewServiceMetricsTool(ServiceMetricsToolOptions{
-		DB: isolatedConversationDB(t), OwnerID: "owner", EnvironmentID: "test", Telemetry: missing,
+		DB: isolatedConversationDB(t), OwnerID: "owner", EnvironmentID: "test",
 		CurrentUser: func(context.Context, string) (core.User, error) { return core.User{}, nil },
 		LookupService: func(context.Context, core.User, string, string) (v3catalog.ServiceEvidence, error) {
 			return v3catalog.ServiceEvidence{}, nil
 		},
 	}); ok {
-		t.Fatal("typed nil telemetry registered a model tool")
+		t.Fatal("a tool without a registry was registered")
 	}
 }

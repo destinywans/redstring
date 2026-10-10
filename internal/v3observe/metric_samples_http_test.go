@@ -152,7 +152,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	service := New(st, policy, nil)
+	service := New(st, policy)
 	service.MetricReader = reader
 	service.Register(api)
 	if err = api.ConfigureV3Environment(httpapi.V3InstanceConfig{

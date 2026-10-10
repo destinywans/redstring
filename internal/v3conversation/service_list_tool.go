@@ -22,14 +22,10 @@ type ServiceListToolOptions struct {
 	EnvironmentID string
 	CurrentUser   func(context.Context, string) (core.User, error)
 	ListServices  func(context.Context, core.User, string, int) ([]v3catalog.ServiceEvidence, bool, error)
-	// Telemetry, when it can tell, supplies each service's metric query IDs
-	// and whether its log source is registered. Expressions never leave it.
-	Telemetry any
-	// Unified answers the metrics and logs columns from the connector
-	// registry (PA-19 P3 stage 2 step 5, with read_service_metrics): each
-	// service's one target per surface, its readiness and the catalog's
-	// query IDs. Legacy bindings and Telemetry are then not read.
-	Unified  bool
+	// Registry answers the metrics and logs columns (PA-19 P3 stage 2 step
+	// 5, with read_service_metrics): each service's one target per surface,
+	// its readiness and the catalog's query IDs. Expressions never leave it.
+	// Without it both columns are not_configured.
 	Registry *v3telemetry.Resolver
 }
 
@@ -57,15 +53,13 @@ type serviceListEvidence struct {
 // every call, and lists nothing the owner cannot view.
 func NewServiceListTool(opts ServiceListToolOptions) (inference.EvidenceTool, bool) {
 	if opts.DB == nil || opts.CurrentUser == nil || opts.ListServices == nil || opts.OwnerID == "" ||
-		opts.EnvironmentID == "" || opts.EnvironmentID == "all" || (opts.Unified && opts.Registry == nil) {
+		opts.EnvironmentID == "" || opts.EnvironmentID == "all" {
 		return inference.EvidenceTool{}, false
 	}
 	description := "List the services you may read in this conversation's environment: exact service keys for the other tools, " +
 		"whether each has a metrics or log source, and the metric query IDs configured for it. Pass an empty string or {}. " +
-		"Call this first when the question does not name a service key. Only services you are allowed to view are listed."
-	if opts.Unified {
-		description += " not_ready means a source is registered but cannot be read yet; the read tools explain why."
-	}
+		"Call this first when the question does not name a service key. Only services you are allowed to view are listed. " +
+		"not_ready means a source is registered but cannot be read yet; the read tools explain why."
 	return inference.EvidenceTool{
 		Name:        "list_services",
 		Description: description,
@@ -91,44 +85,9 @@ func readServiceList(ctx context.Context, opts ServiceListToolOptions, input str
 	for _, service := range services {
 		keys = append(keys, service.Key)
 	}
-	type sources struct{ metrics, logs []string }
-	bound := map[string]*sources{}
-	var registered map[string]serviceListItem
-	if opts.Unified {
-		if registered, err = registeredListSources(ctx, opts, keys); err != nil {
-			return inference.Evidence{}, inference.NewToolError(inference.ToolSourceUnavailable, "source registrations are temporarily unavailable; retry later")
-		}
-	} else if len(keys) > 0 {
-		rows, err := opts.DB.Query(ctx, `SELECT a.key,b.kind,b.resource
- FROM applications a
- JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
- JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
- JOIN LATERAL jsonb_to_recordset(e.bindings) AS b(kind text, resource text) ON b.kind IN ('prometheus','loki','elasticsearch')
- WHERE a.key=ANY($1::text[]) AND NOT a.archived AND b.resource<>''`, keys, opts.EnvironmentID)
-		if err != nil {
-			return inference.Evidence{}, inference.NewToolError(inference.ToolSourceUnavailable, "source registrations are temporarily unavailable; retry later")
-		}
-		for rows.Next() {
-			var key, kind, resource string
-			if err = rows.Scan(&key, &kind, &resource); err != nil {
-				break
-			}
-			if bound[key] == nil {
-				bound[key] = &sources{}
-			}
-			if kind == "prometheus" {
-				bound[key].metrics = append(bound[key].metrics, resource)
-			} else if logsRegistered(opts.Telemetry, kind, resource) {
-				bound[key].logs = append(bound[key].logs, kind)
-			}
-		}
-		if err == nil {
-			err = rows.Err()
-		}
-		rows.Close()
-		if err != nil {
-			return inference.Evidence{}, inference.NewToolError(inference.ToolSourceUnavailable, "source registrations are temporarily unavailable; retry later")
-		}
+	registered, err := registeredListSources(ctx, opts, keys)
+	if err != nil {
+		return inference.Evidence{}, inference.NewToolError(inference.ToolSourceUnavailable, "source registrations are temporarily unavailable; retry later")
 	}
 	out := serviceListEvidence{EnvironmentID: opts.EnvironmentID, Services: []serviceListItem{}, Truncated: truncated,
 		Boundary: "Service keys and configured sources only, not health. A listed source can still fail or return no data; " +
@@ -138,25 +97,6 @@ func readServiceList(ctx context.Context, opts ServiceListToolOptions, input str
 			Metrics: "not_configured", MetricQueries: []string{}, Logs: "not_configured"}
 		if found, ok := registered[service.Key]; ok {
 			item.Metrics, item.MetricQueries, item.Logs = found.Metrics, found.MetricQueries, found.Logs
-		}
-		if found := bound[service.Key]; found != nil {
-			if len(found.metrics) == 1 {
-				item.Metrics = "configured"
-				if ids, known := metricQueryIDs(opts.Telemetry, found.metrics[0]); known {
-					if len(ids) == 0 {
-						item.Metrics = "not_configured"
-					} else {
-						item.MetricQueries = ids
-					}
-				}
-			} else if len(found.metrics) > 1 {
-				item.Metrics = "ambiguous"
-			}
-			if len(found.logs) == 1 {
-				item.Logs = "configured"
-			} else if len(found.logs) > 1 {
-				item.Logs = "ambiguous"
-			}
 		}
 		out.Services = append(out.Services, item)
 	}
@@ -173,7 +113,7 @@ func readServiceList(ctx context.Context, opts ServiceListToolOptions, input str
 // is left out (both columns stay not_configured).
 func registeredListSources(ctx context.Context, opts ServiceListToolOptions, keys []string) (map[string]serviceListItem, error) {
 	out := map[string]serviceListItem{}
-	if len(keys) == 0 {
+	if len(keys) == 0 || opts.Registry == nil {
 		return out, nil
 	}
 	rows, err := opts.DB.Query(ctx, `SELECT a.key,a.id
@@ -237,9 +177,3 @@ func registeredListSources(ctx context.Context, opts ServiceListToolOptions, key
 
 // logsRegistered asks the telemetry source whether a log binding can be read;
 // without that ability every persisted binding counts as configured.
-func logsRegistered(telemetry any, provider, resource string) bool {
-	if registry, ok := telemetry.(interface{ LogsRegistered(string, string) bool }); ok {
-		return registry.LogsRegistered(provider, resource)
-	}
-	return true
-}

@@ -587,42 +587,22 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return fmt.Errorf("load V3 source catalog: %w", err)
 	}
 	metricCatalog := sourceCatalog.Queries
-	// PA-19: every reader reads the registry (unified, the default since P3
-	// stage 2 step 8). Until P4, legacy or compare (which also logs how each
-	// legacy read compares with the registry) keep only the readers named in
-	// AIOPS_V3_UNIFIED_READERS on the registry: the way back.
-	registryMode, err := v3telemetry.ParseMode(os.Getenv("AIOPS_V3_SOURCE_REGISTRY"))
-	if err != nil {
-		return err
+	// PA-19: every reader reads the connector registry. P4 removed the
+	// legacy and compare modes and the per-reader switch.
+	for _, name := range []string{"AIOPS_V3_SOURCE_REGISTRY", "AIOPS_V3_UNIFIED_READERS"} {
+		if os.Getenv(name) != "" {
+			slog.Warn(name + " is no longer read: every reader reads the connector registry (PA-19 P4)")
+		}
 	}
-	listedReaders, err := v3telemetry.ParseReaders(os.Getenv("AIOPS_V3_UNIFIED_READERS"))
-	if err != nil {
-		return err
-	}
-	unifiedReaders, ignored := v3telemetry.EffectiveReaders(registryMode, listedReaders)
-	if ignored {
-		slog.Warn("AIOPS_V3_UNIFIED_READERS is ignored in unified mode: every reader reads the registry")
-	}
-	slog.Info("source registry", "mode", string(registryMode), "unified_readers", unifiedReaders.Names())
 	sourceResolver := &v3telemetry.Resolver{Tier: cfg.Tier, Catalog: sourceCatalog, Approvals: v3telemetry.NewApprovals(credentialBindings)}
-	logRegistrySummary(ctx, s.DB, sourceResolver, cfg.EnvironmentIDs, registryMode, unifiedReaders)
-	// Step 1 (PA-67): coverage answers from the registry.
-	coverage.Registry, coverage.Unified = sourceResolver, unifiedReaders.Unified(v3telemetry.ReaderCoverage)
-	// Step 2: the service mapping reads the registry systems from targets.
-	catalog.Registry, catalog.MappingsUnified = sourceResolver, unifiedReaders.Unified(v3telemetry.ReaderMappings)
-	// Step 6: mapping saves write the registry targets.
-	catalog.MappingWritesUnified = unifiedReaders.Unified(v3telemetry.ReaderMappingWrites)
-	// Step 3 on: switched readers build one client per registered connector,
-	// with the file registration's limits and approved Vault credentials.
+	logRegistrySummary(ctx, s.DB, sourceResolver, cfg.EnvironmentIDs)
+	// Coverage (PA-67) and the service mapping (reads and saves) answer from
+	// the registry.
+	coverage.Registry = sourceResolver
+	catalog.Registry = sourceResolver
+	// The readers build one client per registered connector, with the file
+	// registration's limits and approved Vault credentials.
 	sourceClients := &v3telemetry.Clients{Tier: cfg.Tier, Credentials: credentialResolver, Limits: telemetry.Registration()}
-	var sourceCompare v3telemetry.Observer
-	if registryMode == v3telemetry.ModeCompare {
-		comparer := v3telemetry.NewComparer(s.DB, &v3telemetry.Resolver{Tier: cfg.Tier, Catalog: sourceCatalog,
-			Approvals: v3telemetry.NewApprovals(credentialBindings)}, telemetry.Registration(), slog.Default())
-		go comparer.Run(ctx)
-		sourceCompare = comparer
-		slog.Info("source registry compare mode enabled")
-	}
 	metricReader, err := v3integrations.NewPrometheusReader(s.DB, cfg.Tier, connector.Prober.Resolver, metricCatalog)
 	if err != nil {
 		return fmt.Errorf("configure V3 Prometheus reader: %w", err)
@@ -705,10 +685,8 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	}
 	readTools := v3ReadTools{
 		DB: s.DB, Models: toolModels, CurrentUser: currentToolUser,
-		LookupService: catalog.LookupServiceEvidence, ListServices: catalog.ListServiceEvidence, Access: policy, Telemetry: telemetry,
-		SourceCompare: sourceCompare, Workloads: rollouts,
-		Registry: sourceResolver, Clients: sourceClients, UnifiedLogs: unifiedReaders.Unified(v3telemetry.ReaderLogs),
-		UnifiedMetrics: unifiedReaders.Unified(v3telemetry.ReaderAIMetrics),
+		LookupService: catalog.LookupServiceEvidence, ListServices: catalog.ListServiceEvidence, Access: policy,
+		Workloads: rollouts, Registry: sourceResolver, Clients: sourceClients,
 		KnowledgeTool: func(actorID, applicationID, environmentID string) (inference.EvidenceTool, bool) {
 			return v3knowledge.NewKnowledgeEvidenceTool(v3knowledge.KnowledgeEvidenceToolOptions{
 				Enabled: true, Service: knowledgeV3, ActorID: actorID, ApplicationID: applicationID,
@@ -812,12 +790,10 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		}
 	}()
 	chat.RegisterV3(api)
-	observations := v3observe.New(s, policy, telemetry)
+	observations := v3observe.New(s, policy)
 	observations.MetricReader = metricReader
 	observations.MetricsConversation = chat
-	observations.SourceCompare = sourceCompare
 	observations.Registry, observations.Clients = sourceResolver, sourceClients
-	observations.UnifiedLogs = unifiedReaders.Unified(v3telemetry.ReaderLogs)
 	observations.Register(api)
 	alertCoverage, err := v3serviceviews.LoadAlertCoverage(os.Getenv("AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG"), opsConfig, cfg, s.DB)
 	if err != nil {
@@ -853,15 +829,8 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 			}
 		}
 	}
-	// Step 7: the connector detail shows the saved tool switches. The
-	// projections of the legacy capability routes are gone (D21, P4).
-	if unifiedReaders.Unified(v3telemetry.ReaderRegistrations) {
-		connector.RegistryTools = true
-	}
-	traces := v3traces.New(s, policy, telemetry)
-	traces.SourceCompare = sourceCompare
+	traces := v3traces.New(s, policy)
 	traces.Registry, traces.Clients = sourceResolver, sourceClients
-	traces.Unified = unifiedReaders.Unified(v3telemetry.ReaderTraces)
 	traces.Register(api)
 	events := v3events.New(s.DB, func(ctx context.Context, user core.User, app, env, action string) error {
 		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})

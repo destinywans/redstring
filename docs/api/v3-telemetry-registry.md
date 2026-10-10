@@ -68,38 +68,29 @@ aiops connectors compare -out report.json
 | `scope_conflict` | 目录里同键已有不同范围 |
 | `workload_name_invalid` | Kubernetes 命名空间或 Deployment 不是 DNS-1123 标签 |
 
-## 读取模式 `AIOPS_V3_SOURCE_REGISTRY`
+## 读取方（P4 起只读统一登记）
 
-- `unified`（缺省，第二阶段第 8 步起）：全部读取方读统一登记。设了 `AIOPS_V3_UNIFIED_READERS` 也会被忽略，启动日志打一条警告。
-- `legacy`：只有 `AIOPS_V3_UNIFIED_READERS` 列出的读取方读统一登记，其余读遥测文件；变量为空时全部读遥测文件，也就是第 8 步之前的缺省。保留到 P4，作为回退。
-- `compare`：在 `legacy` 的基础上，读到遥测文件的读取方在后台再用登记解析一次并比较。读取结果仍来自遥测文件。日志页、Trace 页（含 `/traces`）、`read_service_logs` 和 `read_service_metrics` 每次读到旧绑定时，后台再用登记解析一次并比较。
-  - 不阻塞读取：队列满时丢弃并计数。同一绑定 10 分钟内只比较一次。
-  - 结果有变化时写日志 `source registry compare`。字段只有数据面、应用 ID、环境 ID、旧供应商、`state` 和 `reasons`，不含端点、选择器或表达式。
-  - 每 15 分钟写一条 `source registry compare summary` 计数。进程没有指标导出器，所以计数只写在日志里。
+P4（2026-10-10）删除了 `legacy`、`compare` 两个模式和 `AIOPS_V3_SOURCE_REGISTRY`、`AIOPS_V3_UNIFIED_READERS` 两个变量：V3 实例的读取方全部读统一登记，没有回退开关。两个变量设了也不再读取，启动日志各打一条警告。要回到旧读取只能部署 P4 之前的版本，而且第 6 步之后的映射修改不在旧绑定里，旧版本会读到旧来源。非 V3 部署（旧前端 `/legacy`）不受影响，照旧读遥测文件。
 
-### 读取方开关 `AIOPS_V3_UNIFIED_READERS`（只在 `legacy`、`compare` 下有效，P4 删除）
-
-- 取值为逗号分隔的读取方，列出的读取方改读统一登记，其余照旧；`compare` 模式下没列出的读取方继续记录对照日志。`unified` 模式下忽略。
-- 名称（设计稿第 10.3 节），全部已开放：
-  - `coverage`（第 1 步）：覆盖度的指标、日志、链路单元格由解析器给出，未就绪时 `availability=not_ready` 并写明原因，旧应用绑定不再计入。
-  - `mappings`（第 2 步）：服务映射的指标、日志、链路、工作负载读统一登记的目标（真实连接器 ID），在第 6 步之前只读（`registry_cutover`）；代码绑定和 GitLab 候选接受照旧；部署和看板只读（`system_not_supported`）。编辑器的选项见 `GET /services/{id}/external-targets/options`。
+- 读统一登记的读取方（设计稿第 10.3 节的名称）：
+  - `coverage`（第 1 步）：覆盖度的指标、日志、链路单元格由解析器给出，未就绪时 `availability=not_ready` 并写明原因，旧应用绑定不计入。
+  - `mappings`（第 2 步）：服务映射的指标、日志、链路、工作负载读统一登记的目标（真实连接器 ID）；已存的遥测和工作负载绑定不显示；代码绑定和 GitLab 候选接受照旧；部署和看板只读（`system_not_supported`）。编辑器的选项见 `GET /services/{id}/external-targets/options`。
+  - `mapping_writes`（第 6 步）：服务映射的保存改为增删目标，见下文“映射写入”。
   - `logs`（第 3 步）：日志页 `GET /logs` 和 AI 工具 `read_service_logs` 读统一登记的 `log_stream`（Loki）、`log_index`（Elasticsearch）目标，见下文“日志读取方”。
   - `traces`（第 4 步）：Trace 列表 `GET /traces`（应用范围）和详情 `GET /traces/{id}` 读统一登记的 `trace_service` 目标，见下文“Trace 读取方”。
   - `ai_metrics`（第 5 步）：AI 工具 `read_service_metrics` 读统一登记的 `metric_resource` 目标，`list_services` 的指标和日志两列也由统一登记给出，见下文“AI 指标工具与服务清单”。
   - `registrations`（第 7 步）：连接器详情 `GET /connectors/{id}` 的 `tools` 显示已保存的工具开关。旧接口 `GET /integrations`、`GET /connector-registrations` 的投影已在 P4 删除，见下文“能力标签与旧登记接口”。
-  - `mapping_writes`（第 6 步）：服务映射的保存改为增删目标，见下文“映射写入”。它要求 `mappings`、`logs`、`traces`、`ai_metrics` 都已列出，否则启动失败：编辑的数据面必须已经由统一登记读取，改了才能在页面和 AI 工具里看到。
-  - 写了未知的名称，或者同一个名称写了两次，服务都拒绝启动。
+- **服务映射不再按旧登记校验（P4）**：保存和候选接受只检查已存绑定的形状（已知类别、每类至多一条、字段完整）和代码绑定是否就是候选的 GitLab 项目；其他类别的已存绑定原样保留，不再拿遥测文件和 Kubernetes 登记去校验（V3 实例不再加载它们）。`registry_cutover`、`registry_not_enabled` 不再返回。
 - **启动日志**：
-  - `source registry`：模式和实际读统一登记的读取方；
   - `source registry targets`（第 8 步）：本实例各环境按类型的目标数、按供应商的连接器数、目录里的查询、范围和工作负载条目数；
   - `source registry connector not ready`：每个读取方暂时读不了的遥测或 Kubernetes 连接器，带原因码（`connector_disabled`、`tool_disabled`、`options_invalid`、`credential_missing`、`credential_not_approved`）；
-  - `source registry readers without targets`：已切换、却一个对应目标都没有的读取方（`coverage`、`logs`、`traces`、`ai_metrics`），这些读取方对每个服务都会回答 `not_configured`；
+  - `source registry readers without targets`：一个对应目标都没有的读取方（`coverage`、`logs`、`traces`、`ai_metrics`），这些读取方对每个服务都会回答 `not_configured`；
   - 统计失败只打警告，不阻止启动。
-- **回退**：设 `AIOPS_V3_SOURCE_REGISTRY=legacy`（`AIOPS_V3_UNIFIED_READERS` 可以保留一部分读取方），重启即可，不删任何数据。第 6 步（`mapping_writes`）之后，回退前先跑一次 `aiops connectors compare`，`diverged_services` 为 0 才能保证旧读取方读到的与现在相同，见下文“映射写入”和设计稿第 10.4 节。P4 之后不能再回退。
-- **改读统一登记的日志和 Trace 读取方怎样读取**：
+- **读取方怎样读取**：
   - 按目标构造客户端：端点、租户和认证方式取连接器的，范围取目录的；
   - 凭据经凭据批准从 Vault 读取，在内存里缓存 60 秒，收到 401/403 立即丢弃；
   - Prometheus 和 Loki 的查询用 POST 表单，Tempo 仍用 GET。
+- **诊断对照**：`aiops connectors compare` 仍可对照遥测文件和统一登记（例如新环境导入后），结果状态如下。运行时的后台对照（原 `compare` 模式）已删除。
 
 | `state` | 含义 |
 | --- | --- |
@@ -170,7 +161,7 @@ Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `d
   - 已存的遥测和工作负载旧绑定不再更新，这就是回退时的数据差异。
 - **审计**：每个目标一条 `v3.connector.target_bound` 或 `v3.connector.target_unbound`（字段与集成中心的相同，另有 `source: service_mapping`），整次保存一条 `v3.service_mapping.saved`，带 `source: registry`、前后版本号、前后绑定和逐类的目标变化（`bound`、`unbound`、`rebound`）。原样回传的快照不写审计、版本号不变。
 - **候选接受**不变：仍写旧绑定里的 `gitlab` 绑定，候选的修订号仍是旧绑定的 `binding_revision`；接受后目标版本号跟着变化，打开着的编辑器会收到 409。
-- **回退前的检查**：`aiops connectors compare` 新增反向检查。统一登记里有遥测或工作负载目标、而该服务在旧绑定里没有这类数据面的，记为 `registry_only`；连同已有的 `differs`、`missing` 一起算差异（退出码 3）。输出的 `diverged_services` 是有差异的服务环境数，标准错误也会打印（`registry_native` 不计入）。为 0 表示回退后旧读取方读到的与现在相同；不为 0 时，回退后这些服务会读旧来源或读不到，直到重新切回。建议部署第 6 步后、第一次编辑之前先跑一次作为基线。
+- **回退前的检查**（P4 起已无运行时回退，这项检查只作诊断，例如判断部署 P4 之前的版本会读到什么）：`aiops connectors compare` 新增反向检查。统一登记里有遥测或工作负载目标、而该服务在旧绑定里没有这类数据面的，记为 `registry_only`；连同已有的 `differs`、`missing` 一起算差异（退出码 3）。输出的 `diverged_services` 是有差异的服务环境数，标准错误也会打印（`registry_native` 不计入）。为 0 表示回退后旧读取方读到的与现在相同；不为 0 时，回退后这些服务会读旧来源或读不到，直到重新切回。建议部署第 6 步后、第一次编辑之前先跑一次作为基线。
 
 ### 能力标签与旧登记接口（第二阶段第 7 步）
 

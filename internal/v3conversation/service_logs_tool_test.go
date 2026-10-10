@@ -48,19 +48,20 @@ func TestServiceLogsToolRequiresExplicitEnablement(t *testing.T) {
 	if _, ok := NewServiceLogsTool(ServiceLogsToolOptions{Enabled: true, OwnerID: "owner", EnvironmentID: "all"}); ok {
 		t.Fatal("all-environments scope exposed tool")
 	}
-	var missing *connectors.Telemetry
 	if _, ok := NewServiceLogsTool(ServiceLogsToolOptions{
-		Enabled: true, DB: isolatedConversationDB(t), OwnerID: "owner", EnvironmentID: "test", Telemetry: missing,
+		Enabled: true, DB: isolatedConversationDB(t), OwnerID: "owner", EnvironmentID: "test",
 		Access:      logToolAccess(func(rbac.V3Decision) error { return nil }),
 		CurrentUser: func(context.Context, string) (core.User, error) { return core.User{}, nil },
 		LookupService: func(context.Context, core.User, string, string) (v3catalog.ServiceEvidence, error) {
 			return v3catalog.ServiceEvidence{}, nil
 		},
 	}); ok {
-		t.Fatal("typed nil telemetry registered")
+		t.Fatal("a tool without a registry was registered")
 	}
 }
 
+// The tool reads the service's registered log target (here through a stub
+// client) and sends the model only a masked, bounded sample.
 func TestServiceLogsToolReadsMaskedBoundedSample(t *testing.T) {
 	db := isolatedConversationDB(t)
 	ctx := context.Background()
@@ -68,12 +69,40 @@ func TestServiceLogsToolReadsMaskedBoundedSample(t *testing.T) {
 		CREATE TABLE applications (id text PRIMARY KEY,key text NOT NULL,owner_team_id text,archived boolean NOT NULL DEFAULT false);
 		CREATE TABLE v3_application_environments (application_id text NOT NULL,environment_id text NOT NULL);
 		CREATE TABLE application_environments (application_id text NOT NULL,key text NOT NULL,archived boolean NOT NULL DEFAULT false,bindings jsonb NOT NULL DEFAULT '[]');
+		CREATE TABLE v3_connectors (id text PRIMARY KEY,environment_id text NOT NULL,provider text NOT NULL,endpoint text NOT NULL,
+		 auth_method text NOT NULL,credential_ref text NOT NULL DEFAULT '',enabled boolean NOT NULL,tools jsonb NOT NULL,options jsonb NOT NULL DEFAULT '{}');
+		CREATE TABLE v3_connector_targets (id text PRIMARY KEY,application_id text NOT NULL,environment_id text NOT NULL,connector_id text NOT NULL,
+		 target_kind text NOT NULL,external_id text NOT NULL);
 		INSERT INTO applications(id,key) VALUES('app-1','checkout');
 		INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app-1','test');
-		INSERT INTO application_environments(application_id,key) VALUES('app-1','test');`)
+		INSERT INTO application_environments(application_id,key) VALUES('app-1','test');
+		INSERT INTO v3_connectors(id,environment_id,provider,endpoint,auth_method,enabled,tools) VALUES
+		 ('loki-1','test','loki','http://127.0.0.1:3100','none',true,'[{"name":"search_logs","enabled":true}]'),
+		 ('es-1','test','elasticsearch','http://127.0.0.1:9200','none',true,'[{"name":"search_logs","enabled":true}]');`)
 	if err != nil {
 		t.Fatal(err)
 	}
+	catalog, err := v3telemetry.ParseCatalog([]byte(`{"scopes":[
+ {"connector_id":"loki-1","application_id":"app-1","environment_id":"test","resource_id":"registered-checkout","provider":"loki","loki_labels":{"app":"checkout"}},
+ {"connector_id":"es-1","application_id":"app-1","environment_id":"test","resource_id":"checkout-es","provider":"elasticsearch",
+  "elasticsearch_index":"checkout-logs","elasticsearch_filters":{"service.name":"checkout"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// bind replaces the service's log targets.
+	bind := func(targets string) {
+		t.Helper()
+		if _, err := db.Exec(ctx, `DELETE FROM v3_connector_targets`); err != nil {
+			t.Fatal(err)
+		}
+		if targets == "" {
+			return
+		}
+		if _, err := db.Exec(ctx, `INSERT INTO v3_connector_targets VALUES `+targets); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const lokiTarget, esTarget = `('t-loki','app-1','test','loki-1','log_stream','registered-checkout')`, `('t-es','app-1','test','es-1','log_index','checkout-es')`
 	accountActive, serviceVisible := true, true
 	identityCalls, serviceCalls := 0, 0
 	appLogsAllowed, teamLogsAllowed := true, false
@@ -82,9 +111,13 @@ func TestServiceLogsToolReadsMaskedBoundedSample(t *testing.T) {
 		Source:  connectors.TelemetrySource{Provider: "loki", ApplicationID: "registered-checkout", Query: `{app="secret"}`, URL: "https://secret.loki.internal", CapturedAt: time.Now().UTC()},
 		Entries: []connectors.LogEntry{{Timestamp: time.Now().UTC().Add(-time.Minute), Level: "error", Line: "password=secret-value", Labels: map[string]string{"token": "secret-label"}, TraceID: "secret-trace"}},
 	}}
-	compared := &recordedUses{}
 	tool, ok := NewServiceLogsTool(ServiceLogsToolOptions{
-		Enabled: true, DB: db, OwnerID: "owner", EnvironmentID: "test", Telemetry: provider, SourceCompare: compared,
+		Enabled: true, DB: db, OwnerID: "owner", EnvironmentID: "test",
+		Registry: &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: v3telemetry.NewApprovals(nil)},
+		Clients:  &v3telemetry.Clients{Tier: "nonprod"},
+		clientFor: func(_ string, source v3telemetry.Source) (logToolReader, string, error) {
+			return provider, source.ResourceID, nil
+		},
 		Access: logToolAccess(func(decision rbac.V3Decision) error {
 			accessDecisions = append(accessDecisions, decision)
 			if decision.Module != "logs" || decision.Action != "view" || decision.EnvironmentID != "test" {
@@ -144,11 +177,16 @@ func TestServiceLogsToolReadsMaskedBoundedSample(t *testing.T) {
 	}
 	serviceVisible = true
 	if _, err := read(input); err == nil {
-		t.Fatal("missing binding reached provider")
+		t.Fatal("missing target reached provider")
 	}
+	// A legacy binding is not a source.
 	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"loki","resource":"registered-checkout"}]'::jsonb`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := read(input); err == nil {
+		t.Fatal("legacy binding reached provider")
+	}
+	bind(lokiTarget)
 	appLogsAllowed = false
 	if _, err := read(input); err == nil || provider.calls != 0 {
 		t.Fatal("services.view without logs.view reached provider")
@@ -251,22 +289,15 @@ func TestServiceLogsToolReadsMaskedBoundedSample(t *testing.T) {
 		len(body.Samples) >= 10 || !body.Truncated || !body.Samples[1].Truncated || len([]rune(body.Samples[1].Message)) != logsToolMaxLine {
 		t.Fatalf("masked sample: first=%+v samples=%d truncated=%v redactions=%v", first, len(body.Samples), body.Truncated, body.Redactions)
 	}
-	// An Elasticsearch binding is read through its own provider.
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"elasticsearch","resource":"checkout-es"}]'::jsonb`); err != nil {
-		t.Fatal(err)
-	}
+	// An Elasticsearch target is read through its own provider.
+	bind(esTarget)
 	provider.result.Source.Provider, provider.result.Source.ApplicationID = "elasticsearch", "checkout-es"
 	es, err := tool.Read(ctx, input)
 	if err != nil || es.Source != "elasticsearch" || provider.provider != "elasticsearch" || provider.resource != "checkout-es" ||
 		!strings.Contains(es.Content, `"provider":"elasticsearch"`) {
 		t.Fatalf("Elasticsearch binding: %v %+v", err, provider)
 	}
-	if use := compared.last(); use != (v3telemetry.Use{ApplicationID: "app-1", EnvironmentID: "test", Provider: "elasticsearch", Resource: "checkout-es"}) {
-		t.Fatalf("compare mode was not told the legacy binding: %+v", use)
-	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[{"kind":"loki","resource":"registered-checkout"},{"kind":"elasticsearch","resource":"checkout-es"}]'::jsonb`); err != nil {
-		t.Fatal(err)
-	}
+	bind(lokiTarget + "," + esTarget)
 	prior := provider.calls
 	if _, err := read(input); err == nil || provider.calls != prior {
 		t.Fatal("ambiguous binding reached provider")

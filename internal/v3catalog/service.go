@@ -30,15 +30,10 @@ type Service struct {
 	Store                  *store.Store
 	Access                 Access
 	InstanceEnvironmentIDs []string
-	// The legacy environment writer validates runtime connector bindings.
-	// A suggested mapping cannot bypass that policy when accepted here.
-	MappingBindingValidator func([]core.Binding) error
-	// Registry and MappingsUnified switch the service mapping's metrics,
-	// logs, traces and workload systems to the connector registry (PA-19 P3
-	// stage 2 step 2); MappingWritesUnified (step 6) will make them editable.
-	Registry             *v3telemetry.Resolver
-	MappingsUnified      bool
-	MappingWritesUnified bool
+	// Registry answers the service mapping's metrics, logs, traces and
+	// workload systems from the connector registry, where saves write them
+	// (PA-19 P3 stage 2 steps 2 and 6; the only path since P4).
+	Registry *v3telemetry.Resolver
 }
 
 // The configured instance environment set is independent of the selected
@@ -62,16 +57,6 @@ func (s *Service) RegisterWithoutServiceReads(api *httpapi.Server) {
 }
 
 func (s *Service) registerRoutes(api *httpapi.Server, serviceReads bool) {
-	if s.MappingBindingValidator == nil {
-		// Platform bindings are configured after V3 routes during startup, so
-		// resolve this at request time rather than capturing a nil function.
-		s.MappingBindingValidator = func(bindings []core.Binding) error {
-			if api.ValidateBindings == nil {
-				return errors.New("binding validation unavailable")
-			}
-			return api.ValidateBindings(bindings)
-		}
-	}
 	api.Register("POST /api/v1/services", "admin", s.register)
 	api.MarkV3Route("POST /api/v1/services", "services", "change")
 	if serviceReads {

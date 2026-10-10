@@ -218,7 +218,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	})
 	api := httpapi.New(st, runner, true)
 	chat.RegisterV3(api)
-	observe := New(st, policy, nil)
+	observe := New(st, policy)
 	observe.MetricReader = reader
 	observe.MetricsConversation = chat
 	observe.Register(api)

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -65,16 +64,5 @@ func TestObservationWindowSupportsExactLogCounts(t *testing.T) {
 	}
 	if w.Start.Nanosecond()%int(time.Millisecond) != 0 || w.End.Nanosecond()%int(time.Millisecond) != 0 {
 		t.Fatalf("log count window must use millisecond boundaries: %+v", w)
-	}
-}
-
-func TestRowsFromSpansUseObservedTraceData(t *testing.T) {
-	start := time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
-	rows := rowsFromSpans([]connectors.TraceSpan{
-		{TraceID: "abc", SpanID: "child", ParentSpanID: "root", Service: "db", Name: "query", Start: start.Add(10 * time.Millisecond), DurationMS: 40, Error: true},
-		{TraceID: "abc", SpanID: "root", Service: "api", Name: "request", Start: start, DurationMS: 60},
-	})
-	if len(rows) != 1 || rows[0].ID != "abc" || rows[0].Op != "request" || rows[0].Spans != 2 || rows[0].Errors != 1 || rows[0].DurationMS != 60 || !reflect.DeepEqual(rows[0].Services, []string{"api", "db"}) {
-		t.Fatalf("rows=%+v", rows)
 	}
 }

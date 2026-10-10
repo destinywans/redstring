@@ -31,18 +31,17 @@ type ServiceLogsToolOptions struct {
 	CurrentUser   func(context.Context, string) (core.User, error)
 	LookupService func(context.Context, core.User, string, string) (v3catalog.ServiceEvidence, error)
 	Access        v3catalog.Access
-	Telemetry     interface {
-		QueryLogsOptions(context.Context, string, string, string, string, bool, connectors.TimeWindow, int) (connectors.LogEvidence, error)
-	}
-	// SourceCompare, when set, is told which file-configured binding was
-	// read (PA-19 compare mode). It never changes the result.
-	SourceCompare v3telemetry.Observer
-	// Unified reads the service's log source from the connector registry
-	// (PA-19 P3 stage 2 step 3): Registry resolves its one target and Clients
-	// builds that connector's client; Telemetry is then not used.
-	Unified  bool
+	// Registry resolves the service's one log target and Clients builds that
+	// connector's client (PA-19 P3 stage 2 step 3; the only path since P4).
 	Registry *v3telemetry.Resolver
 	Clients  *v3telemetry.Clients
+	// clientFor replaces Clients.For in tests.
+	clientFor func(env string, source v3telemetry.Source) (logToolReader, string, error)
+}
+
+// logToolReader is the log read the tool makes.
+type logToolReader interface {
+	QueryLogsOptions(context.Context, string, string, string, string, bool, connectors.TimeWindow, int) (connectors.LogEvidence, error)
 }
 
 type logsToolInput struct {
@@ -96,13 +95,7 @@ func NewServiceLogsTool(opts ServiceLogsToolOptions) (inference.EvidenceTool, bo
 		opts.OwnerID == "" || opts.EnvironmentID == "" || opts.EnvironmentID == "all" {
 		return inference.EvidenceTool{}, false
 	}
-	if opts.Unified {
-		if opts.Registry == nil || opts.Clients == nil {
-			return inference.EvidenceTool{}, false
-		}
-	} else if opts.Telemetry == nil {
-		return inference.EvidenceTool{}, false
-	} else if telemetry, ok := opts.Telemetry.(*connectors.Telemetry); ok && telemetry == nil {
+	if opts.Registry == nil || opts.Clients == nil {
 		return inference.EvidenceTool{}, false
 	}
 	return inference.EvidenceTool{
@@ -176,20 +169,16 @@ func readServiceLogs(ctx context.Context, opts ServiceLogsToolOptions, input str
 			return inference.Evidence{}, logsUnavailable("authorization")
 		}
 	}
-	reader, resource := opts.Telemetry, binding.resource
-	if opts.Unified {
-		// Reasons are shown only after logs.view: they describe the
-		// connector's configuration.
-		if len(binding.source.NotReady) > 0 {
-			return inference.Evidence{}, inference.NewToolError(inference.ToolNotConfigured,
-				"the log source of service "+request.Service+" is registered but not ready ("+strings.Join(binding.source.NotReady, ", ")+")")
-		}
-		client, key, clientErr := opts.Clients.For(opts.EnvironmentID, binding.source)
-		if clientErr != nil {
-			return inference.Evidence{}, inference.NewToolError(inference.ToolNotConfigured,
-				"the log source of service "+request.Service+" is unsupported or unconfigured")
-		}
-		reader, resource = client, key
+	// Reasons are shown only after logs.view: they describe the connector's
+	// configuration.
+	if len(binding.source.NotReady) > 0 {
+		return inference.Evidence{}, inference.NewToolError(inference.ToolNotConfigured,
+			"the log source of service "+request.Service+" is registered but not ready ("+strings.Join(binding.source.NotReady, ", ")+")")
+	}
+	reader, resource, clientErr := opts.logClient(binding.source)
+	if clientErr != nil {
+		return inference.Evidence{}, inference.NewToolError(inference.ToolNotConfigured,
+			"the log source of service "+request.Service+" is unsupported or unconfigured")
 	}
 	end := time.Now().UTC().Truncate(time.Second)
 	window := connectors.TimeWindow{Start: end.Add(-15 * time.Minute), End: end}
@@ -263,12 +252,19 @@ func readServiceLogs(ctx context.Context, opts ServiceLogsToolOptions, input str
 	}, nil
 }
 
-// logSource is the one log source of a service in the turn's environment:
-// its legacy binding, or with Unified its registry target.
+// logClient builds the client of the service's log source.
+func (opts ServiceLogsToolOptions) logClient(source v3telemetry.Source) (logToolReader, string, error) {
+	if opts.clientFor != nil {
+		return opts.clientFor(opts.EnvironmentID, source)
+	}
+	return opts.Clients.For(opts.EnvironmentID, source)
+}
+
+// logSource is the one log source of a service in the turn's environment,
+// its registry target.
 type logSource struct {
 	appID, teamID, resource, provider string
-	// source is the resolved registry target (Unified only).
-	source v3telemetry.Source
+	source                            v3telemetry.Source
 }
 
 // serviceLogBinding finds the log source of service. Missing or duplicate
@@ -276,59 +272,18 @@ type logSource struct {
 // ready is returned with its reasons for the caller to report after the
 // logs.view check.
 func serviceLogBinding(ctx context.Context, opts ServiceLogsToolOptions, service string) (logSource, error) {
-	if opts.Unified {
-		var binding logSource
-		var err error
-		binding.appID, binding.teamID, binding.source, err = registeredSource(ctx, opts.DB, opts.Registry, service, opts.EnvironmentID, v3telemetry.Logs)
-		switch {
-		case errors.Is(err, v3telemetry.ErrNotConfigured):
-			return binding, inference.NewToolError(inference.ToolNotConfigured, "no log source is registered for service "+service)
-		case errors.Is(err, v3telemetry.ErrAmbiguous):
-			return binding, inference.NewToolError(inference.ToolNotConfigured, "service "+service+" has more than one registered log source; an administrator must keep one")
-		case err != nil:
-			return binding, logsUnavailable("binding lookup")
-		}
-		binding.resource, binding.provider = binding.source.ResourceID, binding.source.Provider
-		return binding, nil
+	var binding logSource
+	var err error
+	binding.appID, binding.teamID, binding.source, err = registeredSource(ctx, opts.DB, opts.Registry, service, opts.EnvironmentID, v3telemetry.Logs)
+	switch {
+	case errors.Is(err, v3telemetry.ErrNotConfigured):
+		return binding, inference.NewToolError(inference.ToolNotConfigured, "no log source is registered for service "+service)
+	case errors.Is(err, v3telemetry.ErrAmbiguous):
+		return binding, inference.NewToolError(inference.ToolNotConfigured, "service "+service+" has more than one registered log source; an administrator must keep one")
+	case err != nil:
+		return binding, logsUnavailable("binding lookup")
 	}
-	// One persisted log binding (Loki or Elasticsearch) for the authorized
-	// service in this exact environment. Duplicate or missing bindings fail
-	// closed.
-	rows, err := opts.DB.Query(ctx, `SELECT a.id,COALESCE(a.owner_team_id,''),b.resource,b.kind
- FROM applications a
- JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
- JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
- JOIN LATERAL jsonb_to_recordset(e.bindings) AS b(kind text, resource text) ON b.kind IN ('loki','elasticsearch')
- WHERE a.key=$1 AND NOT a.archived AND b.resource<>'' LIMIT 2`, service, opts.EnvironmentID)
-	if err != nil {
-		return logSource{}, logsUnavailable("binding lookup")
-	}
-	var bindings []logSource
-	for rows.Next() {
-		var binding logSource
-		if err = rows.Scan(&binding.appID, &binding.teamID, &binding.resource, &binding.provider); err != nil {
-			break
-		}
-		bindings = append(bindings, binding)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return logSource{}, logsUnavailable("binding lookup")
-	}
-	switch len(bindings) {
-	case 0:
-		return logSource{}, inference.NewToolError(inference.ToolNotConfigured, "no log source is configured for service "+service)
-	case 1:
-	default:
-		return logSource{}, inference.NewToolError(inference.ToolNotConfigured, "service "+service+" has more than one log source; an administrator must keep one")
-	}
-	binding := bindings[0]
-	if opts.SourceCompare != nil {
-		opts.SourceCompare.ObserveLegacy(v3telemetry.Use{ApplicationID: binding.appID, EnvironmentID: opts.EnvironmentID, Provider: binding.provider, Resource: binding.resource})
-	}
+	binding.resource, binding.provider = binding.source.ResourceID, binding.source.Provider
 	return binding, nil
 }
 

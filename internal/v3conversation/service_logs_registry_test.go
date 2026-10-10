@@ -34,7 +34,7 @@ func (v *registryLogVault) Resolve(_ context.Context, reference string) (string,
 // connector's client (here Elasticsearch basic: options user, Vault
 // password). A legacy binding is not a source; unready, ambiguous and
 // unreadable sources fail closed with codes the model can act on.
-func TestServiceLogsToolReadsTheRegistryWhenSwitched(t *testing.T) {
+func TestServiceLogsToolReadsTheRegistry(t *testing.T) {
 	db := isolatedConversationDB(t)
 	ctx := context.Background()
 	var mu sync.Mutex
@@ -98,7 +98,7 @@ func TestServiceLogsToolReadsTheRegistryWhenSwitched(t *testing.T) {
 	clock.Store(time.Now().UnixNano())
 	logsAllowed := true
 	options := ServiceLogsToolOptions{
-		Enabled: true, DB: db, OwnerID: "owner", EnvironmentID: "test", Unified: true,
+		Enabled: true, DB: db, OwnerID: "owner", EnvironmentID: "test",
 		Registry: &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: v3telemetry.NewApprovals([]v3integrations.CredentialBinding{{
 			Tier: "nonprod", EnvironmentID: "test", ConnectorID: "es-1", Provider: "elasticsearch", Endpoint: es.URL,
 			CredentialRef: "vault://aiops/lab/elasticsearch#password"}})},
@@ -119,11 +119,11 @@ func TestServiceLogsToolReadsTheRegistryWhenSwitched(t *testing.T) {
 	}
 	tool, ok := NewServiceLogsTool(options)
 	if !ok {
-		t.Fatal("switched tool without Telemetry not registered")
+		t.Fatal("tool not registered")
 	}
-	if _, ok := NewServiceLogsTool(ServiceLogsToolOptions{Enabled: true, DB: db, OwnerID: "owner", EnvironmentID: "test", Unified: true,
+	if _, ok := NewServiceLogsTool(ServiceLogsToolOptions{Enabled: true, DB: db, OwnerID: "owner", EnvironmentID: "test",
 		Access: options.Access, CurrentUser: options.CurrentUser, LookupService: options.LookupService}); ok {
-		t.Fatal("switched tool registered without a registry")
+		t.Fatal("tool registered without a registry")
 	}
 	const input = `{"service":"search","query_id":"recent_errors"}`
 	expect := func(code, message string) {

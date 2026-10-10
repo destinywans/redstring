@@ -50,11 +50,7 @@ func TestRegistrySummary(t *testing.T) {
 		!reflect.DeepEqual(summary.NotReady[0].Reasons, []string{"connector_disabled", "tool_disabled"}) {
 		t.Fatalf("summary: %+v", summary)
 	}
-	all, _ := EffectiveReaders(ModeUnified, Readers{})
-	if empty := summary.EmptyReaders(all); !reflect.DeepEqual(empty, []string{"traces"}) {
+	if empty := summary.EmptyReaders(); !reflect.DeepEqual(empty, []string{"traces"}) {
 		t.Fatalf("readers without targets: %v", empty)
-	}
-	if empty := summary.EmptyReaders(Readers{}); empty != nil {
-		t.Fatalf("legacy readers: %v", empty)
 	}
 }

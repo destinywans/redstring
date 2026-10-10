@@ -77,10 +77,10 @@ func TestServiceMappingsHTTPV3ObjectScopeAndPersistedBindings(t *testing.T) {
  ('app-empty','Empty','unmapped','dev',NULL,false),
  ('app-archived','Archived','archived','dev',NULL,true)`,
 		`INSERT INTO application_environments(id,application_id,key,name,bindings) VALUES
- ('visible-dev','app-visible','dev','Dev','[{"kind":"prometheus","resource":"job=visible"}]'),
- ('visible-test','app-visible','test','Test','[{"kind":"loki","resource":"secret-test-log"}]'),
+ ('visible-dev','app-visible','dev','Dev','[{"kind":"argocd","resource":"job=visible"},{"kind":"prometheus","resource":"legacy-metric"}]'),
+ ('visible-test','app-visible','test','Test','[{"kind":"grafana","resource":"secret-test-log"}]'),
  ('team-dev','app-team','dev','Dev','[{"kind":"gitlab","resource":"ops/team"}]'),
- ('hidden-dev','app-hidden','dev','Dev','[{"kind":"tempo","resource":"secret-hidden-trace"}]'),
+ ('hidden-dev','app-hidden','dev','Dev','[{"kind":"kibana","resource":"secret-hidden-trace"}]'),
  ('empty-dev','app-empty','dev','Dev','[]'),
  ('archived-dev','app-archived','dev','Dev','[{"kind":"argocd","resource":"secret-archive"}]')`,
 		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES
@@ -163,13 +163,16 @@ func TestServiceMappingsHTTPV3ObjectScopeAndPersistedBindings(t *testing.T) {
 	teamToken := login("team-reader@example.invalid")
 	adminToken := login("admin@example.invalid")
 	appView := read("dev", appToken)
-	if len(appView.Rows) != 1 || appView.Rows[0].Service != "visible" || appView.Rows[0].Cells["metrics"].Value != "job=visible" || appView.Rows[0].Cells["logs"].State != "missing" {
+	// Metrics, logs, traces and workload come from registry targets only: the
+	// stored prometheus binding is not shown (PA-19 P4).
+	if len(appView.Rows) != 1 || appView.Rows[0].Service != "visible" || appView.Rows[0].Cells["deploy"].Value != "job=visible" ||
+		appView.Rows[0].Cells["dash"].State != "missing" || appView.Rows[0].Cells["metrics"].State != "missing" {
 		t.Fatalf("application scope leaked another service or environment: %+v", appView.Rows)
 	}
 	// `all` contains only environments this user can view; test bindings from
 	// the same application must remain hidden to a dev-only caller.
 	appAll := read("all", appToken)
-	if len(appAll.Rows) != 1 || appAll.Rows[0].Cells["logs"].State != "missing" {
+	if len(appAll.Rows) != 1 || appAll.Rows[0].Cells["dash"].State != "missing" {
 		t.Fatalf("all view crossed environment scope: %+v", appAll.Rows)
 	}
 	if w := request("test", appToken); w.Code != http.StatusForbidden {
@@ -187,8 +190,8 @@ func TestServiceMappingsHTTPV3ObjectScopeAndPersistedBindings(t *testing.T) {
 	for _, row := range allView.Rows {
 		byName[row.Service] = row
 	}
-	if byName["visible"].Cells["metrics"].Value != "dev: job=visible" || byName["visible"].Cells["logs"].Value != "test: secret-test-log" ||
-		byName["unmapped"].Cells["metrics"].State != "missing" || byName["archived"].Service != "" {
+	if byName["visible"].Cells["deploy"].Value != "dev: job=visible" || byName["visible"].Cells["dash"].Value != "test: secret-test-log" ||
+		byName["unmapped"].Cells["deploy"].State != "missing" || byName["archived"].Service != "" {
 		t.Fatalf("incorrect mapped/unmapped all result: %+v", allView.Rows)
 	}
 	// A page of unrelated catalog rows must not consume the visible result

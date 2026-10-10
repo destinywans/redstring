@@ -30,19 +30,13 @@ type ServiceMetricsToolOptions struct {
 	EnvironmentID string
 	CurrentUser   func(context.Context, string) (core.User, error)
 	LookupService func(context.Context, core.User, string, string) (v3catalog.ServiceEvidence, error)
-	Telemetry     interface {
-		QueryMetrics(context.Context, string, string, connectors.TimeWindow) (connectors.MetricEvidence, error)
-	}
-	// SourceCompare, when set, is told which file-configured binding was
-	// read (PA-19 compare mode). It never changes the result.
-	SourceCompare v3telemetry.Observer
-	// Unified reads the service's metrics from the connector registry
-	// (PA-19 P3 stage 2 step 5): Registry resolves its one metric_resource
-	// target and the catalog's query IDs, Clients builds that Prometheus
-	// connector's client; Telemetry is then not used.
-	Unified  bool
+	// Registry resolves the service's one metric_resource target and the
+	// catalog's query IDs, Clients builds that Prometheus connector's client
+	// (PA-19 P3 stage 2 step 5; the only path since P4).
 	Registry *v3telemetry.Resolver
 	Clients  *v3telemetry.Clients
+	// clientFor replaces Clients.For in tests.
+	clientFor func(env string, source v3telemetry.Source) (metricsReader, string, error)
 }
 
 // metricsReader is the Prometheus read the tool makes.
@@ -103,13 +97,7 @@ func NewServiceMetricsTool(opts ServiceMetricsToolOptions) (inference.EvidenceTo
 		opts.OwnerID == "" || opts.EnvironmentID == "" || opts.EnvironmentID == "all" {
 		return inference.EvidenceTool{}, false
 	}
-	if opts.Unified {
-		if opts.Registry == nil || opts.Clients == nil {
-			return inference.EvidenceTool{}, false
-		}
-	} else if opts.Telemetry == nil {
-		return inference.EvidenceTool{}, false
-	} else if telemetry, ok := opts.Telemetry.(*connectors.Telemetry); ok && telemetry == nil {
+	if opts.Registry == nil || opts.Clients == nil {
 		return inference.EvidenceTool{}, false
 	}
 	return inference.EvidenceTool{
@@ -170,14 +158,6 @@ var metricLabelValue = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$
 
 // metricQueryIDs lists the query IDs a service resource has, when the
 // telemetry source can tell; ok is false when it cannot.
-func metricQueryIDs(telemetry any, resource string) ([]string, bool) {
-	lister, ok := telemetry.(interface{ MetricQueryIDs(string) []string })
-	if !ok {
-		return nil, false
-	}
-	return lister.MetricQueryIDs(resource), true
-}
-
 func metricsInputError() error {
 	return inference.NewToolError(inference.ToolInvalidInput,
 		`expected JSON {"service":"exact-service-key","query_id":"error_rate"}; list_services shows the keys and query IDs you can read`)
@@ -275,85 +255,44 @@ func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, inp
 	}, nil
 }
 
-// serviceMetricsSource finds the Prometheus source of the service and checks
-// that it serves the requested query ID: the legacy binding read through
-// Telemetry, or with Unified the registry target read through its
-// connector's client. It returns the reader and the resource key to query.
+// serviceMetricsSource finds the registered Prometheus source of the service
+// and checks that it serves the requested query ID. It returns the
+// connector's client and the resource key to query.
 func serviceMetricsSource(ctx context.Context, opts ServiceMetricsToolOptions, request metricToolInput) (metricsReader, string, error) {
-	notConfigured := func(ids []string) error {
+	_, _, source, err := registeredSource(ctx, opts.DB, opts.Registry, request.Service, opts.EnvironmentID, v3telemetry.Metrics)
+	switch {
+	case errors.Is(err, v3telemetry.ErrNotConfigured):
+		return nil, "", inference.NewToolError(inference.ToolNotConfigured, "no metrics source is registered for service "+request.Service)
+	case errors.Is(err, v3telemetry.ErrAmbiguous):
+		return nil, "", inference.NewToolError(inference.ToolNotConfigured,
+			"service "+request.Service+" has more than one registered metrics source; an administrator must keep one")
+	case err != nil:
+		return nil, "", metricsUnavailable("binding lookup")
+	case len(source.NotReady) > 0:
+		return nil, "", inference.NewToolError(inference.ToolNotConfigured,
+			"the metrics source of service "+request.Service+" is registered but not ready ("+strings.Join(source.NotReady, ", ")+")")
+	}
+	ids := sortedQueryIDs(source.Queries)
+	if !slices.Contains(ids, request.QueryID) {
 		configured := "none"
 		if len(ids) > 0 {
 			configured = strings.Join(ids, ", ")
 		}
-		return inference.NewToolError(inference.ToolNotConfigured,
+		return nil, "", inference.NewToolError(inference.ToolNotConfigured,
 			"query_id "+request.QueryID+" is not configured for service "+request.Service+"; configured: "+configured)
 	}
-	if opts.Unified {
-		_, _, source, err := registeredSource(ctx, opts.DB, opts.Registry, request.Service, opts.EnvironmentID, v3telemetry.Metrics)
-		switch {
-		case errors.Is(err, v3telemetry.ErrNotConfigured):
-			return nil, "", inference.NewToolError(inference.ToolNotConfigured, "no metrics source is registered for service "+request.Service)
-		case errors.Is(err, v3telemetry.ErrAmbiguous):
-			return nil, "", inference.NewToolError(inference.ToolNotConfigured,
-				"service "+request.Service+" has more than one registered metrics source; an administrator must keep one")
-		case err != nil:
-			return nil, "", metricsUnavailable("binding lookup")
-		case len(source.NotReady) > 0:
-			return nil, "", inference.NewToolError(inference.ToolNotConfigured,
-				"the metrics source of service "+request.Service+" is registered but not ready ("+strings.Join(source.NotReady, ", ")+")")
-		}
-		ids := sortedQueryIDs(source.Queries)
-		if !slices.Contains(ids, request.QueryID) {
-			return nil, "", notConfigured(ids)
-		}
-		client, key, err := opts.Clients.For(opts.EnvironmentID, source)
-		if err != nil {
-			return nil, "", inference.NewToolError(inference.ToolNotConfigured,
-				"the metrics source of service "+request.Service+" is unsupported or unconfigured")
-		}
-		return client, key, nil
+	var client metricsReader
+	var key string
+	if opts.clientFor != nil {
+		client, key, err = opts.clientFor(opts.EnvironmentID, source)
+	} else {
+		client, key, err = opts.Clients.For(opts.EnvironmentID, source)
 	}
-	// The authorized service key must have exactly one persisted Prometheus
-	// binding in this environment. Ambiguity is an error, never a broader query.
-	rows, err := opts.DB.Query(ctx, `SELECT a.id,b.resource
- FROM applications a
- JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
- JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
- JOIN LATERAL jsonb_to_recordset(e.bindings) AS b(kind text, resource text) ON b.kind='prometheus'
- WHERE a.key=$1 AND NOT a.archived AND b.resource<>'' LIMIT 2`, request.Service, opts.EnvironmentID)
 	if err != nil {
-		return nil, "", metricsUnavailable("binding lookup")
+		return nil, "", inference.NewToolError(inference.ToolNotConfigured,
+			"the metrics source of service "+request.Service+" is unsupported or unconfigured")
 	}
-	var bindings []string
-	var appID string
-	for rows.Next() {
-		var resource string
-		if err = rows.Scan(&appID, &resource); err != nil {
-			break
-		}
-		bindings = append(bindings, resource)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return nil, "", metricsUnavailable("binding lookup")
-	}
-	switch len(bindings) {
-	case 0:
-		return nil, "", inference.NewToolError(inference.ToolNotConfigured, "no metrics source is configured for service "+request.Service)
-	case 1:
-	default:
-		return nil, "", inference.NewToolError(inference.ToolNotConfigured, "service "+request.Service+" has more than one metrics source; an administrator must keep one")
-	}
-	if opts.SourceCompare != nil {
-		opts.SourceCompare.ObserveLegacy(v3telemetry.Use{ApplicationID: appID, EnvironmentID: opts.EnvironmentID, Provider: "prometheus", Resource: bindings[0]})
-	}
-	if ids, known := metricQueryIDs(opts.Telemetry, bindings[0]); known && !slices.Contains(ids, request.QueryID) {
-		return nil, "", notConfigured(ids)
-	}
-	return opts.Telemetry, bindings[0], nil
+	return client, key, nil
 }
 
 // pageOnlyQueryIDs are catalog queries other readers own. "dashboard" packs

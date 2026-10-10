@@ -14,15 +14,14 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
-// catalogTelemetry is a metrics and logs source that also knows its
-// registrations, like *connectors.Telemetry.
+// catalogTelemetry stands in for a registered connector's client.
 type catalogTelemetry struct {
-	queries map[string][]string
-	result  connectors.MetricEvidence
-	err     error
-	calls   int
+	result connectors.MetricEvidence
+	err    error
+	calls  int
 }
 
 func (c *catalogTelemetry) QueryMetrics(_ context.Context, resource, queryID string, _ connectors.TimeWindow) (connectors.MetricEvidence, error) {
@@ -30,10 +29,6 @@ func (c *catalogTelemetry) QueryMetrics(_ context.Context, resource, queryID str
 	result := c.result
 	result.Source.ApplicationID, result.Source.QueryID = resource, queryID
 	return result, c.err
-}
-func (c *catalogTelemetry) MetricQueryIDs(resource string) []string { return c.queries[resource] }
-func (c *catalogTelemetry) LogsRegistered(provider, resource string) bool {
-	return provider == "loki" && resource == "checkout-logs"
 }
 func (c *catalogTelemetry) QueryLogsOptions(context.Context, string, string, string, string, bool, connectors.TimeWindow, int) (connectors.LogEvidence, error) {
 	return connectors.LogEvidence{}, errors.New("not used")
@@ -57,15 +52,37 @@ func TestServiceToolsExplainFailuresAndListReadableServices(t *testing.T) {
 		CREATE TABLE applications (id text PRIMARY KEY,key text NOT NULL,owner_team_id text,archived boolean NOT NULL DEFAULT false);
 		CREATE TABLE v3_application_environments (application_id text NOT NULL,environment_id text NOT NULL);
 		CREATE TABLE application_environments (application_id text NOT NULL,key text NOT NULL,archived boolean NOT NULL DEFAULT false,bindings jsonb NOT NULL DEFAULT '[]');
+		CREATE TABLE v3_connectors (id text PRIMARY KEY,environment_id text NOT NULL,provider text NOT NULL,endpoint text NOT NULL,
+		 auth_method text NOT NULL,credential_ref text NOT NULL DEFAULT '',enabled boolean NOT NULL,tools jsonb NOT NULL,options jsonb NOT NULL DEFAULT '{}');
+		CREATE TABLE v3_connector_targets (id text PRIMARY KEY,application_id text NOT NULL,environment_id text NOT NULL,connector_id text NOT NULL,
+		 target_kind text NOT NULL,external_id text NOT NULL);
 		INSERT INTO applications(id,key) VALUES('app-checkout','checkout'),('app-payments','payments'),('app-dual','dual');
 		INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app-checkout','test'),('app-payments','test'),('app-dual','test');
-		INSERT INTO application_environments(application_id,key,bindings) VALUES
-		 ('app-checkout','test','[{"kind":"prometheus","resource":"registered-checkout"},{"kind":"loki","resource":"checkout-logs"}]'),
-		 ('app-payments','test','[]'),
-		 ('app-dual','test','[{"kind":"prometheus","resource":"a"},{"kind":"prometheus","resource":"b"}]');`); err != nil {
+		INSERT INTO application_environments(application_id,key) VALUES('app-checkout','test'),('app-payments','test'),('app-dual','test');
+		INSERT INTO v3_connectors(id,environment_id,provider,endpoint,auth_method,enabled,tools) VALUES
+		 ('prom-1','test','prometheus','http://127.0.0.1:9090','none',true,'[{"name":"query_metrics","enabled":true}]'),
+		 ('loki-1','test','loki','http://127.0.0.1:3100','none',true,'[{"name":"search_logs","enabled":true}]');
+		INSERT INTO v3_connector_targets VALUES
+		 ('t-metrics','app-checkout','test','prom-1','metric_resource','registered-checkout'),
+		 ('t-logs','app-checkout','test','loki-1','log_stream','checkout-logs'),
+		 ('t-dual-a','app-dual','test','prom-1','metric_resource','a'),
+		 ('t-dual-b','app-dual','test','prom-1','metric_resource','b');`); err != nil {
 		t.Fatal(err)
 	}
-	telemetry := &catalogTelemetry{queries: map[string][]string{"registered-checkout": {"error_rate", "node_cpu_busy_ratio", "request_rate"}},
+	query := func(id string) map[string]any {
+		return map[string]any{"connector_id": "prom-1", "application_id": "app-checkout", "environment_id": "test",
+			"resource_id": "registered-checkout", "query_id": id, "expression": "sum(" + id + ")"}
+	}
+	raw, _ := json.Marshal(map[string]any{"queries": []any{query("error_rate"), query("node_cpu_busy_ratio"), query("request_rate")},
+		"scopes": []any{map[string]any{"connector_id": "loki-1", "application_id": "app-checkout", "environment_id": "test",
+			"resource_id": "checkout-logs", "provider": "loki", "loki_labels": map[string]string{"app": "checkout"}}}})
+	catalog, err := v3telemetry.ParseCatalog(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: v3telemetry.NewApprovals(nil)}
+	clients := &v3telemetry.Clients{Tier: "nonprod"}
+	telemetry := &catalogTelemetry{
 		result: connectors.MetricEvidence{Source: connectors.TelemetrySource{Provider: "prometheus", CapturedAt: time.Now().UTC()},
 			Series: []connectors.MetricSeries{
 				{Labels: map[string]string{"node": "lab-vm-1", "instance": "10.0.0.7:9100", "job": "aiops-vm-nodes"}, Samples: []connectors.MetricSample{{Timestamp: 1791565135, Value: "0.93"}, {Timestamp: 1791565165.5, Value: "0.95"}}},
@@ -84,7 +101,10 @@ func TestServiceToolsExplainFailuresAndListReadableServices(t *testing.T) {
 	}
 	owner := func(_ context.Context, id string) (core.User, error) { return core.User{ID: id}, nil }
 	metrics, ok := NewServiceMetricsTool(ServiceMetricsToolOptions{DB: db, OwnerID: "owner", EnvironmentID: "test",
-		CurrentUser: owner, LookupService: lookup, Telemetry: telemetry})
+		CurrentUser: owner, LookupService: lookup, Registry: registry, Clients: clients,
+		clientFor: func(_ string, source v3telemetry.Source) (metricsReader, string, error) {
+			return telemetry, source.ResourceID, nil
+		}})
 	if !ok || !strings.Contains(metrics.Description, "node_cpu_busy_ratio") || !strings.Contains(metrics.Description, "list_services") {
 		t.Fatalf("metrics tool: %v %q", ok, metrics.Description)
 	}
@@ -152,7 +172,10 @@ func TestServiceToolsExplainFailuresAndListReadableServices(t *testing.T) {
 	// Logs: unknown key, no log source, no log permission, each distinct.
 	logsAllowed := false
 	logs, ok := NewServiceLogsTool(ServiceLogsToolOptions{Enabled: true, DB: db, OwnerID: "owner", EnvironmentID: "test",
-		CurrentUser: owner, LookupService: lookup, Telemetry: telemetry,
+		CurrentUser: owner, LookupService: lookup, Registry: registry, Clients: clients,
+		clientFor: func(_ string, source v3telemetry.Source) (logToolReader, string, error) {
+			return telemetry, source.ResourceID, nil
+		},
 		Access: logToolAccess(func(rbac.V3Decision) error {
 			if logsAllowed {
 				return nil
@@ -177,7 +200,7 @@ func TestServiceToolsExplainFailuresAndListReadableServices(t *testing.T) {
 
 	// list_services: only what the catalog lists for the owner, with sources.
 	list, ok := NewServiceListTool(ServiceListToolOptions{DB: db, OwnerID: "owner", EnvironmentID: "test", CurrentUser: owner,
-		Telemetry: telemetry,
+		Registry: registry,
 		ListServices: func(_ context.Context, user core.User, env string, limit int) ([]v3catalog.ServiceEvidence, bool, error) {
 			if user.ID != "owner" || env != "test" || limit != maxListedServices {
 				t.Fatalf("list scope: %v %s %d", user, env, limit)

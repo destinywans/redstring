@@ -145,15 +145,8 @@ func TestCoverageFromTheRegistry(t *testing.T) {
 		return c.State == state && c.Availability == availability && c.Brand == brand && strings.Contains(c.Text, text)
 	}
 
-	// Before the switch: registered targets count, readiness is not checked,
-	// and the legacy tempo binding (not a connector ID) is missing.
-	before := read()
-	if !expect(before["checkout"]["logs"], "partial", "configured_unverified", "loki", "registered") ||
-		!expect(before["checkout"]["traces"], "missing", "not_configured", "", "No exact source") {
-		t.Fatalf("before the switch: %+v", before["checkout"])
-	}
-
-	coverage.Unified = true
+	// The cells answer from the registry; the legacy tempo binding (not a
+	// connector ID) does not count.
 	after := read()
 	checkout, orders := after["checkout"], after["orders"]
 	if !expect(checkout["metrics"], "partial", "configured_unverified", "prometheus", "live data coverage not verified") ||

@@ -113,12 +113,11 @@ func (v *traceVault) Resolve(_ context.Context, reference string) (string, error
 	return "tempo-token", nil
 }
 
-// PA-19 P3 stage 2 step 4: with the traces reader switched, the list and the
-// detail read registered trace_service targets: the same answers as the
-// legacy bindings, each connector's targets with its own client and Vault
-// credential, several connectors under one budget, and fail closed on
+// PA-19 P3 stage 2 step 4: the list and the detail read registered
+// trace_service targets: each connector's targets with its own client and
+// Vault credential, several connectors under one budget, and fail closed on
 // ambiguous, shared, overlapping, unready or unreadable sources.
-func TestTracesReadTheRegistryWhenSwitched(t *testing.T) {
+func TestTracesReadTheRegistry(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL required; test uses an isolated schema")
@@ -211,16 +210,6 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	}
 	catalog := catalogOf(scope("tempo-a", "app", "checkout", "checkout"), scope("tempo-a", "app2", "orders", "orders"),
 		scope("tempo-b", "app3", "search", "search"))
-	legacy, err := connectors.NewTelemetry(connectors.TelemetryConfig{
-		Tempo: connectors.TelemetryEndpoint{URL: tempoA.server.URL, AllowHTTP: true}, TempoSearchFailClosed: true,
-		Applications: map[string]connectors.ApplicationTelemetry{
-			"checkout": {TempoService: "checkout", TempoAttributes: map[string]string{"deployment.environment": "lab"}},
-			"orders":   {TempoService: "orders", TempoAttributes: map[string]string{"deployment.environment": "lab"}},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	approvals := v3telemetry.NewApprovals([]v3integrations.CredentialBinding{{Tier: "nonprod", EnvironmentID: "dev", ConnectorID: "tempo-a",
 		Provider: "tempo", Endpoint: tempoA.server.URL, CredentialRef: "vault://kv/lab/tempo#token"}})
 	vault := &traceVault{}
@@ -228,9 +217,9 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	clock.Store(time.Now().UnixNano())
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	traces := New(st, policy, legacy)
+	traces := New(st, policy)
 	traces.Registry = &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: approvals}
-	traces.Clients = &v3telemetry.Clients{Tier: "nonprod", Credentials: vault, Limits: legacy.Registration(),
+	traces.Clients = &v3telemetry.Clients{Tier: "nonprod", Credentials: vault, Limits: connectors.TelemetryConfig{TempoSearchFailClosed: true},
 		Now: func() time.Time { return time.Unix(0, clock.Load()) }}
 	traces.Register(api)
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}},
@@ -281,30 +270,17 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		return view
 	}
 
-	// Baseline through the legacy bindings.
+	// Read with the connector's credential.
 	paths := []string{"/api/v1/traces?range=1h", "/api/v1/traces?range=1h&service=orders", "/api/v1/traces?range=1h&view=errors"}
-	before := map[string]listed{}
 	for _, path := range paths {
-		before[path] = list(path)
+		list(path)
 	}
-	beforeT1, beforeT1Orders := detail("/api/v1/traces/"+t1), detail("/api/v1/traces/"+t1+"?service=orders")
-	if before[paths[0]].Total != 2 || len(beforeT1.Spans) != 2 || len(beforeT1Orders.Spans) != 2 {
-		t.Fatalf("legacy baseline: %+v %d", before[paths[0]], len(beforeT1.Spans))
+	if all := list(paths[0]); all.Total != 2 {
+		t.Fatalf("registered traces: %+v", all)
 	}
-
-	// Switched: the same answers, read with the connector's credential.
-	traces.Unified = true
-	for _, path := range paths {
-		if after := list(path); !reflect.DeepEqual(after, before[path]) {
-			t.Fatalf("%s differs:\n%+v\n%+v", path, before[path], after)
-		}
-	}
-	if afterT1 := detail("/api/v1/traces/" + t1); !reflect.DeepEqual(afterT1.Spans, beforeT1.Spans) || afterT1.Op != beforeT1.Op ||
-		afterT1.DurationMS != beforeT1.DurationMS {
-		t.Fatalf("detail differs:\n%+v\n%+v", beforeT1, afterT1)
-	}
-	if afterOrders := detail("/api/v1/traces/" + t1 + "?service=orders"); !reflect.DeepEqual(afterOrders.Spans, beforeT1Orders.Spans) {
-		t.Fatal("cross-service detail differs")
+	if t1Detail, t1Orders := detail("/api/v1/traces/"+t1), detail("/api/v1/traces/"+t1+"?service=orders"); len(t1Detail.Spans) != 2 ||
+		!reflect.DeepEqual(t1Orders.Spans, t1Detail.Spans) {
+		t.Fatalf("trace detail: %+v %+v", t1Detail, t1Orders)
 	}
 	if tempoA.lastAuth() != "Bearer tempo-token" {
 		t.Fatalf("registered credential not used: %q", tempoA.lastAuth())

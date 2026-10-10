@@ -93,22 +93,20 @@ func (r *Resolver) Summarize(ctx context.Context, q Querier, environments []stri
 	return out, nil
 }
 
-// readerTargetKinds are the target kinds a reader needs at least one of.
+// readerTargetKinds are the target kinds a reader needs at least one of
+// (design §10.3 names the readers).
 var readerTargetKinds = map[string][]string{
-	ReaderCoverage:  {"metric_resource", "log_stream", "log_index", "trace_service"},
-	ReaderLogs:      {"log_stream", "log_index"},
-	ReaderTraces:    {"trace_service"},
-	ReaderAIMetrics: {"metric_resource"},
+	"coverage":   {"metric_resource", "log_stream", "log_index", "trace_service"},
+	"logs":       {"log_stream", "log_index"},
+	"traces":     {"trace_service"},
+	"ai_metrics": {"metric_resource"},
 }
 
-// EmptyReaders lists the switched readers that have no target of the kinds
-// they read: every service would be not_configured for them.
-func (s Summary) EmptyReaders(readers Readers) []string {
+// EmptyReaders lists the readers that have no target of the kinds they
+// read: every service would be not_configured for them.
+func (s Summary) EmptyReaders() []string {
 	var out []string
 	for reader, kinds := range readerTargetKinds {
-		if !readers.Unified(reader) {
-			continue
-		}
 		total := 0
 		for _, kind := range kinds {
 			total += s.Targets[kind]

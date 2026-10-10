@@ -143,9 +143,7 @@ func TestServiceMappingWritesTheRegistry(t *testing.T) {
 	}
 	policy := &rbac.V3Policy{Store: st}
 	svc := New(st, policy, "dev")
-	svc.MappingBindingValidator = func([]core.Binding) error { return nil }
 	svc.Registry = &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: v3telemetry.NewApprovals(nil)}
-	svc.MappingsUnified, svc.MappingWritesUnified = true, true
 	api := httpapi.New(st, nil, true)
 	svc.Register(api)
 	if err = api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, policy, st.Session,

@@ -682,6 +682,12 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 - **加锁顺序**：映射保存先更新旧绑定、再写目标，与导入 apply 的顺序（先锁旧绑定表、再锁目标表）一致，避免互相等待。
 - **读取方依赖**：`mapping_writes` 要求 `mappings`、`logs`、`traces`、`ai_metrics` 已切换，在启动时检查。
 
+**第 7 步（能力标签与旧登记接口）**：
+- **标签沿用旧词汇**：旧前端设置页直接认 `deployment.read`、`rollback.propose`、`rollback.execute_after_approval` 这些代码，统一登记里 Kubernetes 的能力叫 `workload.read`、`rollback.propose`，投影时换回旧名。
+- **回滚标签复用 PA-72 的判断**：Kubernetes 条目的能力取自连接器详情同一个函数（`ConnectorWorkloads`），不另写一套。
+- **只列有目录范围的目标**：与旧接口“只列遥测文件里登记了范围的资源”对应。
+- **连接器详情多了 `agent_execution_available: false`**：不论是否切换都返回，只是新增字段。
+
 
 ## 附录 A：对照前提的命令
 

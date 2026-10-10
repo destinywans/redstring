@@ -117,8 +117,8 @@ func TestParseReaders(t *testing.T) {
 	if readers, err := ParseReaders(" "); err != nil || len(readers) != 0 {
 		t.Fatalf("empty: %v %v", readers, err)
 	}
-	if _, err := ParseReaders("registrations"); err == nil {
-		t.Fatal("a reader whose step is not built was accepted")
+	if _, err := ParseReaders("registrations"); err != nil {
+		t.Fatalf("step 7: %v", err)
 	}
 	if _, err := ParseReaders("nonsense"); err == nil {
 		t.Fatal("unknown reader accepted")

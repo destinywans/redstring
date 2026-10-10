@@ -847,6 +847,12 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 			}
 		}
 	}
+	// Step 7: the legacy capability readers project the registry.
+	if unifiedReaders.Unified(v3telemetry.ReaderRegistrations) {
+		registrations := v3Registrations{DB: s.DB, Registry: sourceResolver, Workloads: rollouts, Environments: cfg.EnvironmentIDs}
+		api.RegistryIntegrations, api.RegistryRegistrations = registrations.Integrations, registrations.Registrations
+		connector.RegistryTools = true
+	}
 	traces := v3traces.New(s, policy, telemetry)
 	traces.SourceCompare = sourceCompare
 	traces.Registry, traces.Clients = sourceResolver, sourceClients

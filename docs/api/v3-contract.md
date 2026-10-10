@@ -308,7 +308,7 @@ Agent Trace 后端只能读受信生产者上报的有界 Span 元数据；模�
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
 | GET | `/connectors` | `category`, `q`（名称、标识和供应商支持中文及拼音检索） | `ConnectorList`；计数基于当前可见全集，筛选只影响 `items`；`ok/error` 是最近 15 分钟的连接探测结果，不代表持续健康，过期、缺凭据或服务端凭据绑定缺失显示 `unverified`；登记工具偏好不生成 Agent 能力标签；未分页的可见记录超过 1000 条返回 413 | implemented |
-| GET | `/connectors/{id}` | | `ConnectorDetail`：只返回当前有权的服务绑定；凭据文案区分未配置、服务端绑定缺失与已登记 Vault 引用，最近探测不代表持续健康；没有 Agent 执行器或查询绑定时 `tools`、`queries` 与能力标签为空，服务超过 1000 条返回 422；`kubernetes` 连接器另带只读的 `workloads` 和 `capabilities`（PA-72），其他类型不返回这两个字段 | implemented |
+| GET | `/connectors/{id}` | | `ConnectorDetail`：只返回当前有权的服务绑定；凭据文案区分未配置、服务端绑定缺失与已登记 Vault 引用，最近探测不代表持续健康；没有 Agent 执行器或查询绑定时 `tools`、`queries` 与能力标签为空，服务超过 1000 条返回 422；`kubernetes` 连接器另带只读的 `workloads` 和 `capabilities`（PA-72），其他类型不返回这两个字段；`agent_execution_available` 恒为 `false`；`AIOPS_V3_UNIFIED_READERS` 含 `registrations` 时（PA-19 第二阶段第 7 步）`tools` 列出已保存的工具开关（决定统一登记的读取方能否读这个连接器，不授予 Agent 执行） | implemented |
 | POST | `/connectors/{id}/test` | | `{ ok, latency_ms }`；禁用返回 409，凭据用途未由服务端绑定返回 503，探测失败如实返回错误并审计 | implemented |
 | PATCH | `/connectors/{id}` | `{ tools: [{ name, enabled }] }`；至少一项，`enabled` 必须是显式布尔值 | `{ ok: true, tools: [{ name, desc, enabled }] }`；在行锁下部分合并工具偏好并同事务审计；旧目录工具冲突返回 409，不静默删除；`enabled` 仅门控部分只读来源，不授予 Agent 执行能力；前端开关尚未发起此请求 | implemented |
 | POST | `/connectors` | `{ type, url, auth, tools, webhook, credential_ref? }`；凭据仅传 Vault 引用；所有需要凭据的创建请求先保存为未启用登记，`webhook` 仅记录意图，不自动创建 Webhook | `{ id }`；未启用登记不可测试连接或启用工具，生成 ID 后由部署方配置精确凭据绑定，再通过辅助接口激活；无认证且不请求 Webhook 的非 GitLab 只读来源可直接启用 | implemented |

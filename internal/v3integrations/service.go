@@ -30,6 +30,9 @@ type Service struct {
 	// targets and capabilities on its detail (PA-72). v3rollouts supplies it,
 	// so write approvals stay out of this package.
 	Workloads func(ctx context.Context, connectorID, environmentID string) (ConnectorWorkloads, error)
+	// RegistryTools shows the saved tool switches on the connector detail
+	// (PA-19 P3 stage 2 step 7, the registrations reader).
+	RegistryTools bool
 }
 
 // ConnectorWorkloads is the read-only rollback view of a Kubernetes
@@ -638,8 +641,15 @@ func (s *Service) detailProjection(c connector, services []string, lang string) 
 	// only describe desired configuration and do not grant execution.
 	result["queries"] = []string{}
 	// Connector-backed Agent execution is not wired. Keep registration
-	// preferences in storage, but expose no executable tools in this DTO.
+	// preferences in storage, but expose no executable tools in this DTO;
+	// with the registrations reader switched (PA-19 P3 stage 2 step 7) the
+	// saved switches are shown, since they decide whether the registry's
+	// readers may read this connector.
 	result["tools"] = []tool{}
+	if s.RegistryTools {
+		result["tools"] = displayTools(c.Tools, lang)
+	}
+	result["agent_execution_available"] = false
 	return result
 }
 

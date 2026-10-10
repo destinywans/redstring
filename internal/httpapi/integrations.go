@@ -22,6 +22,12 @@ type Integration struct {
 	Model          string   `json:"model,omitempty"`
 	// Registered bindings identify connector resources, never product application IDs.
 	RegisteredBindings []core.Binding `json:"-"`
+	// FileConfigured marks the telemetry and Kubernetes entries built from
+	// the file registrations; RegistryIntegrations replaces them.
+	FileConfigured bool `json:"-"`
+	// TargetApplicationIDs are the applications a registry entry has
+	// targets for; the caller's visible applications are kept.
+	TargetApplicationIDs []string `json:"-"`
 }
 
 func (s *Server) visibleIntegrations(ctx context.Context, user core.User) ([]Integration, error) {
@@ -47,12 +53,30 @@ func (s *Server) visibleIntegrations(ctx context.Context, user core.User) ([]Int
 			}
 		}
 	}
-	items := make([]Integration, 0, len(s.Integrations))
-	for _, configured := range s.Integrations {
+	configuredItems := s.Integrations
+	if s.RegistryIntegrations != nil {
+		projected, err := s.RegistryIntegrations(ctx)
+		if err != nil {
+			return nil, err
+		}
+		configuredItems = make([]Integration, 0, len(s.Integrations)+len(projected))
+		for _, item := range s.Integrations {
+			if !item.FileConfigured {
+				configuredItems = append(configuredItems, item)
+			}
+		}
+		configuredItems = append(configuredItems, projected...)
+	}
+	items := make([]Integration, 0, len(configuredItems))
+	for _, configured := range configuredItems {
 		item := configured
 		item.ApplicationIDs = []string{}
 		associated := map[string]bool{}
-		if item.Kind == "connector" {
+		if item.TargetApplicationIDs != nil {
+			for _, id := range item.TargetApplicationIDs {
+				associated[id] = allowed[id]
+			}
+		} else if item.Kind == "connector" {
 			for _, binding := range item.RegisteredBindings {
 				for _, id := range bindings[binding] {
 					associated[id] = true

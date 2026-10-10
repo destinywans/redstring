@@ -22,7 +22,7 @@ const (
 // reader that is not here yet cannot be named, so a configuration never
 // claims a switch the build cannot make.
 var availableReaders = map[string]bool{ReaderCoverage: true, ReaderMappings: true, ReaderLogs: true, ReaderTraces: true,
-	ReaderAIMetrics: true, ReaderMappingWrites: true}
+	ReaderAIMetrics: true, ReaderMappingWrites: true, ReaderRegistrations: true}
 
 // readerRequires lists the readers a reader cannot run without. Mapping
 // writes change targets, so the mapping page and every reader of the edited

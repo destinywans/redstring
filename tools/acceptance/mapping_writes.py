@@ -33,6 +33,9 @@ def instance_env(instance):
             if line and not line.startswith('#') and '=' in line:
                 key, value = line.split('=', 1)
                 env[key] = value
+    # Since P4 a V3 instance no longer reads the telemetry file; compare still diffs against it.
+    if 'AIOPS_TELEMETRY_CONFIG' not in env and (LOCAL / instance / 'telemetry.json').exists():
+        env['AIOPS_TELEMETRY_CONFIG'] = str(LOCAL / instance / 'telemetry.json')
     return env
 
 

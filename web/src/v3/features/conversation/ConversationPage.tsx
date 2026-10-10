@@ -66,7 +66,7 @@ function MessageView({ m, conv, actions, onOpenArtifact }: { m: Message; conv: C
               })}
             </div>
           ) : (
-            <PartView key={i} part={p} actions={actions} streamingText={m.streaming && p === lastText} />
+            <PartView key={i} part={p} actions={actions} streamingText={m.streaming && p === lastText} streaming={m.streaming} />
           ),
         )}
       </div>

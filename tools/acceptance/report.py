@@ -24,8 +24,8 @@ E2E = LOCAL / 'e2e'
 
 # verified · partial (backend done, frontend pending, or part of the scope) · open · later (next round) · gap
 STATUS_OVERRIDES = {
-    'PA-05': 'verified', 'PA-08': 'later', 'PA-09': 'partial', 'PA-12': 'verified', 'PA-14': 'open', 'PA-19': 'partial',
-    'PA-21': 'verified', 'PA-39': 'open', 'PA-43': 'later', 'PA-67': 'later',
+    'PA-05': 'verified', 'PA-08': 'later', 'PA-09': 'partial', 'PA-12': 'verified', 'PA-19': 'partial', 'PA-68': 'verified',
+    'PA-21': 'verified', 'PA-43': 'later', 'PA-67': 'later',
 }
 STATUS_LABEL = {'verified': '已验证', 'partial': '部分完成', 'open': '处理中', 'later': '后续轮次', 'gap': '缺能力'}
 
@@ -35,7 +35,7 @@ PHASES = [
     ('2', '黄金路径', 'done', '登录与会话、告警闭环、调查画布、对话、知识、Agent 运行台、集成中心、设置均端到端走通；变更与发布按 D11 记为缺来源。'),
     ('3', '权限、隔离、故障、边界', 'done', '权限矩阵 130 条路由 × 4 角色 0 不一致；环境隔离 25/25；输入边界 12/12；登录与会话 10/10；五个数据源停机与四类产品故障都明确降级并自动恢复。'),
     ('4', '实验集群故障演练', 'done', '坏发布、重试风暴、Pod OOM、Pod 崩溃、消费者停止、节点压力六个场景：注入 → 告警 → 产品 → AI 取证 → 恢复，修复后重跑。'),
-    ('5', '修复后全量回归', 'running', '回归脚本 `regress.py` 已就绪并跑过基线；等剩余修复合入后做最终一轮。'),
+    ('5', '修复后全量回归', 'running', '基线与第二轮回归已完成（第二轮对拍 216 次加载 212 干净、0 个未捕获异常，权限矩阵复核后 0 不一致）；剩余小项合入后做最终一轮。'),
 ]
 
 DRILLS = [

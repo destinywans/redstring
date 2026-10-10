@@ -83,6 +83,7 @@ aiops connectors compare -out report.json
   - `coverage`（第 1 步）：覆盖度的指标、日志、链路单元格由解析器给出，未就绪时 `availability=not_ready` 并写明原因，旧应用绑定不再计入。
   - `mappings`（第 2 步）：服务映射的指标、日志、链路、工作负载读统一登记的目标（真实连接器 ID），在第 6 步之前只读（`registry_cutover`）；代码绑定和 GitLab 候选接受照旧；部署和看板只读（`system_not_supported`）。编辑器的选项见 `GET /services/{id}/external-targets/options`。
   - `logs`（第 3 步）：日志页 `GET /logs` 和 AI 工具 `read_service_logs` 读统一登记的 `log_stream`（Loki）、`log_index`（Elasticsearch）目标，见下文“日志读取方”。
+  - `traces`（第 4 步）：Trace 列表 `GET /traces`（应用范围）和详情 `GET /traces/{id}` 读统一登记的 `trace_service` 目标，见下文“Trace 读取方”。
   - 写了还没开放的名称，或者同一个名称写了两次，服务都拒绝启动；
   - 启动日志 `source registry` 打印模式和已切换的读取方。
 - 回退：从变量里去掉该读取方并重启，不删任何数据。第 6 步（`mapping_writes`）之后回退前先跑一次 `aiops connectors compare`，见设计稿第 10.4 节。
@@ -109,6 +110,20 @@ Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `d
 - **未就绪**：日志页在查询之前返回 503 `source_not_ready`，`message` 列出原因码（`connector_disabled`、`tool_disabled`、`options_invalid`、`credential_missing`、`credential_not_approved`、`scope_missing`）。AI 工具先做 `logs.view` 检查，再返回 `not_configured` 并带原因。
 - **凭据读不到**（例如实验 Vault 的 dev 模式重启后为空）：日志页 503 `source_unavailable`，AI 工具 `source_unavailable`（可重试）。
 - 响应形状不变，与切换前对照时，同一时间窗内的条数、错误数、样本和不可用原因应一致。
+
+### Trace 读取方（第二阶段第 4 步）
+
+- **范围**：Trace 列表的应用范围和详情（含带 `service` 的跨服务查询）。Agent 范围读平台自己的运行记录，保存的视图存在数据库里，二者都不读 Tempo，不受影响。
+- **目标与授权**：按服务环境枚举 `trace_service` 目标，授权规则不变（先应用、再负责人团队的 `traces.view`），最多 6 个目标。没有目标的服务不再回退读旧绑定：带 `service` 时 404，不带时返回“未配置”列表。同一服务两条 Trace 目标为 409 `ambiguous_binding`。
+- **按连接器分组**：同一连接器的目标用一个客户端一起读，所以一条 Trace 仍然一次对照该 Tempo 上全部授权登记，跨服务 Trace 的闭合检查与切换前相同。多个连接器依次读：
+  - 搜索上限按整次查询计算，不按连接器：最多 40 条 Trace、64 次搜索请求，超出仍是 413；
+  - 只有每个参与搜索的连接器都声明了搜索完整（`tempo_search_fail_closed`），列表才按完整集合给出总数、分面和直方图；
+  - 同一条 Trace 被两个登记的 Tempo 搜到时，失败关闭（503）；
+  - 详情向每个有所选目标的连接器读这条 Trace，在该连接器授权登记内展示不了的视为没有，必须恰好一个连接器找到。
+- **归属与重叠**：数据库保证同一连接器上一个外部 ID 只属于一个服务。目录里任何两条 Tempo 范围的选择器重叠（服务名相同、属性不能区分）时失败关闭，返回 503 `not_configured`，与旧文件的规则相同，比较范围是整个目录（包括当前用户看不到的服务）。
+- **未就绪与凭据**：503 `source_not_ready`（`message` 列出原因码），凭据读不到 503 `source_unavailable`。
+- **GET 与 URL 长度**：TraceQL 搜索仍是 GET（Tempo 没有 POST 形式）。请求 URI（路径加查询串）超过 8 KiB 时不发送，列表返回 422 `query_too_long`。目录里每条 Tempo 范围的选择器 URL 编码后不得超过 6 KiB，加上最长 512 字符的 `q`（编码后最多约 1.5 KiB）仍在 8 KiB 以内，所以登记的范围只会因用户过滤条件过长而触发这个错误。旧文件里的范围不受目录校验，超长时同样 422。按 ID 读 Trace 的 URL 很短，不受影响。
+- `tempo_search_fail_closed` 目前仍取自 `AIOPS_TELEMETRY_CONFIG`，对所有登记的 Tempo 连接器生效；P4 删除遥测文件之前要给它换位置。
 
 ### Elasticsearch basic 认证（设计稿第 10.9 节决定 3）
 

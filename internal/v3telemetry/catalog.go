@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"reflect"
 	"sort"
@@ -183,13 +184,34 @@ func validScope(provider string, a connectors.ApplicationTelemetry) bool {
 			return false
 		}
 	case "tempo":
-		if a.TempoService == "" || len(a.TempoAttributes) == 0 {
+		// The selector travels in a GET URL (TraceQL search has no POST
+		// form); bound it so any accepted filter still fits.
+		if a.TempoService == "" || len(a.TempoAttributes) == 0 ||
+			len(url.QueryEscape(connectors.TempoScopeSelector(a))) > connectors.MaxTempoScopeSelector {
 			return false
 		}
 	default:
 		return false
 	}
 	return connectors.ValidateApplicationScope(a) == nil
+}
+
+// TempoScopeOverlaps reports whether another Tempo scope of the catalog could
+// match the same resources as the scope at key, whatever its connector. A
+// trace read checks spans against registrations, so an overlap could pass a
+// hidden service's spans as this one's (the file registration's rule).
+func (c Catalog) TempoScopeOverlaps(key ScopeKey) bool {
+	scope, ok := c.Scopes[key]
+	if !ok || scope.Provider != "tempo" {
+		return false
+	}
+	for other, candidate := range c.Scopes {
+		if other != key && candidate.Provider == "tempo" &&
+			connectors.TempoSelectorsOverlap(scope.ApplicationTelemetry, candidate.ApplicationTelemetry) {
+			return true
+		}
+	}
+	return false
 }
 
 // ProviderScope keeps only the fields provider reads. Prometheus has no

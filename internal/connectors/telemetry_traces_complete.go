@@ -28,7 +28,48 @@ type CompleteTraceQuery struct {
 	Window          TimeWindow
 	TraceID         string
 	Filter          string
+	// Budget, when set, is shared by the calls of one logical query that
+	// spans several Tempo clients (one per registered connector), so the
+	// search and trace ID limits hold for the query as a whole.
+	Budget *TraceSearchBudget
 }
+
+// TraceSearchBudget counts the searches and distinct trace IDs of one logical
+// query against maxCompleteTraceSearches and maxCompleteTraceIDs. Its zero
+// value is ready to use.
+type TraceSearchBudget struct {
+	searches int
+	ids      map[string]bool
+}
+
+// MaxTempoSearchURI bounds the request URI (path and query) of one Tempo
+// search. TraceQL search has no POST form, and 8 KiB is the smallest common
+// request-line limit of the servers and proxies in front of Tempo.
+const MaxTempoSearchURI = 8192
+
+// MaxTempoScopeSelector bounds a registered scope's URL-encoded selector, so
+// the scope with the longest accepted filter stays within MaxTempoSearchURI.
+const MaxTempoScopeSelector = 6144
+
+// TempoScopeSelector is the TraceQL selector of a registered Tempo scope:
+// its service name and every resource attribute, in key order.
+func TempoScopeSelector(a ApplicationTelemetry) string {
+	clauses := []string{"resource.service.name = " + strconv.Quote(a.TempoService)}
+	keys := make([]string, 0, len(a.TempoAttributes))
+	for key := range a.TempoAttributes {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		clauses = append(clauses, "resource."+key+" = "+strconv.Quote(a.TempoAttributes[key]))
+	}
+	return "{ " + strings.Join(clauses, " && ") + " }"
+}
+
+// TempoSelectorsOverlap reports whether two registered Tempo scopes could
+// match the same resource: same service and no attribute that tells them
+// apart.
+func TempoSelectorsOverlap(a, b ApplicationTelemetry) bool { return tempoSelectorsOverlap(a, b) }
 
 type completeTraceRegistration struct {
 	resource string
@@ -158,7 +199,13 @@ func (t *Telemetry) queryStoredTraces(ctx context.Context, q CompleteTraceQuery,
 	ids := map[string]bool{}
 	registrations := make([]completeTraceRegistration, 0, len(q.Resources))
 	seenResources := map[string]bool{}
-	searches := 0
+	budget := q.Budget
+	if budget == nil {
+		budget = &TraceSearchBudget{}
+	}
+	if budget.ids == nil {
+		budget.ids = map[string]bool{}
+	}
 	for _, resource := range q.Resources {
 		if seenResources[resource] {
 			continue
@@ -190,29 +237,24 @@ func (t *Telemetry) queryStoredTraces(ctx context.Context, q CompleteTraceQuery,
 		if q.TraceID != "" {
 			continue
 		}
-		registration := t.config.Applications[resource]
-		clauses := []string{"resource.service.name = " + strconv.Quote(registration.TempoService)}
-		keys := make([]string, 0, len(registration.TempoAttributes))
-		for key := range registration.TempoAttributes {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-		for _, key := range keys {
-			clauses = append(clauses, "resource."+key+" = "+strconv.Quote(registration.TempoAttributes[key]))
-		}
-		selector := "{ " + strings.Join(clauses, " && ") + " }"
+		selector := TempoScopeSelector(t.config.Applications[resource])
 		if q.Filter != "" {
 			selector += " && " + q.Filter
 		}
 		var search func(int64, int64) error
 		search = func(start, end int64) error {
-			searches++
-			if searches > maxCompleteTraceSearches {
+			budget.searches++
+			if budget.searches > maxCompleteTraceSearches {
 				return failure(&source, "limit", "Trace window requires too many search requests", nil)
 			}
 			source.Query = selector
 			source.URL = strings.TrimRight(t.tempo.config.URL, "/") + "/api/search"
 			params := url.Values{"q": {selector}, "start": {strconv.FormatInt(start, 10)}, "end": {strconv.FormatInt(end, 10)}, "limit": {strconv.Itoa(completeTraceSearchLimit)}}
+			if len("/api/search?"+params.Encode()) > MaxTempoSearchURI {
+				// Refused before sending: an upstream 414 or 431 would read
+				// as an outage rather than a query that is too long.
+				return failure(&source, "request_too_long", "Trace search request exceeds 8 KiB", nil)
+			}
 			raw, err := t.tempo.get(ctx, "/api/search", params, &source)
 			if err != nil {
 				return err
@@ -240,8 +282,8 @@ func (t *Telemetry) queryStoredTraces(ctx context.Context, q CompleteTraceQuery,
 				if id == "" {
 					return failure(&source, "protocol", "Invalid Tempo trace ID", nil)
 				}
-				ids[id] = true
-				if len(ids) > maxCompleteTraceIDs {
+				ids[id], budget.ids[id] = true, true
+				if len(budget.ids) > maxCompleteTraceIDs {
 					return failure(&source, "limit", "Trace population exceeds the bounded result limit", nil)
 				}
 			}

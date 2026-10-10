@@ -2,9 +2,12 @@ package v3telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -114,7 +117,7 @@ func TestParseReaders(t *testing.T) {
 	if readers, err := ParseReaders(" "); err != nil || len(readers) != 0 {
 		t.Fatalf("empty: %v %v", readers, err)
 	}
-	if _, err := ParseReaders("traces"); err == nil {
+	if _, err := ParseReaders("ai_metrics"); err == nil {
 		t.Fatal("a reader whose step is not built was accepted")
 	}
 	if _, err := ParseReaders("nonsense"); err == nil {
@@ -123,8 +126,8 @@ func TestParseReaders(t *testing.T) {
 	if readers, err := ParseReaders("coverage"); err != nil || !readers.Unified(ReaderCoverage) || readers.Unified(ReaderLogs) {
 		t.Fatalf("coverage: %v %v", readers, err)
 	}
-	if readers, err := ParseReaders("coverage,mappings,logs"); err != nil || !readers.Unified(ReaderLogs) || readers.Unified(ReaderTraces) {
-		t.Fatalf("through step 3: %v %v", readers, err)
+	if readers, err := ParseReaders("coverage,mappings,logs,traces"); err != nil || !readers.Unified(ReaderTraces) || readers.Unified(ReaderAIMetrics) {
+		t.Fatalf("through step 4: %v %v", readers, err)
 	}
 	if _, err := ParseReaders("coverage,coverage"); err == nil {
 		t.Fatal("repeated reader accepted")
@@ -198,5 +201,64 @@ func TestClientsBasicAuthAndOptions(t *testing.T) {
 		if (len(notReady) == 0) != ready || (!ready && notReady[0] != "options_invalid") {
 			t.Errorf("options %s: %v", options, notReady)
 		}
+	}
+}
+
+// Stage 2 step 4: the targets of one connector share one client (a Tempo read
+// checks a trace against all of them at once) and one cached credential;
+// sources of different connectors or settings cannot be grouped.
+func TestClientsForGroupAndTempoScopes(t *testing.T) {
+	resolver := &recordingResolver{}
+	clients := &Clients{Tier: "nonprod", Credentials: resolver}
+	tempo := func(resource, service string) Source {
+		return Source{TargetID: "t-" + resource, ConnectorID: "tempo-1", Provider: "tempo", Endpoint: "http://127.0.0.1:3200",
+			AuthMethod: "bearer", CredentialRef: "vault://kv/lab/loki#token", ResourceID: resource,
+			Scope: connectors.ApplicationTelemetry{TempoService: service, TempoAttributes: map[string]string{"deployment.environment": "lab"}}}
+	}
+	group := []Source{tempo("checkout", "checkout"), tempo("orders", "orders")}
+	client, err := clients.ForGroup("dev", group)
+	if err != nil || client == nil {
+		t.Fatalf("group: %v", err)
+	}
+	if again, _ := clients.ForGroup("dev", []Source{group[1], group[0]}); again != client {
+		t.Fatal("the same targets in another order built another client")
+	}
+	if single, _, _ := clients.For("dev", group[0]); single == client {
+		t.Fatal("a single target reused the group client")
+	}
+	for name, bad := range map[string][]Source{
+		"other connector": {group[0], func() Source { s := group[1]; s.ConnectorID = "tempo-2"; return s }()},
+		"other endpoint":  {group[0], func() Source { s := group[1]; s.Endpoint = "http://127.0.0.1:3201"; return s }()},
+		"same resource":   {group[0], group[0]},
+		"not ready":       {group[0], func() Source { s := group[1]; s.NotReady = []string{"scope_missing"}; return s }()},
+		"empty":           {},
+	} {
+		if _, err := clients.ForGroup("dev", bad); !errors.Is(err, ErrClientUnavailable) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+
+	// Tempo scopes: an overlap anywhere in the catalog is reported, and a
+	// selector too long for a GET search is not a valid scope.
+	catalog, err := ParseCatalog([]byte(`{"scopes":[
+ {"connector_id":"tempo-1","application_id":"app","environment_id":"dev","resource_id":"checkout","provider":"tempo","tempo_service":"checkout","tempo_attributes":{"deployment.environment":"lab"}},
+ {"connector_id":"tempo-1","application_id":"app2","environment_id":"dev","resource_id":"orders","provider":"tempo","tempo_service":"orders","tempo_attributes":{"deployment.environment":"lab"}},
+ {"connector_id":"tempo-2","application_id":"hidden","environment_id":"test","resource_id":"orders-copy","provider":"tempo","tempo_service":"orders","tempo_attributes":{"team":"x"}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.TempoScopeOverlaps(ScopeKey{"tempo-1", "app", "dev", "checkout"}) ||
+		!catalog.TempoScopeOverlaps(ScopeKey{"tempo-1", "app2", "dev", "orders"}) {
+		t.Fatal("tempo overlap")
+	}
+	long := strings.Repeat("v", 1000)
+	attributes := map[string]string{}
+	for i := 0; i < 7; i++ {
+		attributes[fmt.Sprintf("k%d", i)] = long
+	}
+	raw, _ := json.Marshal(map[string]any{"scopes": []any{map[string]any{"connector_id": "tempo-1", "application_id": "app",
+		"environment_id": "dev", "resource_id": "wide", "provider": "tempo", "tempo_service": "wide", "tempo_attributes": attributes}}})
+	if _, err := ParseCatalog(raw); err == nil {
+		t.Fatal("a Tempo selector over 6 KiB was accepted")
 	}
 }

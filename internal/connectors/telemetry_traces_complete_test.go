@@ -273,3 +273,98 @@ func TestCompleteTempoOperationUsesSafeRouteInsteadOfRawName(t *testing.T) {
 		t.Fatalf("unreviewed concrete route leaked: traces=%+v error=%v", traces, err)
 	}
 }
+
+// PA-19 P3 stage 2 step 4: one logical query over several Tempo clients
+// shares one budget, so the search and trace ID limits hold for the whole
+// query; a search URI over 8 KiB is refused before it is sent.
+func TestTraceSearchBudgetIsSharedAndLongSearchesAreRefused(t *testing.T) {
+	base := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
+	next := 0
+	searches := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/search":
+			searches++
+			items := []map[string]string{}
+			for i := 0; i < 15; i++ {
+				next++
+				items = append(items, map[string]string{"traceID": fmt.Sprintf("%032x", next)})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"traces": items})
+		case strings.HasPrefix(r.URL.Path, "/api/traces/"):
+			id := strings.TrimPrefix(r.URL.Path, "/api/traces/")
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceSpans": []any{completeTraceBatch(id, "orders", "lab", "v1", "", base)}})
+		}
+	}))
+	defer server.Close()
+	telemetry, err := NewTelemetry(TelemetryConfig{Tempo: TelemetryEndpoint{URL: server.URL, AllowHTTP: true}, Applications: map[string]ApplicationTelemetry{
+		"app": {TempoService: "orders", TempoAttributes: map[string]string{"deployment.environment": "lab"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := CompleteTraceQuery{Resources: []string{"app"}, Window: TimeWindow{Start: base, End: base.Add(30 * time.Second)}}
+	// Alone, each call stays under 40 trace IDs (15 each).
+	for i := 0; i < 3; i++ {
+		if _, err := telemetry.QueryObservedTraces(context.Background(), query); err != nil {
+			t.Fatalf("separate call %d: %v", i, err)
+		}
+	}
+	// Under one budget, the third call takes the query past 40 IDs.
+	query.Budget = &TraceSearchBudget{}
+	for i := 0; i < 2; i++ {
+		if _, err := telemetry.QueryObservedTraces(context.Background(), query); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := telemetry.QueryObservedTraces(context.Background(), query); err == nil || err.(*TelemetryError).Kind != "limit" {
+		t.Fatalf("shared budget not enforced: %v", err)
+	}
+
+	// A filter that would push the search URI over 8 KiB never leaves.
+	before := searches
+	long := map[string]string{}
+	for i := 0; i < 8; i++ {
+		long[fmt.Sprintf("k%d", i)] = strings.Repeat("v", 1000)
+	}
+	telemetry.config.Applications["wide"] = ApplicationTelemetry{TempoService: "wide", TempoAttributes: long}
+	_, err = telemetry.QueryObservedTraces(context.Background(), CompleteTraceQuery{Resources: []string{"wide"},
+		Window: TimeWindow{Start: base, End: base.Add(30 * time.Second)}})
+	if err == nil || err.(*TelemetryError).Kind != "request_too_long" || searches != before {
+		t.Fatalf("long search: %v (searches %d -> %d)", err, before, searches)
+	}
+	if selector := TempoScopeSelector(ApplicationTelemetry{TempoService: "orders", TempoAttributes: map[string]string{"b": "2", "a": "1"}}); selector !=
+		`{ resource.service.name = "orders" && resource.a = "1" && resource.b = "2" }` {
+		t.Fatalf("selector: %s", selector)
+	}
+}
+
+// PA-78: Tempo search drops leading zeroes from trace IDs (29-31 hex digits).
+// The list pads them to the 32 digits the detail route accepts, and reads
+// the trace under that ID.
+func TestCompleteTempoSearchPadsShortTraceIDs(t *testing.T) {
+	const short, full = "abcabcabcabcabcabcabcabcabcab", "000abcabcabcabcabcabcabcabcabcab"
+	base := time.Now().UTC().Add(-time.Minute)
+	var read string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/search":
+			_ = json.NewEncoder(w).Encode(map[string]any{"traces": []map[string]string{{"traceID": short}}})
+		case strings.HasPrefix(r.URL.Path, "/api/traces/"):
+			read = strings.TrimPrefix(r.URL.Path, "/api/traces/")
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceSpans": []any{completeTraceBatch(full, "orders", "lab", "v1", "", base)}})
+		}
+	}))
+	defer server.Close()
+	telemetry, err := NewTelemetry(TelemetryConfig{Tempo: TelemetryEndpoint{URL: server.URL, AllowHTTP: true}, Applications: map[string]ApplicationTelemetry{
+		"app": {TempoService: "orders", TempoAttributes: map[string]string{"deployment.environment": "lab"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := telemetry.QueryObservedTraces(context.Background(), CompleteTraceQuery{Resources: []string{"app"},
+		Window: TimeWindow{Start: base.Add(-time.Minute), End: base.Add(time.Minute)}})
+	if err != nil || len(observed.Traces) != 1 || observed.Traces[0].ID != full || read != full || !ValidTraceID(observed.Traces[0].ID) {
+		t.Fatalf("short ID: %+v read=%q %v", observed.Traces, read, err)
+	}
+}

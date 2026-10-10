@@ -215,6 +215,20 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 	visibleAppKeys := map[string]string{}
 	visibleBindings := map[string][]core.Binding{}
 	visibleRows := map[string]mappingCatalogRow{}
+	visibleTargets := map[string][]registryTarget{}
+	var targets map[string][]registryTarget
+	if s.MappingsUnified {
+		var err error
+		targets, err = mappingRegistryTargets(ctx, s.Store.DB, envs, "")
+		if errors.Is(err, errMappingTargetLimit) {
+			httpapi.Error(w, 422, "result_limit", "Narrow the environment scope")
+			return
+		}
+		if err != nil {
+			httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
+			return
+		}
+	}
 	order := []string{}
 	count := 0
 	var cursorKey, cursorEnv, cursorID string
@@ -248,9 +262,11 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 				httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
 				return
 			}
+			serviceTargets := targets[item.appID+"\x00"+item.env]
 			if singleEnvironment {
 				visibleBindings[item.appID] = bindings
 				visibleRows[item.appID] = item
+				visibleTargets[item.appID] = serviceTargets
 			}
 			row, found := byName[item.key]
 			if !found {
@@ -258,12 +274,10 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 				byName[item.key] = row
 				order = append(order, item.key)
 			}
-			for _, b := range bindings {
-				id := mappingKind(b.Kind)
-				if id == "" || strings.TrimSpace(b.Resource) == "" {
-					continue
+			addCell := func(id, value, brand string) {
+				if id == "" || strings.TrimSpace(value) == "" {
+					return
 				}
-				value := b.Resource
 				if len(envs) > 1 {
 					value = item.env + ": " + value
 				}
@@ -273,9 +287,20 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 						cell.Value += ", " + value
 					}
 				} else {
-					cell = mappingCell{State: "ok", Value: value, Brand: b.Kind}
+					cell = mappingCell{State: "ok", Value: value, Brand: brand}
 				}
 				row.Cells[id] = cell
+			}
+			cellBindings := bindings
+			if s.MappingsUnified {
+				// Registry systems come from targets, the rest stays legacy.
+				cellBindings = legacyKept(bindings)
+				for _, target := range serviceTargets {
+					addCell(target.System, target.Resource, target.Provider)
+				}
+			}
+			for _, b := range cellBindings {
+				addCell(mappingKind(b.Kind), b.Resource, b.Kind)
 			}
 		}
 		if len(batch) < catalogPageSize {
@@ -318,6 +343,9 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				view := s.mappingSaveProjection(item, visibleBindings[appID])
+				if s.MappingsUnified {
+					view = s.registrySaveProjection(item, visibleBindings[appID], visibleTargets[appID])
+				}
 				byName[item.key].Save = &view
 			}
 			pending, err := s.currentMappingSuggestions(ctx, envs[0], visibleAppIDs)

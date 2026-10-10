@@ -139,11 +139,11 @@ func TestRegisteredV3PullUsesBoundPrometheusAndVault(t *testing.T) {
 	prometheus := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		queries.Add(1)
 		if r.URL.Path != "/api/v1/query_range" || r.Header.Get("Authorization") != "Bearer test-bearer-only" ||
-			r.URL.Query().Get("query") != expression {
+			r.FormValue("query") != expression {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		start, err := time.Parse(time.RFC3339Nano, r.URL.Query().Get("start"))
+		start, err := time.Parse(time.RFC3339Nano, r.FormValue("start"))
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return

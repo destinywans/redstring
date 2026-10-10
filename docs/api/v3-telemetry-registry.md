@@ -17,7 +17,7 @@
 }
 ```
 
-- `queries` 规则不变：每条表达式最多 2048 字符，键为连接器、应用、环境、资源和查询 ID。现有 Prometheus 读取方（看板、服务视图、Pull、拓扑、指标提问）照常使用。
+- `queries`：每条表达式最多 8192 字符（PA-43，原为 2048），键为连接器、应用、环境、资源和查询 ID。读取方（看板、服务视图、Pull、拓扑、指标提问、回滚验证）用 POST 表单（`application/x-www-form-urlencoded`）发查询，表达式不出现在 URL 里；查询窗口规范到毫秒。
 - `scopes` 字段名与 `AIOPS_TELEMETRY_CONFIG.applications` 相同，每条只能填自己供应商的字段，并沿用相同的校验（标签名、Elasticsearch 字段不得带 `.keyword`、Tempo 必须有属性范围等）。范围里不能写 PromQL。
 - 两个变量只能设一个，同时设置会启动失败。旧文件（只有 `queries`）可以直接改用新变量名。
 - 目录决定数据范围，只放在服务端；集成中心看不到也不能编辑。
@@ -62,7 +62,7 @@ aiops connectors compare -out report.json
 | `existing_target_other_source` / `existing_targets_ambiguous` | 服务已在别的连接器上绑定了这类数据，或已有多条 |
 | `target_owned_by_other_service` | 同一资源已归属另一个服务 |
 | `resource_id_invalid` | 资源名不符合目录键格式 |
-| `query_invalid:<id>` / `query_conflict:<id>` | 表达式超过 2048 字符或格式不合规 / 目录里同键已有不同表达式 |
+| `query_invalid:<id>` / `query_conflict:<id>` | 表达式超过 8192 字符或格式不合规 / 目录里同键已有不同表达式 |
 | `scope_conflict` | 目录里同键已有不同范围 |
 | `workload_name_invalid` | Kubernetes 命名空间或 Deployment 不是 DNS-1123 标签 |
 
@@ -73,7 +73,21 @@ aiops connectors compare -out report.json
   - 不阻塞读取：队列满时丢弃并计数。同一绑定 10 分钟内只比较一次。
   - 结果有变化时写日志 `source registry compare`。字段只有数据面、应用 ID、环境 ID、旧供应商、`state` 和 `reasons`，不含端点、选择器或表达式。
   - 每 15 分钟写一条 `source registry compare summary` 计数。进程没有指标导出器，所以计数只写在日志里。
-- `unified`：P3 才有，现在设置会启动失败。
+- `unified`：第二阶段第 8 步才开放，现在设置会启动失败。
+
+### 逐个读取方切换 `AIOPS_V3_UNIFIED_READERS`（第二阶段过渡期）
+
+- 取值为逗号分隔的读取方，列出的读取方改读统一登记，其余照旧；`compare` 模式下没列出的读取方继续记录对照日志。
+- 可选名称随实施步骤开放（设计稿第 10.3 节）：`coverage`、`mappings`、`logs`、`traces`、`ai_metrics`、`mapping_writes`、`registrations`。目前已开放：
+  - `coverage`（第 1 步）：覆盖度的指标、日志、链路单元格由解析器给出，未就绪时 `availability=not_ready` 并写明原因，旧应用绑定不再计入。
+  - `mappings`（第 2 步）：服务映射的指标、日志、链路、工作负载读统一登记的目标（真实连接器 ID），在第 6 步之前只读（`registry_cutover`）；代码绑定和 GitLab 候选接受照旧；部署和看板只读（`system_not_supported`）。编辑器的选项见 `GET /services/{id}/external-targets/options`。
+  - 写了还没开放的名称，或者同一个名称写了两次，服务都拒绝启动；
+  - 启动日志 `source registry` 打印模式和已切换的读取方。
+- 回退：从变量里去掉该读取方并重启，不删任何数据。第 6 步（`mapping_writes`）之后回退前先跑一次 `aiops connectors compare`，见设计稿第 10.4 节。
+- **改读统一登记的日志和 Trace 读取方怎样读取**：
+  - 按目标构造客户端：端点、租户和认证方式取连接器的，范围取目录的；
+  - 凭据经凭据批准从 Vault 读取，在内存里缓存 60 秒，收到 401/403 立即丢弃；
+  - Prometheus 和 Loki 的查询用 POST 表单，Tempo 仍用 GET。
 
 | `state` | 含义 |
 | --- | --- |

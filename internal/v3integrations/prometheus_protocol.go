@@ -44,9 +44,12 @@ func queryRegisteredPrometheus(ctx context.Context, rawEndpoint, authMethod, cre
 			}
 		}
 	}
-	if strings.TrimSpace(expression) == "" || len(expression) > 2048 {
+	if strings.TrimSpace(expression) == "" || len(expression) > MaxPrometheusExpression {
 		return nil, prometheusQueryError("invalid_query")
 	}
+	// Prometheus evaluates at millisecond resolution; the request and the
+	// sample bounds below use the same millisecond window (PA-73).
+	window.Start, window.End = window.Start.Truncate(time.Millisecond), window.End.Truncate(time.Millisecond)
 	now := time.Now()
 	duration := window.End.Sub(window.Start)
 	if window.Start.IsZero() || window.End.IsZero() || duration <= 0 || duration > time.Hour || window.Start.Before(now.Add(-24*time.Hour)) || window.End.After(now.Add(time.Minute)) || window.StepSeconds < 15 || window.StepSeconds > 3600 || int64(duration/time.Second)/int64(window.StepSeconds)+1 > 500 {
@@ -55,7 +58,9 @@ func queryRegisteredPrometheus(ctx context.Context, rawEndpoint, authMethod, cre
 	endpoint := *base
 	endpoint.Path = strings.TrimRight(base.Path, "/") + "/api/v1/query_range"
 	endpoint.RawPath = ""
-	endpoint.RawQuery = url.Values{
+	// A POST form keeps the reviewed expression out of URLs, proxy limits
+	// and access logs (PA-43).
+	form := url.Values{
 		"query":   {expression},
 		"start":   {window.Start.UTC().Format(time.RFC3339Nano)},
 		"end":     {window.End.UTC().Format(time.RFC3339Nano)},
@@ -65,10 +70,11 @@ func queryRegisteredPrometheus(ctx context.Context, rawEndpoint, authMethod, cre
 	}.Encode()
 	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint.String(), nil)
+	request, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint.String(), strings.NewReader(form))
 	if err != nil {
 		return nil, prometheusQueryError("invalid_endpoint")
 	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if authMethod == "bearer" {
 		request.Header.Set("Authorization", "Bearer "+credential)
 	}
@@ -204,7 +210,7 @@ func queryRegisteredPrometheusInstant(ctx context.Context, rawEndpoint, authMeth
 			}
 		}
 	}
-	if strings.TrimSpace(expression) == "" || len(expression) > 2048 {
+	if strings.TrimSpace(expression) == "" || len(expression) > MaxPrometheusExpression {
 		return nil, prometheusQueryError("invalid_query")
 	}
 	at = at.UTC().Truncate(time.Millisecond)
@@ -214,14 +220,15 @@ func queryRegisteredPrometheusInstant(ctx context.Context, rawEndpoint, authMeth
 	endpoint := *base
 	endpoint.Path = strings.TrimRight(base.Path, "/") + "/api/v1/query"
 	endpoint.RawPath = ""
-	endpoint.RawQuery = url.Values{"query": {expression}, "time": {at.Format(time.RFC3339Nano)}, "timeout": {"5s"},
+	form := url.Values{"query": {expression}, "time": {at.Format(time.RFC3339Nano)}, "timeout": {"5s"},
 		"limit": {"100"}}.Encode()
 	requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint.String(), nil)
+	request, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint.String(), strings.NewReader(form))
 	if err != nil {
 		return nil, prometheusQueryError("invalid_endpoint")
 	}
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	if authMethod == "bearer" {
 		request.Header.Set("Authorization", "Bearer "+credential)
 	}

@@ -329,11 +329,11 @@ MCP 审核的三个辅助接口 `GET /mcp-servers/{id}/review-candidate`、`POST
 Pull 仅使用服务端私有配置登记的 Prometheus `metric_resource` 目标及经审核的应用/环境受限查询；来源 ID 固定应用、环境、连接器、目标与查询摘要，变更身份须换新 ID。GET 实时运行单次有界 `query_range`，返回规范化样例和预览，不返回原始上游正文、PromQL 或凭据；POST 只接受空对象或经白名单约束的 `name_label` 与 `label_keys` 映射，计数来自本次真实查询。两路都要求当前应用/团队服务查看和连接器查看，测试另需连接器管理；单环境、当前会话、目标和授权在上游读取后再核。按来源与操作者的持久预算超限返回 429，上游警告、截断或不完整返回 502，审计与尝试只存净化摘要。配置为空时没有来源，未知 ID 返回 404；冻结页面仍取固定 Mock ID，编辑/测试控件未向真实接口提交。运维必须审核查询在 Prometheus 数据层的应用/环境范围；本机替身验证不能证明生产来源或 Vault 已连通。见 [Pull 来源边界](../examples/v3-pull-ingress.md)。
 | GET | `/ingest/push` | | `PushView`（当前授权来源的真实计数与收据、签名协议说明、未部署配套栈）；无来源显示未配置 | implemented |
 | POST | `/ingest/push/test` | `{ type }` | `{ code: 202, receipt_id }`；持久化 synthetic 事件，不计入真实事件数 | implemented |
-| GET | `/service-mappings` | | `ServiceMapping` | implemented |
+| GET | `/service-mappings` | | `ServiceMapping`；`AIOPS_V3_UNIFIED_READERS` 含 `mappings` 时，指标、日志、链路、工作负载来自统一登记的目标，`connector_id` 是真实连接器 ID，代码、部署、看板仍是已存的绑定（PA-19 第二阶段第 2 步） | implemented |
 | POST | `/service-mappings/accept` | `{ candidates: [{ id, version, service_id, environment_id, system_id, binding_revision }] }` | `{ accepted, items }` | implemented |
 | POST | `/service-mappings/discover` | | `{ suggestions, source_state, candidates }` | implemented |
-| PUT | `/service-mappings` | `{ environment_id, items: [{ service_id, service_environment_id, binding_revision, bindings }] }`；1–50 个完整替换项 | `{ environment_id, items }`；返回持久身份、绑定及写后修订号 | implemented |
-| GET | `/coverage` | 单个可选 `app`（精确应用 ID 或 key） | 授权应用/环境的配置证据矩阵；实时覆盖、评分与 Agent 影响未知值为 `null` 或明确可用性 | implemented |
+| PUT | `/service-mappings` | `{ environment_id, items: [{ service_id, service_environment_id, binding_revision, bindings }] }`；1–50 个完整替换项 | `{ environment_id, items }`；返回持久身份、绑定及写后修订号；统一登记模式（第 2–5 步）下指标、日志、链路、工作负载必须与登记一致，否则 422 `registry_cutover`，部署和看板必须与已存绑定一致，否则 422 `system_not_supported`，一类有多个目标为 409 `ambiguous_targets`，只能保留或移除代码绑定 | implemented |
+| GET | `/coverage` | 单个可选 `app`（精确应用 ID 或 key） | 授权应用/环境的配置证据矩阵；实时覆盖、评分与 Agent 影响未知值为 `null` 或明确可用性；`AIOPS_V3_UNIFIED_READERS` 含 `coverage` 时，指标、日志、链路单元格由统一登记给出：已就绪为 `configured_unverified`，已登记但未就绪为 `state=partial`、`availability=not_ready`（`text` 写原因，或"登记了多个来源"），未登记为 `not_configured`，旧应用绑定不再计入；变更单元格只看代码和交付目标（PA-67） | implemented |
 | GET | `/webhooks` | | 当前授权通用 Push 与原生 Alertmanager/GitLab 入站登记；通用 Push 的 24 小时非合成收据、Alertmanager 的已入库接收次数，GitLab 历史次数未知；未接类别以 `availability: not_connected` 标记 | implemented |
 | POST | `/webhooks/{id}/redeliver` | | 结果 | mock |
 | POST | `/api-tokens` | 单环境、当前真人 Cookie 会话；`{ name, scopes: ["connectors:view"], ttl }`，TTL 为 1 小时/1 天/7 天/30 天 | 当前有权时原子签发 256 位随机密钥，只保存 SHA-256；返回元数据和仅一次可见的 `secret_shown_once`，可用于该环境的精确 `GET /connectors` Bearer 读取 | implemented |
@@ -519,6 +519,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | GET | `/services/{id}/rollback-candidates` | | `{ service_id, application_id, environment_id, workload, verification, candidates, blocked_reason, observed_at }`；详见 [回滚契约](v3-rollback.md) | 服务详情 / 调查 › 提议回滚 | v1.1·已实现 |
 | POST | `/rollback-proposals` | `{ investigation_id, service_id, target_revision, expected_template_digest, reason }` + `Idempotency-Key` | `201 { proposal_id, status: pending, action_kind }`；详见 [回滚契约](v3-rollback.md) | 提案抽屉 › 提交回滚提案 | v1.1·已实现 |
 | GET | `/investigations/{id}/nodes/{node}/replies` | `page_size?`（1–50，默认 20）、`cursor?` | `{ investigation_id, node_id, replies: [{ id, text, author, answer, state, failure_code, model, reasoning, created_at, completed_at, evidence_ids, rollback_suggestion }], has_more, next_cursor }`；本分支 AI 回复从新到旧，详见下方辅助接口说明 | 调查画布 › 节点对话历史 | v1.1·已实现 |
+| GET | `/services/{id}/external-targets/options` | | `{ service_id, environment_id, systems: [{ system_id, editable, unavailable_reason, current: { target_id, connector_id, resource_id } \| null, options: [{ connector_id, name, provider, ready, not_ready, resources }] }] }`；`unavailable_reason` 取 `registry_not_enabled`、`registry_cutover`、`system_not_supported`、`ambiguous_targets`、`forbidden` 或 `null`；需要 `services.view`（否则 404）和 `connectors.view`（否则 403）（PA-19 第二阶段第 2 步） | 集成 › 服务映射编辑器 | v1.1·已实现 |
 
 **服务端查询参数**。以下参数已进入真实查询、聚合或排序；维度内多值 OR、不同维度 AND，均保留当前 ACL。`sort`、`tab`、`source`、`range` 是单值参数：
 

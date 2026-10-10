@@ -58,9 +58,9 @@ func LoadPrometheusQueryCatalog(path string) (map[PrometheusQueryKey]string, err
 	return catalog, nil
 }
 
-// MaxPrometheusExpression bounds one reviewed expression. The reader sends it
-// in a GET query string, so a longer limit also needs a POST request.
-const MaxPrometheusExpression = 2048
+// MaxPrometheusExpression bounds one reviewed expression (PA-43: 8 KiB). The
+// reader sends it in a POST form, never in a URL.
+const MaxPrometheusExpression = 8192
 
 // PrometheusQueryValid is the catalog rule for one reviewed expression.
 func PrometheusQueryValid(key PrometheusQueryKey, expression string) bool {

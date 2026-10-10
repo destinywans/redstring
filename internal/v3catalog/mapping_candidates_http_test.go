@@ -18,6 +18,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 func TestMappingBindingSupportedUsesLegacyRuntimePolicy(t *testing.T) {
@@ -85,6 +86,16 @@ func waitForMappingServiceLock(t *testing.T, db *pgxpool.Pool, lockerPID int32) 
 }
 
 func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
+	testMappingCandidateDiscoveryAndAcceptance(t, false)
+}
+
+// PA-19 P3 stage 2 step 2: with the mappings reader switched to the registry,
+// the GitLab code candidates are still reviewed and accepted as before.
+func TestMappingCandidateAcceptanceWithRegistryMappings(t *testing.T) {
+	testMappingCandidateDiscoveryAndAcceptance(t, true)
+}
+
+func testMappingCandidateDiscoveryAndAcceptance(t *testing.T, unified bool) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL required; creates and drops one isolated schema")
@@ -154,7 +165,12 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 	}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	New(st, policy, "dev").Register(api)
+	catalogService := New(st, policy, "dev")
+	if unified {
+		catalogService.Registry = &v3telemetry.Resolver{Tier: "nonprod"}
+		catalogService.MappingsUnified = true
+	}
+	catalogService.Register(api)
 	// No legacy connector is registered in this fixture. Model the platform
 	// policy: an empty legacy set passes; every unregistered kind, including
 	// GitLab, is rejected by the global writer.

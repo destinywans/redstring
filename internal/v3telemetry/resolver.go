@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sort"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/connectors"
@@ -36,6 +37,9 @@ type Source struct {
 	AuthMethod  string
 	ResourceID  string
 	TenantID    string
+	// CredentialRef is the connector's Vault reference ("" without auth);
+	// a reader resolves it through the approved credential bindings.
+	CredentialRef string
 	// Scope is the provider's reviewed scope; empty for Prometheus.
 	Scope connectors.ApplicationTelemetry
 	// Queries are Prometheus's reviewed expressions by query ID.
@@ -76,6 +80,7 @@ func (r *Resolver) Resolve(ctx context.Context, q Querier, applicationID, enviro
 			&enabled, &tools, &options, &s.ResourceID); err != nil {
 			break
 		}
+		s.CredentialRef = credentialRef
 		s.NotReady = r.readiness(&s, environmentID, credentialRef, enabled, tools, options)
 		found = append(found, s)
 	}
@@ -160,4 +165,80 @@ func toolEnabled(raw []byte, name string) bool {
 		}
 	}
 	return false
+}
+
+// ConnectorState is a registered connector as the mapping options read it
+// (PA-19 P3 stage 2 step 2).
+type ConnectorState struct {
+	ID, Provider, Endpoint, AuthMethod, CredentialRef string
+	Enabled                                           bool
+	Tools, Options                                    []byte
+}
+
+// Readiness lists why a connector cannot serve reads in environmentID yet,
+// with the same rules Resolve applies to a target's connector: enabled, its
+// read tool on, valid options and an approved credential.
+func (r *Resolver) Readiness(environmentID string, c ConnectorState) []string {
+	var notReady []string
+	if !c.Enabled {
+		notReady = append(notReady, "connector_disabled")
+	}
+	if tool := readTool(c.Provider); tool != "" && !toolEnabled(c.Tools, tool) {
+		notReady = append(notReady, "tool_disabled")
+	}
+	if _, ok := parseOptions(c.Options); !ok {
+		notReady = append(notReady, "options_invalid")
+	}
+	if c.AuthMethod != "none" {
+		if c.CredentialRef == "" {
+			notReady = append(notReady, "credential_missing")
+		} else if !r.Approvals.Allowed(r.Tier, environmentID, c.ID, c.Provider, c.Endpoint, c.CredentialRef) {
+			notReady = append(notReady, "credential_not_approved")
+		}
+	}
+	return notReady
+}
+
+// readTool is the registry tool that gates a provider's reads ("" for none).
+func readTool(provider string) string {
+	if provider == WorkloadProvider {
+		return WorkloadTool
+	}
+	return telemetryProviders[provider].tool
+}
+
+// ResourceIDs lists, sorted, the resource IDs the catalog reviewed for this
+// connector, application and environment: Prometheus query resources, the
+// provider's scopes, or Kubernetes workloads.
+func (c Catalog) ResourceIDs(connectorID, applicationID, environmentID, provider string) []string {
+	seen := map[string]bool{}
+	match := func(key ScopeKey) bool {
+		return key.ConnectorID == connectorID && key.ApplicationID == applicationID && key.EnvironmentID == environmentID
+	}
+	switch provider {
+	case "prometheus":
+		for key := range c.Queries {
+			if key.ConnectorID == connectorID && key.ApplicationID == applicationID && key.EnvironmentID == environmentID {
+				seen[key.ResourceID] = true
+			}
+		}
+	case WorkloadProvider:
+		for key := range c.Workloads {
+			if match(key) {
+				seen[key.ResourceID] = true
+			}
+		}
+	default:
+		for key, scope := range c.Scopes {
+			if match(key) && scope.Provider == provider {
+				seen[key.ResourceID] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for id := range seen {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
 }

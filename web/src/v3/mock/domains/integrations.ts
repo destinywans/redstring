@@ -295,8 +295,7 @@ mock("POST", "/ingest/push/test", () => ({ code: 202 }));
 const ok = (value: string, brand?: string) => ({ state: "ok", value, brand });
 const sug = (value: string) => ({ state: "suggested", value });
 const miss = { state: "missing" };
-mock("GET", "/service-mappings", () => ({
-  systems: [
+const MAP_SYSTEMS = [
     { id: "metrics", brand: "prometheus", label: P("指标", "Metrics") },
     { id: "logs", brand: "elasticsearch", label: P("日志", "Logs") },
     { id: "traces", brand: "tempo", label: P("链路", "Traces") },
@@ -304,8 +303,8 @@ mock("GET", "/service-mappings", () => ({
     { id: "deploy", brand: "argo", label: P("部署", "Deploy") },
     { id: "dash", brand: "grafana", label: P("看板", "Dashboards") },
     { id: "workload", brand: "kubernetes", label: P("工作负载", "Workload") },
-  ],
-  rows: [
+];
+const MAP_ROWS: { service: string; cells: Record<string, { state: string; value?: string; brand?: string }> }[] = [
     { service: "checkout-api", cells: { metrics: ok("job=checkout"), logs: ok("logs-checkout-*"), traces: ok("checkout-api"), code: ok("platform/checkout"), deploy: ok("checkout-prod"), dash: ok("svc-overview"), workload: ok("aiops-lab/checkout-api") } },
     { service: "payment-gateway", cells: { metrics: ok("job=payment"), logs: ok("logs-payment-*"), traces: sug("payment-gw"), code: ok("platform/payment"), deploy: ok("payment-prod"), dash: ok("svc-overview"), workload: ok("pay/payment-gateway") } },
     { service: "order-service", cells: { metrics: ok("job=order"), logs: ok("logs-order-*"), traces: ok("order-service"), code: ok("shop/order-service", "github"), deploy: ok("order-prod"), dash: ok("svc-overview"), workload: ok("trade/order-service") } },
@@ -313,12 +312,74 @@ mock("GET", "/service-mappings", () => ({
     { service: "user-center", cells: { metrics: ok("job=user"), logs: ok("logs-user-*"), traces: miss, code: ok("user-center-release", "jenkins"), deploy: sug("user-center-prod"), dash: ok("svc-overview"), workload: ok("account/user-center") } },
     { service: "search-api", cells: { metrics: ok("job=search"), logs: ok("logs-search-*"), traces: miss, code: ok("platform/search"), deploy: ok("search-prod"), dash: ok("search-latency"), workload: ok("search/search-api") } },
     { service: "notification-svc", cells: { metrics: ok("job=notify"), logs: sug("logs-notify-*"), traces: miss, code: ok("platform/notify"), deploy: ok("notify-prod"), dash: miss, workload: ok("platform/notification-svc") } },
-  ],
-  suggestions: 5,
-}));
+];
+// Registry stage 2 (approved editor design): each row's save snapshot with real connector IDs, and per data plane the
+// connectors of this environment plus the reviewed catalog resources the editor offers.
+const MAP_CONNECTOR: Record<string, [string, string]> = { metrics: ["lab-prometheus", "prometheus"], logs: ["lab-elasticsearch", "elasticsearch"], traces: ["lab-tempo", "tempo"], workload: ["lab-kubernetes", "kubernetes"], code: ["gitlab", "gitlab"], deploy: ["argo", "argocd"], dash: ["grafana", "grafana"] };
+const mapSave = (r: (typeof MAP_ROWS)[number]) => {
+  const bindings = Object.entries(r.cells)
+    .filter(([sys, c]) => c.state === "ok" && c.value && MAP_CONNECTOR[sys])
+    .map(([sys, c]) => ({ system_id: sys, kind: MAP_CONNECTOR[sys][1], connector_id: MAP_CONNECTOR[sys][0], resource: sys === "logs" && r.service === "payment-gateway" ? "logs-payment-old" : (c.value as string) }));
+  // order-service stands for the stage 2–5 window: telemetry rows read-only until mapping writes switch over.
+  if (r.service === "order-service") return { service_id: r.service, service_environment_id: "prod", binding_revision: 6, bindings, editable: false, unavailable_reason: "registry_cutover" };
+  return { service_id: r.service, service_environment_id: "prod", binding_revision: 6, bindings, editable: true };
+};
+const keyOfService = (id: string) => {
+  try {
+    const raw = atob(id.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(id.length / 4) * 4, "="));
+    const i = raw.indexOf("\u0000");
+    return i > 0 ? raw.slice(0, i) : id;
+  } catch {
+    return id;
+  }
+};
+const mapOptions = (service: string) => {
+  const r = MAP_ROWS.find((x) => x.service === service);
+  const v = (sys: string) => (r?.cells[sys]?.state === "ok" ? r.cells[sys].value : undefined);
+  return {
+    service_id: service,
+    environment_id: "prod",
+    systems: {
+      metrics: {
+        connectors: [
+          { id: "lab-prometheus", name: "lab-prometheus", provider: "Prometheus", ready: true },
+          { id: "lab-victoriametrics", name: "lab-victoriametrics", provider: "VictoriaMetrics", ready: false, not_ready_reason: P("读凭据未批准", "Read credential not approved") },
+        ],
+        resources: [v("metrics"), v("metrics") && `${v("metrics")}-canary`].filter(Boolean).map((id) => ({ id: id as string, connector_id: "lab-prometheus" })),
+      },
+      logs: {
+        connectors: [
+          { id: "lab-elasticsearch", name: "lab-elasticsearch", provider: "Elasticsearch", ready: true },
+          { id: "lab-loki", name: "lab-loki", provider: "Loki", ready: true },
+        ],
+        // inventory-worker has nothing registered for logs: the editor says the deployer has to add it.
+        resources:
+          service === "inventory-worker"
+            ? []
+            : [
+                ...(service === "payment-gateway" ? ["logs-payment-*"] : [v("logs") ?? `logs-${service}-*`]).map((id) => ({ id, connector_id: "lab-elasticsearch" })),
+                { id: `{app="${service}"}`, connector_id: "lab-loki" },
+              ],
+      },
+      // user-center: no trace connector in this environment yet.
+      traces: { connectors: service === "user-center" ? [] : [{ id: "lab-tempo", name: "lab-tempo", provider: "Tempo", ready: true }], resources: [{ id: service, connector_id: "lab-tempo" }] },
+      workload: { connectors: [{ id: "lab-kubernetes", name: "lab-kubernetes", provider: "Kubernetes", ready: true }], resources: [{ id: v("workload") ?? `aiops-lab/${service}`, connector_id: "lab-kubernetes" }] },
+    },
+  };
+};
+mock("GET", "/service-mappings", () => ({ systems: MAP_SYSTEMS, rows: MAP_ROWS.map((r) => ({ ...r, save: mapSave(r) })), suggestions: 5 }));
+mock("GET", "/services/:id/external-targets/options", ({ params }) => mapOptions(keyOfService(params.id)));
 mock("POST", "/service-mappings/accept", ({ body }) => ({ accepted: (body as { cells?: unknown[] })?.cells?.length ?? 5 }));
 mock("POST", "/service-mappings/discover", () => ({ suggestions: 5 }));
-mock("PUT", "/service-mappings", () => ({ ok: true }));
+mock("PUT", "/service-mappings", ({ body }) => {
+  const item = (body as { items?: { service_id: string; bindings: { system_id: string; resource: string }[] }[] })?.items?.[0];
+  if (item) {
+    const o = mapOptions(item.service_id).systems as Record<string, { resources: { id: string }[] }>;
+    const bad = item.bindings.find((b) => o[b.system_id] && !o[b.system_id].resources.some((r) => r.id === b.resource));
+    if (bad) throw new MockError(422, "resource_not_in_catalog", `${bad.resource} is not in the catalog`);
+  }
+  return { ok: true };
+});
 
 /* ---------------- coverage ---------------- */
 const c = (state: string, extra: Record<string, unknown> = {}) => ({ state, ...extra });

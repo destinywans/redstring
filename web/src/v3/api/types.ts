@@ -841,6 +841,16 @@ export type MappingCandidate = { id: string; version: string; service_id: string
 export type MappingCell = { state: "ok" | "suggested" | "missing"; value?: string; brand?: string; candidate?: MappingCandidate };
 /** Per-row save snapshot for PUT /service-mappings (see docs/examples/v3-service-mapping-save.md); absent rows aren't editable. */
 export type MappingSave = { service_id: string; service_environment_id: string; binding_revision: number; bindings: { system_id: string; kind: string; connector_id: string; resource: string }[]; editable: boolean; unavailable_reason?: string };
+/**
+ * GET /services/{id}/external-targets/options (registry stage 2, step 6): per data plane, this environment's connectors
+ * and the reviewed catalog resource IDs for the service. Field names are provisional until the backend contract lands;
+ * a connector that isn't ready is listed with its reason and can't be chosen.
+ */
+export type ExternalTargetOptions = {
+  service_id: string;
+  environment_id: string;
+  systems: Record<string, { connectors: { id: string; name: string; provider: string; ready?: boolean; not_ready_reason?: string | null }[]; resources: { id: string; connector_id?: string | null }[] }>;
+};
 export type ServiceMapping = {
   systems: { id: string; brand: string; label: string }[];
   rows: { service: string; cells: Record<string, MappingCell>; save?: MappingSave }[];

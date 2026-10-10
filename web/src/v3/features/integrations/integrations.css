@@ -475,8 +475,27 @@ a.cov-miss:hover {
 }
 .map-edit-row {
   display: grid;
-  grid-template-columns: 64px minmax(0, 1fr) minmax(0, 1.3fr);
+  grid-template-columns: 80px minmax(0, 1.15fr) minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+/* Connector and resource pickers fill their column like select boxes; long names are cut with an ellipsis. */
+.map-edit-row .demo-chip {
+  display: block;
+  min-width: 0;
+}
+.map-edit-row .demo-chip .v3-chip {
+  width: 100%;
+  justify-content: space-between;
+  overflow: hidden;
+}
+.map-edit-row .demo-chip .v3-chip > .ellipsis {
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+}
+.map-edit-note {
+  font-size: var(--fs-sub);
+  margin-top: -2px;
 }

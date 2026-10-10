@@ -166,7 +166,8 @@ export default function MappingPage() {
                       </Row>
                     </th>
                   ))}
-                  {!demo && <th style={{ width: 120 }} />}
+                  {/* Rows carry a save snapshot when they can be edited row by row (real data, and the sample since stage 2). */}
+                  {data.rows.some((r) => r.save) && <th style={{ width: 120 }} />}
                 </tr>
               </thead>
               <tbody className="stagger">
@@ -183,7 +184,7 @@ export default function MappingPage() {
                         {cell(r.service, s.id, r.cells[s.id])}
                       </td>
                     ))}
-                    {!demo && (
+                    {data.rows.some((x) => x.save) && (
                       <td>
                         {r.save?.editable ? (
                           <Btn h={26} icon="edit" onClick={() => setEditing({ service: r.service, save: r.save! })}>
@@ -205,7 +206,7 @@ export default function MappingPage() {
           )}
         </Card>
       </div>
-      {!demo && data && (
+      {data && data.rows.some((r) => r.save) && (
         <MappingEditor
           row={editing}
           systems={data.systems}

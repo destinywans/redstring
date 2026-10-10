@@ -9,7 +9,8 @@ an explicit state (200 with `unavailable`/null fields, or 502/503/501 with an er
 code; never 500 or a hang) → prod zh-CN dark crawl into .local/acceptance/e2e/fault-<name>
 (uncaught exceptions and blank pages fail) and screenshots tagged fault-<name> →
 `docker start` → probes must return to their baseline status within 3 minutes.
-Writes .local/acceptance/e2e/faults/<name>.json. The container is always started
+Writes .local/acceptance/e2e/faults/<name>.json and exits 1 unless the baseline is healthy (2xx),
+the outage answers explicitly, the crawl passes and the probes recover. The container is always started
 again, even when a stage fails. Lab containers only; nothing else is touched.
 """
 import argparse
@@ -31,7 +32,7 @@ FAULTS = {
     'tempo': {'container': 'aiops-enterprise-tempo-1', 'ready': 'http://127.0.0.1:13200/ready',
               'probes': ['/traces?scope=app'], 'pages': ['/traces']},
     'prometheus': {'container': 'aiops-test-prometheus-1', 'ready': 'http://127.0.0.1:19090/-/ready',
-                   'probes': ['/services', '/services/{svc}', '/metrics/dashboard', '/home'], 'pages': ['/', '/services', '/metrics']},
+                   'probes': ['/services', '/services/{svc}', '/metrics/dashboard?service=checkout-api&range=1h', '/home'], 'pages': ['/', '/services', '/metrics']},
     'elasticsearch': {'container': 'aiops-enterprise-elasticsearch-1', 'ready': None,
                       'probes': ['/logs', '/knowledge-sources'], 'pages': ['/logs', '/knowledge-sources']},
     'alertmanager': {'container': 'aiops-test-alertmanager-1', 'ready': 'http://127.0.0.1:19093/-/ready',
@@ -82,7 +83,10 @@ def main():
     pages = [p.replace('{svc}', svc) for p in spec['pages']]
     report = {'fault': a.fault, 'container': spec['container'], 'started_at': time.strftime('%Y-%m-%d %H:%M:%S')}
     report['baseline'] = probe(paths)
-    print(f"baseline: { {p: v['status'] for p, v in report['baseline'].items()} }", flush=True)
+    # Recovery is judged against the baseline, so an unhealthy baseline would hide a broken source (PA-87).
+    report['baseline_ok'] = all(200 <= v['status'] < 300 for v in report['baseline'].values())
+    print(f"baseline: { {p: v['status'] for p, v in report['baseline'].items()} }"
+          f"{'' if report['baseline_ok'] else '  UNHEALTHY BASELINE'}", flush=True)
     stopped = time.time()
     try:
         r = run(['docker', 'stop', spec['container']])
@@ -121,7 +125,11 @@ def main():
     report['recovery_seconds'] = round(time.time() - started)
     print(f"recovered: {report['recovered_ok']} after {report['recovery_seconds']} s "
           f"{ {p: v['status'] for p, v in now.items()} }", flush=True)
+    report['ok'] = (report['baseline_ok'] and report.get('degraded_ok', False) and report['recovered_ok']
+                    and report.get('crawl_exit', 0) == 0)
     (OUT / f'{a.fault}.json').write_text(json.dumps(report, ensure_ascii=False, indent=1))
+    print('PASS' if report['ok'] else 'FAIL', a.fault, flush=True)
+    sys.exit(0 if report['ok'] else 1)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,7 @@
 import { mock, MockError } from "../router";
 import { l } from "../../i18n";
 import { silences as created } from "./identity";
+import { rollbackProposal, rolloutExecution } from "./rollback";
 
 const P = (zh: string, en: string) => l(zh, en);
 const hhmm = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
@@ -299,14 +300,15 @@ const proposal = {
     { author: "AI", ai: true, time: "14:20", text: P("风暴前库存调用超时率只有 0.2%，保留 1 次重试足够覆盖偶发超时；熔断只在 10 秒内失败率超过 50% 时打开，30 秒后半开探测。[1][4]", "Before the storm inventory timeouts were 0.2%, so one retry covers stray timeouts; the breaker opens only above 50% failures in 10 s and probes half-open after 30 s.[1][4]") },
   ],
 };
-mock("GET", "/proposals/:id", ({ params }) => ({ ...proposal, id: params.id }));
+// PRP-RB* / EXE-RB* are the sample rollback proposal and executions (docs/api/v3-rollback.md).
+mock("GET", "/proposals/:id", ({ params }) => (params.id.startsWith("PRP-RB") ? rollbackProposal(params.id) : { ...proposal, id: params.id, action_kind: "configcenter.patch", rollback: null }));
 mock("POST", "/proposals/:id/approve", () => ({ execution_id: "EXE-51" }));
 mock("POST", "/proposals/:id/reject", () => ({ ok: true }));
 mock("POST", "/proposals/:id/comments", ({ body }) => ({ author: "王晨", time: new Date().toTimeString().slice(0, 5), text: (body as { text: string }).text }));
 
 // Retries stop at once when the config lands, so the drop is steep (the same curve as wans.run/redstring).
 const obs = [8.1, 8.6, 8.3, 8.9, 8.4, 8.2, 8.7, 8.5, 8.3, 8.8, 8.4, 8.6, 7.9, 5.2, 1.9, 0.6, 0.38, 0.3, 0.26, 0.24, 0.22, 0.24, 0.21, 0.2, 0.23, 0.21, 0.19, 0.22, 0.2, 0.21];
-mock("GET", "/executions/:id", ({ params }) => ({
+mock("GET", "/executions/:id", ({ params }) => params.id.startsWith("EXE-RB") ? rolloutExecution(params.id) : ({
   id: params.id,
   proposal_id: "PRP-88",
   status: "succeeded",

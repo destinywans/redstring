@@ -20,6 +20,9 @@ import { CompareDialog } from "./CompareDialog";
 import { DetailPanel, useFloatCover, usePinned } from "../../ui/DetailPanel";
 import "./canvas.css";
 import { openExternal } from "../../ui/demo";
+import { Gated } from "../../ui/permission";
+import { useRollbackDrawer } from "../events/RollbackProposal";
+import { useRollbackBlocked } from "../events/rollback";
 
 type View = { x: number; y: number; k: number };
 const ANCHOR = 30;
@@ -450,6 +453,8 @@ export default function CanvasPage() {
   const { id = demo ? "INV-231" : "" } = useParams();
   const { tx } = useI18n();
   const nav = useNavigate();
+  const openRollback = useRollbackDrawer((x) => x.open);
+  const rollbackBlocked = useRollbackBlocked();
   const [params, setParams] = useSearchParams();
   const { data, isLoading } = useGet<CanvasGraph>(id ? `/investigations/${id}/canvas` : null);
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
@@ -794,6 +799,12 @@ export default function CanvasPage() {
               ]}
             />
             <AvatarGroup names={inv.participants} />
+            {/* The drawer finds this investigation's service in the current environment and reads its revisions. */}
+            <Gated reason={rollbackBlocked}>
+              <Btn icon="undo" onClick={() => openRollback({ investigationId: inv.id, investigationTitle: inv.title })}>
+                {tx("提议回滚", "Propose rollback")}
+              </Btn>
+            </Gated>
             {demo && (
               <Btn icon="file" to="/executions/EXE-51">
                 {tx("复盘报告", "Report")}

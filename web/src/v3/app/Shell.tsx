@@ -7,6 +7,7 @@ import { NAV, SETTINGS_GROUPS, SETTINGS_NAV, locate, type NavItem } from "./nav"
 import { CommandPalette, useCommandPalette } from "./CommandPalette";
 import { AskAiCard, useAskAi, useAskOpenClass } from "./AskAi";
 import { DemoHost } from "../ui/demo";
+import { RollbackDrawerHost } from "../features/events/RollbackProposal";
 import { BrandMark } from "../ui/BrandMark";
 import { PageBoundary } from "../ui/PageBoundary";
 import { LoadError } from "../ui/unknown";
@@ -335,6 +336,7 @@ export function Shell() {
       <CommandPalette />
       {!inSettings && <AskAiCard />}
       <DemoHost />
+      <RollbackDrawerHost />
       <Toaster />
     </div>
   );

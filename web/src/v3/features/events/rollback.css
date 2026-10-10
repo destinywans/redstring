@@ -1,0 +1,299 @@
+/* Kubernetes rollback flow (PA-08): drawer, review content, execution view, AI suggestion card. */
+.rb-plan {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+.rb-plan.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.rb-plan > div {
+  background: var(--sunken);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rb-plan b {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.rb-plan span {
+  color: var(--muted);
+  font-size: var(--fs-cap);
+  overflow-wrap: anywhere;
+}
+.rb-diff {
+  overflow-x: auto;
+}
+.rb-diff > div.chg {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.rb-note {
+  color: var(--faint);
+  font-family: var(--sans, inherit);
+}
+.rb-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-cap);
+  color: var(--muted);
+  background: var(--sunken);
+  border-radius: 5px;
+  padding: 1px 6px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.rb-tag.chg {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.rb-blocked {
+  padding: 16px 4px;
+}
+.rb-blocked-ic {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--sunken);
+  color: var(--muted);
+}
+
+/* revision list */
+.rb-revs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rb-rev {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  text-align: left;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.rb-rev:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.rb-rev:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.rb-rev.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.rb-rev:disabled {
+  cursor: default;
+  background: var(--sunken);
+}
+.rb-rev .o {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  margin-top: 3px;
+  flex: none;
+}
+.rb-rev.on .o {
+  border: 4px solid var(--accent);
+}
+.rb-rev:disabled .o {
+  border-style: dashed;
+  opacity: 0.6;
+}
+.rb-rev .body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.rb-rev .meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+  color: var(--muted);
+  font-size: var(--fs-cap);
+}
+.rb-rev .cause {
+  font-family: var(--mono, monospace);
+  font-size: var(--fs-sub);
+  overflow-wrap: anywhere;
+}
+.rb-rev .cause.none {
+  font-family: inherit;
+  color: var(--faint);
+}
+.rb-err {
+  color: var(--danger);
+  font-size: var(--fs-sub);
+}
+
+/* execution timeline */
+.rb-timeline {
+  display: flex;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding: 2px 0;
+}
+.rb-step {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 118px;
+  flex: 1;
+  font-size: var(--fs-sub);
+}
+.rb-step .n {
+  display: flex;
+  align-items: center;
+}
+.rb-step .b {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: var(--fs-cap);
+  font-weight: 600;
+  flex: none;
+}
+.rb-step .ln {
+  height: 2px;
+  flex: 1;
+  background: var(--border);
+  margin-inline: 4px;
+}
+.rb-step:last-child .ln {
+  visibility: hidden;
+}
+.rb-step.done .b {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.rb-step.done .ln {
+  background: var(--ok);
+  opacity: 0.45;
+}
+.rb-step.now .b {
+  background: var(--accent);
+  color: #fff;
+}
+.rb-step.bad .b {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.rb-step.att .b {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.rb-step b {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.rb-step small {
+  color: var(--muted);
+  font-size: var(--fs-cap);
+  font-variant-numeric: tabular-nums;
+  padding-right: 8px;
+}
+.rb-reps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.rb-reps > div {
+  background: var(--sunken);
+  border-radius: 8px;
+  padding: 7px 9px;
+  display: flex;
+  flex-direction: column;
+  font-size: var(--fs-cap);
+  color: var(--muted);
+}
+.rb-reps b {
+  font-size: var(--fs-lg);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.rb-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.rb-chart {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.rb-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .rb-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* AI suggestion card */
+.rb-suggest {
+  border: 1px solid var(--accent-line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel);
+  max-width: 620px;
+}
+.rb-suggest .sh {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 9px 12px;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  flex-wrap: wrap;
+}
+.rb-suggest.stale .sh {
+  background: var(--sunken);
+  color: var(--muted);
+}
+.rb-suggest .sb {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: var(--fs-sm);
+}
+.rb-suggest ol {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

@@ -12,6 +12,9 @@ import { useI18n } from "../../i18n";
 import { ServiceHeader } from "./ServicesPage";
 import "./observe.css";
 import { openExternal } from "../../ui/demo";
+import { Gated } from "../../ui/permission";
+import { useRollbackDrawer } from "../events/RollbackProposal";
+import { useRollbackBlocked } from "../events/rollback";
 
 function useService() {
   const { id = API_MODE === "mock" ? "checkout-api" : "" } = useParams();
@@ -36,6 +39,8 @@ function BurnRow({ label, value, tone, pct }: { label: string; value: string; to
 
 export default function ServiceDetailPage() {
   const { tx } = useI18n();
+  const openRollback = useRollbackDrawer((x) => x.open);
+  const rollbackBlocked = useRollbackBlocked();
   const SIGNAL_LABEL: Record<string, string> = { rps: tx("请求量", "Requests"), err: tx("错误率", "Error rate"), p99: tx("P99 延迟", "P99 latency"), wait: tx("等待", "Wait"), cpu: tx("CPU", "CPU") };
   const { data: s, error } = useService();
   if (!s)
@@ -56,7 +61,20 @@ export default function ServiceDetailPage() {
     deps: tx("依赖", "dependencies"),
   });
   return (
-    <Page crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services"), s.name]} actions={<Btn kind="primary" icon="branch" to={investigateHref(s)}>{tx("发起调查", "Investigate")}</Btn>}>
+    <Page crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services"), s.name]}
+      actions={
+        <>
+          {/* Rollback opens the proposal drawer; it reads revisions and says why when the workload can't be rolled back. */}
+          <Gated reason={rollbackBlocked}>
+            <Btn icon="undo" onClick={() => openRollback({ serviceId: s.id })}>
+              {tx("回滚", "Roll back")}
+            </Btn>
+          </Gated>
+          <Btn kind="primary" icon="branch" to={investigateHref(s)}>
+            {tx("发起调查", "Investigate")}
+          </Btn>
+        </>
+      }>
       <ServiceHeader s={s} />
       <div className="v3-content anim-fade">
         {missing.length > 0 && <PartialBanner fields={missing} />}

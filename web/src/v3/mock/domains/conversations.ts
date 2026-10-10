@@ -6,6 +6,7 @@ import { ago, at } from "../time";
 const LIST = [
   { id: "INV-231", title: l("发布后 checkout-api 5xx 上升", "checkout-api 5xx after release"), mode: "canvas", status: "waiting_approval", source: "alert_triage", scope: l("INC-1042 · checkout-api · 生产", "INC-1042 · checkout-api · prod"), incident_id: "INC-1042", participants: ["王晨", "李明", "AI"], size: l("4 个分支", "4 branches"), updated_at: ago(3), tokens: 48000, team: true, mine: true },
   { id: "C-311", title: l("checkout-api 大促扩容评估", "checkout-api capacity for the sale"), mode: "chat", status: "active", source: "manual", scope: l("checkout-api · 生产", "checkout-api · prod"), participants: ["王晨", "AI"], size: l("6 轮", "6 turns"), updated_at: ago(12), tokens: 12000, team: true, mine: true },
+  { id: "C-330", title: l("checkout-api 修订 7 上线后 5xx", "checkout-api 5xx after revision 7"), mode: "chat", status: "active", source: "manual", scope: l("INV-236 · checkout-api · 生产", "INV-236 · checkout-api · prod"), participants: ["王晨", "AI"], size: l("1 条建议", "1 suggestion"), updated_at: ago(3), tokens: 6400, team: true, mine: true },
   { id: "C-320", title: l("checkout-api 故障复盘", "checkout-api incident review"), mode: "chat", status: "active", source: "manual", scope: l("INC-1042 · checkout-api · 生产", "INC-1042 · checkout-api · prod"), incident_id: "INC-1042", participants: ["王晨", "AI"], size: l("4 个产物", "4 artifacts"), updated_at: ago(5), tokens: 21000, team: true, mine: true },
   { id: "INV-229", title: l("payment-gateway P99 升高排查", "payment-gateway P99 regression"), mode: "canvas", status: "active", source: "manual", scope: l("INC-1041 · payment-gateway · 生产", "INC-1041 · payment-gateway · prod"), incident_id: "INC-1041", participants: ["赵凯", "AI"], size: l("2 个分支", "2 branches"), updated_at: ago(26), tokens: 21000, team: true },
   { id: "C-305", title: l("inventory-worker Kafka 积压", "inventory-worker Kafka lag"), mode: "chat", status: "active", source: "im", scope: l("inventory-worker · 生产", "inventory-worker · prod"), participants: ["王晨", "AI"], size: l("3 轮", "3 turns"), updated_at: ago(60), tokens: 6000, team: true, mine: true },
@@ -322,7 +323,52 @@ const review = {
   },
 };
 
-const STORE: Record<string, typeof capacity | typeof review> = { "C-311": capacity, "C-320": review };
+/* ---------- C-330: lab bad-release drill, AI suggests a rollback (PA-08 sample) ---------- */
+const badRelease = {
+  ...review,
+  id: "C-330",
+  title: l("checkout-api 修订 7 上线后 5xx", "checkout-api 5xx after revision 7"),
+  investigation_id: "INV-236",
+  messages: [
+    { id: "b1", role: "user", author: "王晨", created_at: at("10:48"), parts: [{ type: "text", markdown: l("checkout-api 10:42 之后 5xx 变多了，是发布引起的吗？", "checkout-api has more 5xx since 10:42 — is it the release?") }] },
+    {
+      id: "b2",
+      role: "assistant",
+      author: "AI",
+      created_at: at("10:49"),
+      parts: [
+        { type: "status", text: l("Prometheus 样本：checkout-api / http_error_ratio", "Prometheus samples: checkout-api / http_error_ratio") },
+        { type: "status", text: l("Kubernetes：checkout-api 的 ReplicaSet 修订", "Kubernetes: checkout-api ReplicaSet revisions") },
+        { type: "status", text: l("Loki：aiops-lab/checkout-api 错误日志", "Loki: aiops-lab/checkout-api error logs") },
+        {
+          type: "text",
+          markdown: l(
+            "是。10:42 修订 7 上线后，/checkout 的 5xx 比例从 0.2% 升到 48%[1]。修订 7 和上一个修订 6 只差环境变量 LAB_FAULTS，镜像没变[2]；错误日志 injected fault 也只出现在修订 7 的 Pod[3]。",
+            "Yes. After revision 7 went out at 10:42, /checkout 5xx rose from 0.2% to 48%[1]. Revisions 7 and 6 differ only in the LAB_FAULTS env var, same image[2], and the injected-fault errors only come from revision 7 Pods[3].",
+          ),
+        },
+        {
+          type: "rollback_suggestion",
+          service_id: "checkout-api",
+          workload: "aiops-lab/checkout-api",
+          from_revision: "7",
+          target_revision: "6",
+          target_created_at: at("09:15"),
+          target_change_cause: "lab drill bad-release reverted",
+          reasons: [
+            { text: l("修订 7 上线时间与 5xx 升高吻合", "Revision 7 went out when 5xx rose"), cites: [1] },
+            { text: l("两次修订只差 LAB_FAULTS", "The two revisions differ only in LAB_FAULTS"), cites: [2] },
+            { text: l("修订 6 运行期间错误率 0.2%，低于 2% 的验证阈值", "Errors were 0.2% on revision 6, under the 2% verification threshold"), cites: [1] },
+          ],
+        },
+      ],
+    },
+  ],
+  artifacts: [],
+  side: { ...review.side, connectors: [{ name: "prometheus", calls: 1 }, { name: "kubernetes", calls: 1 }, { name: "loki", calls: 1 }], recalled: [] },
+};
+
+const STORE: Record<string, typeof capacity | typeof review> = { "C-311": capacity, "C-320": review, "C-330": badRelease as never };
 let seq = 400;
 
 mock("GET", "/conversations/:id", ({ params }) => {

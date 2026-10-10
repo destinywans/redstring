@@ -8,6 +8,7 @@ import "./domains/canvas";
 import "./domains/templates";
 // Static create/draft paths (e.g. /incidents/draft) must register before the :id routes of their domain.
 import "./domains/create";
+import "./domains/rollback";
 import "./domains/events";
 import "./domains/knowledge";
 import "./domains/observe";

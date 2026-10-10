@@ -128,6 +128,11 @@ export type Part =
   | { type: "next_steps"; items: { icon: string; label: string; action: string }[] }
   /** code: reply_failed / reply_interrupted (failed), evidence_limit / output_truncated / canvas_history_too_large (finished under a limit); none for evidence steps. */
   | { type: "status"; text: string; detail?: string; code?: string }
+  /**
+   * AI rollback suggestion in an investigation conversation (approved design, PA-08). Not in the backend contract yet:
+   * this is the shape the frontend reads; the card only opens the proposal drawer and never submits.
+   */
+  | { type: "rollback_suggestion"; service_id: string; workload: string; from_revision: string; target_revision: string; target_created_at?: string | null; target_change_cause?: string | null; reasons: { text: string; cites?: number[] }[] }
   | { type: "artifacts"; ids: string[] };
 export type Message = {
   id: string;
@@ -395,6 +400,82 @@ export type Proposal = {
   discussion: { author: string; ai?: boolean; time: string; text: string }[];
   /** Null until the second approval; status/upstream_id stay null (not_generated) until the executor records them. */
   execution?: { execution_id: string; approved_at: string; action_kind: string; status: string | null; upstream_id: string | null; unavailable: Unavailable } | null;
+  /** e.g. kubernetes.deployment.rollback; null for display-only proposals (docs/api/v3-rollback.md §3). */
+  action_kind?: string | null;
+  rollback?: ProposalRollback | null;
+};
+
+/* ---------------- Kubernetes rollback (docs/api/v3-rollback.md, PA-08) ---------------- */
+export const ROLLBACK_KIND = "kubernetes.deployment.rollback";
+/** One container-level difference; `to` null means the field goes away. Secret/ConfigMap values are never shown (value_hidden). */
+export type RollbackChange = { container: string; field: "image" | "env" | "resources" | "command" | "other" | (string & {}); name: string | null; from: string | null; to: string | null; value_hidden: boolean };
+export type RollbackContainer = { name: string; image: string };
+export type RollbackVerificationPlan = { observation_seconds: number; request_rate_query_id: string; error_ratio_query_id: string; sample_age_query_id: string; max_error_ratio: number; min_request_rate: number };
+export type RollbackBlockedReason = "workload_not_configured" | "rollback_not_allowed" | "write_not_approved" | "deployment_paused" | "credential_unavailable" | "workload_unavailable" | "executor_not_ready";
+export type RollbackCandidate = { revision: string; created_at: string | null; change_cause: string | null; current: boolean; containers: RollbackContainer[]; changes: RollbackChange[]; template_digest: string };
+export type RollbackCandidates = {
+  service_id: string;
+  application_id: string;
+  environment_id: string;
+  workload: { connector_id: string; namespace: string; deployment: string; uid: string; paused: boolean; current_revision: string; current_template_digest: string; replicas: { desired: number; updated: number; available: number } } | null;
+  verification: RollbackVerificationPlan | null;
+  /** Newest first; empty whenever blocked_reason is set. */
+  candidates: RollbackCandidate[];
+  blocked_reason: RollbackBlockedReason | null;
+  observed_at: string;
+};
+export type ProposalRollback = {
+  service_id: string;
+  application_id: string;
+  environment_id: string;
+  namespace: string;
+  deployment: string;
+  from_revision: string;
+  target_revision: string;
+  containers: RollbackContainer[];
+  changes: RollbackChange[];
+  verification: RollbackVerificationPlan;
+  reason: string;
+};
+export type RolloutStatus = "reserved" | "dispatching" | "unknown" | "applied" | "rolling_out" | "verifying" | "succeeded" | "failed" | "needs_attention";
+export type RolloutStatusReason =
+  | "drift"
+  | "approval_invalid"
+  | "authorization_changed"
+  | "binding_changed"
+  | "write_forbidden"
+  | "write_unavailable"
+  | "reconcile_unknown"
+  | "rollout_timeout"
+  | "progress_deadline_exceeded"
+  | "verification_failed"
+  | "verification_unavailable"
+  | "target_changed";
+/** GET /executions/{id} for a rollback (told apart by `kind`). rollout/verification are null before their stage. */
+export type RolloutExecutionDetail = {
+  id: string;
+  kind: typeof ROLLBACK_KIND;
+  proposal_id: string;
+  investigation_id: string;
+  application_id: string;
+  environment_id: string;
+  status: RolloutStatus;
+  status_reason: RolloutStatusReason | null;
+  approved_at: string;
+  approvers: { name: string; verified_at: string }[];
+  created_at: string;
+  updated_at: string;
+  target: { namespace: string; deployment: string; from_revision: string; target_revision: string };
+  timeline: { state: string; at: string }[];
+  /** current_revision is the new number Kubernetes assigns on rollback; success is told by status, not by comparing numbers. */
+  rollout: { desired: number; updated: number; available: number; current_revision: string | null; observed_at: string } | null;
+  verification: {
+    plan: RollbackVerificationPlan;
+    started_at: string | null;
+    finished_at: string | null;
+    result: "pending" | "passed" | "failed" | "unavailable";
+    samples: { at: string; request_rate: number | null; error_ratio: number | null; sample_age_seconds: number | null; ok: boolean }[];
+  } | null;
 };
 export type Execution = {
   id: string;
@@ -653,6 +734,12 @@ export type ConnectorDetail = Connector & {
   queries: string[];
   tools: { name: string; desc: string; enabled: boolean }[];
   deeplink?: string;
+  /**
+   * Kubernetes connectors (PA-08 design): registered workload targets with the catalog's rollback setting and the
+   * deployer's write approval, both read-only here. Not in the backend contract yet; absent fields hide the section.
+   */
+  workloads?: { key: string; namespace: string; deployment: string; service: string | null; rollback: { allowed: boolean; observation_seconds: number | null } | null; write_approved: boolean | null }[];
+  capabilities?: string[];
 };
 export type ConnectorType = {
   brand: string;

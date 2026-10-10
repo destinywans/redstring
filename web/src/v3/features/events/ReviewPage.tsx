@@ -9,6 +9,7 @@ import { Markdown } from "../../ui/Markdown";
 import { Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
 import { PasskeyApproval } from "./PasskeyApproval";
+import { RollbackReviewCards } from "./RollbackReview";
 import { usePermission, Gated } from "../../ui/permission";
 import "./events.css";
 
@@ -58,15 +59,20 @@ export default function ReviewPage() {
           <Col gap={6}>
             <h1 style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-0.01em" }}>{p.title}</h1>
             <Row gap={8} wrap style={{ fontSize: "var(--fs-sm)" }}>
-              <AiAvatar size={18} />
+              {/* Rollbacks are always proposed by a person (the AI only suggests). */}
+              {p.rollback ? <Avatar name={p.proposed_by} size={18} /> : <AiAvatar size={18} />}
               <Muted size={12.5}>
                 {p.proposed_by} · {p.proposed_at}
               </Muted>
               <Badge tone={risk[p.risk][0]}>{risk[p.risk][1]}</Badge>
-              <Badge>{p.impact}</Badge>
+              {/* A rollback's impact is a sentence; it gets its own card below. */}
+              {!p.rollback && <Badge>{p.impact}</Badge>}
               {p.reversible && <Badge tone="ok">{tx("可回退", "Reversible")}</Badge>}
             </Row>
           </Col>
+          {p.rollback ? (
+            <RollbackReviewCards p={p} rb={p.rollback} />
+          ) : (
           <Card>
             <CardHead title={tx("变更内容", "Change")} icon="terminal" />
             <Col gap={12} style={{ padding: "14px 16px" }}>
@@ -82,6 +88,7 @@ export default function ReviewPage() {
               <KV k={tx("执行方式", "Method")}>{p.method}</KV>
             </Col>
           </Card>
+          )}
           <Card>
             <CardHead title={tx("依据", "Evidence")} count={p.evidence.length} right={<Btn kind="ghost" h={24} iconRight="right" to={`/canvas/${p.investigation_id}`}>{tx("查看推理过程", "See reasoning")}</Btn>} />
             <ul>
@@ -98,6 +105,7 @@ export default function ReviewPage() {
               ))}
             </ul>
           </Card>
+          {!p.rollback && (
           <Card>
             <CardHead title={tx("恢复验证 · 执行后自动观测 180 秒", "Verification · 180 s automatic watch")} icon="clock" />
             <ul style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 9 }}>
@@ -112,6 +120,7 @@ export default function ReviewPage() {
               </li>
             </ul>
           </Card>
+          )}
         </Col>
         <Card className="approve-card">
           <Col gap={14} style={{ padding: 16 }}>
@@ -180,6 +189,11 @@ export default function ReviewPage() {
                 </Row>
                 <KV k={tx("批准于", "Approved")} kw={64}>{new Date(p.execution.approved_at).toLocaleString()}</KV>
                 <KV k={tx("执行 ID", "Execution")} kw={64}><span className="mono">{p.execution.execution_id}</span></KV>
+                {p.rollback && (
+                  <Btn h={26} icon="play" style={{ alignSelf: "flex-start" }} to={`/executions/${p.execution.execution_id}`}>
+                    {tx("查看执行", "View execution")}
+                  </Btn>
+                )}
                 {p.execution.upstream_id && <KV k={tx("上游 ID", "Upstream ID")} kw={64}><span className="mono">{p.execution.upstream_id}</span></KV>}
               </Col>
             )}

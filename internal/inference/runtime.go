@@ -590,7 +590,9 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 				return Evidence{}, err
 			}
 			readStarted := time.Now()
-			ev, err = read.Read(tc, args.Query)
+			// The ADK tool context need not carry the caller's values; pass
+			// the reply language on explicitly (PA-71).
+			ev, err = read.Read(WithEnglish(tc, English(ctx)), args.Query)
 			finished := ToolInvocation{Name: read.Name, StepID: step.ID, Status: "succeeded", DurationMS: time.Since(readStarted).Milliseconds()}
 			if err != nil {
 				finished.Status = "failed"

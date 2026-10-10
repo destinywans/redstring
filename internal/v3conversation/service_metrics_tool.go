@@ -293,7 +293,7 @@ func readServiceMetrics(ctx context.Context, opts ServiceMetricsToolOptions, inp
 		return inference.Evidence{}, metricsUnavailable("result too large")
 	}
 	return inference.Evidence{
-		Kind: "metrics", Title: "Prometheus samples: " + request.Service + " / " + request.QueryID,
+		Kind: "metrics", Title: inference.Localized(ctx, "Prometheus 样本：", "Prometheus samples: ") + request.Service + " / " + request.QueryID,
 		Content: string(content), Source: "prometheus", TargetID: profile.ID,
 	}, nil
 }

@@ -99,3 +99,5 @@
 - `read_service_metrics`（普通对话与调查画布共用）的样本是 `{"time":"2026-10-09T16:58:55Z","value":"5"}`，有小数秒时带小数；`window` 的 `start`/`end`/`step_seconds` 作为表头。
 - PA-52 的按序列摘要（`first_at`/`last_at`，以及 PA-68 新增的极值首次出现时间 `min_at`/`max_at`）和重复调用返回的摘要都是 RFC 3339；样本没有时间时省略对应字段。旧格式的 `timestamp` 秒数仍能解析。
 - `POST /metrics/ask` 交给模型的指标快照，同样把样本转成 RFC 3339。存档快照与 `evidence_sha256` 不变，仍按原始观测计算。
+
+证据标题（`title`）按发起回复那次请求的 `Accept-Language` 输出，默认中文，例如“Prometheus 样本：checkout-api / error_rate”“可读取的服务：prod”；工具结果的 JSON 字段名与代码不翻译（PA-71）。

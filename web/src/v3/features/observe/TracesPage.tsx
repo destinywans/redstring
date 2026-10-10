@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
@@ -10,6 +10,7 @@ import { useI18n } from "../../i18n";
 import "./trace.css";
 import { ChipSelect, RangeChip, openForm, usePickLists } from "../../ui/demo";
 import { toast } from "../../ui/overlays";
+import { BudgetNotice, DenseCard, coveredWindow, isScopeLimit, useAxisNote, useWindowText, withErrors } from "./TraceLimit";
 
 export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`);
 
@@ -75,19 +76,59 @@ export default function TracesPage() {
       toast(e instanceof ApiError ? e.message : tx("删除失败，请稍后重试", "Couldn't delete; try again later"), { tone: "danger" });
     }
   };
-  const { data, isLoading, error, refetch } = useGet<TraceList>("/traces", { scope, view, service, q: API_MODE === "mock" ? undefined : applied || undefined, range: API_MODE === "mock" ? undefined : range, source: real && scope === "app" ? activeSource : undefined });
+  const { data, isLoading, error, refetch, dataUpdatedAt } = useGet<TraceList>("/traces", { scope, view, service, q: applied || undefined, range });
   const u = data?.unavailable ?? {};
   // items is null only when no trace source is bound at all.
   const noSource = !!data && data.items === null;
+  // PA-78: the search stopped at its budget (covered window), or even one second is too dense to list (413).
+  const covered = coveredWindow(data, dataUpdatedAt);
+  const dense = scope === "app" && isScopeLimit(error);
+  const axisNote = useAxisNote(covered, range);
+  const wt = useWindowText();
+  const [pickNonce, setPickNonce] = useState(0);
+  // A 413 returns no views; keep the last ones for this scope so a narrower view stays one click away.
+  const [knownViews, setKnownViews] = useState<{ scope: string; views: TraceList["views"] }>({ scope, views: [] });
+  useEffect(() => {
+    if (data) setKnownViews({ scope, views: data.views });
+  }, [data, scope]);
+  const views = data?.views ?? (knownViews.scope === scope ? knownViews.views : []);
+  const shortcuts = (order: ("svc" | "err" | "r15")[]) => {
+    const all = {
+      svc: scope === "app" && !service && (
+        <Btn key="svc" h={26} icon="box" onClick={() => setPickNonce((n) => n + 1)}>
+          {tx("选择服务", "Choose a service")}
+        </Btn>
+      ),
+      err: scope === "app" && !/\bstatus\s*=\s*error\b/.test(applied) && (
+        <Btn key="err" h={26} icon="alert" onClick={() => { const next = withErrors(q); setQ(next); setApplied(next); }}>
+          {tx("只看错误", "Only errors")}
+        </Btn>
+      ),
+      r15: range !== "15m" && (
+        <Btn key="r15" h={26} kind="ghost" icon="clock" onClick={() => setRange("15m")}>
+          {tx("最近 15 分钟", "Last 15 minutes")}
+        </Btn>
+      ),
+    };
+    const out = order.map((k) => all[k]).filter(Boolean);
+    return out.length ? out : null;
+  };
   const [saved, setSaved] = useState<{ name: string; query: string }[]>([]);
   useEffect(() => {
     setView(scope === "agent" ? "all" : "errors");
     setRange(scope === "agent" ? "24h" : "1h");
   }, [scope]);
+  // Fill the box with a view's query only when the view is picked; syncing on every load wiped the query just searched.
+  const viewSynced = useRef("");
   useEffect(() => {
+    const key = `${scope}:${view}`;
+    if (viewSynced.current === key) return;
     const v = data?.views.find((x) => x.id === view);
-    if (v) setQ(v.query);
-  }, [data, view]);
+    if (v) {
+      setQ(v.query);
+      viewSynced.current = key;
+    }
+  }, [data, view, scope]);
   const maxMs = useMemo(() => Math.max(1, ...(data?.items ?? []).map((r) => r.duration_ms)), [data]);
   const setScope = (s: "app" | "agent") => setParams(s === "agent" ? { scope: "agent" } : {}, { replace: true });
   const toggle = (k: string) => setChecked((c) => ({ ...c, [k]: !c[k] }));
@@ -103,7 +144,6 @@ export default function TracesPage() {
           ) : (
             !real && <ChipSelect icon="database" label="" showLabel={false} defaultValue="tempo" options={[{ value: "tempo", label: tx("Tempo · 生产", "Tempo · prod") }, { value: "jaeger", label: "Jaeger · prod" }]} />
           )}
-          {!real && <RangeChip key={scope} value={range} onChange={setRange} />}
         </>
       }
     >
@@ -156,14 +196,16 @@ export default function TracesPage() {
             className="tr-query"
             onSubmit={(e) => {
               e.preventDefault();
-              if (API_MODE !== "mock" && q !== applied) setApplied(q);
+              if (q !== applied) setApplied(q);
               else void refetch();
             }}
           >
             {real && scope === "app" && bound.length === 1 && <Chip icon="database">{bound[0] === "tempo" ? "Tempo" : "Jaeger"}</Chip>}
             {real && scope === "app" && bound.length > 1 && <ChipSelect icon="database" label="" showLabel={false} value={activeSource} onChange={(v) => setSource(v as string)} options={bound.map((b) => ({ value: b, label: b === "tempo" ? "Tempo" : "Jaeger" }))} />}
-            {real && scope === "app" && <ChipSelect icon="box" label="" showLabel={false} value={service ?? "all"} onChange={(v) => setService(v === "all" ? "" : (v as string))} options={[{ value: "all", label: tx("全部服务", "All services") }, ...lists.services]} />}
-            {real && <RangeChip key={scope} value={range} onChange={setRange} />}
+            {scope === "app" && <ChipSelect icon="box" label="" showLabel={false} value={service ?? "all"} onChange={(v) => setService(v === "all" ? "" : (v as string))} options={[{ value: "all", label: tx("全部服务", "All services") }, ...lists.services]} openNonce={pickNonce} />}
+            <span className={cx("tr-range", dense && "hl")}>
+              <RangeChip key={scope} value={range} onChange={setRange} />
+            </span>
             <label className="grow">
               <Badge tone="info" mono>{scope === "agent" ? tx("筛选", "Filter") : "TraceQL"}</Badge>
               <input value={q} onChange={(e) => setQ(e.target.value)} aria-label={tx("链路查询", "Trace query")} spellCheck={false} placeholder={scope === "agent" ? 'agent = "investigator" && model = "claude-opus-5-5"' : "{ status = error }"} />
@@ -176,20 +218,21 @@ export default function TracesPage() {
               {tx("只支持简单比较，可用 && 和 ||；不支持管道（|）、正则和嵌套选择器。", "Only simple comparisons joined by && and || are supported; no pipes (|), regexes or nested selectors.")} {error.message}
             </Muted>
           )}
-          {error && !data && !(real && error instanceof ApiError && error.status === 422) && (
+          {error && !data && !dense && !(real && error instanceof ApiError && error.status === 422) && (
             <Card>
               <Unavailable reason={errorReason(error)} source="Tempo" desc={error instanceof ApiError && error.status === 422 ? error.message : undefined} />
             </Card>
           )}
-          {data?.partial && !noSource && (
+          {covered && data && !noSource && !dense && <BudgetNotice count={data.items?.length ?? 0} w={covered} range={range} actions={shortcuts(["svc", "err", "r15"])} />}
+          {data?.partial && !covered && !noSource && !dense && (
             <PartialBanner fields={[]}>
               {tx("这里只列出这次有界搜索找到并确认已结束的链路，不是完整结果：总数、分面、数量分布和耗时分布暂缺。", "Only the finished traces this bounded search found are listed — not a complete result: totals, facets and the count and duration charts are missing.")}
             </PartialBanner>
           )}
           <Row gap={6} wrap>
             <Muted size={11.5}>{tx("视图", "Views")}</Muted>
-            {data?.views.map((v) => (
-              <Chip key={v.id} active={view === v.id} onClick={() => setView(v.id)}>
+            {views.map((v) => (
+              <Chip key={v.id} active={view === v.id} onClick={() => { setView(v.id); if (!real) setApplied(""); }}>
                 {typeof v.count === "number" && <Dot tone="danger" size={6} />}
                 {v.label}
                 {typeof v.count === "number" && ` ${v.count}`}
@@ -230,13 +273,18 @@ export default function TracesPage() {
             </Chip>
             )}
             <Spacer />
-            {data && data.total !== null && <Muted size={11.5}>{tx("找到 {n} 条 · {t}", "{n} found · {t}", { n: data.total.toLocaleString(), t: data.took })}</Muted>}
-            {data && data.total === null && data.items && (
+            {data && !dense && data.total !== null && !covered && <Muted size={11.5}>{tx("找到 {n} 条 · {t}", "{n} found · {t}", { n: data.total.toLocaleString(), t: data.took })}</Muted>}
+            {data && !dense && data.total !== null && covered && (
+              <Muted size={11.5}>{tx("最近 {w}共 {t} 条，列出 {n} 条 · {took}", "{t} in the last {w}, {n} listed · {took}", { w: wt.span(covered.seconds), t: data.total.toLocaleString(), n: data.items?.length ?? 0, took: data.took })}</Muted>
+            )}
+            {data && !dense && data.total === null && data.items && (
               <Muted size={11.5}>
                 {tx("列出 {n} 条 · 总数", "{n} listed · total", { n: data.items.length })} <UnknownValue reason={u.total} source="Tempo" /> · {data.took}
               </Muted>
             )}
           </Row>
+          {dense && <DenseCard serviceExample={service ? null : (lists.services[0]?.label ?? "checkout-api")} actions={shortcuts(["err", "svc", "r15"])} />}
+          {!dense && (
           <div className="tr-charts">
             <Panel title={tx("数量 · 按状态", "Count · by status")} right={<Legend items={[[tx("正常", "OK"), "var(--c1s)"], [tx("错误", "Error"), "var(--danger)"]]} />} bodyStyle={{ padding: "10px 14px" }}>
               {data && !data.histogram ? (
@@ -245,10 +293,11 @@ export default function TracesPage() {
                 <div className="v3-col" style={{ gap: 6 }}>
                   <StackedBars data={data.histogram.counts} colors={["var(--c1s)", "var(--danger)"]} height={96} names={[tx("正常", "OK"), tx("错误", "Error")]} />
                   <Row gap={0} style={{ justifyContent: "space-between" }}>
-                    {data.histogram.axis.map((a) => (
-                      <Muted key={a} size={10.5}>{a}</Muted>
+                    {(covered ? wt.ticks(covered) : data.histogram.axis).map((a, i) => (
+                      <Muted key={`${i}-${a}`} size={10.5}>{a}</Muted>
                     ))}
                   </Row>
+                  {axisNote && <Muted size={11}>{axisNote}</Muted>}
                 </div>
               ) : error ? (
                 <Muted>—</Muted>
@@ -264,13 +313,21 @@ export default function TracesPage() {
                   <svg width="100%" height="105" viewBox="0 0 440 110" preserveAspectRatio="none" role="img" aria-label={tx("耗时散点图", "Duration scatter")}>
                     <line x1={0} x2={440} y1={36} y2={36} className="ch-grid" />
                     <line x1={0} x2={440} y1={73} y2={73} className="ch-grid" />
-                    {scope === "app" && API_MODE === "mock" && <rect x={232} y={6} width={104} height={58} rx={4} className="tr-brush" />}
+                    {scope === "app" && API_MODE === "mock" && !covered && <rect x={232} y={6} width={104} height={58} rx={4} className="tr-brush" />}
                     {data.scatter.map((p, i) => (
                       <circle key={i} cx={p.x} cy={p.y} r={p.error ? 3.2 : 2.6} fill={p.error ? "var(--danger)" : "var(--c1)"} className={cx(p.id && "clickable")} onClick={() => p.id && nav(scope === "agent" ? `/agents/runs/${p.id}` : `/traces/${p.id}`)} />
                     ))}
                   </svg>
+                  {covered && (
+                    <Row gap={0} style={{ justifyContent: "space-between" }}>
+                      {wt.ticks(covered).map((a, i) => (
+                        <Muted key={`${i}-${a}`} size={10.5}>{a}</Muted>
+                      ))}
+                    </Row>
+                  )}
+                  {axisNote && <Muted size={11}>{axisNote}</Muted>}
                   <Row gap={6}>
-                    <Muted size={11.5}>{scope === "app" ? (API_MODE === "mock" ? tx("框选一段查看这些链路", "Brush a region to filter these traces") : tx("点一个点打开链路", "Click a point to open the trace")) : tx("点一个点打开运行", "Click a point to open the run")}</Muted>
+                    <Muted size={11.5}>{scope === "app" ? (API_MODE === "mock" && !covered ? tx("框选一段查看这些链路", "Brush a region to filter these traces") : tx("点一个点打开链路", "Click a point to open the trace")) : tx("点一个点打开运行", "Click a point to open the run")}</Muted>
                     <Spacer />
                     <Muted size={11.5}>{tx("纵轴：耗时", "Y: duration")}</Muted>
                   </Row>
@@ -282,7 +339,8 @@ export default function TracesPage() {
               )}
             </Panel>
           </div>
-          {noSource ? (
+          )}
+          {dense ? null : noSource ? (
             <Card>
               <Unavailable reason={u.items} source={tx("链路来源", "a trace source")} icon="branch" />
             </Card>

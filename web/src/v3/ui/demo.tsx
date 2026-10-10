@@ -95,6 +95,7 @@ export function ChipSelect({
   showLabel = true,
   ariaLabel,
   disabled,
+  openNonce,
 }: {
   label: ReactNode;
   options: (ChipOption | string)[];
@@ -111,10 +112,15 @@ export function ChipSelect({
   ariaLabel?: string;
   /** The whole chip can't be opened. */
   disabled?: boolean;
+  /** Opens the menu whenever this changes to a new non-zero value (e.g. a "choose a service" shortcut elsewhere). */
+  openNonce?: number;
 }) {
   const [own, setOwn] = useState<string | string[]>(defaultValue ?? (multi ? [] : ""));
   const cur = value ?? own;
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (openNonce && !disabled) setOpen(true);
+  }, [openNonce, disabled]);
   const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
   const opts = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
   const set = (v: string | string[]) => {

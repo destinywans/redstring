@@ -1215,6 +1215,12 @@ export type TraceList = {
   scatter: { x: number; y: number; error: boolean; id?: string }[] | null;
   items: TraceRow[] | null;
   partial?: boolean;
+  /**
+   * PA-78 (provisional names until backend plan a lands): why the list is partial. "search_budget" means the
+   * search went newest-first and stopped at its budget, so only [window_start_at, now] of the range is covered.
+   */
+  partial_reason?: "search_budget" | (string & {}) | null;
+  window_start_at?: string | null;
   unavailable: Unavailable;
 };
 export type TraceSpan = {

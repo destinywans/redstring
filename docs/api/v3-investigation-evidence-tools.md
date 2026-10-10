@@ -50,7 +50,7 @@
 `read_service_metrics` 在 `not_configured` 时会列出该服务已配置的查询 ID。切换到统一登记后（`ai_metrics`），它读该服务唯一的 `metric_resource` 目标，用该 Prometheus 连接器和 Vault 凭据发查询，查询 ID 取自统一目录，证据形状和标题不变；来源未就绪时返回 `not_configured` 并带原因码，凭据读不到为 `source_unavailable`。
 
 **指标查询 ID**：
-- 不再写死四个。服务能用哪些 ID，由服务端审查过的每服务查询目录决定：当前读取 `AIOPS_TELEMETRY_CONFIG` 中 `applications.<资源>.prometheus_queries`（PA-19 切换后改读统一目录）。
+- 不再写死四个。服务能用哪些 ID，由服务端审查过的每服务查询目录决定：统一目录 `AIOPS_V3_SOURCE_CATALOG` 的 `queries`（PA-19 第二阶段第 5 步起；P4 起 V3 实例不再读 `AIOPS_TELEMETRY_CONFIG`）。
 - ID 只能是小写字母、数字和下划线，最长 64 个字符。
 - 表达式只在服务端；模型只能传 ID，不能传 PromQL、URL 或时间范围（固定最近 15 分钟、30 秒步长、最多 8 条序列）。
 

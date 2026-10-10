@@ -4,7 +4,7 @@
 
 2026-10-09 生产验收（PA-05）后，日志行与计数、模式分开证明：日志行总是返回所选来源经等级校验的限量样本；`total`、`errors`、`histogram` 只在每个所选来源和等级都证明了全窗精确计数时给出，`patterns` 只在模板计数与趋势和该总数守恒时给出，否则为 `null`，`unavailable` 注明原因。来源查询本身失败仍是 `503 telemetry_unavailable`。
 
-Elasticsearch 完整模式响应需要服务端登记精确应用范围和专用模板字段。以下是配置形状示例，不包含真实端点或凭据；把文件路径放入 `AIOPS_TELEMETRY_CONFIG`，并让该应用和环境的持久日志绑定使用 `kind=elasticsearch`、`resource=checkout-dev`。索引必须是单个具体索引，不能是可切换的 alias 或 data stream。连接器查询目标索引映射和 `ignore_above` 设置，仅使用已登记过滤字段自身或其 `.keyword` 子字段中的精确 `keyword` 映射；缺失或不一致时拒绝查询。这两个只读预检需要 Elasticsearch 账号具有 `view_index_metadata` 权限。
+Elasticsearch 完整模式响应需要服务端登记精确应用范围和专用模板字段。以下是旧模式遥测文件的配置形状示例，不包含真实端点或凭据；旧模式把文件路径放入 `AIOPS_TELEMETRY_CONFIG`，并让该应用和环境的持久日志绑定使用 `kind=elasticsearch`、`resource=checkout-dev`。V3 实例从 PA-19 P4 起不读这个文件：同样的字段写在统一目录的 `scopes` 里（`provider: elasticsearch`），服务用 `log_index` 目标绑定 Elasticsearch 连接器，见 [遥测来源统一登记](v3-telemetry-registry.md)。索引必须是单个具体索引，不能是可切换的 alias 或 data stream。连接器查询目标索引映射和 `ignore_above` 设置，仅使用已登记过滤字段自身或其 `.keyword` 子字段中的精确 `keyword` 映射；缺失或不一致时拒绝查询。这两个只读预检需要 Elasticsearch 账号具有 `view_index_metadata` 权限。
 
 ```json
 {

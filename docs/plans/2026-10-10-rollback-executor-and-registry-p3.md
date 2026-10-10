@@ -698,6 +698,8 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 
 ### 10.11 P4 清单（2026-10-10，供用户确认时间）
 
+> 2026-10-10：用户批准开始 P4，并在“需要用户先决定的一点”上选择保留旧模式（第 5 项只对 V3 实例）。实现记录见 10.12。
+
 **前提**（10.9 决定 7）：第 8 步在两个实例上都以缺省 `unified` 稳定跑过一轮完整回归，并且一轮回滚演练通过。
 
 | # | 内容 | 可逆性 | 估算 |
@@ -719,6 +721,38 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 **需要用户先决定的一点**：第 5 项让遥测文件不再提供端点和凭据。非 V3 部署（旧前端在旧模式下运行）的读取完全依赖这些字段。P4 要么同时退役非 V3 部署，要么把这一项限定在 V3 实例、旧模式继续读遥测文件。两种做法的工作量差别不大，但第一种会让旧模式彻底不可用。
 
 **保留**：`application_environments.bindings` 列、`binding_revision`、历史计划和执行行、`aiops connectors import-legacy`（新环境导入仍有用）；`aiops connectors compare` 在旧绑定不再有读取方之后只作诊断，可以一并删除，留待确认。
+
+### 10.12 P4 实施记录（2026-10-10，源码，未部署）
+
+用户批准 P4 时选了**保留旧模式**：第 5 项只对 V3 实例生效，非 V3 部署（旧前端 `/legacy`）继续读遥测文件。实现时其余几项也按这个原则只改 V3 实例（第 2、6 项与设计稿的写法不同，见下）。提交顺序：
+
+| # | 提交 | 内容 |
+| --- | --- | --- |
+| 1 | `8f968789` | 迁移 173：V3 实例上已批准、未执行的旧回滚计划到期 |
+| 2 | `6b722324` | V3 实例不注册 `internal/actions` 的任何路由 |
+| 7 | `5a486748` | D21：删除第 7 步的旧接口投影 |
+| 3 | `c61408ae` | 取消 `legacy`/`compare`，七个读取方只读统一登记；服务映射不再按旧登记校验 |
+| 5 | `12746caa` | V3 实例不读遥测文件；上限与 Tempo 搜索完整声明移进统一目录 |
+| 6 | `50ec1aaa` | V3 实例不读 `AIOPS_KUBERNETES_REGISTRY`，不加载演示 Kubernetes 连接器 |
+| 4 | — | 无代码改动，见下 |
+
+**与 10.11 不同或需要说明的地方**：
+- **第 1 项（迁移 173）**：只改已绑定 V3 实例的数据库（有 `v3_instance_boundary` 行），旧模式的库不动；旧动作表由 `internal/actions` 建，库里还没有这些表时跳过。没有执行记录的计划，审批改为 `expired`，原因 `legacy_plan_expired_registry_cutover`，之后不能再批准、撤回或入队；执行停在 `queued` 的，**执行**改为 `failed`（`error` 为同一原因）并补一条 `execution.failed` 事件，**审批保持 `approved`**。这样 `GET /executions/{id}` 的 `approval.decision` 仍只有原来的四个取值，前端执行页不用改（新增 `expired` 会让执行页的状态徽标查不到文案）；一个计划只能有一条执行，所以它也不能再入队。每个到期计划写一条审计 `legacy_action_plan.expired`（系统操作者，带应用 ID、执行 ID 和原执行状态）。两个验收库的旧动作表都是空的，到期数为 0。
+- **第 2 项**：V3 实例原来就把这些路由拦成 501（不是 V3 路由），现在干脆不注册（404）。设计稿写的“下线，旧前端回滚页随之不可用”是针对旧模式的；用户选择保留旧模式，所以旧模式的回滚流程（路由和 Worker）原样保留。如果要连旧模式的回滚一起下线，只需把 `cmd/aiops/main.go` 里的注册删掉。
+- **第 3 项的校验器**：服务映射保存和候选接受原来把其他类别的已存绑定交给旧平台校验器（`api.ValidateBindings`），它按遥测文件和 Kubernetes 登记校验。第 5、6 项之后 V3 实例不再加载这两者，校验器会拒绝所有遥测和工作负载旧绑定，映射就改不了了。所以 V3 改为只查已存绑定的形状（已知类别、每类至多一条、字段完整、没有未知字段），代码绑定必须正好是候选的 GitLab 项目；其他类别的已存绑定原样保留。`registry_cutover`、`registry_not_enabled` 不再返回，前端编辑器里处理这两个值的分支变成死代码（前端改动不在本轮）。
+- **第 3 项的范围**：除七个读取方外，还删掉了 `v3observe/traces.go`（第 4 步就确认没有注册的旧 Trace 处理函数）。`list_services` 没有统一登记时仍然提供，两列都是 `not_configured`。原来按旧路径写的测试移植到统一登记；`v3traces` 和两个 AI 工具留了一个不导出的客户端注入点，供桩驱动的处理测试用。
+- **第 4 项（旧 Worker 和自动巡查改用解析器）**：V3 实例本来就不启动旧 Worker（`worker.Run`）、旧动作执行器（`acts.Run`）和自动化/巡查循环（`ops.Run`），巡查策略接口 `PUT /automation/policies/{id}` 也不是 V3 路由（501）；用户又选择旧模式继续读遥测文件。所以这一项在任何部署形态下都没有要改的东西，没有实现，验收实例上也无法开启巡查来验证。V3 以后要巡查，应作为 V3 功能单独设计（读统一登记），不是改旧 Worker。
+- **第 5 项的位置**：`limits` 放进统一目录（与建议相同）；**`tempo_search_fail_closed` 也放进目录**，是一个 Tempo 连接器 ID 列表，而不是建议的连接器 `options`：`options` 目前只能由 `import-legacy` 写入、没有写接口，放在那里就又离不开遥测文件；目录本来就是运维审查过的私有配置，与 Tempo 选择器同处。声明从“对所有 Tempo 生效”变成按连接器。`import-legacy` 会把遥测文件的上限带进生成的目录（目录里已有 `limits` 时保留），文件声明了搜索完整时列出导入的 Tempo 连接器。V3 实例上平台初始化也不再读遥测文件（原来新库会按它写旧绑定）。
+- **第 6 项**：同样只对 V3 实例；旧模式和 `import-legacy` 照旧读 `AIOPS_KUBERNETES_REGISTRY`。
+- **保留**：`aiops connectors compare`（只作诊断）、`import-legacy`、`application_environments.bindings` 与 `binding_revision`、历史计划和执行行。
+
+**验收实例要做的配置改动**（两个实例相同，`.local/acceptance/{nonprod,prod}/` 的 `server.env` 与 `extra.env`）：
+- 删掉 `AIOPS_TELEMETRY_CONFIG`（设着也只会记一条警告，不再读取）；
+- 删掉值为空的 `AIOPS_V3_PROMETHEUS_QUERIES_CONFIG`；
+- 两个实例都没有 `AIOPS_KUBERNETES_REGISTRY`、`AIOPS_CONNECTOR_CONFIG`、演示 Kubernetes 变量、`AIOPS_V3_SOURCE_REGISTRY`、`AIOPS_V3_UNIFIED_READERS`，这几项不用动；
+- 两个实例的遥测文件都设了 `timeout_seconds: 10`（缺省 15），其他上限和 `tempo_search_fail_closed` 都没设。要保持现在的行为，在各自的统一目录里加 `"limits": {"timeout_seconds": 10}`；不加则超时变成 15 秒，其余上限不变（窗口 1 小时、回看 7 天）。`tempo_search_fail_closed` 继续不设：实验 Tempo 没有确认过 live-store 滞后时失败关闭，链路列表仍按“未声明搜索完整”给出。
+
+**部署验收要点**：迁移 173 执行后两库 `management_audit` 里没有 `legacy_action_plan.expired`（没有旧计划）；启动日志没有 `source registry` 模式行，有 `source registry targets`，删掉变量前会看到 `AIOPS_TELEMETRY_CONFIG is not read on a V3 instance` 警告；`POST /api/v1/action-plans/x/approve` 等旧动作路由为 404；服务映射页能照常编辑指标、日志、链路、工作负载（不再出现 `unsupported_persisted_bindings`）；全量遍历、AI 指标/日志工具、回滚演练与第 8 步验收时一致；`aiops connectors compare` 退出码 0。
 
 ## 附录 A：对照前提的命令
 

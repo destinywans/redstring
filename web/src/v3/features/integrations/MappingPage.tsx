@@ -166,7 +166,8 @@ export default function MappingPage() {
                       </Row>
                     </th>
                   ))}
-                  {!demo && <th style={{ width: 120 }} />}
+                  {/* Rows carry a save snapshot when they can be edited row by row (real data, and the sample since stage 2). */}
+                  {data.rows.some((r) => r.save) && <th style={{ width: 120 }} />}
                 </tr>
               </thead>
               <tbody className="stagger">
@@ -183,14 +184,18 @@ export default function MappingPage() {
                         {cell(r.service, s.id, r.cells[s.id])}
                       </td>
                     ))}
-                    {!demo && (
+                    {data.rows.some((x) => x.save) && (
                       <td>
                         {r.save?.editable ? (
                           <Btn h={26} icon="edit" onClick={() => setEditing({ service: r.service, save: r.save! })}>
                             {tx("编辑", "Edit")}
                           </Btn>
                         ) : (
-                          <Muted size={11.5}>{r.save?.unavailable_reason ?? tx("只能在配置里改", "Change it in configuration")}</Muted>
+                          <Muted size={11.5}>
+                            {r.save?.unavailable_reason === "registry_cutover"
+                              ? tx("来源登记切换中，暂时只读", "Read-only while sources move to the new registry")
+                              : r.save?.unavailable_reason ?? tx("只能在配置里改", "Change it in configuration")}
+                          </Muted>
                         )}
                       </td>
                     )}
@@ -201,7 +206,7 @@ export default function MappingPage() {
           )}
         </Card>
       </div>
-      {!demo && data && (
+      {data && data.rows.some((r) => r.save) && (
         <MappingEditor
           row={editing}
           systems={data.systems}

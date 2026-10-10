@@ -203,6 +203,16 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
             {c.tools.length > 0 && (
               <Section title={tx("Agent 工具", "Agent tools")} right={<TextLink to="/agents/tools">{tx("工具与权限", "Tools & permissions")}</TextLink>}>
                 <Col gap={6}>
+                  {API_MODE !== "mock" && (
+                    <Row gap={6} align="flex-start">
+                      <Icon name="info" size={12} color="var(--muted)" style={{ marginTop: 2 }} />
+                      <Muted size={11.5}>
+                        {c.agent_execution_available === false
+                          ? tx("这些开关只控制是否读取这类数据，不授权 Agent 执行任何操作。这里只读显示。", "These switches only control whether this data is read; they don't let agents run anything. Shown read-only.")
+                          : tx("开关状态只读显示。", "Switches are shown read-only.")}
+                      </Muted>
+                    </Row>
+                  )}
                   {c.tools.map((t) => (
                     <Row key={t.name} gap={10} className="tool-row">
                       <Icon name="cpu" size={15} color="var(--muted)" />
@@ -211,7 +221,8 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
                         <Muted size={11.5}>{t.desc}</Muted>
                       </Col>
                       <Toggle
-                        on={!off.has(t.name)}
+                        // Real mode shows the saved switch (read-only); the sample keeps its local toggle.
+                        on={API_MODE === "mock" ? !off.has(t.name) : t.enabled}
                         // Real toggles need PATCH /connectors/{id}/tool-settings; until then the switch is read-only.
                         disabled={API_MODE !== "mock"}
                         label={t.name}

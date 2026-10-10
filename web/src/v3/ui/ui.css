@@ -928,6 +928,16 @@
 .perm-gate > :not(.sr-only) {
   pointer-events: none;
 }
+/* Disabled chips and menu options (e.g. a connector that isn't ready): visible but not choosable. */
+.v3-chip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.v3-menu button:disabled {
+  color: var(--faint);
+  cursor: not-allowed;
+  background: none;
+}
 .v3-tooltip {
   position: fixed;
   z-index: 80;

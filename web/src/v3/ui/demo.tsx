@@ -76,7 +76,8 @@ export function SecretBox({ label, value }: { label: ReactNode; value: string })
   );
 }
 
-export type ChipOption = { value: string; label: ReactNode; hint?: ReactNode };
+/** `disabled` lists an option that can't be chosen (its hint says why). */
+export type ChipOption = { value: string; label: ReactNode; hint?: ReactNode; disabled?: boolean };
 
 /**
  * Filter / scope chip with a dropdown. Uncontrolled by default; pass `value` + `onChange` to filter data.
@@ -93,6 +94,7 @@ export function ChipSelect({
   allLabel,
   showLabel = true,
   ariaLabel,
+  disabled,
 }: {
   label: ReactNode;
   options: (ChipOption | string)[];
@@ -107,6 +109,8 @@ export function ChipSelect({
   showLabel?: boolean;
   /** Accessible name for the trigger when the visible text alone doesn't say what is being chosen. */
   ariaLabel?: string;
+  /** The whole chip can't be opened. */
+  disabled?: boolean;
 }) {
   const [own, setOwn] = useState<string | string[]>(defaultValue ?? (multi ? [] : ""));
   const cur = value ?? own;
@@ -130,7 +134,7 @@ export function ChipSelect({
   };
   return (
     <span ref={setAnchor} className="demo-chip">
-      <Chip icon={icon} caret active={selected.length > 0 && !!allLabel} onClick={() => setOpen((o) => !o)} ariaLabel={ariaLabel} expanded={open}>
+      <Chip icon={icon} caret active={selected.length > 0 && !!allLabel} onClick={() => setOpen((o) => !o)} ariaLabel={ariaLabel} expanded={open} disabled={disabled}>
         {shown.length === 0 ? (
           label
         ) : showLabel ? (
@@ -152,7 +156,7 @@ export function ChipSelect({
           {opts.map((o) => {
             const on = selected.includes(o.value);
             return (
-              <button key={o.value} type="button" role="option" aria-selected={on} className={cx(on && "on")} onClick={() => pick(o.value)}>
+              <button key={o.value} type="button" role="option" aria-selected={on} aria-disabled={o.disabled || undefined} disabled={o.disabled} className={cx(on && "on")} onClick={() => !o.disabled && pick(o.value)}>
                 <span className="grow">
                   {o.label}
                   {o.hint && <small>{o.hint}</small>}

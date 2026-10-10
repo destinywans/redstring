@@ -95,7 +95,7 @@ func (f v3ReadTools) ForTurn(ctx context.Context, ownerID, applicationID, enviro
 			if err != nil {
 				return inference.Evidence{}, errV3CatalogDown
 			}
-			return inference.Evidence{Kind: "service_profile", Title: "Service profile: " + profile.Name,
+			return inference.Evidence{Kind: "service_profile", Title: inference.Localized(ctx, "服务概况：", "Service profile: ") + profile.Name,
 				Content: string(content), Source: "service_catalog", TargetID: profile.ID}, nil
 		},
 	}}

@@ -770,19 +770,17 @@ func evidenceLimitPart(english bool) map[string]any {
 // errReplyInterrupted fails a reply whose worker lease expired mid-reply.
 var errReplyInterrupted = errors.New("reply interrupted after lease expiry")
 
-type replyLanguageKey struct{}
-
 // withReplyLanguage carries the language of the request that started the
-// turn to the code that records its failure (PA-60).
+// turn to the code that records its failure (PA-60) and to the evidence
+// tools that title what they read (PA-71).
 func withReplyLanguage(ctx context.Context, english bool) context.Context {
-	return context.WithValue(ctx, replyLanguageKey{}, english)
+	return inference.WithEnglish(ctx, english)
 }
 
 // replyEnglish reports the turn's language; without one (lease recovery runs
 // with no request) it is Chinese, the product default.
 func replyEnglish(ctx context.Context) bool {
-	english, _ := ctx.Value(replyLanguageKey{}).(bool)
-	return english
+	return inference.English(ctx)
 }
 
 // replyFailurePart is the status shown on a failed reply (PA-60). Its code is
@@ -858,7 +856,7 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		case <-time.After(backoff):
 		}
 	}
-	ctx, cancel := context.WithTimeout(s.opts.Shutdown, s.opts.RunTimeout)
+	ctx, cancel := context.WithTimeout(withReplyLanguage(s.opts.Shutdown, english), s.opts.RunTimeout)
 	defer cancel()
 	metricsBacked, err := s.metricsBackedConversation(ctx, conv)
 	if err != nil {

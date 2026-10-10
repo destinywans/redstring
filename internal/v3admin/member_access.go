@@ -24,6 +24,11 @@ import (
 )
 
 var errAccessInvalid = errors.New("invalid access request")
+
+// errRoleInherited is a direct assignment of a role the member already holds
+// through the invitation (legacy origin); the two bindings cannot coexist
+// (PA-54).
+var errRoleInherited = errors.New("role already held through invitation")
 var errAccessChanged = errors.New("access snapshot changed")
 var errRoleExists = errors.New("role already exists with different content")
 var errLoginNotReady = errors.New("member has no login credential")
@@ -68,6 +73,8 @@ func accessError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errAccessInvalid):
 		httpapi.Error(w, 422, "invalid_access", "Use explicit scopes, known roles and a complete access request")
+	case errors.Is(err, errRoleInherited):
+		httpapi.Error(w, 409, "role_already_inherited", "The member already holds this role through the invitation; leave it out of the direct roles")
 	case errors.Is(err, errAccessChanged):
 		httpapi.Error(w, 409, "access_changed", "Access changed; read the current snapshot before saving")
 	case errors.Is(err, errRoleExists):
@@ -435,9 +442,9 @@ func (s *Service) memberAccessRecord(ctx context.Context, actor core.User, token
 	// Direct assignments are replaced; department and legacy associations stay
 	// visible and intact. Do not convert inherited roles into editable bindings.
 	for _, roleID := range in.RoleIDs {
-		var valid, legacy bool
+		var valid, inherited, legacy bool
 		var revision int64
-		if err = tx.QueryRow(ctx, `SELECT r.v3_kind<>'machine' AND NOT EXISTS(SELECT 1 FROM rbac_user_roles WHERE user_id=$2 AND role_id=$1 AND origin='legacy'), r.v3_matrix_revision, r.id='admin' OR EXISTS(SELECT 1 FROM rbac_role_permissions p WHERE p.role_id=r.id) FROM rbac_roles r WHERE id=$1`, roleID, id).Scan(&valid, &revision, &legacy); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT r.v3_kind<>'machine', EXISTS(SELECT 1 FROM rbac_user_roles WHERE user_id=$2 AND role_id=$1 AND origin='legacy'), r.v3_matrix_revision, r.id='admin' OR EXISTS(SELECT 1 FROM rbac_role_permissions p WHERE p.role_id=r.id) FROM rbac_roles r WHERE id=$1`, roleID, id).Scan(&valid, &inherited, &revision, &legacy); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return out, errAccessInvalid
 			}
@@ -445,6 +452,9 @@ func (s *Service) memberAccessRecord(ctx context.Context, actor core.User, token
 		}
 		if !valid {
 			return out, errAccessInvalid
+		}
+		if inherited {
+			return out, errRoleInherited
 		}
 		if strconv.FormatInt(revision, 10) != in.RoleRevisions[roleID] {
 			return out, errAccessChanged

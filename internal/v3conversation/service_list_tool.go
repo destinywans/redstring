@@ -144,7 +144,7 @@ func readServiceList(ctx context.Context, opts ServiceListToolOptions, input str
 	if err != nil {
 		return inference.Evidence{}, inference.NewToolError(inference.ToolSourceUnavailable, "the service list could not be encoded")
 	}
-	return inference.Evidence{Kind: "service_list", Title: "Readable services in " + opts.EnvironmentID,
+	return inference.Evidence{Kind: "service_list", Title: inference.Localized(ctx, "可读取的服务：", "Readable services in ") + opts.EnvironmentID,
 		Content: string(content), Source: "service_catalog", TargetID: opts.EnvironmentID}, nil
 }
 

@@ -29,10 +29,11 @@ type profileContact struct {
 	Note     string `json:"note,omitempty"`
 }
 type profileSession struct {
-	ID      string  `json:"id"`
-	Device  *string `json:"device"`
-	Sub     string  `json:"sub"`
-	Current bool    `json:"current,omitempty"`
+	ID     string  `json:"id"`
+	Device *string `json:"device"`
+	Sub    string  `json:"sub"`
+	// Current marks the session making this request; always present (PA-69).
+	Current bool `json:"current"`
 }
 type profileFactor struct {
 	Kind string `json:"kind"`

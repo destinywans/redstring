@@ -186,7 +186,7 @@ func readKnowledgeEvidence(ctx context.Context, opts KnowledgeEvidenceToolOption
 	if err != nil || len(content) > 8<<10 {
 		return inference.Evidence{}, errKnowledgeEvidenceUnavailable
 	}
-	return inference.Evidence{Kind: "knowledge", Title: "Published knowledge references", Content: string(content),
+	return inference.Evidence{Kind: "knowledge", Title: inference.Localized(ctx, "已发布知识引用", "Published knowledge references"), Content: string(content),
 		Source: "knowledge://published-documents", TargetID: opts.ApplicationID}, nil
 }
 

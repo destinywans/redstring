@@ -101,7 +101,8 @@ func (s *Service) investigationNodeMessage(w http.ResponseWriter, r *http.Reques
 		failure.write(w)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), nodeRunTimeout)
+	english := strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Accept-Language"))), "en")
+	ctx, cancel := context.WithTimeout(inference.WithEnglish(r.Context(), english), nodeRunTimeout)
 	defer cancel()
 	stop := s.watchInvestigationReply(ctx, cancel, r, user, envs[0], id)
 	tools, collected, toolErr := s.investigationReplyTools(ctx, r, user, envs[0], id, model)

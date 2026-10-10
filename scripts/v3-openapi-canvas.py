@@ -150,8 +150,10 @@ S['V3InvestigationCanvasNode'] = obj({
     'collapsed':v3_bool(),'layout_version':integer(minimum=0),
     'context':ref('V3InvestigationCanvasContext'),
     'versions':arr(ref('V3InvestigationCanvasVersion')),
-    'evidence_refs':arr(string())},
-    ['id','kind','title','subtitle','status','x','y','w','collapsed','layout_version','context','versions'])
+    'evidence_refs':arr(string()),
+    # PA-62 follow-up: persisted writeback context revisions this node received and their source nodes.
+    'writebacks':obj({'received':integer(minimum=0),'sources':arr(string())},['received','sources'])},
+    ['id','kind','title','subtitle','status','x','y','w','collapsed','layout_version','context','versions','writebacks'])
 S['V3InvestigationEvidenceTrayItem'] = obj({
     **fieldnames('id title source'),
     'kind':string(enum=['table']),

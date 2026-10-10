@@ -85,7 +85,7 @@ func TestEvidenceLimitReplyCompletesAndCancellationIsReadable(t *testing.T) {
 			"completed", "evidence_limit", "取证次数已达上限", "", false},
 		"limit and truncation": {&noticeRuntime{"Node lab-vm-2 is", errors.Join(inference.ErrOutputTruncated, inference.ErrEvidenceLimitReached)},
 			"completed", "max_output_tokens", "回答达到输出长度上限", "", false},
-		"canceled": {&noticeRuntime{"", context.Canceled}, "failed", "", `"code": "reply_failed", "text": "模型回复失败"`, "reply_canceled: ", false},
+		"canceled":            {&noticeRuntime{"", context.Canceled}, "failed", "", `"code": "reply_failed", "text": "模型回复失败"`, "reply_canceled: ", false},
 		"canceled in English": {&noticeRuntime{"", context.Canceled}, "failed", "", `"code": "reply_failed", "text": "Model reply failed"`, "reply_canceled: ", true},
 	} {
 		t.Run(name, func(t *testing.T) {

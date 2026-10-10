@@ -266,7 +266,7 @@ func readServiceLogs(ctx context.Context, opts ServiceLogsToolOptions, input str
 		return inference.Evidence{}, logsUnavailable("result too large")
 	}
 	return inference.Evidence{
-		Kind: "logs", Title: "脱敏日志样本: " + request.Service,
+		Kind: "logs", Title: inference.Localized(ctx, "脱敏日志样本：", "Masked log samples: ") + request.Service,
 		Content: string(content), Source: binding.provider, TargetID: profile.ID,
 	}, nil
 }

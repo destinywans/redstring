@@ -137,20 +137,28 @@ type investigationCanvasVersion struct {
 }
 
 type investigationCanvasNode struct {
-	ID            string                       `json:"id"`
-	Kind          string                       `json:"kind"`
-	Parent        string                       `json:"parent,omitempty"`
-	Title         string                       `json:"title"`
-	Subtitle      string                       `json:"subtitle"`
-	Status        string                       `json:"status"`
-	X             int                          `json:"x"`
-	Y             int                          `json:"y"`
-	W             int                          `json:"w"`
-	Collapsed     bool                         `json:"collapsed"`
-	LayoutVersion int64                        `json:"layout_version"`
-	EvidenceRefs  []string                     `json:"evidence_refs,omitempty"`
-	Context       investigationCanvasContext   `json:"context"`
-	Versions      []investigationCanvasVersion `json:"versions"`
+	ID            string                        `json:"id"`
+	Kind          string                        `json:"kind"`
+	Parent        string                        `json:"parent,omitempty"`
+	Title         string                        `json:"title"`
+	Subtitle      string                        `json:"subtitle"`
+	Status        string                        `json:"status"`
+	X             int                           `json:"x"`
+	Y             int                           `json:"y"`
+	W             int                           `json:"w"`
+	Collapsed     bool                          `json:"collapsed"`
+	LayoutVersion int64                         `json:"layout_version"`
+	EvidenceRefs  []string                      `json:"evidence_refs,omitempty"`
+	Context       investigationCanvasContext    `json:"context"`
+	Versions      []investigationCanvasVersion  `json:"versions"`
+	Writebacks    investigationCanvasWritebacks `json:"writebacks"`
+}
+
+// investigationCanvasWritebacks counts the writebacks this node received, as
+// persisted writeback context revisions, and the nodes they came from (PA-62).
+type investigationCanvasWritebacks struct {
+	Received int      `json:"received"`
+	Sources  []string `json:"sources"`
 }
 
 type investigationCanvasEvidence struct {
@@ -323,8 +331,9 @@ func (s *Service) readCanvasGraph(ctx context.Context, tx pgx.Tx, target investi
 			ID: branch.id, Kind: kind, Parent: branch.parent, Title: branch.title, Subtitle: subtitle,
 			Status: status, X: branch.x, Y: branch.y, W: branch.w,
 			Collapsed: branch.collapsed, LayoutVersion: branch.layoutVersion,
-			Context:  investigationCanvasContext{Version: canvasVersion(branch.revision), Excludes: []string{}},
-			Versions: []investigationCanvasVersion{},
+			Context:    investigationCanvasContext{Version: canvasVersion(branch.revision), Excludes: []string{}},
+			Versions:   []investigationCanvasVersion{},
+			Writebacks: investigationCanvasWritebacks{Sources: []string{}},
 		}
 		if branch.inherited != nil {
 			node.Context.Inherits = canvasVersion(*branch.inherited)
@@ -431,6 +440,39 @@ func (s *Service) readCanvasGraph(ctx context.Context, tx pgx.Tx, target investi
 	if evidenceLimit {
 		return graph, &graphFailure{413, "canvas_graph_too_large", "Investigation evidence exceeds display limit"}
 	}
+	if err != nil {
+		return graph, graphUnavailable()
+	}
+	rows, err = tx.Query(ctx, `SELECT branch_id,count(*)::int,
+ COALESCE(array_agg(DISTINCT provenance->>'source_branch_id') FILTER (WHERE provenance->>'source_branch_id' IS NOT NULL),'{}')
+ FROM context_revisions WHERE branch_id=ANY($1::text[]) AND provenance->>'kind'='writeback'
+ GROUP BY branch_id`, ids)
+	if err != nil {
+		return graph, graphUnavailable()
+	}
+	for rows.Next() {
+		var branchID string
+		var received int
+		var sources []string
+		if err = rows.Scan(&branchID, &received, &sources); err != nil {
+			break
+		}
+		atIndex, found := index[branchID]
+		if !found {
+			continue
+		}
+		graph.Nodes[atIndex].Writebacks.Received = received
+		for _, source := range sources {
+			if _, inGraph := index[source]; inGraph {
+				graph.Nodes[atIndex].Writebacks.Sources = append(graph.Nodes[atIndex].Writebacks.Sources, source)
+			}
+		}
+		sort.Strings(graph.Nodes[atIndex].Writebacks.Sources)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
 	if err != nil {
 		return graph, graphUnavailable()
 	}

@@ -85,6 +85,8 @@ def main():
     for instance in ('prod', 'nonprod'):
         results.append(run(f'permissions {instance}', ['python3', 'tools/acceptance/permissions.py', instance,
                                                        '--json', str(LOCAL / f'e2e/permissions-{instance}.json')], parse=mismatches))
+    # The trace page opens on the Errors view, so the crawl never loads All; read every view directly (PA-87).
+    results.append(run('trace views', ['python3', 'tools/acceptance/trace_views.py'], parse=passed_line))
     for script in ('environments', 'inputs', 'auth'):
         results.append(run(script, ['python3', f'tools/acceptance/{script}.py'], parse=passed_line))
     if a.with_golden_api:

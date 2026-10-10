@@ -25,7 +25,7 @@ E2E = LOCAL / 'e2e'
 # verified · partial (backend done, frontend pending, or part of the scope) · open · later (next round) · gap
 STATUS_OVERRIDES = {
     'PA-05': 'verified', 'PA-08': 'verified', 'PA-09': 'verified', 'PA-12': 'verified', 'PA-19': 'verified', 'PA-68': 'verified',
-    'PA-21': 'verified', 'PA-43': 'verified', 'PA-84': 'verified', 'PA-85': 'verified', 'PA-86': 'verified', 'PA-83': 'verified', 'PA-67': 'verified', 'PA-72': 'verified', 'PA-73': 'verified', 'PA-74': 'verified',
+    'PA-21': 'verified', 'PA-43': 'verified', 'PA-84': 'verified', 'PA-85': 'verified', 'PA-86': 'verified', 'PA-87': 'open', 'PA-83': 'verified', 'PA-67': 'verified', 'PA-72': 'verified', 'PA-73': 'verified', 'PA-74': 'verified',
     'PA-78': 'verified', 'PA-79': 'verified', 'PA-80': 'verified', 'PA-81': 'verified', 'PA-82': 'verified',
 }
 STATUS_LABEL = {'verified': '已验证', 'partial': '部分完成', 'open': '处理中', 'later': '后续轮次', 'gap': '缺能力'}

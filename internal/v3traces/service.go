@@ -35,6 +35,12 @@ type Service struct {
 	// SourceCompare, when set, is told which file-configured bindings were
 	// read (PA-19 compare mode). It never changes the result.
 	SourceCompare v3telemetry.Observer
+	// Registry, Clients and Unified switch the list and detail to the
+	// connector registry (PA-19 P3 stage 2 step 4, registry.go); Source is
+	// then not used.
+	Registry *v3telemetry.Resolver
+	Clients  *v3telemetry.Clients
+	Unified  bool
 }
 
 func New(st *store.Store, access Access, source Source) *Service {
@@ -56,6 +62,9 @@ type target struct {
 	Provider      string
 	Resource      string
 	Revision      int64
+	// TargetID and ConnectorID name a registry target (Unified only).
+	TargetID    string
+	ConnectorID string
 }
 
 var (
@@ -64,7 +73,8 @@ var (
 )
 
 func (s *Service) allowedEnvironments(w http.ResponseWriter, r *http.Request) ([]string, bool) {
-	if s.Store == nil || s.Store.DB == nil || s.Access == nil || s.Source == nil {
+	if s.Store == nil || s.Store.DB == nil || s.Access == nil || (!s.Unified && s.Source == nil) ||
+		(s.Unified && (s.Registry == nil || s.Clients == nil)) {
 		httpapi.Error(w, 503, "traces_unavailable", "Trace storage, policy or provider is unavailable")
 		return nil, false
 	}
@@ -94,62 +104,23 @@ func (s *Service) targets(ctx context.Context, user core.User, environments []st
 	var cursor target
 	hasCursor, hadCandidates := false, false
 	for {
-		rows, err := s.Store.DB.Query(ctx, `SELECT a.id,ve.environment_id,COALESCE(a.owner_team_id,''),b.kind,b.resource,e.binding_revision
- FROM applications a JOIN v3_application_environments ve ON ve.application_id=a.id
- JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
- JOIN LATERAL jsonb_to_recordset(e.bindings) AS b(kind text, resource text) ON b.kind='tempo'
- WHERE NOT a.archived AND ve.environment_id=ANY($1::text[]) AND ($2='' OR a.id=$2 OR a.key=$2)
- AND b.resource<>''
- AND (NOT $3::boolean OR (a.id,ve.environment_id,b.kind,b.resource)>($4,$5,$6,$7))
- ORDER BY a.id,ve.environment_id,b.kind,b.resource LIMIT 200`,
-			environments, service, hasCursor, cursor.ApplicationID, cursor.EnvironmentID, cursor.Provider, cursor.Resource)
+		// Release the query connection before authorization, which may need
+		// the same pool.
+		var batch []target
+		var err error
+		if s.Unified {
+			batch, err = s.registryBatch(ctx, environments, service, cursor, hasCursor)
+		} else {
+			batch, err = s.legacyBatch(ctx, environments, service, cursor, hasCursor)
+		}
 		if err != nil {
 			return nil, err
 		}
-		batch := make([]target, 0, 200)
-		for rows.Next() {
-			var item target
-			if err = rows.Scan(&item.ApplicationID, &item.EnvironmentID, &item.TeamID, &item.Provider, &item.Resource, &item.Revision); err != nil {
-				break
-			}
-			batch = append(batch, item)
-		}
-		if err == nil {
-			err = rows.Err()
-		}
-		rows.Close()
+		done, err := s.admit(ctx, user, batch, &cursor, &hasCursor, &hadCandidates, seen, &result)
 		if err != nil {
 			return nil, err
 		}
-		if len(batch) == 0 {
-			break
-		}
-		hadCandidates = true
-		for _, item := range batch {
-			cursor, hasCursor = item, true
-			if err := s.authorizeTarget(ctx, user, item); err != nil {
-				if ctx.Err() != nil {
-					return nil, ctx.Err()
-				}
-				if errors.Is(err, store.ErrForbidden) {
-					continue
-				}
-				return nil, err
-			}
-			key := item.ApplicationID + "\x00" + item.EnvironmentID
-			if previous, exists := seen[key]; exists {
-				if previous.Resource != item.Resource || previous.Revision != item.Revision {
-					return nil, errAmbiguous
-				}
-				continue
-			}
-			seen[key] = item
-			result = append(result, item)
-			if len(result) > 6 {
-				return nil, errScopeLimit
-			}
-		}
-		if len(batch) < 200 {
+		if done {
 			break
 		}
 	}
@@ -162,26 +133,92 @@ func (s *Service) targets(ctx context.Context, user core.User, environments []st
 	// A static telemetry registration has one service/environment selector.
 	// Reusing its resource ID in another persisted scope could expose spans from
 	// a hidden application even when only one binding is visible to this user.
-	for _, item := range result {
-		var owners int
-		err := s.Store.DB.QueryRow(ctx, `SELECT COUNT(DISTINCT (e.application_id,e.key))
+	// Registry targets need no such count: one external ID per connector is
+	// unique, and catalog scopes are checked for overlap before each read.
+	if !s.Unified {
+		for _, item := range result {
+			var owners int
+			err := s.Store.DB.QueryRow(ctx, `SELECT COUNT(DISTINCT (e.application_id,e.key))
  FROM application_environments e JOIN applications a ON a.id=e.application_id AND NOT a.archived
  JOIN LATERAL jsonb_to_recordset(e.bindings) AS b(kind text, resource text) ON b.kind='tempo'
  WHERE NOT e.archived AND b.resource=$1`, item.Resource).Scan(&owners)
-		if err != nil {
-			return nil, err
-		}
-		if owners != 1 {
-			return nil, errAmbiguous
+			if err != nil {
+				return nil, err
+			}
+			if owners != 1 {
+				return nil, errAmbiguous
+			}
 		}
 	}
-	if s.SourceCompare != nil {
+	if s.SourceCompare != nil && !s.Unified {
 		for _, item := range result {
 			s.SourceCompare.ObserveLegacy(v3telemetry.Use{ApplicationID: item.ApplicationID, EnvironmentID: item.EnvironmentID,
 				Provider: item.Provider, Resource: item.Resource})
 		}
 	}
 	return result, nil
+}
+
+// legacyBatch lists the tempo bindings of the given environments (and
+// service) after cursor.
+func (s *Service) legacyBatch(ctx context.Context, environments []string, service string, cursor target, hasCursor bool) ([]target, error) {
+	rows, err := s.Store.DB.Query(ctx, `SELECT a.id,ve.environment_id,COALESCE(a.owner_team_id,''),b.kind,b.resource,e.binding_revision
+ FROM applications a JOIN v3_application_environments ve ON ve.application_id=a.id
+ JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
+ JOIN LATERAL jsonb_to_recordset(e.bindings) AS b(kind text, resource text) ON b.kind='tempo'
+ WHERE NOT a.archived AND ve.environment_id=ANY($1::text[]) AND ($2='' OR a.id=$2 OR a.key=$2)
+ AND b.resource<>''
+ AND (NOT $3::boolean OR (a.id,ve.environment_id,b.kind,b.resource)>($4,$5,$6,$7))
+ ORDER BY a.id,ve.environment_id,b.kind,b.resource LIMIT 200`,
+		environments, service, hasCursor, cursor.ApplicationID, cursor.EnvironmentID, cursor.Provider, cursor.Resource)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	batch := make([]target, 0, 200)
+	for rows.Next() {
+		var item target
+		if err := rows.Scan(&item.ApplicationID, &item.EnvironmentID, &item.TeamID, &item.Provider, &item.Resource, &item.Revision); err != nil {
+			return nil, err
+		}
+		batch = append(batch, item)
+	}
+	return batch, rows.Err()
+}
+
+// admit authorizes one batch of candidate targets into result. It reports
+// done after the last batch.
+func (s *Service) admit(ctx context.Context, user core.User, batch []target, cursor *target, hasCursor, hadCandidates *bool,
+	seen map[string]target, result *[]target) (bool, error) {
+	if len(batch) == 0 {
+		return true, nil
+	}
+	*hadCandidates = true
+	for _, item := range batch {
+		*cursor, *hasCursor = item, true
+		if err := s.authorizeTarget(ctx, user, item); err != nil {
+			if ctx.Err() != nil {
+				return false, ctx.Err()
+			}
+			if errors.Is(err, store.ErrForbidden) {
+				continue
+			}
+			return false, err
+		}
+		key := item.ApplicationID + "\x00" + item.EnvironmentID
+		if previous, exists := seen[key]; exists {
+			if previous.Resource != item.Resource || previous.Revision != item.Revision || previous.TargetID != item.TargetID {
+				return false, errAmbiguous
+			}
+			continue
+		}
+		seen[key] = item
+		*result = append(*result, item)
+		if len(*result) > 6 {
+			return false, errScopeLimit
+		}
+	}
+	return len(batch) < 200, nil
 }
 
 func targetError(w http.ResponseWriter, err error) {
@@ -218,9 +255,62 @@ func sourceError(w http.ResponseWriter, err error, detail bool) {
 		} else {
 			httpapi.Error(w, 503, "trace_scope_unavailable", "Registered Tempo scope is incomplete")
 		}
+	case "request_too_long":
+		httpapi.Error(w, 422, "query_too_long", "Trace search exceeds the 8 KiB request limit; shorten the filter")
 	default:
 		httpapi.Error(w, 503, "telemetry_unavailable", "Scoped trace query is incomplete or unavailable")
 	}
+}
+
+// readError reports a failed trace read: the registry's own failures, then
+// the provider's as before.
+func (s *Service) readError(w http.ResponseWriter, err error, detail bool) {
+	var notReady notReadyError
+	var telemetry *connectors.TelemetryError
+	switch {
+	case errors.Is(err, errAmbiguous):
+		targetError(w, err)
+	case errors.Is(err, errScopeChanged):
+		httpapi.Error(w, 409, "trace_scope_changed", "Trace source or authorization changed during the query")
+	case errors.As(err, &notReady):
+		httpapi.Error(w, 503, "source_not_ready", "Trace source is not ready: "+strings.Join(notReady.reasons, ", "))
+	case errors.Is(err, errClient):
+		httpapi.Error(w, 503, "not_configured", "Registered Tempo connector cannot be read")
+	case s.Unified && errors.As(err, &telemetry) && telemetry.Kind == "credentials":
+		// The approved Vault credential could not be read.
+		httpapi.Error(w, 503, "source_unavailable", "Trace source credential is unavailable")
+	case s.Unified && !errors.As(err, &telemetry):
+		httpapi.Error(w, 503, "trace_scope_unavailable", "Trace scope lookup failed")
+	default:
+		sourceError(w, err, detail)
+	}
+}
+
+// observed runs the list search: through Source with the legacy bindings, or
+// per registered connector.
+func (s *Service) observed(ctx context.Context, all, selected []target, q connectors.CompleteTraceQuery) (connectors.TraceObservation, error) {
+	if !s.Unified {
+		q.Resources, q.SearchResources = resources(all), resources(selected)
+		return s.Source.QueryObservedTraces(ctx, q)
+	}
+	groups, err := s.registryGroups(ctx, all, selected)
+	if err != nil {
+		return connectors.TraceObservation{}, err
+	}
+	return registryObserved(ctx, groups, q)
+}
+
+// complete reads one trace by ID the same two ways.
+func (s *Service) complete(ctx context.Context, all, selected []target, q connectors.CompleteTraceQuery) ([]connectors.CompleteTrace, error) {
+	if !s.Unified {
+		q.Resources, q.SearchResources = resources(all), resources(selected)
+		return s.Source.QueryCompleteTraces(ctx, q)
+	}
+	groups, err := s.registryGroups(ctx, all, selected)
+	if err != nil {
+		return nil, err
+	}
+	return registryTrace(ctx, groups, q)
 }
 
 // scope resolves the authorized Tempo targets. With allowNone, an unfiltered
@@ -385,10 +475,9 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	end := start.UTC().Truncate(time.Second)
 	window := connectors.TimeWindow{Start: end.Add(-duration), End: end}
-	observed, err := s.Source.QueryObservedTraces(r.Context(), connectors.CompleteTraceQuery{
-		Resources: resources(all), SearchResources: resources(targets), Window: window, Filter: filter})
+	observed, err := s.observed(r.Context(), all, targets, connectors.CompleteTraceQuery{Window: window, Filter: filter})
 	if err != nil {
-		sourceError(w, err, false)
+		s.readError(w, err, false)
 		return
 	}
 	service := strings.TrimSpace(r.URL.Query().Get("service"))
@@ -422,10 +511,9 @@ func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	traces, err := s.Source.QueryCompleteTraces(r.Context(), connectors.CompleteTraceQuery{
-		Resources: resources(all), SearchResources: resources(targets), TraceID: id})
+	traces, err := s.complete(r.Context(), all, targets, connectors.CompleteTraceQuery{TraceID: id})
 	if err != nil {
-		sourceError(w, err, true)
+		s.readError(w, err, true)
 		return
 	}
 	if !s.unchanged(w, r, environments, targets, strings.TrimSpace(r.URL.Query().Get("service"))) || !s.unchanged(w, r, environments, all, "") {

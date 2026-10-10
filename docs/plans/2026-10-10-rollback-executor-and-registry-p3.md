@@ -662,6 +662,13 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 - **探测兼容**：激活和测试探测有 `options.username` 时用它加 Vault 密码；没有时仍按 Vault 字段里的 `user:password` 拆分，Jenkins 等已有 basic 连接器不受影响。
 - 导入新增冲突原因 `basic_username_invalid` 和 `existing_connector_username_differs`；`compare` 新增差异字段 `username`。
 
+**第 4 步（Trace 读取方）**：
+- **实际范围**：生效的路由是 `v3traces` 的列表、详情和保存视图。`v3observe/traces.go` 里的旧处理函数没有注册，不改。旧前端的 `/applications/{id}/traces` 读全局遥测，留到 P4。保存视图只读数据库，不涉及来源。
+- **分组与上限**：同一连接器的目标合成一个客户端（`Clients.ForGroup`），单连接器时与切换前逐字相同。多连接器时，搜索预算（`connectors.TraceSearchBudget`）在整次查询内共用，40 条 Trace、64 次搜索的上限不随连接器数量放大。完整集合要求所有参与的连接器都声明搜索完整。
+- **重叠检查**：统一路径的客户端只装本连接器的范围，原来客户端内部的重叠检查看不到其他范围，所以改在读取前对整个目录做一次。旧路径里“同一资源只属于一个服务”的计数，在统一路径由数据库唯一约束保证。
+- **URL 长度**：新增 8 KiB 请求 URI 上限（发送前检查，旧路径同样生效）和目录 6 KiB 选择器上限，取值依据见 `v3-telemetry-registry.md`。验收实例的选择器 URL 约 240 字节。
+- **遗留**：`tempo_search_fail_closed` 仍在遥测文件里，P4 要换位置（例如连接器 `options`）。
+
 ## 附录 A：对照前提的命令
 
 在仓库根目录，使用与验收实例相同的环境变量（`AIOPS_TELEMETRY_CONFIG`、`AIOPS_V3_SOURCE_CATALOG`、`AIOPS_KUBERNETES_REGISTRY`（如有）、数据库连接），对两个实例分别执行：

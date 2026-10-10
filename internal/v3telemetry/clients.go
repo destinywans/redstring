@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/url"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -58,13 +60,47 @@ var ErrClientUnavailable = errors.New("registered source cannot be read")
 // its queries use (the target's resource ID). A source that is not ready is
 // refused; the caller reports s.NotReady.
 func (c *Clients) For(env string, s Source) (*connectors.Telemetry, string, error) {
-	if c == nil || len(s.NotReady) > 0 || s.ResourceID == "" || !v3integrations.ValidEndpoint(s.Endpoint) {
-		return nil, "", ErrClientUnavailable
+	client, err := c.ForGroup(env, []Source{s})
+	if err != nil {
+		return nil, "", err
 	}
-	scope := s.Scope
-	if s.Provider == "prometheus" {
-		scope = connectors.ApplicationTelemetry{PrometheusQueries: s.Queries}
+	return client, s.ResourceID, nil
+}
+
+// maxCachedClients bounds the cache; past it the cache starts over.
+const maxCachedClients = 256
+
+// ForGroup returns one client for several targets of the same connector, each
+// under its resource ID (stage 2 step 4: a Tempo read checks a trace against
+// every authorized registration of that Tempo at once). All sources must be
+// ready and share the connector, endpoint, auth and options.
+func (c *Clients) ForGroup(env string, sources []Source) (*connectors.Telemetry, error) {
+	if c == nil || len(sources) == 0 {
+		return nil, ErrClientUnavailable
 	}
+	s := sources[0]
+	if !v3integrations.ValidEndpoint(s.Endpoint) {
+		return nil, ErrClientUnavailable
+	}
+	scopes := make(map[string]connectors.ApplicationTelemetry, len(sources))
+	resources := make([]string, 0, len(sources))
+	for _, source := range sources {
+		if len(source.NotReady) > 0 || source.ResourceID == "" || source.ConnectorID != s.ConnectorID || source.Provider != s.Provider ||
+			source.Endpoint != s.Endpoint || source.AuthMethod != s.AuthMethod || source.CredentialRef != s.CredentialRef ||
+			source.TenantID != s.TenantID || source.Username != s.Username {
+			return nil, ErrClientUnavailable
+		}
+		if _, duplicate := scopes[source.ResourceID]; duplicate {
+			return nil, ErrClientUnavailable
+		}
+		scope := source.Scope
+		if source.Provider == "prometheus" {
+			scope = connectors.ApplicationTelemetry{PrometheusQueries: source.Queries}
+		}
+		scopes[source.ResourceID] = scope
+		resources = append(resources, source.ResourceID)
+	}
+	sort.Strings(resources)
 	endpoint := connectors.TelemetryEndpoint{URL: s.Endpoint, TenantID: s.TenantID, PostQueries: true}
 	if u, err := url.Parse(s.Endpoint); err == nil && u.Scheme == "http" {
 		endpoint.AllowHTTP = true // ValidEndpoint admits HTTP on loopback only
@@ -72,29 +108,31 @@ func (c *Clients) For(env string, s Source) (*connectors.Telemetry, string, erro
 	switch s.AuthMethod {
 	case "none":
 		if s.CredentialRef != "" {
-			return nil, "", ErrClientUnavailable
+			return nil, ErrClientUnavailable
 		}
 	case "bearer", "api_key":
 		endpoint.CredentialKind = s.AuthMethod
 	case "basic":
 		if s.Username == "" {
-			return nil, "", ErrClientUnavailable
+			return nil, ErrClientUnavailable
 		}
 		endpoint.CredentialKind, endpoint.Username = "basic", s.Username
 	default:
-		return nil, "", ErrClientUnavailable
+		return nil, ErrClientUnavailable
 	}
-	key := env + "\x00" + s.ConnectorID + "\x00" + s.ResourceID
-	digest := clientDigest(env, s, scope, c.Limits)
+	key := env + "\x00" + s.ConnectorID + "\x00" + strings.Join(resources, "\x00")
+	digest := clientDigest(env, s, scopes, c.Limits)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if cached, ok := c.clients[key]; ok && cached.digest == digest {
-		return cached.client, s.ResourceID, nil
+		return cached.client, nil
 	}
 	if endpoint.CredentialKind != "" {
 		use := v3integrations.CredentialUse{Tier: c.Tier, EnvironmentID: env, ConnectorID: s.ConnectorID,
 			Provider: s.Provider, Endpoint: s.Endpoint}
-		credentialKey := key + "\x00" + s.CredentialRef
+		// One cached credential per connector and reference, whichever of
+		// its targets are read together.
+		credentialKey := env + "\x00" + s.ConnectorID + "\x00" + s.CredentialRef
 		reference := s.CredentialRef
 		endpoint.Credential = func(ctx context.Context) (string, error) {
 			return c.credential(v3integrations.WithCredentialUse(ctx, use), credentialKey, reference)
@@ -114,28 +152,28 @@ func (c *Clients) For(env string, s Source) (*connectors.Telemetry, string, erro
 	case "tempo":
 		config.Tempo = endpoint
 	default:
-		return nil, "", ErrClientUnavailable
+		return nil, ErrClientUnavailable
 	}
-	config.Applications = map[string]connectors.ApplicationTelemetry{s.ResourceID: scope}
+	config.Applications = scopes
 	client, err := connectors.NewTelemetry(config)
 	if err != nil {
-		return nil, "", errors.Join(ErrClientUnavailable, err)
+		return nil, errors.Join(ErrClientUnavailable, err)
 	}
-	if c.clients == nil {
+	if c.clients == nil || len(c.clients) >= maxCachedClients {
 		c.clients = map[string]cachedClient{}
 	}
 	c.clients[key] = cachedClient{digest: digest, client: client}
-	return client, s.ResourceID, nil
+	return client, nil
 }
 
 // clientDigest covers everything a client is built from.
-func clientDigest(env string, s Source, scope connectors.ApplicationTelemetry, limits connectors.TelemetryConfig) string {
+func clientDigest(env string, s Source, scopes map[string]connectors.ApplicationTelemetry, limits connectors.TelemetryConfig) string {
 	limits.Applications = nil
 	raw, _ := json.Marshal(struct {
-		Env, Connector, Provider, Endpoint, Auth, Reference, Tenant, Username, Resource string
-		Scope                                                                           connectors.ApplicationTelemetry
-		Limits                                                                          connectors.TelemetryConfig
-	}{env, s.ConnectorID, s.Provider, s.Endpoint, s.AuthMethod, s.CredentialRef, s.TenantID, s.Username, s.ResourceID, scope, limits})
+		Env, Connector, Provider, Endpoint, Auth, Reference, Tenant, Username string
+		Scopes                                                                map[string]connectors.ApplicationTelemetry
+		Limits                                                                connectors.TelemetryConfig
+	}{env, s.ConnectorID, s.Provider, s.Endpoint, s.AuthMethod, s.CredentialRef, s.TenantID, s.Username, scopes, limits})
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }

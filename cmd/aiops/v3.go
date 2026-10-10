@@ -846,6 +846,8 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	}
 	traces := v3traces.New(s, policy, telemetry)
 	traces.SourceCompare = sourceCompare
+	traces.Registry, traces.Clients = sourceResolver, sourceClients
+	traces.Unified = unifiedReaders.Unified(v3telemetry.ReaderTraces)
 	traces.Register(api)
 	events := v3events.New(s.DB, func(ctx context.Context, user core.User, app, env, action string) error {
 		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})

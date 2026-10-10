@@ -212,6 +212,32 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	if err := json.Unmarshal(view.Body.Bytes(), &proposal); err != nil || proposal.ID != mainID || proposal.Status != "pending" || proposal.Title != completeContent().Title || len(proposal.Discussion) != 0 {
 		t.Fatalf("incorrect persisted detail: %s (%v)", view.Body.String(), err)
 	}
+	// PA-74: the proposing user's display name, read at projection time;
+	// null for an agent proposal or a user without a name.
+	t.Run("proposer-name", func(t *testing.T) {
+		if proposal.ProposedByName == nil || *proposal.ProposedByName != "Reviewer" || proposal.ProposedBy != completeContent().ProposedBy {
+			t.Fatalf("proposer name: %s", view.Body.String())
+		}
+		content := completeContent()
+		agentID, err := svc.Create(ctx, NewProposal{ApplicationID: "app-1", EnvironmentID: "dev", CreatedBy: "investigation-agent", CreatorKind: "agent", Content: content})
+		if err != nil {
+			t.Fatal(err)
+		}
+		agent := request(api, "GET", agentID, "", "dev", reviewerToken, "", "")
+		assert(agent, 200, "")
+		if !strings.Contains(agent.Body.String(), `"proposed_by_name":null`) {
+			t.Fatalf("agent proposal: %s", agent.Body.String())
+		}
+		if _, err := db.Exec(ctx, `UPDATE users SET name=' ' WHERE id=$1`, reviewer.ID); err != nil {
+			t.Fatal(err)
+		}
+		defer db.Exec(ctx, `UPDATE users SET name='Reviewer' WHERE id=$1`, reviewer.ID)
+		nameless := request(api, "GET", mainID, "", "dev", reviewerToken, "", "")
+		assert(nameless, 200, "")
+		if !strings.Contains(nameless.Body.String(), `"proposed_by_name":null`) {
+			t.Fatalf("user without a name: %s", nameless.Body.String())
+		}
+	})
 	comment := request(api, "POST", mainID, "/comments", "dev", reviewerToken, `{"text":" Review evidence "}`, "comment-1")
 	assert(comment, 201, "")
 	var posted CommentItem

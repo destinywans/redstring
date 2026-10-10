@@ -461,9 +461,13 @@ func TestRollbackEndToEnd(t *testing.T) {
 				ObservationSeconds int `json:"observation_seconds"`
 			} `json:"verification"`
 		} `json:"rollback"`
-		Title string `json:"title"`
+		Title          string  `json:"title"`
+		ProposedByName *string `json:"proposed_by_name"`
 	}
 	f.decode(f.call("GET", "/api/v1/proposals/"+id, "approver1", ""), 200, &proposal)
+	if proposal.ProposedByName == nil || *proposal.ProposedByName != "requester" {
+		t.Fatalf("rollback proposer name: %v", proposal.ProposedByName)
+	}
 	if proposal.ActionKind == nil || *proposal.ActionKind != v3proposals.RollbackActionKind || proposal.Rollback == nil ||
 		proposal.Rollback.FromRevision != "2" || proposal.Rollback.TargetRevision != "1" ||
 		proposal.Rollback.Verification.ObservationSeconds != 180 || !strings.Contains(proposal.Title, "checkout-api") {

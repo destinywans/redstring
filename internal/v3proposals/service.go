@@ -120,7 +120,11 @@ type Proposal struct {
 	Status     string `json:"status"`
 	ProposedAt string `json:"proposed_at"`
 	Content
-	Discussion []CommentItem `json:"discussion"`
+	// ProposedByName is the proposing user's current display name, read at
+	// projection time (PA-74); null for an agent or a user without a name.
+	// It is not part of the reviewed content, so it never changes a digest.
+	ProposedByName *string       `json:"proposed_by_name"`
+	Discussion     []CommentItem `json:"discussion"`
 	// ActionKind names the executable action; null for display-only
 	// proposals. Rollback is set for a Kubernetes rollback (PA-08).
 	ActionKind *string          `json:"action_kind"`
@@ -280,7 +284,7 @@ func (s *Service) Create(ctx context.Context, in NewProposal) (string, error) {
 
 type record struct {
 	ID, InvestigationID, ApplicationID, EnvironmentID, TeamID, Status string
-	RejectedBy, RejectionReason                                       string
+	RejectedBy, RejectionReason, CreatedBy, CreatorKind               string
 	Content                                                           Content
 	CreatedAt                                                         time.Time
 }
@@ -293,9 +297,9 @@ func loadReviewTx(ctx context.Context, tx pgx.Tx, id string, write bool) (record
 		lock = " FOR UPDATE"
 	}
 	err := tx.QueryRow(ctx, `SELECT id,investigation_id,application_id,environment_id,status,
- COALESCE(rejected_by,''),rejection_reason,content,created_at
+ COALESCE(rejected_by,''),rejection_reason,content,created_at,created_by,creator_kind
  FROM v3_proposals WHERE id=$1`+lock, id).Scan(&v.ID, &v.InvestigationID, &v.ApplicationID,
-		&v.EnvironmentID, &v.Status, &v.RejectedBy, &v.RejectionReason, &raw, &v.CreatedAt)
+		&v.EnvironmentID, &v.Status, &v.RejectedBy, &v.RejectionReason, &raw, &v.CreatedAt, &v.CreatedBy, &v.CreatorKind)
 	if err != nil {
 		return v, err
 	}
@@ -526,6 +530,16 @@ func detailTx(ctx context.Context, tx pgx.Tx, v record) (Proposal, error) {
 		return Proposal{}, err
 	}
 	rows.Close()
+	if v.CreatorKind == "user" {
+		var name string
+		err = tx.QueryRow(ctx, `SELECT btrim(name) FROM users WHERE id=$1`, v.CreatedBy).Scan(&name)
+		switch {
+		case err == nil && name != "":
+			out.ProposedByName = &name
+		case err != nil && !errors.Is(err, pgx.ErrNoRows):
+			return Proposal{}, err
+		}
+	}
 	if out.ActionKind, out.Rollback, err = actionSummaryTx(ctx, tx, v.ID); err != nil {
 		return out, err
 	}

@@ -159,6 +159,11 @@ func (f *pageRaceFixture) notificationIDs(w *httptest.ResponseRecorder) []string
 		if at, err := time.Parse(time.RFC3339, v.At); err != nil || at.Location() != time.UTC || v.Time == "" {
 			f.t.Fatalf("inbox item time: %+v %v", v, err)
 		}
+		// PA-84: an assignment opens the assigned alert, says its kind and
+		// is described in the request language (Chinese by default).
+		if v.Kind == "assignment" && (v.AssignmentKind != "alert" || v.Href != "/incidents/alert" || v.Sub != "分配给你的告警") {
+			f.t.Fatalf("assignment item: %+v", v)
+		}
 		ids = append(ids, v.ID)
 	}
 	return ids

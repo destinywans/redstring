@@ -776,6 +776,8 @@ export type ConnectorDetail = Connector & {
    */
   workloads?: { key: string; namespace: string; deployment: string; service: string | null; rollback: { allowed: boolean; observation_seconds: number | null } | null; write_approved: boolean | null }[];
   capabilities?: string[];
+  /** Registry stage 2 step 7: tools project the saved switches; false says they gate data reads only, not agent execution. */
+  agent_execution_available?: boolean;
 };
 export type ConnectorType = {
   brand: string;

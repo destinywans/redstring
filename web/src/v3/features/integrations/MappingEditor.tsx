@@ -37,13 +37,15 @@ export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { ro
     setDraft((d) => {
       const cur = d[sys] ?? { kind: "", connector_id: "", resource: "" };
       const next = { ...cur, ...patch };
-      // Until the two connector registries are unified (PA-19) a new binding's connector ID is its kind.
-      if (patch.kind !== undefined && patch.kind !== cur.kind) next.connector_id = row.save.bindings.find((b) => b.system_id === sys && b.kind === patch.kind)?.connector_id ?? patch.kind;
+      // The connector ID always comes from the API (a real connector ID since registry stage 2); never the kind name.
+      if (patch.kind !== undefined && patch.kind !== cur.kind) next.connector_id = row.save.bindings.find((b) => b.system_id === sys && b.kind === patch.kind)?.connector_id ?? "";
       return { ...d, [sys]: next };
     });
   const bindings = Object.entries(draft)
     .filter(([, b]) => b.kind && b.resource.trim())
     .map(([system_id, b]) => ({ system_id, kind: b.kind, connector_id: b.connector_id, resource: b.resource.trim() }));
+  // A binding without a connector ID from the API can't be saved (choosing connectors arrives with the stage 6 editor).
+  const noConnector = new Set(Object.entries(draft).filter(([, b]) => b.kind && !b.connector_id).map(([sys]) => sys));
   const save = async () => {
     setBusy(true);
     try {
@@ -73,7 +75,7 @@ export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { ro
           <Muted size={11.5}>{tx("保存记入审计。", "Saving is audited.")}</Muted>
           <Spacer />
           <Btn kind="ghost" onClick={onClose}>{tx("取消", "Cancel")}</Btn>
-          <Btn kind="primary" loading={busy} onClick={() => void save()}>{tx("保存", "Save")}</Btn>
+          <Btn kind="primary" loading={busy} disabled={noConnector.size > 0} onClick={() => void save()}>{tx("保存", "Save")}</Btn>
         </>
       }
     >
@@ -99,6 +101,7 @@ export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { ro
               <Muted>{s.label}</Muted>
               <ChipSelect label="" showLabel={false} value={b?.kind || "none"} onChange={(v) => set(s.id, { kind: v === "none" ? "" : (v as string) })} options={[{ value: "none", label: tx("未绑定", "Not bound") }, ...kinds.map((k) => ({ value: k, label: k }))]} />
               <Input mono value={b?.resource ?? ""} disabled={!b?.kind} onChange={(e) => set(s.id, { resource: e.target.value })} aria-label={tx("{s} 资源", "{s} resource", { s: s.label })} />
+              {noConnector.has(s.id) && <span style={{ gridColumn: "1 / -1", color: "var(--danger)", fontSize: "var(--fs-sub)" }}>{tx("这一项没有可用的连接器，暂时不能保存。", "There's no connector for this one, so it can't be saved yet.")}</span>}
             </div>
           );
         })}

@@ -190,7 +190,11 @@ export default function MappingPage() {
                             {tx("编辑", "Edit")}
                           </Btn>
                         ) : (
-                          <Muted size={11.5}>{r.save?.unavailable_reason ?? tx("只能在配置里改", "Change it in configuration")}</Muted>
+                          <Muted size={11.5}>
+                            {r.save?.unavailable_reason === "registry_cutover"
+                              ? tx("来源登记切换中，暂时只读", "Read-only while sources move to the new registry")
+                              : r.save?.unavailable_reason ?? tx("只能在配置里改", "Change it in configuration")}
+                          </Muted>
                         )}
                       </td>
                     )}

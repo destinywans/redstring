@@ -185,3 +185,16 @@ func TestEventTextsFollowAcceptLanguage(t *testing.T) {
 		t.Fatalf("default language changed: %+v", got)
 	}
 }
+
+// PA-84: an assignment links to the assigned object, not back to the inbox,
+// and its description follows the request language.
+func TestAssignmentInboxItemLinksAndText(t *testing.T) {
+	for kind, want := range map[string]string{"alert": "/incidents/a%2Fb", "incident": "/incidents/a%2Fb", "proposal": "/review/a%2Fb"} {
+		if got := assignedHref(kind, "a/b"); got != want {
+			t.Errorf("%s: %q, want %q", kind, got, want)
+		}
+	}
+	if textFor("en-US").assignedSub("proposal") != "Proposal assigned to you" || textFor("").assignedSub("incident") != "分配给你的事件" {
+		t.Fatal("assignment text not localized")
+	}
+}

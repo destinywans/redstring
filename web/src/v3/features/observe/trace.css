@@ -112,5 +112,3 @@
 .tr-dense p { margin: 0; color: var(--muted); font-size: var(--fs-sub); max-width: 62ch; }
 .tr-dense ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: var(--fs-sub); display: flex; flex-direction: column; gap: 4px; }
 .tr-dense code { font-family: var(--mono); font-size: 12px; background: var(--sunken); padding: 1px 5px; border-radius: 4px; color: var(--text); }
-.tr-range { display: inline-flex; }
-.tr-range.hl .v3-chip { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }

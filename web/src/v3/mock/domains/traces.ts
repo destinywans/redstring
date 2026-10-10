@@ -94,6 +94,10 @@ mock("GET", "/traces", ({ query }) => {
   const q = String(query.q ?? "");
   const broad = query.view === "all" && !/status\s*=\s*error|duration\s*[<>]|resource\.service\.name|\bname\s*=/.test(q);
   const service = typeof query.service === "string" && query.service ? query.service : undefined;
+  // PA-81 demo: search-api's Tempo is connected but the deployment doesn't declare search complete (no counts or
+  // charts); notification-svc has no trace source at all.
+  if (service === "search-api") return { ...recentList(service, "15m"), total: null, facets: null, histogram: null, scatter: null, partial: true, partial_reason: "search_unattested", unavailable: { total: "not_configured", facets: "not_configured", histogram: "not_configured", scatter: "not_configured" } };
+  if (service === "notification-svc") return { scope: "app", total: null, took: "0 ms", colors: {}, facets: null, views: APP_VIEWS, histogram: null, scatter: null, items: null, partial: true, partial_reason: "not_configured", unavailable: { items: "not_configured", total: "not_configured", facets: "not_configured", histogram: "not_configured", scatter: "not_configured" } };
   if (broad && service === "api-gateway") throw new MockError(413, "trace_scope_limit", "Trace population exceeds the bounded search limit");
   if (broad) return recentList(service, String(query.range ?? "1h"));
   const counts: [number, number][] = [[30, 0], [32, 0], [31, 0], [33, 1], [30, 0], [34, 0], [32, 0], [35, 0], [31, 0], [33, 0], [36, 0], [34, 0], [33, 0], [35, 0], [34, 0], [36, 0], [22, 14], [18, 20], [16, 23], [17, 22], [18, 21], [19, 19], [21, 16], [30, 6], [33, 2], [35, 1], [34, 0], [36, 0], [35, 0], [37, 0]];

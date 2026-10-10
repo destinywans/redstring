@@ -53,7 +53,10 @@ type Service struct {
 	// The callback must prove the independent enable worker is running for the
 	// exact environment, as well as the reviewed GitOps target being configured.
 	AlertRuleEnableReady func(context.Context, string) error
-	ApprovalWorkflow     interface {
+	// RollbackReady must prove the independent rollback executor is running
+	// for the environment (PA-08).
+	RollbackReady    func(context.Context, string) error
+	ApprovalWorkflow interface {
 		CreateReady(context.Context, string) error
 		CancelReady(context.Context, string) error
 	}
@@ -118,6 +121,10 @@ type Proposal struct {
 	ProposedAt string `json:"proposed_at"`
 	Content
 	Discussion []CommentItem `json:"discussion"`
+	// ActionKind names the executable action; null for display-only
+	// proposals. Rollback is set for a Kubernetes rollback (PA-08).
+	ActionKind *string          `json:"action_kind"`
+	Rollback   *RollbackSummary `json:"rollback"`
 	// Execution is null until a second approval allocates an execution
 	// (PA-36); its status and upstream ID come from the executor's records.
 	Execution *ProposalExecution `json:"execution"`
@@ -159,6 +166,12 @@ func executionTx(ctx context.Context, tx pgx.Tx, proposalID string) (*ProposalEx
 		err = tx.QueryRow(ctx, `SELECT state FROM v3_alert_rule_enable_executions WHERE proposal_id=$1 AND execution_id=$2`,
 			proposalID, out.ExecutionID).Scan(&state)
 		status = &state
+	case RollbackActionKind:
+		var state string
+		if err = tx.QueryRow(ctx, `SELECT status FROM v3_rollout_executions WHERE proposal_id=$1 AND execution_id=$2`,
+			proposalID, out.ExecutionID).Scan(&state); err == nil {
+			status = &state
+		}
 	default:
 		err = pgx.ErrNoRows
 	}
@@ -513,6 +526,9 @@ func detailTx(ctx context.Context, tx pgx.Tx, v record) (Proposal, error) {
 		return Proposal{}, err
 	}
 	rows.Close()
+	if out.ActionKind, out.Rollback, err = actionSummaryTx(ctx, tx, v.ID); err != nil {
+		return out, err
+	}
 	out.Execution, err = executionTx(ctx, tx, v.ID)
 	return out, err
 }

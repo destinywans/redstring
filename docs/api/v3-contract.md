@@ -518,6 +518,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | DELETE | `/me/avatar` | | `204` | 个人资料 › 移除头像 | v1.1·已实现 |
 | GET | `/services/{id}/rollback-candidates` | | `{ service_id, application_id, environment_id, workload, verification, candidates, blocked_reason, observed_at }`；详见 [回滚契约](v3-rollback.md) | 服务详情 / 调查 › 提议回滚 | v1.1·已实现 |
 | POST | `/rollback-proposals` | `{ investigation_id, service_id, target_revision, expected_template_digest, reason }` + `Idempotency-Key` | `201 { proposal_id, status: pending, action_kind }`；详见 [回滚契约](v3-rollback.md) | 提案抽屉 › 提交回滚提案 | v1.1·已实现 |
+| GET | `/investigations/{id}/nodes/{node}/replies` | `page_size?`（1–50，默认 20）、`cursor?` | `{ investigation_id, node_id, replies: [{ id, text, author, answer, state, failure_code, model, reasoning, created_at, completed_at, evidence_ids, rollback_suggestion }], has_more, next_cursor }`；本分支 AI 回复从新到旧，详见下方辅助接口说明 | 调查画布 › 节点对话历史 | v1.1·已实现 |
 
 **服务端查询参数**。以下参数已进入真实查询、聚合或排序；维度内多值 OR、不同维度 AND，均保留当前 ACL。`sort`、`tab`、`source`、`range` 是单值参数：
 

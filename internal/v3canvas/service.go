@@ -91,6 +91,7 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"POST /api/v1/investigations/{id}/writeback", "change", s.writebackInvestigation},
 		{"POST /api/v1/canvases/{id}/nodes/{node}/messages", "change", s.sendNodeMessage},
 		{"GET /api/v1/investigations/{id}/nodes/{node}/messages", "view", s.readInvestigationNodeMessages},
+		{"GET /api/v1/investigations/{id}/nodes/{node}/replies", "view", s.readInvestigationReplies},
 		{"GET /api/v1/canvas-templates", "view", s.templates},
 		{"POST /api/v1/canvas-templates", "change", s.saveTemplate},
 		{"GET /api/v1/investigation-templates", "view", s.listInvestigationTemplates},
@@ -105,6 +106,7 @@ func (s *Service) Register(api *httpapi.Server) {
 			route.pattern == "GET /api/v1/investigations/{id}/writeback-preview" ||
 			route.pattern == "POST /api/v1/investigations/{id}/writeback" ||
 			route.pattern == "GET /api/v1/investigations/{id}/nodes/{node}/messages" ||
+			route.pattern == "GET /api/v1/investigations/{id}/nodes/{node}/replies" ||
 			route.pattern == "GET /api/v1/investigation-templates" ||
 			route.pattern == "POST /api/v1/investigation-templates/{id}/start" {
 			// The handlers resolve application/team scope from persisted

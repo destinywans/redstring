@@ -388,7 +388,8 @@ func (s *Service) run(parent context.Context, proposalID string) {
 func (s *Service) step(ctx context.Context, row *ledgerRow, a v3proposals.RollbackAction) error {
 	rollback := v3kube.Rollback{Namespace: a.Namespace, Deployment: a.Deployment, UID: a.UID,
 		ExpectedTemplateDigest: a.ExpectedTemplateDigest, ExpectedSpecDigest: a.ExpectedSpecDigest,
-		TargetTemplate: a.TargetTemplate, TargetTemplateDigest: a.TargetTemplateDigest, OperationID: row.ExecutionID}
+		TargetTemplate: a.TargetTemplate, TargetTemplateDigest: a.TargetTemplateDigest, OperationID: row.ExecutionID,
+		ChangeCause: "aiops rollback to revision " + a.TargetRevision + " (execution " + row.ExecutionID + ")"}
 	switch row.Status {
 	case stateReserved:
 		bound, err := s.boundWorkload(ctx, s.DB, a)

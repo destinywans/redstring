@@ -442,6 +442,10 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 - **调查事件**：本阶段不往调查里追加事件。V3 没有通用的调查事件表；改调查还会推高 `updated_at`，使同一调查上的其他待批提案失效。执行结果通过提案和执行视图关联到调查（执行投影带 `investigation_id`）。
 - **导入**：Kubernetes 绑定按 3.6 节导入。演示连接器 `demo-kubernetes` 列为 `demo_connector_not_imported`。计划新增 `reviews` 段，逐个列出需要部署方审查回滚策略的工作负载，以及旧的计数查询 ID（不换算）。凭据批准带 `ca_field`，表示需要把 CA 放进 Vault 的 `ca` 字段。`compare` 也对照工作负载绑定，比较 API 地址、命名空间和 Deployment。
 
+- **回滚补丁里的元数据（PA-76）**：
+  - 同一个补丁把 `kubernetes.io/change-cause` 写成 `aiops rollback to revision N (execution <ID>)`，恢复出的修订不再显示坏发布的说明，template 不动；
+  - 操作注解保留在 Deployment 上，只表示"最近一次由执行器写入"。它必须和 template 在同一个补丁里才能证明这次写入已生效，事后清除就是第二次写入；也不能移到别处，因为别的对象不能和 template 在同一个原子补丁里写。
+
 ## 附录 A：对照前提的命令
 
 在仓库根目录，使用与验收实例相同的环境变量（`AIOPS_TELEMETRY_CONFIG`、`AIOPS_V3_SOURCE_CATALOG`、`AIOPS_KUBERNETES_REGISTRY`（如有）、数据库连接），对两个实例分别执行：

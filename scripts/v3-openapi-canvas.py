@@ -151,9 +151,11 @@ S['V3InvestigationCanvasNode'] = obj({
     'context':ref('V3InvestigationCanvasContext'),
     'versions':arr(ref('V3InvestigationCanvasVersion')),
     'evidence_refs':arr(string()),
+    # PA-75: the start of the branch's latest completed AI reply, or null.
+    'summary':{'type':['string','null'],'maxLength':281},
     # PA-62 follow-up: persisted writeback context revisions this node received and their source nodes.
     'writebacks':obj({'received':integer(minimum=0),'sources':arr(string())},['received','sources'])},
-    ['id','kind','title','subtitle','status','x','y','w','collapsed','layout_version','context','versions','writebacks'])
+    ['id','kind','title','subtitle','status','x','y','w','collapsed','layout_version','context','versions','writebacks','summary'])
 S['V3InvestigationEvidenceTrayItem'] = obj({
     **fieldnames('id title source'),
     'kind':string(enum=['table']),
@@ -212,6 +214,28 @@ v3_route('get','/investigations/{id}/nodes/{node}/messages',
     'Read the current persisted investigation branch context',
     response=ref('V3InvestigationBranchContext'),
     desc='Auxiliary read-only route outside the 166 V3 page contracts. Resolves persisted branch scope and requires current canvas.view. Returns the current revision and historical JSON messages as stored, plus the 50 most recent running or failed reply attempts. attempts_has_more marks additional older attempts. An expired running lease is displayed as failed. No synthetic assistant reply is inserted for a failed attempt. The stored context is limited to 24 KiB. An absent, mismatched, or inaccessible branch returns 404; missing or malformed context returns 503.')
+# PA-75: the replies of an investigation branch, newest first.
+S['V3InvestigationReply'] = obj({
+    'id':string(),'text':string(),'author':{'type':['string','null']},
+    'answer':{'type':['string','null'],'description':'The AI reply; null unless state is completed'},
+    'state':string(enum=['running','completed','failed']),
+    'failure_code':{'type':['string','null'],'description':'Why the attempt failed; lease_expired for a running attempt whose lease ran out'},
+    'model':obj({'id':string(),'name':string(),'provider':string()},['id','name','provider']),
+    'reasoning':{'type':['string','null']},
+    'created_at':string(format='date-time'),'completed_at':{'type':['string','null'],'format':'date-time'},
+    'evidence_ids':{**arr(string()),'description':'Evidence this reply read, in reading order (the numbers a rollback suggestion cites)'},
+    'rollback_suggestion':v3_nullable(ref('V3RollbackSuggestion'))},
+    ['id','text','author','answer','state','failure_code','model','reasoning','created_at','completed_at',
+     'evidence_ids','rollback_suggestion'])
+S['V3InvestigationReplyPage'] = obj({'investigation_id':string(),'node_id':string(),
+    'replies':arr(ref('V3InvestigationReply')),'has_more':v3_bool(),'next_cursor':{'type':['string','null']}},
+    ['investigation_id','node_id','replies','has_more','next_cursor'])
+v3_route('get','/investigations/{id}/nodes/{node}/replies',
+    'Page an investigation branch\'s AI replies, newest first',
+    response=ref('V3InvestigationReplyPage'),
+    query=[{'name':'page_size','in':'query','schema':integer(minimum=1,maximum=50)},
+           {'name':'cursor','in':'query','schema':string(maxLength=1024)}],
+    desc='Auxiliary read-only route (PA-75). Same session, environment and canvas.view checks as GET /investigations/{id}/canvas; an inaccessible investigation or unknown branch returns 404. Replies of this branch only, newest first, at most page_size (default 20) and 2 MiB per page; next_cursor continues with older replies and is bound to the investigation and branch (422 otherwise). answer is set only for completed replies; a running attempt whose lease expired is failed with lease_expired. evidence_ids are the evidence the reply read, in reading order. Unlike /messages, which returns the model context including history inherited at fork, this lists the reply records.')
 v3_route('post','/investigations/{id}/nodes/{node}/messages',
     'Run a persisted investigation-branch model reply',
     body=obj({'text':string(minLength=1,maxLength=8192),'model':string(),

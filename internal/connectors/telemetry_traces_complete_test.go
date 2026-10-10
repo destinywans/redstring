@@ -338,3 +338,33 @@ func TestTraceSearchBudgetIsSharedAndLongSearchesAreRefused(t *testing.T) {
 		t.Fatalf("selector: %s", selector)
 	}
 }
+
+// PA-78: Tempo search drops leading zeroes from trace IDs (29-31 hex digits).
+// The list pads them to the 32 digits the detail route accepts, and reads
+// the trace under that ID.
+func TestCompleteTempoSearchPadsShortTraceIDs(t *testing.T) {
+	const short, full = "abcabcabcabcabcabcabcabcabcab", "000abcabcabcabcabcabcabcabcabcab"
+	base := time.Now().UTC().Add(-time.Minute)
+	var read string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/search":
+			_ = json.NewEncoder(w).Encode(map[string]any{"traces": []map[string]string{{"traceID": short}}})
+		case strings.HasPrefix(r.URL.Path, "/api/traces/"):
+			read = strings.TrimPrefix(r.URL.Path, "/api/traces/")
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceSpans": []any{completeTraceBatch(full, "orders", "lab", "v1", "", base)}})
+		}
+	}))
+	defer server.Close()
+	telemetry, err := NewTelemetry(TelemetryConfig{Tempo: TelemetryEndpoint{URL: server.URL, AllowHTTP: true}, Applications: map[string]ApplicationTelemetry{
+		"app": {TempoService: "orders", TempoAttributes: map[string]string{"deployment.environment": "lab"}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := telemetry.QueryObservedTraces(context.Background(), CompleteTraceQuery{Resources: []string{"app"},
+		Window: TimeWindow{Start: base.Add(-time.Minute), End: base.Add(time.Minute)}})
+	if err != nil || len(observed.Traces) != 1 || observed.Traces[0].ID != full || read != full || !ValidTraceID(observed.Traces[0].ID) {
+		t.Fatalf("short ID: %+v read=%q %v", observed.Traces, read, err)
+	}
+}

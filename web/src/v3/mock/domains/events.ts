@@ -18,10 +18,12 @@ mock("GET", "/inbox", ({ query }) => {
     { id: "i6", kind: "alert", tone: "warn", title: P("P2 · inventory-03 磁盘 IO 等待 180 ms", "P2 · inventory-03 disk IO wait 180 ms"), sub: P("超过阈值 100 ms · 未认领", "Above the 100 ms threshold · unclaimed"), time: "14:02", at: at("14:02"), unread: false, day: "today", href: "/inbox?item=i6", alert_id: "ALR-7729" },
     { id: "i7", kind: "alert", tone: "neutral", title: P("P3 · inventory-worker Kafka 积压", "P3 · inventory-worker Kafka lag"), sub: P("王晨 已认领 · 已静默至 16:00", "Claimed by Wang Chen · silenced until 16:00"), time: "22:10", at: at("22:10", -1), unread: false, day: "yesterday", href: "/inbox?item=i7", alert_id: "ALR-7702" },
     { id: "i8", kind: "access", tone: "neutral", title: P("李明 申请 inventory-worker 操作权限", "Li Ming requests inventory-worker access"), sub: P("交易平台 · 有效期 7 天", "Trading · valid 7 days"), time: "18:42", at: at("18:42", -1), unread: false, day: "yesterday", href: "/settings/members" },
+    { id: "assignment:n1", kind: "assignment", assignment_kind: "incident", tone: "neutral", title: P("INC-1042 · checkout-api 5xx 升高", "INC-1042 · checkout-api 5xx rising"), sub: P("分配给你的事件", "Incident assigned to you"), time: "14:10", at: at("14:10"), unread: true, day: "today", href: "/incidents/INC-1042" },
+    { id: "assignment:n2", kind: "assignment", assignment_kind: "proposal", tone: "neutral", title: P("PRP-88 · 库存调用重试降为 1 次", "PRP-88 · retry inventory calls once"), sub: P("分配给你的提案", "Proposal assigned to you"), time: "14:21", at: at("14:21"), unread: false, day: "today", href: "/review/PRP-88" },
     { id: "i9", kind: "agent", tone: "warn", title: P("Agent 治理：调查助手 v13 未通过评测门禁", "Agent governance: Investigator v13 failed an eval gate"), sub: P("成本上升 14%，已阻止灰度扩大到 50%", "Cost +14%; canary blocked at 20%"), time: "17:05", at: at("17:05", -1), unread: false, day: "yesterday", href: "/agents/evals" },
   ];
   const tab = String(query.tab ?? "all");
-  const filtered = tab === "mine" ? items.filter((i) => ["approval", "report", "runbook", "access"].includes(i.kind)) : tab === "mentions" ? items.filter((i) => i.kind === "mention") : items;
+  const filtered = tab === "mine" ? items.filter((i) => ["approval", "report", "runbook", "access", "assignment"].includes(i.kind)) : tab === "mentions" ? items.filter((i) => i.kind === "mention") : items;
   return { items: filtered, counts: { all: 12, mine: 4, mentions: 2 } };
 });
 

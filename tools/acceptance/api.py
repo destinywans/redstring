@@ -40,7 +40,7 @@ def call(instance, method, path, body=None, env=None, role='admin', cookie=None,
     if body is not None:
         data = json.dumps(body).encode()
         headers['Content-Type'] = 'application/json'
-    if method != 'GET':
+    if method != 'GET' and idempotency_key is not False:  # False: send none (428 checks)
         headers['Idempotency-Key'] = idempotency_key or secrets.token_hex(16)
     req = urllib.request.Request(ORIGINS[instance] + '/api/v1' + path, data=data, method=method, headers=headers)
     try:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/v3telemetry"
@@ -126,10 +127,30 @@ func (s *Service) registryGroups(ctx context.Context, all, selected []target) ([
 }
 
 // registryObserved is the list search over every group that has a selected
-// target. The population is complete only when every group's is.
+// target. The population is complete only when every group's is. Groups
+// share one search budget and split the trace budget evenly; a group that
+// stops at it moves the common start later,
+// the next groups search only from there, and traces an earlier group found
+// before the final start are dropped, so the result is the window every
+// group covered (PA-78).
 func registryObserved(ctx context.Context, groups []traceGroup, q connectors.CompleteTraceQuery) (connectors.TraceObservation, error) {
 	q.Budget = &connectors.TraceSearchBudget{}
+	searched := 0
+	for _, group := range groups {
+		if len(group.selected) > 0 {
+			searched++
+		}
+	}
+	if searched > 1 {
+		// Each connector gets a share of the trace budget.
+		q.MaxTraceIDs = max(1, connectors.CompleteTraceIDLimit/searched)
+	}
 	out := connectors.TraceObservation{Traces: []connectors.CompleteTrace{}, PopulationComplete: true}
+	type found struct {
+		trace connectors.CompleteTrace
+		from  time.Time
+	}
+	var kept []found
 	seen := map[string]bool{}
 	for _, group := range groups {
 		if len(group.selected) == 0 {
@@ -141,6 +162,16 @@ func registryObserved(ctx context.Context, groups []traceGroup, q connectors.Com
 			return connectors.TraceObservation{}, err
 		}
 		out.PopulationComplete = out.PopulationComplete && observed.PopulationComplete
+		out.Truncated = out.Truncated || observed.Truncated
+		if out.WindowEnd.IsZero() || observed.WindowStart.After(out.WindowStart) {
+			out.WindowStart = observed.WindowStart
+		}
+		if out.WindowEnd.IsZero() {
+			out.WindowEnd = observed.WindowEnd
+		}
+		if !out.WindowStart.IsZero() {
+			q.Window.Start = out.WindowStart
+		}
 		for _, trace := range observed.Traces {
 			if seen[trace.ID] {
 				// One trace stored by two registered Tempos cannot be shown
@@ -148,10 +179,27 @@ func registryObserved(ctx context.Context, groups []traceGroup, q connectors.Com
 				return connectors.TraceObservation{}, &connectors.TelemetryError{Kind: "partial", Message: "Trace is stored by more than one registered Tempo"}
 			}
 			seen[trace.ID] = true
-			out.Traces = append(out.Traces, trace)
+			kept = append(kept, found{trace: trace, from: observed.WindowStart})
 		}
 	}
+	for _, item := range kept {
+		if item.from.Before(out.WindowStart) && traceStart(item.trace).Before(out.WindowStart) {
+			continue
+		}
+		out.Traces = append(out.Traces, item.trace)
+	}
 	return out, nil
+}
+
+// traceStart is the earliest span start of a trace.
+func traceStart(trace connectors.CompleteTrace) time.Time {
+	var first time.Time
+	for _, span := range trace.Spans {
+		if first.IsZero() || span.Start.Before(first) {
+			first = span.Start
+		}
+	}
+	return first
 }
 
 // registryTrace reads one trace by ID from every group that has a selected

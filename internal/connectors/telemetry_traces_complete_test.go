@@ -368,3 +368,131 @@ func TestCompleteTempoSearchPadsShortTraceIDs(t *testing.T) {
 		t.Fatalf("short ID: %+v read=%q %v", observed.Traces, read, err)
 	}
 }
+
+// D19: tempo_attributes keys name resource attributes; the search adds
+// "resource." itself, so a prefixed key is refused when the registration or
+// a catalog scope is loaded instead of matching nothing.
+func TestTempoAttributeKeysRefusePrefixes(t *testing.T) {
+	for _, key := range []string{"resource.deployment.environment", "span.http.route"} {
+		_, err := NewTelemetry(TelemetryConfig{Tempo: TelemetryEndpoint{URL: "http://127.0.0.1:3200", AllowHTTP: true},
+			Applications: map[string]ApplicationTelemetry{"app": {TempoService: "orders", TempoAttributes: map[string]string{key: "lab"}}}})
+		if err == nil || !strings.Contains(err.Error(), "prefix") {
+			t.Fatalf("%s accepted: %v", key, err)
+		}
+		if ValidateApplicationScope(ApplicationTelemetry{TempoService: "orders", TempoAttributes: map[string]string{key: "lab"}}) == nil {
+			t.Fatalf("%s accepted as a catalog scope", key)
+		}
+	}
+	if ValidateApplicationScope(ApplicationTelemetry{TempoService: "orders", TempoAttributes: map[string]string{"deployment.environment": "lab"}}) != nil {
+		t.Fatal("a plain key was refused")
+	}
+}
+
+// PA-78: a list search that reaches its budget goes newest-first and keeps
+// the most recent complete part of the window: every trace of
+// [WindowStart, end) and nothing older. The complete query keeps refusing.
+func TestObservedTraceSearchStopsAtTheBudgetNewestFirst(t *testing.T) {
+	end := time.Now().UTC().Truncate(time.Second)
+	start := end.Add(-100 * time.Second)
+	// One trace per second, ID = its second.
+	idAt := func(second int64) string { return fmt.Sprintf("%032x", second) }
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/search":
+			a, _ := strconv.ParseInt(r.URL.Query().Get("start"), 10, 64)
+			b, _ := strconv.ParseInt(r.URL.Query().Get("end"), 10, 64)
+			items := []map[string]string{}
+			for second := a; second < b && len(items) < 20; second++ {
+				items = append(items, map[string]string{"traceID": idAt(second)})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"traces": items})
+		case strings.HasPrefix(r.URL.Path, "/api/traces/"):
+			id := strings.TrimPrefix(r.URL.Path, "/api/traces/")
+			second, _ := strconv.ParseInt(id, 16, 64)
+			_ = json.NewEncoder(w).Encode(map[string]any{"resourceSpans": []any{completeTraceBatch(id, "orders", "lab", "v1", "", time.Unix(second, 0))}})
+		}
+	}))
+	defer server.Close()
+	telemetry, err := NewTelemetry(TelemetryConfig{Tempo: TelemetryEndpoint{URL: server.URL, AllowHTTP: true}, TempoSearchFailClosed: true,
+		Applications: map[string]ApplicationTelemetry{"app": {TempoService: "orders", TempoAttributes: map[string]string{"deployment.environment": "lab"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	query := CompleteTraceQuery{Resources: []string{"app"}, Window: TimeWindow{Start: start, End: end}}
+	observed, err := telemetry.QueryObservedTraces(context.Background(), query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	from := observed.WindowStart.Unix()
+	if !observed.Truncated || !observed.WindowStart.After(start) || !observed.WindowEnd.Equal(end) ||
+		len(observed.Traces) > 40 || int64(len(observed.Traces)) != end.Unix()-from {
+		t.Fatalf("truncated window: from %v (%d traces, truncated %v)", observed.WindowStart, len(observed.Traces), observed.Truncated)
+	}
+	for _, trace := range observed.Traces {
+		if second, _ := strconv.ParseInt(trace.ID, 16, 64); second < from {
+			t.Fatalf("trace %d is older than the covered window %d", second, from)
+		}
+	}
+	if _, err := telemetry.QueryCompleteTraces(context.Background(), query); err == nil || err.(*TelemetryError).Kind != "limit" {
+		t.Fatalf("complete query over the budget: %v", err)
+	}
+	// A window that fits is complete and not truncated.
+	query.Window.Start = end.Add(-30 * time.Second)
+	if observed, err = telemetry.QueryObservedTraces(context.Background(), query); err != nil || observed.Truncated ||
+		len(observed.Traces) != 30 || !observed.WindowStart.Equal(query.Window.Start) {
+		t.Fatalf("window within the budget: %d %v %v", len(observed.Traces), observed.Truncated, err)
+	}
+	// More than 20 traces in the newest second: nothing complete, 413.
+	dense := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		items := []map[string]string{}
+		for i := 0; i < 20; i++ {
+			items = append(items, map[string]string{"traceID": fmt.Sprintf("%032x", i+1)})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"traces": items})
+	}))
+	defer dense.Close()
+	telemetry.tempo.config.URL = dense.URL
+	query.Window.Start = start
+	if _, err := telemetry.QueryObservedTraces(context.Background(), query); err == nil || err.(*TelemetryError).Kind != "limit" {
+		t.Fatalf("dense newest second: %v", err)
+	}
+}
+
+// PA-78: the 64-search budget stops the search the same way. Six services,
+// each search of a window over two seconds is full and smaller ones are
+// empty: every complete leaf costs six searches.
+func TestObservedTraceSearchStopsAtTheSearchBudget(t *testing.T) {
+	end := time.Now().UTC().Truncate(time.Second)
+	start := end.Add(-256 * time.Second)
+	searches := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		searches++
+		a, _ := strconv.ParseInt(r.URL.Query().Get("start"), 10, 64)
+		b, _ := strconv.ParseInt(r.URL.Query().Get("end"), 10, 64)
+		items := []map[string]string{}
+		if b-a > 2 {
+			for i := 0; i < 20; i++ {
+				items = append(items, map[string]string{"traceID": fmt.Sprintf("%032x", i+1)})
+			}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"traces": items})
+	}))
+	defer server.Close()
+	applications := map[string]ApplicationTelemetry{}
+	resources := []string{}
+	for i := 0; i < 6; i++ {
+		name := fmt.Sprintf("svc-%d", i)
+		applications[name] = ApplicationTelemetry{TempoService: name, TempoAttributes: map[string]string{"deployment.environment": "lab"}}
+		resources = append(resources, name)
+	}
+	telemetry, err := NewTelemetry(TelemetryConfig{Tempo: TelemetryEndpoint{URL: server.URL, AllowHTTP: true}, Applications: applications})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := telemetry.QueryObservedTraces(context.Background(), CompleteTraceQuery{Resources: resources,
+		Window: TimeWindow{Start: start, End: end}})
+	if err != nil || !observed.Truncated || searches != maxCompleteTraceSearches || len(observed.Traces) != 0 ||
+		!observed.WindowStart.After(start) || end.Sub(observed.WindowStart) > 32*time.Second {
+		t.Fatalf("search budget: searches=%d from=%v truncated=%v %v", searches, observed.WindowStart, observed.Truncated, err)
+	}
+}

@@ -43,6 +43,13 @@ func validateExtendedTelemetry(c TelemetryConfig) error {
 		if a.TempoService != "" && (len(a.TempoService) > 256 || len(a.TempoAttributes) == 0) {
 			return errors.New("Tempo requires service and environment resource attribute scope")
 		}
+		for k := range a.TempoAttributes {
+			// The search adds "resource." itself; a prefixed key would query
+			// resource.resource.<key> and silently match nothing (D19).
+			if strings.HasPrefix(k, "resource.") || strings.HasPrefix(k, "span.") {
+				return errors.New("Tempo attribute keys name the resource attribute without a resource. or span. prefix")
+			}
+		}
 	}
 	return nil
 }

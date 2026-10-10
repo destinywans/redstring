@@ -60,8 +60,12 @@ type TraceList struct {
 	WindowEndAt      string         `json:"window_end_at,omitempty"`
 	ExcludedRunning  *int           `json:"excluded_running,omitempty"`
 	Partial          bool           `json:"partial,omitempty"`
-	Missing          []string       `json:"missing,omitempty"`
-	HistogramStates  []string       `json:"histogram_non_success_states,omitempty"`
+	// PartialReason says why an app-scope list is partial: search_budget
+	// when the search stopped at its budget and covers only
+	// [window_start_at, window_end_at) (PA-78).
+	PartialReason   string   `json:"partial_reason,omitempty"`
+	Missing         []string `json:"missing,omitempty"`
+	HistogramStates []string `json:"histogram_non_success_states,omitempty"`
 	// Unavailable is empty: every field of this list is derived from its
 	// complete population. See ObservedTraceList for the partial shape.
 	Unavailable map[string]string `json:"unavailable"`
@@ -72,17 +76,24 @@ type TraceList struct {
 // be incomplete, so the total, view counts, facets, histogram and scatter are
 // null with their reason in Unavailable instead of counts of a sample.
 type ObservedTraceList struct {
-	Scope       string                    `json:"scope"`
-	Total       *int                      `json:"total"`
-	Took        string                    `json:"took"`
-	Colors      map[string]string         `json:"colors"`
-	Facets      []TraceFacet              `json:"facets"`
-	Views       []ObservedTraceViewOption `json:"views"`
-	Histogram   *TraceHistogram           `json:"histogram"`
-	Scatter     []TraceScatter            `json:"scatter"`
-	Items       []TraceRow                `json:"items"`
-	Partial     bool                      `json:"partial"`
-	Unavailable map[string]string         `json:"unavailable"`
+	Scope     string                    `json:"scope"`
+	Total     *int                      `json:"total"`
+	Took      string                    `json:"took"`
+	Colors    map[string]string         `json:"colors"`
+	Facets    []TraceFacet              `json:"facets"`
+	Views     []ObservedTraceViewOption `json:"views"`
+	Histogram *TraceHistogram           `json:"histogram"`
+	Scatter   []TraceScatter            `json:"scatter"`
+	Items     []TraceRow                `json:"items"`
+	Partial   bool                      `json:"partial"`
+	// PartialReason is search_budget when the search stopped at its budget
+	// (the window is [window_start_at, window_end_at)), search_unattested
+	// when only the search completeness is not attested, and not_configured
+	// without a Tempo source (PA-78).
+	PartialReason string            `json:"partial_reason"`
+	WindowStartAt string            `json:"window_start_at,omitempty"`
+	WindowEndAt   string            `json:"window_end_at,omitempty"`
+	Unavailable   map[string]string `json:"unavailable"`
 }
 
 type TraceHistogram struct {
@@ -132,7 +143,7 @@ func BuildObservedList(traces []connectors.CompleteTrace, view, service string, 
 // UnconfiguredList states that no Tempo binding serves this scope. No item
 // list is returned, so an absent source cannot read as "no traces".
 func UnconfiguredList() ObservedTraceList {
-	return ObservedTraceList{Scope: "app", Took: "0 ms", Colors: map[string]string{}, Partial: true,
+	return ObservedTraceList{Scope: "app", Took: "0 ms", Colors: map[string]string{}, Partial: true, PartialReason: "not_configured",
 		Views: []ObservedTraceViewOption{{ID: "all", Label: "All", Query: ""},
 			{ID: "errors", Label: "Errors", Query: "{ status = error }"},
 			{ID: "slow", Label: "Slow", Query: "{ trace:duration >= 1s }"}},

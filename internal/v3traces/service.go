@@ -485,13 +485,29 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	// A search that reached its budget covers only its newest part (PA-78).
+	covered := window
+	if !observed.WindowStart.IsZero() && observed.WindowStart.After(covered.Start) {
+		covered.Start = observed.WindowStart
+	}
+	startAt, endAt := covered.Start.UTC().Format(time.RFC3339), covered.End.UTC().Format(time.RFC3339)
 	if !observed.PopulationComplete {
 		// Search completeness is not attested for this deployment: return
 		// the closed traces found, never counts or charts of that sample.
-		httpapi.WriteJSON(w, 200, BuildObservedList(observed.Traces, view, service, time.Since(start), "not_configured"))
+		list := BuildObservedList(observed.Traces, view, service, time.Since(start), "not_configured")
+		list.WindowStartAt, list.WindowEndAt, list.PartialReason = startAt, endAt, "search_unattested"
+		if observed.Truncated {
+			list.PartialReason = "search_budget"
+		}
+		httpapi.WriteJSON(w, 200, list)
 		return
 	}
-	httpapi.WriteJSON(w, 200, BuildList(observed.Traces, window, view, service, time.Since(start)))
+	list := BuildList(observed.Traces, covered, view, service, time.Since(start))
+	list.WindowStartAt, list.WindowEndAt = startAt, endAt
+	if observed.Truncated {
+		list.Partial, list.PartialReason = true, "search_budget"
+	}
+	httpapi.WriteJSON(w, 200, list)
 }
 
 func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {

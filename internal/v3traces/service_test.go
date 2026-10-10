@@ -26,11 +26,18 @@ type sourceStub struct {
 	trace      connectors.CompleteTrace
 	after      func(context.Context) error
 	unattested bool
+	// coveredFrom, when set, is where a search stopped at its budget.
+	coveredFrom time.Time
 }
 
 func (s *sourceStub) QueryObservedTraces(ctx context.Context, q connectors.CompleteTraceQuery) (connectors.TraceObservation, error) {
 	traces, err := s.QueryCompleteTraces(ctx, q)
-	return connectors.TraceObservation{Traces: traces, PopulationComplete: !s.unattested}, err
+	observed := connectors.TraceObservation{Traces: traces, PopulationComplete: !s.unattested,
+		WindowStart: q.Window.Start, WindowEnd: q.Window.End}
+	if !s.coveredFrom.IsZero() {
+		observed.WindowStart, observed.Truncated = s.coveredFrom, true
+	}
+	return observed, err
 }
 
 func (s *sourceStub) QueryCompleteTraces(ctx context.Context, q connectors.CompleteTraceQuery) ([]connectors.CompleteTrace, error) {
@@ -143,7 +150,8 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	if err := json.Unmarshal(w.Body.Bytes(), &unconfigured); err != nil || w.Code != 200 ||
 		string(unconfigured["total"]) != "null" || string(unconfigured["items"]) != "null" ||
 		string(unconfigured["histogram"]) != "null" || string(unconfigured["facets"]) != "null" ||
-		!json.Valid(unconfigured["unavailable"]) || !containsAll(string(unconfigured["unavailable"]), `"items":"not_configured"`, `"total":"not_configured"`) {
+		!json.Valid(unconfigured["unavailable"]) || !containsAll(string(unconfigured["unavailable"]), `"items":"not_configured"`, `"total":"not_configured"`) ||
+		string(unconfigured["partial_reason"]) != `"not_configured"` {
 		t.Fatalf("unconfigured trace list: status=%d body=%s", w.Code, w.Body.String())
 	}
 	assertError(request("/api/v1/traces/"+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), 503, "not_configured")
@@ -188,6 +196,42 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	if w.Code != 200 || source.window.End.Sub(source.window.Start) != 6*time.Hour {
 		t.Fatalf("requested window not passed upstream: %d %s %+v", w.Code, w.Body.String(), source.window)
 	}
+	// PA-78: why a list is partial and which window it covers.
+	type budgetList struct {
+		Total         *int   `json:"total"`
+		Partial       bool   `json:"partial"`
+		PartialReason string `json:"partial_reason"`
+		WindowStartAt string `json:"window_start_at"`
+		WindowEndAt   string `json:"window_end_at"`
+	}
+	readBudget := func() budgetList {
+		t.Helper()
+		w := request("/api/v1/traces?service=app")
+		var body budgetList
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &body) != nil {
+			t.Fatalf("list: %d %s", w.Code, w.Body.String())
+		}
+		return body
+	}
+	if full := readBudget(); full.Partial || full.PartialReason != "" || full.WindowStartAt != source.window.Start.UTC().Format(time.RFC3339) ||
+		full.WindowEndAt != source.window.End.UTC().Format(time.RFC3339) || full.Total == nil {
+		t.Fatalf("complete list window: %+v", full)
+	}
+	source.coveredFrom = time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
+	if stopped := readBudget(); !stopped.Partial || stopped.PartialReason != "search_budget" || stopped.Total == nil ||
+		stopped.WindowStartAt != source.coveredFrom.Format(time.RFC3339) {
+		t.Fatalf("attested list stopped at the budget: %+v", stopped)
+	}
+	source.unattested = true
+	if stopped := readBudget(); !stopped.Partial || stopped.PartialReason != "search_budget" || stopped.Total != nil ||
+		stopped.WindowStartAt != source.coveredFrom.Format(time.RFC3339) {
+		t.Fatalf("unattested list stopped at the budget: %+v", stopped)
+	}
+	source.coveredFrom = time.Time{}
+	if unattested := readBudget(); unattested.PartialReason != "search_unattested" || unattested.WindowStartAt == "" {
+		t.Fatalf("unattested list: %+v", unattested)
+	}
+	source.unattested = false
 	assertError(request("/api/v1/traces?service=app&source=jaeger"), 503, "trace_source_not_connected")
 	assertError(request("/api/v1/traces?service=app&range=1h&range=7d"), 422, "invalid_range")
 	w = request("/api/v1/traces/" + id + "?service=app")

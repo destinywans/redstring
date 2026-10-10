@@ -221,6 +221,9 @@ S['V3MappingSaveItem'] = obj({
     'service_id':string(), 'service_environment_id':string(),
     'binding_revision':integer(minimum=1),
     'bindings':{'type':'array','maxItems':7,'items':ref('V3MappingSaveBinding')},
+    # The GET save snapshot may be sent back as it is: these are ignored.
+    'editable':{**v3_bool(),'description':'Accepted and ignored, so the GET save snapshot can be sent back as it is'},
+    'unavailable_reason':{**string(),'description':'Accepted and ignored'},
 }, ['service_id','service_environment_id','binding_revision','bindings'])
 S['V3MappingReadSave'] = obj({
     **S['V3MappingSaveItem']['properties'],

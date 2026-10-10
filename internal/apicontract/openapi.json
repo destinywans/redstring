@@ -85957,6 +85957,14 @@
             "items": {
               "$ref": "#/components/schemas/V3MappingSaveBinding"
             }
+          },
+          "editable": {
+            "type": "boolean",
+            "description": "Accepted and ignored, so the GET save snapshot can be sent back as it is"
+          },
+          "unavailable_reason": {
+            "type": "string",
+            "description": "Accepted and ignored"
           }
         },
         "additionalProperties": false,

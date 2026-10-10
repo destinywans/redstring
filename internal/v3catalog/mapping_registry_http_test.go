@@ -233,6 +233,18 @@ func TestServiceMappingFromTheRegistry(t *testing.T) {
 	if w := put(save.Bindings); w.Code != 200 || !strings.Contains(w.Body.String(), `"binding_revision":3`) {
 		t.Fatalf("unchanged save: %d %s", w.Code, w.Body.String())
 	}
+	// The save snapshot sent back exactly as GET returned it is accepted;
+	// editable and unavailable_reason are ignored.
+	snapshot, _ := json.Marshal(map[string]any{"environment_id": "dev", "items": []any{save}})
+	if !strings.Contains(string(snapshot), `"editable":true`) {
+		t.Fatalf("snapshot shape: %s", snapshot)
+	}
+	if w := call("PUT", "/service-mappings", string(snapshot)); w.Code != 200 || !strings.Contains(w.Body.String(), `"binding_revision":3`) {
+		t.Fatalf("snapshot sent back: %d %s", w.Code, w.Body.String())
+	}
+	if w := call("PUT", "/service-mappings", strings.Replace(string(snapshot), `"editable":true`, `"editable":"yes"`, 1)); w.Code != 422 {
+		t.Fatalf("editable must stay a boolean: %d", w.Code)
+	}
 	// Removing the code binding is the one write; the legacy telemetry
 	// bindings stay for the readers not switched yet.
 	w := put(replace("code", ""))

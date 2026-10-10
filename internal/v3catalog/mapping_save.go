@@ -83,6 +83,12 @@ func checkMappingSaveJSON(decoder *json.Decoder, shape string) error {
 		}
 		return nil
 	}
+	if shape == "bool" {
+		if _, ok := token.(bool); !ok {
+			return errors.New("expected boolean")
+		}
+		return nil
+	}
 	delim, ok := token.(json.Delim)
 	if !ok {
 		return errors.New("expected object or array")
@@ -112,8 +118,10 @@ func checkMappingSaveJSON(decoder *json.Decoder, shape string) error {
 		case "request":
 			fields = map[string]string{"environment_id": "string", "items": "items"}
 		case "item":
+			// editable and unavailable_reason come with the GET save snapshot;
+			// a snapshot sent back as it is is accepted and they are ignored.
 			fields = map[string]string{"service_id": "string", "service_environment_id": "string",
-				"binding_revision": "revision", "bindings": "bindings"}
+				"binding_revision": "revision", "bindings": "bindings", "editable": "bool", "unavailable_reason": "string"}
 		case "binding":
 			fields = map[string]string{"system_id": "string", "kind": "string",
 				"connector_id": "string", "resource": "string"}

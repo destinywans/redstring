@@ -9,7 +9,8 @@ S['V3HomeAttention'] = obj({'id': string(), 'severity': {'type': ['string', 'nul
     'symptom': string(), 'meta': string(),
     'at': string(format='date-time', description='PA-83: the time inside meta (the alert start while firing, otherwise the last update) in RFC 3339'),
     'ai': {'type': ['string', 'null'],
-    'enum': ['done', 'running', None]}, 'owner': string(), 'href': string(),
+    'enum': ['done', 'running', None]}, 'owner': string(),
+    'href': string(description='/incidents/{id}: the incident page, which also reads alert incidents (PA-86; there is no /alerts/{id} page)'),
     'alert_state': {'type': ['string', 'null'], 'enum': ['firing', 'resolved', None],
         'description': 'Current alert state of the incident; null when the source reports neither. Resolved incidents stay listed until claimed (PA-58, D7).'}},
     ['id', 'severity', 'service', 'env', 'symptom', 'meta', 'at', 'ai', 'href', 'alert_state'])
@@ -20,9 +21,11 @@ S['V3HomeService'] = obj({'id': string(), 'name': string(), 'env': string(),
     'error_rate': {'type': ['string', 'null']},
     'series': arr({'type': 'number'})},
     ['id', 'name', 'env', 'tier', 'status', 'budget_pct', 'p99', 'error_rate', 'series'])
-S['V3HomeActivity'] = obj({**fieldnames('id time kind tone text href')},
+S['V3HomeActivity'] = obj({**fieldnames('id time kind tone text'),
+    'href': string(description='/incidents/{id} for an incident update, /review/{id} for a proposal (PA-86)')},
     ['id', 'time', 'kind', 'tone', 'text', 'href'])
-S['V3HomeRecent'] = obj({**fieldnames('id kind title meta href'),
+S['V3HomeRecent'] = obj({**fieldnames('id kind title meta'),
+    'href': string(description='/conversations/{id}'),
     'at': string(format='date-time', description='PA-83: the update time inside meta, in RFC 3339')},
     ['id', 'kind', 'title', 'meta', 'at', 'href'])
 S['V3HomeBriefing'] = obj({'summary': string(),

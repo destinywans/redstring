@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -82,7 +83,7 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 		out.Attention = append(out.Attention, Attention{ID: row.id, Severity: frontendSeverity(row.severity),
 			Service: serviceName(targets, row.appID, row.env), Env: row.env,
 			Symptom: cleanTitle(row.title), Meta: t.incidentMeta(row), At: incidentMetaAt(row), AI: nil,
-			Owner: row.owner, Href: "/alerts/" + row.id, AlertState: alertState(row.alertStatus)})
+			Owner: row.owner, Href: incidentHref(row.id), AlertState: alertState(row.alertStatus)})
 	}
 	pending := len(proposals)
 	out.Greeting.Summary = t.summary(len(active), pending, eventViews > 0, proposalViews > 0)
@@ -165,6 +166,11 @@ func frontendSeverity(value string) *string {
 	}
 	return nil
 }
+
+// incidentHref opens an alert incident on the incident page, the route the
+// frontend has for it (GET /incidents/{id} reads alert incidents too); there
+// is no /alerts/{id} page (PA-86).
+func incidentHref(id string) string { return "/incidents/" + url.PathEscape(id) }
 
 // Arrival counts describe durable ingress only, never live Alertmanager state.
 // The service intentionally says so even when the local count is zero.
@@ -318,7 +324,7 @@ func buildActivity(incidents []incident, proposals []proposal, now time.Time, t 
 			continue
 		}
 		items = append(items, at{v.updated, Activity{ID: "incident:" + v.id, Time: v.updated.UTC().Format(time.RFC3339), Kind: "alert", Tone: "warn",
-			Text: t.pick("事件记录更新：", "Incident updated: ") + cleanTitle(v.title), Href: "/alerts/" + v.id}})
+			Text: t.pick("事件记录更新：", "Incident updated: ") + cleanTitle(v.title), Href: incidentHref(v.id)}})
 	}
 	for _, v := range proposals {
 		if v.created.Before(cutoff) || v.created.After(now) {

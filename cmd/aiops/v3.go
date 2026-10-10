@@ -602,6 +602,8 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	sourceResolver := &v3telemetry.Resolver{Tier: cfg.Tier, Catalog: sourceCatalog, Approvals: v3telemetry.NewApprovals(credentialBindings)}
 	// Step 1 (PA-67): coverage answers from the registry.
 	coverage.Registry, coverage.Unified = sourceResolver, unifiedReaders.Unified(v3telemetry.ReaderCoverage)
+	// Step 2: the service mapping reads the registry systems from targets.
+	catalog.Registry, catalog.MappingsUnified = sourceResolver, unifiedReaders.Unified(v3telemetry.ReaderMappings)
 	var sourceCompare v3telemetry.Observer
 	if registryMode == v3telemetry.ModeCompare {
 		comparer := v3telemetry.NewComparer(s.DB, &v3telemetry.Resolver{Tier: cfg.Tier, Catalog: sourceCatalog,

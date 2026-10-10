@@ -253,6 +253,47 @@ v3_route('post','/service-mappings/accept','Accept current scoped service mappin
     response=obj({'accepted':integer(minimum=0),
         'items':arr(ref('V3MappingAcceptItem'))},['accepted','items']),
     desc='In exactly one selected environment, accepts only explicitly identified, reviewed GitLab code candidates. The request must match candidate ID, monotonic version, service/environment/system and expected binding revision; stale or changed review snapshots return 409 and old service:system cell requests are rejected. Transaction-local services view/change and connectors view/manage checks, exact source identity, activation, unique target, binding CAS, a final wall-clock expiry check, the current Cookie session and active account, and V3-only binding validation precede an atomic binding/candidate/audit commit. Each success item returns the persisted binding and post-write revision; a verified repeat may return status=already_accepted and accepted=0. The frozen frontend sends the old cell shape and marks success before response, so page integration remains pending.')
+# PA-19 P3 stage 2 step 2: registry mode of the service mapping and the
+# editor's options for one service environment.
+P['/service-mappings']['get']['description'] += (' With the mappings reader switched to the connector registry '
+    '(AIOPS_V3_UNIFIED_READERS contains mappings), the metrics, logs, traces and workload cells and save bindings come from '
+    'v3_connector_targets: connector_id is the real connector ID, kind the provider and resource the target external_id; '
+    'code, deploy and dash keep their stored bindings. A save snapshot whose registry system has more than one target is '
+    'editable=false with unavailable_reason ambiguous_targets.')
+P['/service-mappings']['put']['description'] += (' In registry mode (until mapping writes switch in step 6) the metrics, '
+    'logs, traces and workload bindings must equal the registry projection (422 registry_cutover otherwise), deploy and dash '
+    'must equal their stored bindings (422 system_not_supported), more than one target for a system is 409 '
+    'ambiguous_targets, and only the code binding may be kept or removed; the stored legacy bindings of the other systems '
+    'are left as they are for readers not switched yet. The response returns the registry projection.')
+S['V3MappingOptionCurrent'] = obj({
+    'target_id':{'type':['string','null'],'description':'Registry target ID; null for a stored binding without a target'},
+    'connector_id':string(),'resource_id':string()},
+    ['target_id','connector_id','resource_id'])
+S['V3MappingOptionConnector'] = obj({
+    'connector_id':string(),'name':string(),'provider':string(),
+    'ready':v3_bool(),
+    'not_ready':{**arr(string(enum=['connector_disabled','tool_disabled','options_invalid','credential_missing','credential_not_approved'])),
+        'description':'Why the connector cannot serve reads yet; empty when ready'},
+    'resources':{**arr(string()),'description':'Resource IDs the catalog reviewed for this connector and service environment; for code, the GitLab project targets bound to the service'}},
+    ['connector_id','name','provider','ready','not_ready','resources'])
+S['V3MappingOptionSystem'] = obj({
+    'system_id':string(enum=['metrics','logs','traces','code','deploy','dash','workload']),
+    'editable':v3_bool(),
+    'unavailable_reason':{'type':['string','null'],'enum':[None,'registry_not_enabled','registry_cutover','system_not_supported','ambiguous_targets','forbidden']},
+    'current':v3_nullable(ref('V3MappingOptionCurrent')),
+    'options':arr(ref('V3MappingOptionConnector'))},
+    ['system_id','editable','unavailable_reason','current','options'])
+v3_route('get','/services/{id}/external-targets/options','Read the service mapping editor options of one service',
+    response=obj({'service_id':string(),'environment_id':string(),'systems':arr(ref('V3MappingOptionSystem'))},
+        ['service_id','environment_id','systems']),
+    desc='PA-19 P3 stage 2 step 2. id is the service ID (base64url of application ID, NUL, environment ID) in a selected '
+         'environment. Requires services.view on the application or its owner team (404 otherwise) and connectors.view in '
+         'the environment (403 otherwise). One entry per mapping system in mapping order: editable and unavailable_reason '
+         '(registry_not_enabled while the mappings reader is not switched; registry_cutover for metrics, logs, traces and '
+         'workload until mapping writes switch; system_not_supported for deploy and dash; ambiguous_targets for more than '
+         'one target; forbidden without services.change and connectors.manage), the current target or stored binding, and '
+         'the connectors of the environment that can serve the system with their readiness and the catalog resource IDs '
+         'reviewed for this service. Read-only; readiness is configuration, not live data.')
 S['V3ChangeKpi'] = obj({
     'id':string(enum=['runs','succeeded','failed','deployments']),
     'label':string(), 'value':string(), 'unit':string(), 'delta':string(),

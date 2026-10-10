@@ -203,7 +203,7 @@ h1 {{ font: 700 clamp(28px, 4vw, 40px)/1.2 var(--display); margin: 0; text-wrap:
 h2 {{ font: 700 22px/1.3 var(--display); margin: 0; text-wrap: balance; }}
 h3 {{ font: 700 15px/1.4 var(--body); margin: 0; }}
 .meta {{ display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; }}
-.meta code, code {{ font: 13px var(--mono); }}
+.meta code, code {{ font: 13px var(--mono); overflow-wrap: anywhere; }}
 p {{ margin: 0; max-width: 68ch; }}
 section {{ display: grid; gap: 16px; }}
 .lede {{ font-size: 16px; display: grid; gap: 10px; }}
@@ -319,7 +319,7 @@ footer {{ color: var(--muted); font-size: 13px; }}
             p.append(f'<tr><td>{esc(name)}</td><td>{esc(expect)}</td><td>—</td><td>未运行</td></tr>')
             continue
         ex = d.get('execution') or {}
-        state = ' / '.join(x for x in (ex.get('status'), ex.get('status_reason')) if x) or '—'
+        state = ' / '.join(x for x in (ex.get('status'), ex.get('status_reason')) if x) or '未执行'
         ok = sum(1 for c in d.get('checks', {}).values() if c.get('ok'))
         p.append(f'<tr><td>{esc(name)}</td><td>{esc(expect)}</td><td><code>{esc(state)}</code></td>'
                  f'<td class="num">{ok}/{len(d.get("checks", {}))}</td></tr>')

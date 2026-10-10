@@ -104,6 +104,7 @@ func runConnectorsCommand(ctx context.Context, args []string, stdout, stderr io.
 	if args[0] == "compare" {
 		resolver := &v3telemetry.Resolver{Tier: input.Tier, Catalog: input.Catalog, Approvals: input.Approvals}
 		report := v3telemetry.CompareAll(ctx, tx, resolver, input.Telemetry, state)
+		report.CompareWorkloads(ctx, tx, resolver, input.Workloads, state)
 		fmt.Fprintf(stderr, "compared %d bindings: %v\n", report.Checked, report.Counts)
 		if code := writeResult(report, *out, stdout, stderr); code != 0 {
 			return code
@@ -152,8 +153,47 @@ func importInput() (v3telemetry.ImportInput, error) {
 	if err != nil {
 		return v3telemetry.ImportInput{}, fmt.Errorf("credential bindings: %w", err)
 	}
+	workloads, err := legacyWorkloads(os.Getenv("AIOPS_KUBERNETES_REGISTRY"))
+	if err != nil {
+		return v3telemetry.ImportInput{}, fmt.Errorf("Kubernetes registry: %w", err)
+	}
 	return v3telemetry.ImportInput{Tier: instance.Tier, Environments: instance.EnvironmentIDs,
-		Telemetry: client.Registration(), Catalog: catalog, Approvals: v3telemetry.NewApprovals(bindings)}, nil
+		Telemetry: client.Registration(), Catalog: catalog, Approvals: v3telemetry.NewApprovals(bindings),
+		Workloads: workloads}, nil
+}
+
+// legacyWorkloads reads the optional AIOPS_KUBERNETES_REGISTRY file. Only
+// whether a token and CA file are configured is kept; their contents move to
+// Vault and are never read here.
+func legacyWorkloads(path string) (map[string]v3telemetry.LegacyWorkload, error) {
+	out := map[string]v3telemetry.LegacyWorkload{}
+	if path == "" {
+		return out, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var entries []registeredKubernetes
+	if err = json.Unmarshal(raw, &entries); err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.ID == "" {
+			return nil, errors.New("registered connector ID required")
+		}
+		if _, duplicate := out[entry.ID]; duplicate {
+			return nil, errors.New("duplicate registered connector")
+		}
+		w := v3telemetry.LegacyWorkload{Endpoint: entry.Config.APIURL, Namespace: entry.Config.Namespace,
+			Deployment: entry.Config.Deployment, Token: entry.Config.TokenFile != "", CustomCA: entry.Config.CAFile != "",
+			Demo: entry.DemoRecovery}
+		if v := entry.Verification; v != nil {
+			w.VerificationQueries = []string{v.RequestCounterQueryID, v.ErrorCounterQueryID, v.SampleAgeQueryID}
+		}
+		out[entry.ID] = w
+	}
+	return out, nil
 }
 
 func writeResult(value any, path string, stdout, stderr io.Writer) int {

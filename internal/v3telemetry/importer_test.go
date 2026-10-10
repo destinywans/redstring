@@ -79,6 +79,9 @@ func TestBuildPlanIsIdempotentOnceApplied(t *testing.T) {
 }
 
 func providerOfKind(kind string) string {
+	if kind == WorkloadTargetKind {
+		return WorkloadProvider
+	}
 	for provider, info := range telemetryProviders {
 		if info.targetKind == kind {
 			return provider
@@ -91,6 +94,7 @@ func providerOfKind(kind string) string {
 // approval the operator must add; an existing approval is reported.
 func TestBuildPlanListsCredentialApprovals(t *testing.T) {
 	input, state := labInput(), labState()
+	input.Workloads = nil // only the Loki credential here
 	input.Telemetry.Loki = connectors.TelemetryEndpoint{URL: "https://loki.example.invalid", BearerTokenFile: "/run/secrets/loki", TenantID: "lab"}
 	plan := BuildPlan(input, state)
 	var loki PlannedConnector
@@ -118,5 +122,53 @@ func TestBuildPlanListsCredentialApprovals(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("tenant conflict missing: %+v", conflicted.Conflicts)
+	}
+}
+
+// PA-19 P3: a legacy Kubernetes registration becomes a read-only connector, a
+// workload target and a catalog scope with rollback off until reviewed.
+func TestBuildPlanImportsWorkloads(t *testing.T) {
+	plan := BuildPlan(labInput(), labState())
+	var workload *PlannedTarget
+	for i, target := range plan.Targets {
+		if target.TargetKind == WorkloadTargetKind {
+			workload = &plan.Targets[i]
+		}
+	}
+	key := ScopeKey{ConnectorID: workload.ConnectorID, ApplicationID: "app-lab-checkout", EnvironmentID: "prod", ResourceID: "checkout-api"}
+	catalogRaw, _ := json.Marshal(plan.Catalog)
+	catalog, err := ParseCatalog(catalogRaw)
+	if err != nil || catalog.Workloads[key].Deployment != "checkout-api" || catalog.Workloads[key].Rollback != nil ||
+		len(plan.Reviews) != 1 || plan.Reviews[0].Reasons[0] != "rollback_policy_requires_review" {
+		t.Fatalf("workload plan: %+v %+v %v", catalog.Workloads, plan.Reviews, err)
+	}
+
+	conflicts := func(input ImportInput, state State) []string {
+		var reasons []string
+		for _, issue := range BuildPlan(input, state).Conflicts {
+			if issue.Kind == WorkloadProvider && issue.ApplicationID == "app-lab-checkout" {
+				reasons = append(reasons, issue.Reasons...)
+			}
+		}
+		return reasons
+	}
+	input, state := labInput(), labState()
+	input.Workloads["lab-kubernetes"] = LegacyWorkload{Endpoint: "http://10.0.0.1:6443", Namespace: "Lab", Deployment: "checkout-api"}
+	if got := conflicts(input, state); len(got) != 3 || got[0] != "endpoint_not_allowed" || got[1] != "auth_method_unsupported" ||
+		got[2] != "workload_name_invalid" {
+		t.Fatalf("invalid registration: %v", got)
+	}
+	// The reviewed catalog names another Deployment for this key.
+	input = labInput()
+	input.Catalog.Workloads = map[ScopeKey]WorkloadScope{key: {Namespace: "aiops-lab", Deployment: "order-api"}}
+	if got := conflicts(input, state); len(got) != 1 || got[0] != "scope_conflict" {
+		t.Fatalf("scope conflict: %v", got)
+	}
+	// The service already reads a workload through another connector.
+	input = labInput()
+	state.Targets = append(state.Targets, ExistingTarget{ID: "t-other", ApplicationID: "app-lab-checkout", EnvironmentID: "prod",
+		ConnectorID: "other-cluster", Provider: WorkloadProvider, TargetKind: WorkloadTargetKind, ExternalID: "checkout-api"})
+	if got := conflicts(input, state); len(got) != 1 || got[0] != "existing_target_other_source" {
+		t.Fatalf("other source: %v", got)
 	}
 }

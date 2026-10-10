@@ -605,6 +605,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	}
 	slog.Info("source registry", "mode", string(registryMode), "unified_readers", unifiedReaders.Names())
 	sourceResolver := &v3telemetry.Resolver{Tier: cfg.Tier, Catalog: sourceCatalog, Approvals: v3telemetry.NewApprovals(credentialBindings)}
+	logRegistrySummary(ctx, s.DB, sourceResolver, cfg.EnvironmentIDs, registryMode, unifiedReaders)
 	// Step 1 (PA-67): coverage answers from the registry.
 	coverage.Registry, coverage.Unified = sourceResolver, unifiedReaders.Unified(v3telemetry.ReaderCoverage)
 	// Step 2: the service mapping reads the registry systems from targets.

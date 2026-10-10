@@ -27,6 +27,7 @@ export class MockError extends Error {
     public status: number,
     public code: string,
     message: string,
+    public detail: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -85,7 +86,7 @@ export async function handleMock<T>(method: string, path: string, query: Record<
     } catch (e) {
       if (e instanceof MockError) {
         const { ApiError } = await import("../api/client");
-        throw new ApiError(e.status, e.code, e.message);
+        throw new ApiError(e.status, e.code, e.message, { code: e.code, message: e.message, ...e.detail });
       }
       throw e;
     }

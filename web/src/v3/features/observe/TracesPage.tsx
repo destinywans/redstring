@@ -8,9 +8,9 @@ import { Badge, Brand, Btn, Card, Chip, Dot, Icon, IconBtn, Legend, Muted, Num, 
 import { StackedBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./trace.css";
-import { ChipSelect, RangeChip, openForm, usePickLists } from "../../ui/demo";
+import { ChipSelect, openForm, usePickLists, useRanges } from "../../ui/demo";
 import { toast } from "../../ui/overlays";
-import { BudgetNotice, DenseCard, coveredWindow, isScopeLimit, useAxisNote, useWindowText, withErrors } from "./TraceLimit";
+import { BudgetNotice, DenseCard, LookbackCard, coveredWindow, isScopeLimit, lookbackOf, rangeSeconds, useAxisNote, useWindowText, withErrors } from "./TraceLimit";
 import { useWhen } from "../../ui/when";
 
 export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`);
@@ -89,6 +89,16 @@ export default function TracesPage() {
   // PA-78: the search stopped at its budget (covered window), or even one second is too dense to list (413).
   const covered = coveredWindow(data, dataUpdatedAt);
   const dense = scope === "app" && isScopeLimit(error);
+  // PA-79: the range goes back further than the deployment keeps; once known, longer ranges are greyed out.
+  const lookback = scope === "app" ? lookbackOf(error) : null;
+  const blocked = dense || !!lookback;
+  const ranges = useRanges();
+  const [kept, setKept] = useState<{ range: string; seconds: number } | null>(null);
+  const lookbackRange = lookback?.maxRange ?? null;
+  const lookbackSeconds = lookback?.seconds ?? (lookbackRange ? rangeSeconds(lookbackRange) : null);
+  useEffect(() => {
+    if (lookbackRange && lookbackSeconds) setKept({ range: lookbackRange, seconds: lookbackSeconds });
+  }, [lookbackRange, lookbackSeconds]);
   const axisNote = useAxisNote(covered, range);
   const wt = useWindowText();
   const [pickNonce, setPickNonce] = useState(0);
@@ -209,7 +219,18 @@ export default function TracesPage() {
             {real && scope === "app" && bound.length === 1 && <Chip icon="database">{bound[0] === "tempo" ? "Tempo" : "Jaeger"}</Chip>}
             {real && scope === "app" && bound.length > 1 && <ChipSelect icon="database" label="" showLabel={false} value={activeSource} onChange={(v) => setSource(v as string)} options={bound.map((b) => ({ value: b, label: b === "tempo" ? "Tempo" : "Jaeger" }))} />}
             {scope === "app" && <ChipSelect icon="box" label="" showLabel={false} value={service ?? "all"} onChange={(v) => setService(v === "all" ? "" : (v as string))} options={[{ value: "all", label: tx("全部服务", "All services") }, ...lists.services]} openNonce={pickNonce} />}
-            <RangeChip key={scope} value={range} onChange={setRange} />
+            <ChipSelect
+              key={scope}
+              icon="clock"
+              label=""
+              showLabel={false}
+              value={range}
+              onChange={(v) => setRange(v as string)}
+              options={ranges.map((r, i) => {
+                const over = scope === "app" && kept && i > ranges.findIndex((x) => x.value === kept.range);
+                return over ? { ...r, disabled: true, hint: tx("超出保留的 {d}", "Beyond the {d} kept", { d: wt.length(kept.seconds) }) } : r;
+              })}
+            />
             <label className="grow">
               <Badge tone="info" mono>{scope === "agent" ? tx("筛选", "Filter") : "TraceQL"}</Badge>
               <input value={q} onChange={(e) => setQ(e.target.value)} aria-label={tx("链路查询", "Trace query")} spellCheck={false} placeholder={scope === "agent" ? 'agent = "investigator" && model = "claude-opus-5-5"' : "{ status = error }"} />
@@ -217,18 +238,18 @@ export default function TracesPage() {
             <Btn kind="primary" icon="search" h={34} type="submit">{tx("搜索", "Search")}</Btn>
           </form>
           {/* An invalid TraceQL condition is explained right under the box (422), not as a missing source. */}
-          {real && scope === "app" && error instanceof ApiError && error.status === 422 && (
+          {real && scope === "app" && error instanceof ApiError && error.status === 422 && !lookback && (
             <Muted size={11.5} style={{ color: "var(--danger)", marginTop: -6 }}>
               {tx("只支持简单比较，可用 && 和 ||；不支持管道（|）、正则和嵌套选择器。", "Only simple comparisons joined by && and || are supported; no pipes (|), regexes or nested selectors.")} {error.message}
             </Muted>
           )}
-          {error && !data && !dense && !(real && error instanceof ApiError && error.status === 422) && (
+          {error && !data && !blocked && !(real && error instanceof ApiError && error.status === 422) && (
             <Card>
               <Unavailable reason={errorReason(error)} source="Tempo" desc={error instanceof ApiError && error.status === 422 ? error.message : undefined} />
             </Card>
           )}
-          {covered && data && !noSource && !dense && <BudgetNotice count={data.items?.length ?? 0} w={covered} range={range} actions={shortcuts(["svc", "err", "r15"])} />}
-          {data?.partial && !covered && !noSource && !dense && (
+          {covered && data && !noSource && !blocked && <BudgetNotice count={data.items?.length ?? 0} w={covered} range={range} actions={shortcuts(["svc", "err", "r15"])} />}
+          {data?.partial && !covered && !noSource && !blocked && (
             <PartialBanner fields={[]}>
               {tx("这里只列出这次有界搜索找到并确认已结束的链路，不是完整结果：总数、分面、数量分布和耗时分布暂缺。", "Only the finished traces this bounded search found are listed — not a complete result: totals, facets and the count and duration charts are missing.")}
             </PartialBanner>
@@ -277,18 +298,31 @@ export default function TracesPage() {
             </Chip>
             )}
             <Spacer />
-            {data && !dense && data.total !== null && !covered && <Muted size={11.5}>{tx("找到 {n} 条 · {t}", "{n} found · {t}", { n: data.total.toLocaleString(), t: data.took })}</Muted>}
-            {data && !dense && data.total !== null && covered && (
+            {data && !blocked && data.total !== null && !covered && <Muted size={11.5}>{tx("找到 {n} 条 · {t}", "{n} found · {t}", { n: data.total.toLocaleString(), t: data.took })}</Muted>}
+            {data && !blocked && data.total !== null && covered && (
               <Muted size={11.5}>{tx("最近 {w}共 {t} 条，列出 {n} 条 · {took}", "{t} in the last {w}, {n} listed · {took}", { w: wt.span(covered.seconds), t: data.total.toLocaleString(), n: data.items?.length ?? 0, took: data.took })}</Muted>
             )}
-            {data && !dense && data.total === null && data.items && (
+            {data && !blocked && data.total === null && data.items && (
               <Muted size={11.5}>
                 {tx("列出 {n} 条 · 总数", "{n} listed · total", { n: data.items.length })} <UnknownValue reason={u.total} source="Tempo" /> · {data.took}
               </Muted>
             )}
           </Row>
           {dense && <DenseCard serviceExample={service ? null : (lists.services[0]?.label ?? "checkout-api")} actions={shortcuts(["err", "svc"])} />}
-          {!dense && (
+          {lookback && (
+            <LookbackCard
+              seconds={lookback.seconds}
+              maxRange={lookback.maxRange}
+              action={
+                lookback.maxRange && lookback.maxRange !== range ? (
+                  <Btn h={26} icon="clock" onClick={() => setRange(lookback.maxRange!)}>
+                    {ranges.find((r) => r.value === lookback.maxRange)?.label ?? lookback.maxRange}
+                  </Btn>
+                ) : null
+              }
+            />
+          )}
+          {!blocked && (
           <div className="tr-charts">
             <Panel title={tx("数量 · 按状态", "Count · by status")} right={<Legend items={[[tx("正常", "OK"), "var(--c1s)"], [tx("错误", "Error"), "var(--danger)"]]} />} bodyStyle={{ padding: "10px 14px" }}>
               {data && !data.histogram ? (
@@ -344,7 +378,7 @@ export default function TracesPage() {
             </Panel>
           </div>
           )}
-          {dense ? null : noSource ? (
+          {blocked ? null : noSource ? (
             <Card>
               <Unavailable reason={u.items} source={tx("链路来源", "a trace source")} icon="branch" />
             </Card>

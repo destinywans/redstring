@@ -23,6 +23,21 @@ export function coveredWindow(d: TraceList | undefined, fetchedAt: number): Cove
 
 export const isScopeLimit = (e: unknown) => e instanceof ApiError && e.status === 413 && e.code === "trace_scope_limit";
 
+/** PA-79: 422 range_exceeds_lookback — the range goes back further than the deployment keeps searchable. */
+export function lookbackOf(e: unknown): { seconds: number | null; maxRange: string | null } | null {
+  if (!(e instanceof ApiError) || e.status !== 422 || e.code !== "range_exceeds_lookback") return null;
+  const seconds = typeof e.detail.max_lookback_seconds === "number" && e.detail.max_lookback_seconds > 0 ? e.detail.max_lookback_seconds : null;
+  const maxRange = typeof e.detail.max_range === "string" && e.detail.max_range ? e.detail.max_range : null;
+  return { seconds, maxRange };
+}
+
+const RANGE_SECONDS: Record<string, number> = { m: 60, h: 3600, d: 86400 };
+/** Seconds of a range value such as "7d". */
+export const rangeSeconds = (r: string) => {
+  const m = /^(\d+)([mhd])$/.exec(r);
+  return m ? Number(m[1]) * RANGE_SECONDS[m[2]] : null;
+};
+
 /** Adds `status = error` to a TraceQL query; with `||` it is added to each branch, since && binds tighter. */
 export function withErrors(q: string) {
   const t = q.trim();
@@ -52,6 +67,13 @@ export function useWindowText() {
       "7d": tx("7 天", "7-day"),
       "30d": tx("30 天", "30-day"),
     };
+    /** A length as a noun: "7 天" / "7 days". */
+    const length = (seconds: number) => {
+      if (seconds % 86400 === 0) { const n = seconds / 86400; return n === 1 ? tx("1 天", "1 day") : tx("{n} 天", "{n} days", { n }); }
+      if (seconds % 3600 === 0) { const n = seconds / 3600; return n === 1 ? tx("1 小时", "1 hour") : tx("{n} 小时", "{n} hours", { n }); }
+      const n = Math.max(1, Math.round(seconds / 60));
+      return n === 1 ? tx("1 分钟", "1 minute") : tx("{n} 分钟", "{n} minutes", { n });
+    };
     /** Five evenly spaced labels from where the search stopped to now. */
     const ticks = (w: CoveredWindow) =>
       Array.from({ length: 5 }, (_, i) => {
@@ -59,7 +81,7 @@ export function useWindowText() {
         const iso = new Date(at).toISOString();
         return w.seconds < 3600 ? clock.format(at) : w.seconds < 86400 ? fmt.time(iso) : fmt.dateTime(iso);
       });
-    return { clock: (ms: number) => clock.format(ms), span, range: (r: string) => ranges[r] ?? r, ticks };
+    return { clock: (ms: number) => clock.format(ms), span, length, range: (r: string) => ranges[r] ?? r, ticks };
   }, [tx, locale, fmt]);
 }
 
@@ -119,6 +141,32 @@ export function DenseCard({ serviceExample, actions }: { serviceExample: string 
           </li>
         </ul>
         {actions && <Row gap={6} wrap>{actions}</Row>}
+      </div>
+    </Card>
+  );
+}
+
+/** Replaces the list on 422 range_exceeds_lookback: how far back traces are kept, and a switch to the longest range within it. */
+export function LookbackCard({ seconds, maxRange, action }: { seconds: number | null; maxRange: string | null; action: ReactNode }) {
+  const { tx } = useI18n();
+  const wt = useWindowText();
+  const kept = seconds ?? (maxRange ? rangeSeconds(maxRange) : null);
+  const within = maxRange ? rangeSeconds(maxRange) : null;
+  return (
+    <Card>
+      <div className="tr-dense" role="alert">
+        <span className="tr-dense-ico info">
+          <Icon name="clock" size={16} />
+        </span>
+        <b>{tx("所选范围超出了链路的保留时间", "The selected range goes back further than traces are kept")}</b>
+        <p>
+          {kept !== null
+            ? within !== null
+              ? tx("这个部署只保留最近 {d}的链路，请选 {m}以内的范围。", "This deployment keeps only the last {d} of traces; choose a range within {m}.", { d: wt.length(kept), m: wt.length(within) })
+              : tx("这个部署只保留最近 {d}的链路，请选更短的范围。", "This deployment keeps only the last {d} of traces; choose a shorter range.", { d: wt.length(kept) })
+            : tx("这个部署能搜索的时间比所选范围短，请选更短的范围。", "This deployment can't search back that far; choose a shorter range.")}
+        </p>
+        {action && <Row gap={6} wrap>{action}</Row>}
       </div>
     </Card>
   );

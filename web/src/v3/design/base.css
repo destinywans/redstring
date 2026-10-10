@@ -162,6 +162,7 @@ html[data-v3-theme-changing] *::after {
     transform: none;
   }
 }
+/* Ends at transform: none, so overlays that use it center with `translate`, not transform. */
 @keyframes v3-pop {
   from {
     opacity: 0;

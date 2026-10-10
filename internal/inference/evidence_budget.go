@@ -167,7 +167,7 @@ func summarizeMetricContent(content string) (map[string]any, bool) {
 			item["labels"] = line.Labels
 		}
 		var first, last, low, high float64
-		var firstAt, lastAt time.Time
+		var firstAt, lastAt, lowAt, highAt time.Time
 		defined := 0
 		for _, sample := range line.Samples {
 			v, err := strconv.ParseFloat(sample.Value, 64)
@@ -183,16 +183,27 @@ func summarizeMetricContent(content string) (map[string]any, bool) {
 				sampleAt = time.Unix(int64(*sample.Timestamp), 0)
 			}
 			if defined == 0 {
-				first, low, high, firstAt = v, v, v, sampleAt
+				first, low, high, firstAt, lowAt, highAt = v, v, v, sampleAt, sampleAt, sampleAt
 			}
 			last, lastAt = v, sampleAt
-			low, high = math.Min(low, v), math.Max(high, v)
+			// The first time each extreme was reached, so a model can line
+			// up spikes across series (PA-68).
+			if v < low {
+				low, lowAt = v, sampleAt
+			}
+			if v > high {
+				high, highAt = v, sampleAt
+			}
 			defined++
 		}
 		if defined > 0 {
 			item["first"], item["last"], item["min"], item["max"] = round(first), round(last), round(low), round(high)
 			item["change"] = round(last - first)
-			item["first_at"], item["last_at"] = at(firstAt), at(lastAt)
+			for key, ts := range map[string]time.Time{"first_at": firstAt, "last_at": lastAt, "min_at": lowAt, "max_at": highAt} {
+				if !ts.IsZero() {
+					item[key] = at(ts)
+				}
+			}
 		}
 		summaries = append(summaries, item)
 	}

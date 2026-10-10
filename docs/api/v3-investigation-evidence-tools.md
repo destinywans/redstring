@@ -97,5 +97,5 @@
 模型曾把 Unix 秒数换算错了几分钟，因此指标证据中的时间一律改为与日志样本相同的 RFC 3339 UTC：
 
 - `read_service_metrics`（普通对话与调查画布共用）的样本是 `{"time":"2026-10-09T16:58:55Z","value":"5"}`，有小数秒时带小数；`window` 的 `start`/`end`/`step_seconds` 作为表头。
-- PA-52 的按序列摘要（`first_at`/`last_at`）和重复调用返回的摘要都是 RFC 3339。旧格式的 `timestamp` 秒数仍能解析。
+- PA-52 的按序列摘要（`first_at`/`last_at`，以及 PA-68 新增的极值首次出现时间 `min_at`/`max_at`）和重复调用返回的摘要都是 RFC 3339；样本没有时间时省略对应字段。旧格式的 `timestamp` 秒数仍能解析。
 - `POST /metrics/ask` 交给模型的指标快照，同样把样本转成 RFC 3339。存档快照与 `evidence_sha256` 不变，仍按原始观测计算。

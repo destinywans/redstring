@@ -624,6 +624,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		Secrets:       v3integrations.NewVaultResolver(os.Getenv("AIOPS_VAULT_URL"), os.Getenv("AIOPS_VAULT_TOKEN")),
 		WriteBindings: rollbackWriteBindings, Proposals: proposalService, Metrics: metricReader}
 	rollouts.Register(api)
+	connector.Workloads = rollouts.ConnectorWorkloads
 	executions.Rollout = rollouts.Execution
 	proposalService.RollbackReady = rollouts.Ready
 	if len(rollbackWriteBindings) > 0 {
@@ -682,7 +683,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	readTools := v3ReadTools{
 		DB: s.DB, Models: toolModels, CurrentUser: currentToolUser,
 		LookupService: catalog.LookupServiceEvidence, ListServices: catalog.ListServiceEvidence, Access: policy, Telemetry: telemetry,
-		SourceCompare: sourceCompare,
+		SourceCompare: sourceCompare, Workloads: rollouts,
 		KnowledgeTool: func(actorID, applicationID, environmentID string) (inference.EvidenceTool, bool) {
 			return v3knowledge.NewKnowledgeEvidenceTool(v3knowledge.KnowledgeEvidenceToolOptions{
 				Enabled: true, Service: knowledgeV3, ActorID: actorID, ApplicationID: applicationID,
@@ -690,7 +691,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 			})
 		},
 	}
-	canvasV3.InvestigationToolsForTurn = readTools.ForTurn
+	canvasV3.InvestigationToolsForTurn = readTools.ForInvestigation
 	chat := v3conversation.New(s.DB, modelRuntime, v3conversation.Options{
 		CurrentUser:      httpapi.CurrentUser,
 		RefreshSession:   s.Session,

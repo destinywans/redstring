@@ -92,11 +92,13 @@ function NodeCard({
   k?: number;
   /** Briefly highlighted (a node that just appeared). */
   flash?: boolean;
-  /** Writebacks into this node, counted from its children (real nodes report none yet). */
+  /** Writebacks into this node: the server's count, or (older payloads) children whose writeback points here. */
   writebacks?: number;
 }) {
   const { tx } = useI18n();
   const [q, setQ] = useState("");
+  // The sample root shows its sample count; real nodes show what the server recorded.
+  const received = demo ? (n.kind === "root" ? 3 : 0) : writebacks;
   const icon: IconName = n.kind === "root" ? "alert" : n.kind === "evidence" ? (n.evidence?.type === "log" ? "terminal" : n.evidence?.type === "diff" ? "code" : "activity") : n.status === "ruled_out" ? "branch" : "database";
   const tone = n.kind === "root" ? "danger" : n.status === "ruled_out" ? "ok" : "accent";
   const collapsed = n.kind === "branch" && n.status === "ruled_out";
@@ -171,24 +173,23 @@ function NodeCard({
           )}
           {n.summary ? <Markdown text={n.summary} /> : n.status === "running" && <Muted>{tx("AI 正在分析这个分支…", "The AI is working on this branch…")}</Muted>}
           {n.series && <Lines series={[{ values: n.series, color: "var(--c3)", fill: "var(--c3s)" }]} height={50} grid={2} hover={false} />}
-          {n.evidence_refs && (
+          {(n.evidence_refs || received > 0) && (
             <Row gap={4} wrap className="cv-refs">
               {/* Real refs are evidence IDs: the card shows how many, never the IDs themselves (PA-62). */}
-              {n.kind === "root" || !demo ? (
-                <>
+              {n.evidence_refs &&
+                (n.kind === "root" || !demo ? (
                   <Badge>
                     <Icon name="file" size={11} />
                     {tx("{n} 条证据", "{n} evidence", { n: demo ? n.evidence_refs[0] : n.evidence_refs.length })}
                   </Badge>
-                  {n.kind === "root" && (demo || writebacks > 0) && (
-                    <Badge tone="accent">
-                      <Icon name="writeback" size={11} />
-                      {demo ? tx("已回写 3", "3 written back") : tx("已回写 {n}", "{n} written back", { n: writebacks })}
-                    </Badge>
-                  )}
-                </>
-              ) : (
-                n.evidence_refs.map((r) => <Badge key={r}>{r}</Badge>)
+                ) : (
+                  n.evidence_refs.map((r) => <Badge key={r}>{r}</Badge>)
+                ))}
+              {received > 0 && (
+                <Badge tone="accent">
+                  <Icon name="writeback" size={11} />
+                  {tx("已回写 {n}", "{n} written back", { n: received })}
+                </Badge>
               )}
             </Row>
           )}
@@ -883,7 +884,7 @@ export default function CanvasPage() {
               <NodeCard
                 key={n.id}
                 n={n}
-                writebacks={nodes.filter((c) => c.writeback?.to === n.id).length}
+                writebacks={n.writebacks ? n.writebacks.received : nodes.filter((c) => c.writeback?.to === n.id).length}
                 flash={flashIds.has(n.id)}
                 selected={sel === n.id}
                 onSelect={() => setSel(n.id)}

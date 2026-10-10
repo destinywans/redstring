@@ -3,6 +3,7 @@ package v3home
 import (
 	"context"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +88,11 @@ func TestAttentionCarriesAlertStateAndFiringServices(t *testing.T) {
 			(item.ID == "firing" && time.Since(at) < 50*time.Minute) || (item.ID == "resolved" && time.Since(at) > 10*time.Minute) {
 			t.Fatalf("attention time: %+v %v", item, err)
 		}
+		// PA-86: an attention item opens its incident page; the frontend has
+		// no /alerts/{id} route.
+		if item.Href != "/incidents/"+item.ID || !frontendHomeRoute.MatchString(item.Href) {
+			t.Fatalf("attention href: %+v", item)
+		}
 		state := "null"
 		if item.AlertState != nil {
 			state = *item.AlertState
@@ -111,5 +117,25 @@ func TestAttentionCarriesAlertStateAndFiringServices(t *testing.T) {
 	}
 	if none.FiringServices != nil {
 		t.Fatalf("firing_services without events grant=%v", *none.FiringServices)
+	}
+}
+
+// frontendHomeRoute matches the frontend routes the home page links to:
+// incidents/:id, review/:id and conversations/:id (web/src/v3/app/V3App.tsx).
+var frontendHomeRoute = regexp.MustCompile(`^/(incidents|review|conversations)/[^/?#]+$`)
+
+// PA-86: activity links use routes the frontend has, with the IDs escaped.
+func TestHomeActivityLinksUseFrontendRoutes(t *testing.T) {
+	now := time.Now()
+	out := Summary{Availability: map[string]string{}}
+	buildActivity([]incident{{id: "inc/1", title: "Checkout 5xx", updated: now.Add(-time.Minute)}},
+		[]proposal{{id: "prop-1", title: "Roll back", created: now.Add(-2 * time.Minute)}}, now, text{}, &out)
+	if len(out.Activity) != 2 || out.Activity[0].Href != "/incidents/inc%2F1" || out.Activity[1].Href != "/review/prop-1" {
+		t.Fatalf("activity: %+v", out.Activity)
+	}
+	for _, item := range out.Activity {
+		if !frontendHomeRoute.MatchString(item.Href) {
+			t.Fatalf("activity href %q is not a frontend route", item.Href)
+		}
 	}
 }

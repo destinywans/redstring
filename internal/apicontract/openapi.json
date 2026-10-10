@@ -67155,7 +67155,8 @@
             "type": "string"
           },
           "href": {
-            "type": "string"
+            "type": "string",
+            "description": "/incidents/{id}: the incident page, which also reads alert incidents (PA-86; there is no /alerts/{id} page)"
           },
           "alert_state": {
             "type": [
@@ -67277,7 +67278,8 @@
             "type": "string"
           },
           "href": {
-            "type": "string"
+            "type": "string",
+            "description": "/incidents/{id} for an incident update, /review/{id} for a proposal (PA-86)"
           }
         },
         "additionalProperties": false,
@@ -67306,7 +67308,8 @@
             "type": "string"
           },
           "href": {
-            "type": "string"
+            "type": "string",
+            "description": "/conversations/{id}"
           },
           "at": {
             "type": "string",

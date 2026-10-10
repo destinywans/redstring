@@ -79250,6 +79250,13 @@
               "$ref": "#/components/schemas/V3ProposalComment"
             }
           },
+          "proposed_by_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Display name of the proposing user, read when the record is projected; null for an agent proposal or a user without a name. proposed_by keeps the reviewed value."
+          },
           "execution": {
             "oneOf": [
               {
@@ -79322,6 +79329,7 @@
           "impact",
           "reversible",
           "proposed_by",
+          "proposed_by_name",
           "proposed_at",
           "investigation_id",
           "target",

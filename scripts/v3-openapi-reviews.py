@@ -10,12 +10,15 @@ S['V3Proposal'] = obj({**fieldnames('id title impact proposed_by investigation_i
         'series':arr(v3_num())},['n','icon','title','desc'])),
     'verification':arr(string()),'checklist':arr(string()),
     'discussion':arr(ref('V3ProposalComment')),
+    # PA-74: the proposing user's current display name; null for an agent or a
+    # user without a name. Not part of the reviewed content or its digest.
+    'proposed_by_name':{'type':['string','null'],'description':'Display name of the proposing user, read when the record is projected; null for an agent proposal or a user without a name. proposed_by keeps the reviewed value.'},
     # PA-36: null until a second approval allocates an execution.
     'execution':v3_nullable(obj({'execution_id':string(),'approved_at':string(format='date-time'),
         'action_kind':string(),'status':{'type':['string','null']},'upstream_id':{'type':['string','null']},
         'unavailable':ref('V3Unavailable')},
         ['execution_id','approved_at','action_kind','status','upstream_id','unavailable']))},
-    ['id','title','status','risk','impact','reversible','proposed_by','proposed_at',
+    ['id','title','status','risk','impact','reversible','proposed_by','proposed_by_name','proposed_at',
      'investigation_id','target','diff','method','evidence','verification',
      'verification_note','checklist','requirement','discussion','execution'])
 v3_route('get','/proposals/{id}','Read a scoped V3 proposal review record',response=ref('V3Proposal'),

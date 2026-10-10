@@ -4,9 +4,27 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/wans/aiops-canvas/internal/httpapi"
 )
+
+// governedRuleChinese is the zh-CN text of each built-in rule description.
+var governedRuleChinese = map[string]string{
+	"read_only":              "只允许执行绑定到应用的只读取证工具。",
+	"bounded_execution":      "强制执行固定的模型、工具、字节、令牌与截止时间预算。",
+	"deny_sensitive_content": "拦截文档列出的私钥、Bearer 请求头和密码赋值模式。",
+}
+
+// guardDescriptionFor shows a built-in rule's stored description in the
+// request language (PA-62). Text an operator wrote is shown as written.
+func guardDescriptionFor(r *http.Request, name, stored string) string {
+	builtin, _, ok := governedRuleDefinition(name)
+	if !ok || stored != builtin || strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Accept-Language"))), "en") {
+		return stored
+	}
+	return governedRuleChinese[name]
+}
 
 func governedRuleDefinition(name string) (description string, forced bool, ok bool) {
 	switch name {

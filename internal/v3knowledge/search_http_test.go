@@ -62,7 +62,7 @@ func isolatedKnowledgeSearchDB(t *testing.T) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	_, err = db.Exec(ctx, `
-CREATE TABLE users(id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz);
+CREATE TABLE users(id text PRIMARY KEY,email text NOT NULL,name text NOT NULL,role text NOT NULL,disabled boolean NOT NULL DEFAULT false,deleted_at timestamptz,source text NOT NULL DEFAULT 'local');
 CREATE TABLE sessions(token_hash text PRIMARY KEY,user_id text NOT NULL,expires_at timestamptz NOT NULL);
 CREATE TABLE rbac_platform_administrators(user_id text PRIMARY KEY);
 CREATE TABLE rbac_user_roles(user_id text NOT NULL,role_id text NOT NULL);
@@ -76,7 +76,12 @@ CREATE TABLE v3_effective_role_grants(user_id text NOT NULL,module text NOT NULL
 CREATE TABLE knowledge_documents(id text PRIMARY KEY,application_id text,title text NOT NULL,source text NOT NULL,version integer NOT NULL,body text NOT NULL,metadata jsonb NOT NULL,lifecycle text NOT NULL,active_generation bigint);
 CREATE TABLE knowledge_generations(id bigserial PRIMARY KEY,document_id text NOT NULL,provider text NOT NULL,model text NOT NULL,dimensions integer NOT NULL,status text NOT NULL,document_version integer NOT NULL);
 CREATE TABLE knowledge_chunks(generation_id bigint NOT NULL,ordinal integer NOT NULL,content text NOT NULL,embedding vector NOT NULL);
-CREATE TABLE v3_knowledge_source_registrations(id text PRIMARY KEY,environment_id text NOT NULL,application_id text,team_id text,name text NOT NULL,source_type text NOT NULL,source_url text NOT NULL,secret_ref text NOT NULL,spaces jsonb NOT NULL,schedule text NOT NULL,inherit_acl boolean NOT NULL);
+CREATE TABLE v3_knowledge_source_registrations(id text PRIMARY KEY,environment_id text NOT NULL,application_id text,team_id text,name text NOT NULL,source_type text NOT NULL,source_url text NOT NULL,secret_ref text NOT NULL,spaces jsonb NOT NULL,schedule text NOT NULL,inherit_acl boolean NOT NULL,created_by text NOT NULL DEFAULT '',binding_fingerprint text,binding_snapshot jsonb);
+-- Synced upload sources (PA-66); the real-schema path is covered in v3knowledgesources.
+CREATE TABLE v3_external_source_syncs(read_id text PRIMARY KEY,registration_id text NOT NULL,environment_id text NOT NULL,source_type text NOT NULL,binding_fingerprint text NOT NULL,binding_snapshot jsonb NOT NULL,document_count integer NOT NULL,indexed_chunk_count integer);
+CREATE TABLE v3_external_source_documents(read_id text NOT NULL,external_id text NOT NULL,title text NOT NULL,body text NOT NULL,source_version text NOT NULL,content_version integer NOT NULL,item_hash text NOT NULL,content_hash text NOT NULL,environment_id text NOT NULL,application_id text NOT NULL,team_id text,upload_id text,upload_mime text);
+CREATE TABLE v3_uploads(id text PRIMARY KEY,owner_id text NOT NULL,environment_id text NOT NULL,kind text NOT NULL,name text NOT NULL,mime text NOT NULL,size_bytes integer NOT NULL,content bytea NOT NULL);
+CREATE TABLE v3_upload_revocations(id text PRIMARY KEY);
 CREATE TABLE v3_knowledge_source_reads(id text PRIMARY KEY,registration_id text NOT NULL,environment_id text NOT NULL,observed_count integer NOT NULL,reader_type text NOT NULL,observed_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE v3_knowledge_source_observations(read_id text NOT NULL,item_hash text NOT NULL,content_hash text NOT NULL,environment_id text NOT NULL,application_id text,team_id text,PRIMARY KEY(read_id,item_hash));
 CREATE TABLE v3_public_web_documents(registration_id text PRIMARY KEY,environment_id text NOT NULL,application_id text NOT NULL,team_id text,title text NOT NULL,source_url text NOT NULL,body text NOT NULL,content_hash text NOT NULL,item_hash text NOT NULL,version integer NOT NULL,last_read_id text NOT NULL);

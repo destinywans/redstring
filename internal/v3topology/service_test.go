@@ -113,7 +113,7 @@ func TestHiddenAndAbsentCandidatesHaveIdenticalEmptyResponse(t *testing.T) {
 			t.Fatal(err)
 		}
 		w := httptest.NewRecorder()
-		if !writeEmptyIfNoVisible(w, nodes) || w.Code != 200 {
+		if !writeEmptyIfNoVisible(w, nodes, []collectionStatus{}) || w.Code != 200 {
 			t.Fatalf("expected an empty 200 response, got %d", w.Code)
 		}
 		var body projection

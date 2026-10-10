@@ -142,7 +142,7 @@ func (s *Service) Guardrails(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		policies = append(policies, map[string]any{"id": p.ID, "icon": "shield", "name": p.Name,
-			"desc": p.Description, "stat": unknown, "enabled": p.Enabled, "forced": p.Forced,
+			"desc": guardDescriptionFor(r, p.Name, p.Description), "stat": unknown, "enabled": p.Enabled, "forced": p.Forced,
 			"revision": p.Revision, "reported_events_7d": policyReports[p.ID]})
 	}
 	events := make([]any, 0)

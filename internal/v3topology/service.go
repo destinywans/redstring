@@ -99,6 +99,10 @@ type projection struct {
 	Nodes             []node   `json:"nodes"`
 	Edges             []edge   `json:"edges"`
 	UnavailableFields []string `json:"unavailable_fields"`
+	// Collection says whether inventory collectors are current (PA-61); a
+	// stale collector's resources are left out, so an empty graph is not
+	// "no resources" when it says stale or never.
+	Collection []collectionStatus `json:"collection"`
 }
 
 var missing = []string{"groups", "nodes.status", "nodes.x", "nodes.y", "nodes.impacted", "edges.tone", "edges.path", "blast", "tree", "sankey", "detail", "complete_resource_coverage"}
@@ -147,7 +151,12 @@ func (s *Service) topology(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "authorization_unavailable", "Resource authorization unavailable")
 		return
 	}
-	if writeEmptyIfNoVisible(w, nodes) {
+	collection, err := collectionStatuses(r.Context(), s.DB, httpapi.CurrentUser(r).ID, scope.EnvironmentIDs)
+	if err != nil {
+		httpapi.Error(w, 503, "topology_unavailable", "Collector state unavailable")
+		return
+	}
+	if writeEmptyIfNoVisible(w, nodes, collection) {
 		return
 	}
 	if len(nodes) > 300 && q.Get("around") == "" {
@@ -174,7 +183,8 @@ func (s *Service) topology(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "topology_scope_too_broad", "Choose a center resource or narrow the cluster")
 		return
 	}
-	out := projection{Source: "cmdb_resource_relations", Nodes: make([]node, 0, len(nodes)), Edges: edges, UnavailableFields: missing}
+	out := projection{Source: "cmdb_resource_relations", Nodes: make([]node, 0, len(nodes)), Edges: edges, UnavailableFields: missing,
+		Collection: collection}
 	for _, item := range nodes {
 		out.Nodes = append(out.Nodes, item)
 	}
@@ -184,12 +194,13 @@ func (s *Service) topology(w http.ResponseWriter, r *http.Request) {
 
 // A hidden cluster and an absent cluster produce the same empty projection.
 // The caller must not inspect the number of pre-authorization candidates.
-func writeEmptyIfNoVisible(w http.ResponseWriter, nodes map[string]node) bool {
+func writeEmptyIfNoVisible(w http.ResponseWriter, nodes map[string]node, collection []collectionStatus) bool {
 	if len(nodes) != 0 {
 		return false
 	}
 	httpapi.WriteJSON(w, 200, projection{
 		Source: "cmdb_resource_relations", Nodes: []node{}, Edges: []edge{}, UnavailableFields: missing,
+		Collection: collection,
 	})
 	return true
 }

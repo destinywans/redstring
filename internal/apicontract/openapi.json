@@ -3846,7 +3846,7 @@
       "post": {
         "summary": "Search scoped knowledge with keyword/vector ranking",
         "operationId": "post_knowledge_search",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Keyword and vector candidates use the same current explicit environment, active application mapping and V3 environment/knowledge grants. A document carrying team_id must match the application current owner team and have an additional team knowledge grant. Candidate document ID/version and current grants are rechecked before output; malformed or unknown scope and legacy source_registration_id documents are excluded pending trusted provenance. A separately stored, credential-free, single-page public HTTPS Markdown body can supply bounded keyword passages only when its latest read observation, content hash, revision, application/environment/team binding and current grants all match at candidate and final output checks. One 30-second budget covers the whole search, and more than 80 SQL-matched public Web sources across all visible application/environment scopes returns 413 public_web_source_scope_too_large. No public Web vector indexing, Agent tool, source page DTO or full source index is proven. When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Keyword and vector candidates use the same current explicit environment, active application mapping and V3 environment/knowledge grants. A document carrying team_id must match the application current owner team and have an additional team knowledge grant. Candidate document ID/version and current grants are rechecked before output; malformed or unknown scope and legacy source_registration_id documents are excluded pending trusted provenance. A separately stored, credential-free, single-page public HTTPS Markdown body can supply bounded keyword passages only when its latest read observation, content hash, revision, application/environment/team binding and current grants all match at candidate and final output checks. One 30-second budget covers the whole search, and more than 80 SQL-matched public Web sources across all visible application/environment scopes returns 413 public_web_source_scope_too_large. No public Web vector indexing, Agent tool, source page DTO or full source index is proven. When embeddings are unavailable, returns a keyword result with degraded=true; an unavailable keyword index returns 503. Synced upload sources are keyword-searchable from their latest read under the same scope and grants as their evidence proof; they have no vector index (PA-66). Feishu and other bound external readers and Git Markdown sources are not searched yet. corpora lists, per corpus, whether keyword and vector search ran (searched), failed (unavailable), have no index (not_indexed) or are not read by this search (not_searched).",
         "responses": {
           "200": {
             "description": "Success",
@@ -3871,9 +3871,60 @@
                     },
                     "degraded": {
                       "type": "boolean"
+                    },
+                    "corpora": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "corpus": {
+                            "type": "string",
+                            "enum": [
+                              "documents",
+                              "public_web_sources",
+                              "upload_sources",
+                              "external_sources",
+                              "git_markdown_sources"
+                            ]
+                          },
+                          "keyword": {
+                            "type": "string",
+                            "enum": [
+                              "searched",
+                              "unavailable",
+                              "not_indexed",
+                              "not_searched"
+                            ]
+                          },
+                          "vector": {
+                            "type": "string",
+                            "enum": [
+                              "searched",
+                              "unavailable",
+                              "not_indexed",
+                              "not_searched"
+                            ]
+                          },
+                          "reason": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "corpus",
+                          "keyword",
+                          "vector"
+                        ]
+                      }
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": false,
+                  "required": [
+                    "hits",
+                    "mode",
+                    "degraded",
+                    "corpora"
+                  ]
                 }
               }
             }
@@ -41282,11 +41333,40 @@
             }
           },
           "409": {
-            "description": "Conflict or stale version",
+            "description": "postmortem_exists: the incident already has a postmortem the caller may see; postmortem_id names it (PA-65)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Error"
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "postmortem_exists"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "code",
+                        "message"
+                      ]
+                    },
+                    "postmortem_id": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "error",
+                    "postmortem_id"
+                  ]
                 }
               }
             }
@@ -41347,6 +41427,255 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      }
+    },
+    "/postmortems/{id}": {
+      "get": {
+        "summary": "Read one saved postmortem with its content",
+        "operationId": "get_postmortems_id",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires events:view and knowledge:view on the source application or its owner team; a draft or review is visible to its author and knowledge managers only, otherwise 404. Returns the revision as a quoted ETag for PATCH (PA-65).",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PostmortemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "postmortems"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Edit a draft postmortem or submit it for review",
+        "operationId": "patch_postmortems_id",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, current events:view plus knowledge:manage on the source, and If-Match with the ETag from GET (428 without it, 412 postmortem_revision_conflict when stale). Only a draft can change (409 invalid_state); omitted fields keep their saved value. status review submits it: every section must have text (422) and the incident must still be resolved by the recorded source event (409 postmortem_source_changed). The edit and an audit row (postmortem.updated or postmortem.submitted) commit together and the response carries the new ETag. Publication remains a second reviewer's POST /postmortems/{id}/publish (PA-65).",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3PostmortemDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "postmortems"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Quoted revision ETag from GET /postmortems/{id}"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sections": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/V3PostmortemSectionInput"
+                    }
+                  },
+                  "actions": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/V3PostmortemActionInput"
+                    }
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "draft",
+                      "review"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          }
+        }
       }
     },
     "/postmortems/{id}/publish": {
@@ -70279,6 +70608,72 @@
             "items": {
               "type": "string"
             }
+          },
+          "collection": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "environment_id": {
+                  "type": "string"
+                },
+                "source_kind": {
+                  "type": "string",
+                  "enum": [
+                    "kubernetes",
+                    "docker",
+                    "lima"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "fresh",
+                    "partial",
+                    "stale",
+                    "never"
+                  ]
+                },
+                "sources": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "fresh_sources": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "last_success_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "oldest_success_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "stale_after_seconds": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "environment_id",
+                "source_kind",
+                "state",
+                "sources",
+                "fresh_sources",
+                "last_success_at",
+                "oldest_success_at",
+                "stale_after_seconds"
+              ]
+            },
+            "description": "Inventory collectors per environment and kind, without source names (PA-61). Resources of a collector whose last success is older than stale_after_seconds are left out, so an empty graph with stale or never is not an empty cluster. Listed only where the caller holds a resources view grant."
           }
         },
         "additionalProperties": false,
@@ -70287,7 +70682,8 @@
           "source",
           "nodes",
           "edges",
-          "unavailable_fields"
+          "unavailable_fields",
+          "collection"
         ]
       },
       "V3TopologyGroup": {
@@ -79355,6 +79751,69 @@
           "created_at",
           "action_count",
           "source_revision"
+        ]
+      },
+      "V3PostmortemDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "incident_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "review",
+              "published"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "source_revision": {
+            "type": "string",
+            "pattern": "^(ops|case):[1-9][0-9]*$"
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3PostmortemSectionInput"
+            }
+          },
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3PostmortemActionInput"
+            }
+          },
+          "authored_by_me": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "incident_id",
+          "status",
+          "revision",
+          "source_revision",
+          "sections",
+          "actions",
+          "authored_by_me",
+          "created_at",
+          "updated_at"
         ]
       },
       "V3KnowledgeSearchHit": {

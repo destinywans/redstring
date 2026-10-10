@@ -61,8 +61,11 @@ func TestTopologyHTTPExcludesMissingAndDoesNotBorrowLinkedResourceTeam(t *testin
 	for _, statement := range []string{
 		`INSERT INTO teams(id,name) VALUES('resource-owner','Resource Owner'),('app-owner','Application Owner')`,
 		`INSERT INTO rbac_roles(id,name) VALUES('resource-team-reader','Resource Team Reader')`,
-		// Replace the viewer's global environment grant (PA-55) with dev only.
-		`DELETE FROM v3_role_grants WHERE role_id='viewer' AND module='environment'`,
+		// The reader keeps the legacy viewer binding. Return the viewer to its
+		// pre-162 grants (workspace.view only): the default global resources
+		// (162) and environment (167) view would show every resource; access
+		// comes from the team-scoped role and the dev grant added here.
+		`DELETE FROM v3_role_grants WHERE role_id='viewer' AND module<>'workspace'`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','dev'),
  ('resource-team-reader','resources','view','team','resource-owner')`,
@@ -132,11 +135,30 @@ func TestTopologyHTTPExcludesMissingAndDoesNotBorrowLinkedResourceTeam(t *testin
 	if len(result.Nodes) != 3 || result.Nodes[0].ID != "linked" || result.Nodes[1].ID != "manual" || result.Nodes[2].ID != "unlinked" {
 		t.Fatalf("fresh collector and manual CMDB were not distinguished: %+v", result)
 	}
+	if len(result.Collection) != 1 || result.Collection[0].State != "fresh" || result.Collection[0].SourceKind != "kubernetes" ||
+		result.Collection[0].EnvironmentID != "dev" || result.Collection[0].LastSuccessAt == nil {
+		t.Fatalf("fresh collection status: %+v", result.Collection)
+	}
 	if _, err := db.Exec(ctx, `UPDATE cmdb_sync_sources SET last_success_at=now()-interval '1 day' WHERE id='source'`); err != nil {
 		t.Fatal(err)
 	}
 	result = request(adminToken)
 	if len(result.Nodes) != 1 || result.Nodes[0].ID != "manual" {
 		t.Fatalf("stale source still presented as current topology: %+v", result)
+	}
+	// PA-61: the empty or reduced graph says why. The team-scoped reader also
+	// learns that the collector is stale, without its name.
+	for _, who := range []string{adminToken, token} {
+		result = request(who)
+		if len(result.Collection) != 1 || result.Collection[0].State != "stale" || result.Collection[0].FreshSources != 0 ||
+			result.Collection[0].Sources != 1 || result.Collection[0].StaleAfterSeconds != 300 {
+			t.Fatalf("stale collection status: %+v", result.Collection)
+		}
+	}
+	if _, err := db.Exec(ctx, `DELETE FROM rbac_user_roles WHERE role_id='resource-team-reader'`); err != nil {
+		t.Fatal(err)
+	}
+	if result = request(token); len(result.Nodes) != 0 || len(result.Collection) != 0 {
+		t.Fatalf("collector state shown without a resources grant: %+v", result)
 	}
 }

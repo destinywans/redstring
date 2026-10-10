@@ -46,6 +46,10 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("POST /api/v1/postmortems", "knowledge", "manage")
 	api.Register("POST /api/v1/postmortems/{id}/publish", "viewer", s.Publish)
 	api.MarkV3ObjectRoute("POST /api/v1/postmortems/{id}/publish", "knowledge", "manage")
+	api.Register("GET /api/v1/postmortems/{id}", "viewer", s.Get)
+	api.MarkV3ObjectRoute("GET /api/v1/postmortems/{id}", "knowledge", "view")
+	api.Register("PATCH /api/v1/postmortems/{id}", "viewer", s.Update)
+	api.MarkV3ObjectRoute("PATCH /api/v1/postmortems/{id}", "knowledge", "manage")
 }
 
 type Section struct {

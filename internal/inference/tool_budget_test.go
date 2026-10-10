@@ -150,3 +150,18 @@ func TestMetricSummaryReadsRFC3339Times(t *testing.T) {
 		t.Fatalf("summary: %s %v", raw, ok)
 	}
 }
+
+// PA-68: summaries say when each extreme was first reached.
+func TestMetricSummaryTimesItsExtremes(t *testing.T) {
+	summary, ok := summarizeMetricContent(`{"query_id":"error_rate","series":[{"index":1,"samples":[` +
+		`{"time":"2026-10-09T17:00:00Z","value":"0.02"},{"time":"2026-10-09T17:01:00Z","value":"0.31"},` +
+		`{"time":"2026-10-09T17:02:00Z","value":"0.01"},{"time":"2026-10-09T17:03:00Z","value":"0.31"}]},` +
+		`{"index":2,"samples":[{"value":"5"}]}]}`)
+	raw, _ := json.Marshal(summary)
+	text := string(raw)
+	if !ok || !strings.Contains(text, `"max":0.31`) || !strings.Contains(text, `"max_at":"2026-10-09T17:01:00Z"`) ||
+		!strings.Contains(text, `"min":0.01`) || !strings.Contains(text, `"min_at":"2026-10-09T17:02:00Z"`) ||
+		strings.Contains(text, "0001-01-01") {
+		t.Fatalf("summary: %s %v", text, ok)
+	}
+}

@@ -70,7 +70,8 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(apps) == 0 {
-		httpapi.WriteJSON(w, 200, map[string]any{"hits": []RetrievalHit{}, "mode": "none", "degraded": false})
+		httpapi.WriteJSON(w, 200, map[string]any{"hits": []RetrievalHit{}, "mode": "none", "degraded": false,
+			"corpora": searchCorpora(false, false, "no_authorized_scope")})
 		return
 	}
 	var keyword, vector []knowledge.Hit
@@ -98,6 +99,7 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 		scope           appEnvironment
 		keyword, vector []knowledge.Hit
 		publicWeb       []publicWebHit
+		uploads         []publicWebHit
 	}
 	observed := make([]scopedHits, 0, len(apps))
 	remainingWeb := publicWebCandidateLimit
@@ -119,6 +121,10 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		remainingWeb -= matchedWeb
+		if found.uploads, e = s.uploadSourceKeywordSearch(r.Context(), userID, scope.app, scope.env, in.Q, in.TopK*4); e != nil {
+			httpapi.Error(w, 503, "knowledge_unavailable", "Upload source search failed")
+			return
+		}
 		if len(embed) > 0 {
 			if scoped, ok := s.Knowledge.Vectors.(interface {
 				V3SearchScoped(context.Context, string, string, string, inference.EmbeddingDescriptor, []float32, int) ([]knowledge.Hit, error)
@@ -170,6 +176,12 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		keyword = append(keyword, webVisible...)
+		uploadVisible, e := s.visibleUploadSourceHits(r.Context(), userID, found.scope.app, found.scope.env, found.uploads)
+		if e != nil {
+			httpapi.Error(w, 503, "knowledge_unavailable", "Upload source scope changed")
+			return
+		}
+		keyword = append(keyword, uploadVisible...)
 	}
 	if degraded {
 		vector = nil
@@ -179,7 +191,40 @@ func (s *Service) SearchHandler(w http.ResponseWriter, r *http.Request) {
 	if degraded {
 		mode = "keyword"
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"hits": result, "mode": mode, "degraded": degraded})
+	httpapi.WriteJSON(w, 200, map[string]any{"hits": result, "mode": mode, "degraded": degraded,
+		"corpora": searchCorpora(true, !degraded, "")})
+}
+
+// searchCorpus says what one search read (PA-66). keyword and vector are
+// searched, unavailable (tried and failed), not_indexed (no such index
+// exists for this corpus) or not_searched (this search does not read it).
+type searchCorpus struct {
+	Corpus  string `json:"corpus"`
+	Keyword string `json:"keyword"`
+	Vector  string `json:"vector"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+func searchCorpora(searched, vectorSearched bool, reason string) []searchCorpus {
+	keyword, documentVector := "searched", "searched"
+	if !searched {
+		keyword, documentVector = "not_searched", "not_searched"
+	} else if !vectorSearched {
+		documentVector = "unavailable"
+	}
+	documents := searchCorpus{Corpus: "documents", Keyword: keyword, Vector: documentVector, Reason: reason}
+	if searched && !vectorSearched {
+		documents.Reason = "embedding_unavailable"
+	}
+	return []searchCorpus{
+		documents,
+		{Corpus: "public_web_sources", Keyword: keyword, Vector: "not_indexed", Reason: reason},
+		{Corpus: "upload_sources", Keyword: keyword, Vector: "not_indexed", Reason: reason},
+		// Feishu and other bound external readers need the server's binding
+		// check per read; their synced documents are evidence only for now.
+		{Corpus: "external_sources", Keyword: "not_searched", Vector: "not_indexed", Reason: "binding_check_not_in_search"},
+		{Corpus: "git_markdown_sources", Keyword: "not_searched", Vector: "not_indexed", Reason: "not_connected_to_search"},
+	}
 }
 
 // RegisterSearch must be called only after omitting the old knowledge route.

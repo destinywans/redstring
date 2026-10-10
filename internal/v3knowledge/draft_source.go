@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -246,11 +247,48 @@ func boundedSourceTitle(s, fallback string) string {
 	return s
 }
 
+// importedOrderedItem matches a top-level numbered list item ("1. " or "1) ").
+var importedOrderedItem = regexp.MustCompile(`^([0-9]{1,3})[.)][ \t]+(\S.*)$`)
+
 func importedReviewSteps(markdown string) ([]Step, error) {
-	// Keep the entire Markdown as source data. Do not turn fenced commands or
-	// prose into executable steps by guessing their intent.
+	// Keep the Markdown as source data. Do not turn fenced commands or prose
+	// into executable steps by guessing their intent: every step is a
+	// read-only review of verbatim source text. A top-level numbered list is
+	// split into one review step per item (PA-66 note); anything else stays
+	// one step.
 	if len(markdown) > 16000 {
 		return nil, errSourceTooLarge
 	}
-	return []Step{{N: 1, Kind: "check", Title: "Review imported Markdown", Body: markdown, Readonly: true}}, nil
+	whole := []Step{{N: 1, Kind: "check", Title: "Review imported Markdown", Body: markdown, Readonly: true}}
+	type item struct{ title, body string }
+	var preamble strings.Builder
+	var items []item
+	fenced := false
+	for _, line := range strings.SplitAfter(markdown, "\n") {
+		trimmed := strings.TrimRight(line, "\r\n")
+		if strings.HasPrefix(strings.TrimSpace(trimmed), "```") || strings.HasPrefix(strings.TrimSpace(trimmed), "~~~") {
+			fenced = !fenced
+		}
+		if match := importedOrderedItem.FindStringSubmatch(trimmed); !fenced && match != nil {
+			items = append(items, item{title: match[2], body: line})
+			continue
+		}
+		if len(items) == 0 {
+			preamble.WriteString(line)
+		} else {
+			items[len(items)-1].body += line
+		}
+	}
+	if len(items) < 2 || len(items) > 40 {
+		return whole, nil
+	}
+	steps := []Step{}
+	if intro := strings.TrimSpace(preamble.String()); intro != "" {
+		steps = append(steps, Step{Kind: "check", Title: "Review introduction", Body: preamble.String(), Readonly: true})
+	}
+	for i, it := range items {
+		title := fmt.Sprintf("Review step %d: %s", i+1, firstRunes(strings.TrimSpace(it.title), 160))
+		steps = append(steps, Step{Kind: "check", Title: title, Body: it.body, Readonly: true})
+	}
+	return steps, nil
 }

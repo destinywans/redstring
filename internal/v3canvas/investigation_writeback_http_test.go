@@ -177,6 +177,10 @@ func TestInvestigationWritebackRegisteredRoutes(t *testing.T) {
 		data.Conclusions[1].Recommended || string(data.Budget["before"]) != "null" {
 		t.Fatalf("preview invented or omitted persisted facts: %s", w.Body.String())
 	}
+	// PA-62: the checks follow the request language (Chinese by default).
+	if !strings.Contains(w.Body.String(), "请人工核对所选来源文字和证据") || strings.Contains(w.Body.String(), "semantic conflicts") {
+		t.Fatalf("preview checks are not in the request language: %s", w.Body.String())
+	}
 	assertStatus(preview(viewerToken, "node=wb-grand&target=wb-child"), 200)
 	assertStatus(preview(viewerToken, "node=wb-grand&target=wb-sibling"), 422)
 	assertStatus(preview(viewerToken, "node=wb-grand&target=other-root"), 422)

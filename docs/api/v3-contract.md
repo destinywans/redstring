@@ -152,7 +152,7 @@
 
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
-| GET | `/inbox` | `filter: all\|mine\|mentions\|subscribed` | 当前授权的持久告警事件；已读及未接成员关系为 `null`/明确 503 | implemented |
+| GET | `/inbox` | `filter: all\|mine\|mentions\|subscribed` | 当前授权的持久告警事件，以及分配给当前用户的告警、事件、提案（`kind: assignment`，`assignment_kind` 为对象类型，`href` 指向事件页 `/incidents/{id}` 或评审页 `/review/{id}`，PA-84）；已读及未接成员关系为 `null`/明确 503 | implemented |
 | GET | `/alerts/{id}` | | 当前授权的持久告警详情与本地通知台账；无精确发生记录来源的字段为 `null` 并列入 `unavailable` | implemented |
 | POST | `/alerts/{id}/claim` | `{ expected_revision }`（取自详情读取） | 按当前修订原子认领、审计并返回更新后的持久告警详情；旧修订返回 412 | implemented |
 | GET | `/alert-groups` | `q`, `severity`, `env`, `state`, `show_inhibited` | 按持久事件本地聚合；指标、抑制及外部投递未知 | implemented |
@@ -182,7 +182,7 @@
 
 两条悬浮卡 GET 从当前有权的持久服务/真人目录读取 ID、名称、环境及可得档案；服务 key 或应用 ID 在当前可见环境中不唯一、同名人员不唯一时返回 409，不任取一条。服务健康、KPI、当前值班、变更及人员负载尚无完整授权来源，显式可空或空数组；资料职务不是 RBAC 角色。冻结悬浮卡会把未知状态显示为正常或非值班，页面需单独适配；字段证据与差异见[悬浮卡来源](v3-peeks.md)。
 
-`GET /inbox` 仅聚合当前有权、今天与昨天更新的非疑似持久告警事件；`all/mine` 为此窗口中的可见记录数，`mine` 按当前负责人判断。已读回执、提及、订阅和其他收件类型没有可信成员账本，相关值保持 `null`，`mentions/subscribed` 筛选返回 503；超过 5000 个候选明确失败，不把不完整总数当完整。`GET /incidents/{id}` 在当前归属与会话授权下读取持久告警事件或人工确认的独立事件及至多 500 条人工备注；人工事件的告警关联从持久关联表读取。告警开始不推断处置时长；指挥官、阶段、影响、系统/AI 时间线及跨对象链接无来源时保持 `null`、空值和 `unavailable`。新增人工事件表在真实读取前须迁移，本阶段未执行现有库迁移。
+`GET /inbox` 仅聚合当前有权、今天与昨天更新的非疑似持久告警事件；`all/mine` 为此窗口中的可见记录数，`mine` 按当前负责人判断。已读回执、提及、订阅和其他收件类型没有可信成员账本，相关值保持 `null`，`mentions/subscribed` 筛选返回 503；超过 5000 个候选明确失败，不把不完整总数当完整。分配给当前用户、且当前用户仍可查看的告警、事件和提案作为 `kind: assignment` 条目列出：`assignment_kind` 为对象类型（`alert`、`incident`、`proposal`），`sub` 按请求语言描述，`href` 打开被分配的对象（告警和事件为 `/incidents/{id}`，`GET /incidents/{id}` 两者都能读；提案为 `/review/{id}`），不再指回收件箱（PA-84）。`GET /incidents/{id}` 在当前归属与会话授权下读取持久告警事件或人工确认的独立事件及至多 500 条人工备注；人工事件的告警关联从持久关联表读取。告警开始不推断处置时长；指挥官、阶段、影响、系统/AI 时间线及跨对象链接无来源时保持 `null`、空值和 `unavailable`。新增人工事件表在真实读取前须迁移，本阶段未执行现有库迁移。
 
 `GET /alert-groups` 只按当前授权的环境、应用、Webhook 来源与指纹聚合持久事件，`count` 是本地接收次数，`notify` 只代表平台队列状态，不是原生 Alertmanager 分组或最终送达。未知指标、静默/抑制与外部状态保持可空，`state=silenced` 和 `show_inhibited=false` 明确 503；超过 5000 个候选不返回截断总数。`GET /alert-groups/{id}/policy` 仅在历史事件保存同一组真实标签，且私有配置的 `source_ids`、环境标签与应用映射均与当前持久范围一致时读取固定环境 Alertmanager `/api/v2/status`，返回继承后的分组/时序和接收者名称，不返回原始配置或凭据；读取后重核组成员与授权。未配置或历史标签缺失时返回可空策略与 `unavailable`，已配置来源失败或范围错配则失败关闭；时间线仅为本地通知队列。`ops_incidents.labels` 的启动迁移尚未在现有库执行，历史记录不会自动补标签。四条路由此处只按后端有来源的可空/不可用契约计为 `implemented`；冻结前端仍要求已读、分组指标、策略和事件影响等字段非空，真实页面未验收。
 
@@ -609,6 +609,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | 2026-10-10 | PA-19 P4：V3 实例不再读 `AIOPS_TELEMETRY_CONFIG`（设了只记一条警告；旧模式和 `aiops connectors import-legacy` 照旧读）；客户端上限改取统一目录的 `limits`，Trace 搜索完整声明改为目录的 `tempo_search_fail_closed` 连接器列表。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-19 P4：V3 实例不再读 `AIOPS_KUBERNETES_REGISTRY`，也不加载演示 Kubernetes 连接器 `AIOPS_CONNECTOR_CONFIG`（`demo-kubernetes`），设了只记一条警告；工作负载只从统一登记读，旧模式照旧。路由与响应形状不变（相关旧路由在 V3 上本来就是 501）。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-83：后端预格式化的时间字段补上 RFC 3339 结构化字段（看板 `label_times`/`tick_times`/事件起止、Trace 与变更 `axis_times`、收件箱 `at`、推送与 Webhook、首页、服务详情、账号会话、连接器 `checked_at`、Pull 样例、模型检查、复盘草稿、护栏 `trend_starts_at`），旧字段过渡期保留；盘点见“时间字段的显示（PA-83）” |
+| 2026-10-11 | PA-84：收件箱分配条目的 `href` 指向被分配的对象（`/incidents/{id}` 或 `/review/{id}`），新增 `assignment_kind`，`sub` 按请求语言生成；OpenAPI `V3InboxItem.kind` 补上 `assignment` |
 | 2026-10-09 | 生产验收 PA-05/PA-16：新增「未知」约定（`null` + `unavailable` 原因）。`/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard` 在可选证据缺失时返回 200，受影响字段可空；`ProfileView`、`SecurityView`、`LogSearch`、`TraceList`、`MetricsDashboard` 字段由必有改为可空，属于破坏性语义修改，`types.ts` 与页面由前端轮同步。OpenAPI 已重新生成。 |
 | 2026-10-07 | 后端对齐 v1.1：27 个新接口具备持久化/真实读取，5 个可信来源缺口已接线并按用户决定明确 503；服务端参数、迁移 158～161、OpenAPI 与定向隔离验证已同步，原 166 项不升级。 |
 | 2026-10-07 | 契约 v1.1：新增「v1.1 页面交互接口」一节。第 1 张表列出前端需对齐的已实现约束（令牌有效期与权限、邀请角色、护栏内置策略、新建实验和 Agent 的请求体），第 2 张表补入后端已实现的 19 个接口，第 3 张表新定义 32 个待实现接口，并补充查询参数。原 166 项的路径和字段不变，没有破坏性修改。 |

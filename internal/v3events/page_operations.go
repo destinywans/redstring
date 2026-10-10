@@ -261,7 +261,18 @@ func (s *Service) assignItem(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, map[string]any{"ok": true, "notification": "inbox"})
 }
 
+// assignedHref opens the assigned object (PA-84): an alert or an incident on
+// the incident page (GET /incidents/{id} serves both), a proposal on its
+// review page.
+func assignedHref(kind, id string) string {
+	if kind == "proposal" {
+		return "/review/" + url.PathEscape(id)
+	}
+	return "/incidents/" + url.PathEscape(id)
+}
+
 func (s *Service) readAssignmentNotifications(r *http.Request, tx pgx.Tx, since time.Time) ([]persistedInboxItem, error) {
+	t := textFor(r.Header.Get("Accept-Language"))
 	rows, err := tx.Query(r.Context(), `SELECT n.id,n.item_kind,n.item_id,n.created_at,n.actor_id,a.application_id,a.environment_id FROM v3_assignment_notifications n JOIN v3_item_assignments a ON a.item_kind=n.item_kind AND a.item_id=n.item_id WHERE n.recipient_id=$1 AND a.assignee_id=$1 AND n.created_at=a.updated_at AND n.created_at>=$2 ORDER BY n.created_at DESC,n.id LIMIT 501`, httpapi.CurrentUser(r).ID, since)
 	if err != nil {
 		return nil, err
@@ -342,8 +353,9 @@ func (s *Service) readAssignmentNotifications(r *http.Request, tx pgx.Tx, since 
 		if at.Year() != now.Year() || at.YearDay() != now.YearDay() {
 			day = "yesterday"
 		}
-		id := "assignment:" + n.id
-		items = append(items, persistedInboxItem{ID: id, Kind: "assignment", Tone: "neutral", Title: title, Sub: "Assigned to you", Time: at.Format("15:04"), At: at.UTC().Format(time.RFC3339), Day: day, Href: "/inbox?item=" + url.QueryEscape(id)})
+		items = append(items, persistedInboxItem{ID: "assignment:" + n.id, Kind: "assignment", Tone: "neutral", Title: title,
+			Sub: t.assignedSub(n.kind), Time: at.Format("15:04"), At: at.UTC().Format(time.RFC3339), Day: day,
+			Href: assignedHref(n.kind, n.item), AssignmentKind: n.kind})
 	}
 	return items, nil
 }

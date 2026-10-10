@@ -1,9 +1,11 @@
 # Alerts and incidents: document the real partial responses explicitly, while
 # completion status remains tracked separately in the human contract.
-S['V3InboxItem'] = obj({**fieldnames('id title sub href alert_id'),
+S['V3InboxItem'] = obj({**fieldnames('id title sub alert_id'),
+    'href':string(description='An alert opens in the inbox (/inbox?item=…); an assignment opens the assigned object: /incidents/{id} for an alert or incident, /review/{id} for a proposal (PA-84)'),
     'time':string(description='"15:04" in the server time zone (timezone), kept for older clients; use at (PA-83)'),
     'at':string(format='date-time',description='PA-83: the item time in RFC 3339, for display in the viewer time zone'),
-    'kind':string(enum=['alert']),
+    'kind':string(enum=['alert','assignment']),
+    'assignment_kind':string(enum=['alert','incident','proposal'],description='PA-84: kind of the assigned object; present on assignment items only'),
     'tone':string(enum=['neutral','warn','danger']),
     'unread':{'type':'null'},'day':string(enum=['today','yesterday'],description='Calendar day in the server time zone (timezone)')},
     ['id','kind','tone','title','sub','time','at','unread','day','href','alert_id'])

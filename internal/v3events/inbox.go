@@ -28,6 +28,9 @@ type persistedInboxItem struct {
 	Day     string `json:"day"`
 	Href    string `json:"href"`
 	AlertID string `json:"alert_id"`
+	// AssignmentKind is the assigned object's kind (alert, incident or
+	// proposal) on an assignment item, absent otherwise (PA-84).
+	AssignmentKind string `json:"assignment_kind,omitempty"`
 }
 
 // visibleInboxIncidentsTx limits the query to the two displayed calendar days

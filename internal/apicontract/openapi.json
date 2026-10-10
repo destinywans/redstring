@@ -75473,11 +75473,12 @@
           "sub": {
             "type": "string"
           },
-          "href": {
-            "type": "string"
-          },
           "alert_id": {
             "type": "string"
+          },
+          "href": {
+            "type": "string",
+            "description": "An alert opens in the inbox (/inbox?item=…); an assignment opens the assigned object: /incidents/{id} for an alert or incident, /review/{id} for a proposal (PA-84)"
           },
           "time": {
             "type": "string",
@@ -75492,8 +75493,18 @@
             "type": "string",
             "enum": [
               "alert",
+              "assignment",
               "assignment"
             ]
+          },
+          "assignment_kind": {
+            "type": "string",
+            "enum": [
+              "alert",
+              "incident",
+              "proposal"
+            ],
+            "description": "PA-84: kind of the assigned object; present on assignment items only"
           },
           "tone": {
             "type": "string",

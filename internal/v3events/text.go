@@ -78,3 +78,17 @@ func (t text) upstreamBadges(kinds map[string]bool) []badge {
 	}
 	return out
 }
+
+// assignedSub describes an assignment inbox item by the assigned object's
+// kind (PA-84).
+func (t text) assignedSub(kind string) string {
+	switch kind {
+	case "alert":
+		return t.pick("分配给你的告警", "Alert assigned to you")
+	case "incident":
+		return t.pick("分配给你的事件", "Incident assigned to you")
+	case "proposal":
+		return t.pick("分配给你的提案", "Proposal assigned to you")
+	}
+	return t.pick("分配给你", "Assigned to you")
+}

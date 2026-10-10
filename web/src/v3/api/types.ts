@@ -841,16 +841,19 @@ export type MappingCandidate = { id: string; version: string; service_id: string
 export type MappingCell = { state: "ok" | "suggested" | "missing"; value?: string; brand?: string; candidate?: MappingCandidate };
 /** Per-row save snapshot for PUT /service-mappings (see docs/examples/v3-service-mapping-save.md); absent rows aren't editable. */
 export type MappingSave = { service_id: string; service_environment_id: string; binding_revision: number; bindings: { system_id: string; kind: string; connector_id: string; resource: string }[]; editable: boolean; unavailable_reason?: string };
-/**
- * GET /services/{id}/external-targets/options (registry stage 2, step 6): per data plane, this environment's connectors
- * and the reviewed catalog resource IDs for the service. Field names are provisional until the backend contract lands;
- * a connector that isn't ready is listed with its reason and can't be chosen.
- */
-export type ExternalTargetOptions = {
-  service_id: string;
-  environment_id: string;
-  systems: Record<string, { connectors: { id: string; name: string; provider: string; ready?: boolean; not_ready_reason?: string | null }[]; resources: { id: string; connector_id?: string | null }[] }>;
+/** One mapping system in GET /services/{id}/external-targets/options (PA-19 stage 2, docs/api/v3-contract.md). */
+export type MappingOptionSystem = {
+  system_id: "metrics" | "logs" | "traces" | "code" | "deploy" | "dash" | "workload" | (string & {});
+  editable: boolean;
+  /** registry_not_enabled = mappings not switched yet (legacy editing); registry_cutover = read-only during steps 2–5. */
+  unavailable_reason: "registry_not_enabled" | "registry_cutover" | "system_not_supported" | "ambiguous_targets" | "forbidden" | null | (string & {});
+  /** target_id null = a legacy binding. */
+  current: { target_id: string | null; connector_id: string; resource_id: string } | null;
+  /** Connectors of this environment for the system; not ready ones list why. resources are reviewed catalog IDs (code: bound GitLab projects). */
+  options: { connector_id: string; name: string; provider: string; ready: boolean; not_ready: ("connector_disabled" | "tool_disabled" | "options_invalid" | "credential_missing" | "credential_not_approved" | (string & {}))[]; resources: string[] }[];
 };
+/** {id} is the encoded service ID (application + NUL + environment key). */
+export type ExternalTargetOptions = { service_id: string; environment_id: string; systems: MappingOptionSystem[] };
 export type ServiceMapping = {
   systems: { id: string; brand: string; label: string }[];
   rows: { service: string; cells: Record<string, MappingCell>; save?: MappingSave }[];

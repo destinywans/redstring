@@ -313,16 +313,19 @@ const MAP_ROWS: { service: string; cells: Record<string, { state: string; value?
     { service: "search-api", cells: { metrics: ok("job=search"), logs: ok("logs-search-*"), traces: miss, code: ok("platform/search"), deploy: ok("search-prod"), dash: ok("search-latency"), workload: ok("search/search-api") } },
     { service: "notification-svc", cells: { metrics: ok("job=notify"), logs: sug("logs-notify-*"), traces: miss, code: ok("platform/notify"), deploy: ok("notify-prod"), dash: miss, workload: ok("platform/notification-svc") } },
 ];
-// Registry stage 2 (approved editor design): each row's save snapshot with real connector IDs, and per data plane the
-// connectors of this environment plus the reviewed catalog resources the editor offers.
+// Registry stage 2 (approved editor design, docs/api/v3-contract.md): each row's save snapshot with real connector IDs,
+// and per system what the editor may offer. The sample rows cover every state of the editor.
 const MAP_CONNECTOR: Record<string, [string, string]> = { metrics: ["lab-prometheus", "prometheus"], logs: ["lab-elasticsearch", "elasticsearch"], traces: ["lab-tempo", "tempo"], workload: ["lab-kubernetes", "kubernetes"], code: ["gitlab", "gitlab"], deploy: ["argo", "argocd"], dash: ["grafana", "grafana"] };
-const mapSave = (r: (typeof MAP_ROWS)[number]) => {
-  const bindings = Object.entries(r.cells)
+const TELEMETRY = ["metrics", "logs", "traces", "workload"];
+const mapBindings = (r: (typeof MAP_ROWS)[number]) =>
+  Object.entries(r.cells)
     .filter(([sys, c]) => c.state === "ok" && c.value && MAP_CONNECTOR[sys])
     .map(([sys, c]) => ({ system_id: sys, kind: MAP_CONNECTOR[sys][1], connector_id: MAP_CONNECTOR[sys][0], resource: sys === "logs" && r.service === "payment-gateway" ? "logs-payment-old" : (c.value as string) }));
-  // order-service stands for the stage 2–5 window: telemetry rows read-only until mapping writes switch over.
-  if (r.service === "order-service") return { service_id: r.service, service_environment_id: "prod", binding_revision: 6, bindings, editable: false, unavailable_reason: "registry_cutover" };
-  return { service_id: r.service, service_environment_id: "prod", binding_revision: 6, bindings, editable: true };
+const mapSave = (r: (typeof MAP_ROWS)[number]) => {
+  const bindings = mapBindings(r);
+  // notification-svc: the whole row is read-only in the table during the switch.
+  if (r.service === "notification-svc") return { service_id: r.service, service_environment_id: `app-env-${r.service}-prod`, binding_revision: 6, bindings, editable: false, unavailable_reason: "registry_cutover" };
+  return { service_id: r.service, service_environment_id: `app-env-${r.service}-prod`, binding_revision: 6, bindings, editable: true };
 };
 const keyOfService = (id: string) => {
   try {
@@ -333,38 +336,50 @@ const keyOfService = (id: string) => {
     return id;
   }
 };
+type OptConnector = { connector_id: string; name: string; provider: string; ready: boolean; not_ready: string[]; resources: string[] };
+const conn = (id: string, provider: string, resources: string[], notReady: string[] = []): OptConnector => ({ connector_id: id, name: id, provider, ready: notReady.length === 0, not_ready: notReady, resources });
 const mapOptions = (service: string) => {
   const r = MAP_ROWS.find((x) => x.service === service);
-  const v = (sys: string) => (r?.cells[sys]?.state === "ok" ? r.cells[sys].value : undefined);
+  const v = (sys: string) => (r?.cells[sys]?.state === "ok" ? (r.cells[sys].value as string) : undefined);
+  const bound = r ? mapBindings(r) : [];
+  const current = (sys: string) => {
+    const b = bound.find((x) => x.system_id === sys);
+    return b ? { target_id: sys === "deploy" || sys === "dash" || service === "search-api" ? null : `tgt-${service}-${sys}`, connector_id: b.connector_id, resource_id: b.resource } : null;
+  };
+  // order-service stands for steps 2–5 (telemetry read-only), search-api for "not switched yet" (legacy editing).
+  const reasonFor = (sys: string): string | null => {
+    if (sys === "deploy" || sys === "dash") return "system_not_supported";
+    if (!TELEMETRY.includes(sys)) return null;
+    if (service === "order-service") return "registry_cutover";
+    if (service === "search-api") return "registry_not_enabled";
+    if (service === "user-center" && sys === "workload") return "ambiguous_targets";
+    return null;
+  };
+  const optionsFor = (sys: string): OptConnector[] => {
+    switch (sys) {
+      case "metrics":
+        return [conn("lab-prometheus", "prometheus", [v("metrics") ?? `${service}`, `${v("metrics") ?? service}-canary`]), conn("lab-prometheus-backup", "prometheus", [], ["credential_not_approved"])];
+      case "logs":
+        // inventory-worker has nothing registered for logs: the editor says the deployer has to add it.
+        return [conn("lab-elasticsearch", "elasticsearch", service === "inventory-worker" ? [] : service === "payment-gateway" ? ["logs-payment-*"] : [v("logs") ?? `logs-${service}-*`]), conn("lab-loki", "loki", service === "inventory-worker" ? [] : [`{app="${service}"}`])];
+      case "traces":
+        // user-center: no trace connector in this environment yet.
+        return service === "user-center" ? [] : [conn("lab-tempo", "tempo", [service])];
+      case "workload":
+        return [conn("lab-kubernetes", "kubernetes", [v("workload") ?? `aiops-lab/${service}`])];
+      case "code":
+        return v("code") ? [conn("gitlab", "gitlab", [v("code") as string])] : [];
+      default:
+        return [];
+    }
+  };
   return {
     service_id: service,
     environment_id: "prod",
-    systems: {
-      metrics: {
-        connectors: [
-          { id: "lab-prometheus", name: "lab-prometheus", provider: "Prometheus", ready: true },
-          { id: "lab-victoriametrics", name: "lab-victoriametrics", provider: "VictoriaMetrics", ready: false, not_ready_reason: P("读凭据未批准", "Read credential not approved") },
-        ],
-        resources: [v("metrics"), v("metrics") && `${v("metrics")}-canary`].filter(Boolean).map((id) => ({ id: id as string, connector_id: "lab-prometheus" })),
-      },
-      logs: {
-        connectors: [
-          { id: "lab-elasticsearch", name: "lab-elasticsearch", provider: "Elasticsearch", ready: true },
-          { id: "lab-loki", name: "lab-loki", provider: "Loki", ready: true },
-        ],
-        // inventory-worker has nothing registered for logs: the editor says the deployer has to add it.
-        resources:
-          service === "inventory-worker"
-            ? []
-            : [
-                ...(service === "payment-gateway" ? ["logs-payment-*"] : [v("logs") ?? `logs-${service}-*`]).map((id) => ({ id, connector_id: "lab-elasticsearch" })),
-                { id: `{app="${service}"}`, connector_id: "lab-loki" },
-              ],
-      },
-      // user-center: no trace connector in this environment yet.
-      traces: { connectors: service === "user-center" ? [] : [{ id: "lab-tempo", name: "lab-tempo", provider: "Tempo", ready: true }], resources: [{ id: service, connector_id: "lab-tempo" }] },
-      workload: { connectors: [{ id: "lab-kubernetes", name: "lab-kubernetes", provider: "Kubernetes", ready: true }], resources: [{ id: v("workload") ?? `aiops-lab/${service}`, connector_id: "lab-kubernetes" }] },
-    },
+    systems: ["metrics", "logs", "traces", "code", "deploy", "dash", "workload"].map((sys) => {
+      const reason = reasonFor(sys);
+      return { system_id: sys, editable: reason === null && sys !== "code", unavailable_reason: reason, current: current(sys), options: optionsFor(sys) };
+    }),
   };
 };
 mock("GET", "/service-mappings", () => ({ systems: MAP_SYSTEMS, rows: MAP_ROWS.map((r) => ({ ...r, save: mapSave(r) })), suggestions: 5 }));
@@ -372,12 +387,23 @@ mock("GET", "/services/:id/external-targets/options", ({ params }) => mapOptions
 mock("POST", "/service-mappings/accept", ({ body }) => ({ accepted: (body as { cells?: unknown[] })?.cells?.length ?? 5 }));
 mock("POST", "/service-mappings/discover", () => ({ suggestions: 5 }));
 mock("PUT", "/service-mappings", ({ body }) => {
-  const item = (body as { items?: { service_id: string; bindings: { system_id: string; resource: string }[] }[] })?.items?.[0];
-  if (item) {
-    const o = mapOptions(item.service_id).systems as Record<string, { resources: { id: string }[] }>;
-    const bad = item.bindings.find((b) => o[b.system_id] && !o[b.system_id].resources.some((r) => r.id === b.resource));
-    if (bad) throw new MockError(422, "resource_not_in_catalog", `${bad.resource} is not in the catalog`);
+  const item = (body as { items?: { service_id: string; bindings: { system_id: string; connector_id: string; resource: string }[] }[] })?.items?.[0];
+  if (!item) return { ok: true };
+  const o = mapOptions(item.service_id);
+  const r = MAP_ROWS.find((x) => x.service === item.service_id);
+  const before = r ? mapBindings(r) : [];
+  const key = (b?: { connector_id: string; resource: string }) => (b ? `${b.connector_id}|${b.resource}` : "");
+  const same = (sys: string) => key(item.bindings.find((b) => b.system_id === sys)) === key(before.find((b) => b.system_id === sys));
+  for (const sys of o.systems) {
+    if (sys.unavailable_reason === "registry_cutover" && !same(sys.system_id)) throw new MockError(422, "registry_cutover", "Telemetry and workload bindings must match the registry during the switch");
+    if (sys.unavailable_reason === "system_not_supported" && !same(sys.system_id)) throw new MockError(422, "system_not_supported", "Deploy and dashboard bindings can't be changed");
+    if (sys.unavailable_reason === "ambiguous_targets" && !same(sys.system_id)) throw new MockError(409, "ambiguous_targets", "More than one target is registered");
   }
+  const bad = item.bindings.find((b) => {
+    const sys = o.systems.find((x) => x.system_id === b.system_id);
+    return sys?.editable && !(sys.options.find((c) => c.connector_id === b.connector_id)?.resources ?? []).includes(b.resource);
+  });
+  if (bad) throw new MockError(422, "resource_not_in_catalog", `${bad.resource} is not in the catalog`);
   return { ok: true };
 });
 

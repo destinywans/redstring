@@ -1,15 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api, useGet } from "../../api/client";
 import { currentEnv } from "../../app/environment";
-import type { ExternalTargetOptions, MappingSave, ServiceMapping } from "../../api/types";
+import type { ExternalTargetOptions, MappingOptionSystem, MappingSave, ServiceMapping } from "../../api/types";
 import { Badge, Btn, Icon, Input, Muted, Row, Skeleton, Spacer, Tile } from "../../ui/core";
 import { Drawer, toast } from "../../ui/overlays";
 import { ChipSelect } from "../../ui/demo";
 import { useI18n } from "../../i18n";
 import { serviceIdOf } from "../events/rollback";
 
-/** Kinds the server accepts per system (v3catalog mappingKind); only for the legacy editor below. */
+/** Kinds the server accepts per system (v3catalog mappingKind); only for legacy editing (registry_not_enabled). */
 const KINDS: Record<string, string[]> = {
   metrics: ["prometheus", "victoriametrics"],
   logs: ["loki", "elasticsearch"],
@@ -18,23 +18,24 @@ const KINDS: Record<string, string[]> = {
   dash: ["grafana", "kibana"],
   workload: ["kubernetes"],
 };
-/** Systems with no unified-registry target type: shown read-only with their current value (system_not_supported). */
-const READ_ONLY = new Set(["deploy", "dash"]);
 type Binding = { kind: string; connector_id: string; resource: string };
 type Draft = Record<string, Binding>;
+type Mode = "pick" | "legacy" | "readonly";
 
 /**
- * Edit one service's bindings in the selected environment. Saving replaces the full binding set with the revision read
- * from GET; a stale revision is 409 and the page reloads (approved design). Since registry stage 2 the connector and the
- * resource come from GET /services/{id}/external-targets/options (approved design board); while that route doesn't exist
- * yet the earlier manual editor stays, so editing doesn't regress.
+ * Edit one service's bindings in the selected environment (approved design boards). Saving replaces the full binding
+ * set with the revision read from GET; a stale revision is 409 and the page reloads. Per system, GET
+ * /services/{id}/external-targets/options says whether it can be edited: editable systems choose a connector and a
+ * reviewed catalog resource; registry_not_enabled keeps the earlier kind + resource editing; anything else is
+ * read-only and is sent back exactly as read (PA-19 stage 2).
  */
 export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { row: { service: string; save: MappingSave } | null; systems: ServiceMapping["systems"]; conflict?: boolean; onClose: () => void; onSaved: (conflict: boolean) => void }) {
   const { tx } = useI18n();
   const [draft, setDraft] = useState<Draft>({});
   const [busy, setBusy] = useState(false);
   const [formErr, setFormErr] = useState<string | null>(null);
-  const optionsPath = row ? `/services/${serviceIdOf(row.save.service_id, row.save.service_environment_id)}/external-targets/options` : null;
+  // The options route takes the encoded service ID: the application and the selected environment key.
+  const optionsPath = row ? `/services/${serviceIdOf(row.save.service_id, currentEnv() ?? "")}/external-targets/options` : null;
   const options = useGet<ExternalTargetOptions>(optionsPath, undefined, { retry: false, staleTime: 0 });
   useEffect(() => {
     if (!row) return;
@@ -44,31 +45,49 @@ export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { ro
     setFormErr(null);
   }, [row]);
   if (!row) return <Drawer open={false} onClose={onClose} title="">{null}</Drawer>;
-  const legacy = options.error instanceof ApiError && options.error.status === 404;
+  // No options route yet (older backend): the whole editor stays on the earlier editing.
+  const noRoute = options.error instanceof ApiError && options.error.status === 404;
   const opts = options.data;
+  const sysOf = (id: string): MappingOptionSystem | undefined => opts?.systems.find((x) => x.system_id === id);
+  const modeOf = (id: string): Mode => {
+    if (id === "code") return "readonly";
+    if (noRoute) return "legacy";
+    const o = sysOf(id);
+    if (!o) return "readonly";
+    if (o.unavailable_reason === "registry_not_enabled") return "legacy";
+    return o.editable ? "pick" : "readonly";
+  };
 
   const set = (sys: string, patch: Partial<Binding>) =>
     setDraft((d) => {
       const cur = d[sys] ?? { kind: "", connector_id: "", resource: "" };
       const next = { ...cur, ...patch };
-      // The connector ID always comes from the API (a real connector ID since registry stage 2); never the kind name.
-      if (legacy && patch.kind !== undefined && patch.kind !== cur.kind) next.connector_id = row.save.bindings.find((b) => b.system_id === sys && b.kind === patch.kind)?.connector_id ?? "";
+      // Legacy editing: the connector ID still comes from the snapshot, never the kind name.
+      if (modeOf(sys) === "legacy" && patch.kind !== undefined && patch.kind !== cur.kind) next.connector_id = row.save.bindings.find((b) => b.system_id === sys && b.kind === patch.kind)?.connector_id ?? "";
       return { ...d, [sys]: next };
     });
-  const resourcesFor = (sys: string, connectorId: string) => (opts?.systems[sys]?.resources ?? []).filter((r) => !r.connector_id || r.connector_id === connectorId).map((r) => r.id);
-  // Bound resources that the catalog doesn't list (removed since, or rejected with resource_not_in_catalog).
+  const resourcesFor = (sys: string, connectorId: string) => sysOf(sys)?.options.find((c) => c.connector_id === connectorId)?.resources ?? [];
+  // A picked system whose bound resource the catalog no longer lists (also after 422 resource_not_in_catalog).
   const notInCatalog = new Set(
-    opts
-      ? Object.entries(draft)
-          .filter(([sys, b]) => opts.systems[sys] && b.connector_id && b.resource && !resourcesFor(sys, b.connector_id).includes(b.resource))
-          .map(([sys]) => sys)
-      : [],
+    systems
+      .map((s) => s.id)
+      .filter((sys) => modeOf(sys) === "pick")
+      .filter((sys) => {
+        const b = draft[sys];
+        return !!b?.connector_id && !!b.resource && !resourcesFor(sys, b.connector_id).includes(b.resource);
+      }),
   );
-  const noConnector = new Set(Object.entries(draft).filter(([sys, b]) => b.kind && !b.connector_id && !READ_ONLY.has(sys) && sys !== "code").map(([sys]) => sys));
-  const bindings = Object.entries(draft)
-    .filter(([, b]) => (b.kind || b.connector_id) && b.resource.trim())
-    .map(([system_id, b]) => ({ system_id, kind: b.kind, connector_id: b.connector_id, resource: b.resource.trim() }));
-  const blocked = noConnector.size > 0 || notInCatalog.size > 0 || (!legacy && !opts);
+  const noConnector = new Set(systems.map((s) => s.id).filter((sys) => modeOf(sys) === "legacy" && !!draft[sys]?.kind && !draft[sys]?.connector_id));
+  // Read-only systems go back exactly as read from the snapshot; the others from the draft.
+  const bindings = systems.flatMap((s) => {
+    if (modeOf(s.id) === "readonly") return row.save.bindings.filter((b) => b.system_id === s.id);
+    const b = draft[s.id];
+    return b && (b.kind || b.connector_id) && b.resource.trim() ? [{ system_id: s.id, kind: b.kind, connector_id: b.connector_id, resource: b.resource.trim() }] : [];
+  });
+  const anyEditable = systems.some((s) => modeOf(s.id) !== "readonly");
+  const loadingOptions = !noRoute && options.isLoading;
+  const optionsFailed = !noRoute && !options.isLoading && !opts;
+  const blocked = loadingOptions || optionsFailed || !anyEditable || noConnector.size > 0 || notInCatalog.size > 0;
 
   const save = async () => {
     setBusy(true);
@@ -80,34 +99,74 @@ export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { ro
       toast(tx("{s} 的映射已保存", "Mapping for {s} saved", { s: row.service }));
       onSaved(false);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 409) onSaved(true);
-      else if (e instanceof ApiError && e.code === "resource_not_in_catalog") {
+      const code = e instanceof ApiError ? e.code : "";
+      if (code === "ambiguous_targets") {
+        setFormErr(tx("有一类登记了多个目标（可能刚有人导入或修改），这次没有保存。已重新读取，请核对。", "A system has more than one registered target (someone may have just imported or changed it), so nothing was saved. It was reloaded — check it."));
+        void options.refetch();
+      } else if (e instanceof ApiError && e.status === 409) onSaved(true);
+      else if (code === "registry_cutover") {
+        setFormErr(tx("来源登记切换期间，指标、日志、链路和工作负载只能保持原样，这次修改没有生效。已重新读取。", "While sources move to the new registry, metrics, logs, traces and workload have to stay as they are; this change wasn't saved. It was reloaded."));
+        void options.refetch();
+      } else if (code === "system_not_supported") setFormErr(tx("部署和看板映射暂不支持编辑，这次修改没有生效，请重试。", "Deploy and dashboard mappings can't be edited yet; this change wasn't saved. Try again."));
+      else if (code === "resource_not_in_catalog") {
         // Reread the catalog: the rows whose resource is gone show the error under them.
         const fresh = await options.refetch();
-        const stillListed = !!fresh.data && Object.entries(draft).every(([sys, b]) => !fresh.data!.systems[sys] || !b.resource || (fresh.data!.systems[sys].resources ?? []).some((r) => r.id === b.resource));
-        if (stillListed) setFormErr(e.message);
-      } else if (e instanceof ApiError && e.code === "system_not_supported") setFormErr(tx("部署和看板映射暂不支持编辑，这次修改没有生效，请重试。", "Deploy and dashboard mappings can't be edited yet; this change wasn't saved. Try again."));
-      else toast(e instanceof ApiError ? e.message : tx("保存失败，请稍后重试", "Couldn't save; try again later"), { tone: "danger" });
+        const flagged = systems.some((s) => {
+          const b = draft[s.id];
+          const o = fresh.data?.systems.find((x) => x.system_id === s.id);
+          return !!o?.editable && !!b?.resource && !(o.options.find((c) => c.connector_id === b.connector_id)?.resources ?? []).includes(b.resource);
+        });
+        if (!flagged) setFormErr((e as ApiError).message);
+      } else toast(e instanceof ApiError ? e.message : tx("保存失败，请稍后重试", "Couldn't save; try again later"), { tone: "danger" });
     } finally {
       setBusy(false);
     }
   };
 
-  const readOnlyRow = (sysId: string, label: string, b: Binding | undefined, note: string, lock = true) => (
-    <div key={sysId} className="map-edit-row">
-      <Muted>{label}</Muted>
-      <Row gap={6} style={{ gridColumn: "2 / -1", minWidth: 0 }}>
-        {lock ? <Icon name="lock" size={12} color="var(--faint)" /> : <Badge>GitLab</Badge>}
-        <span className="mono ellipsis" style={{ fontSize: "var(--fs-sub)" }}>{b?.resource || "—"}</span>
-        <Muted size={11.5}>· {note}</Muted>
-      </Row>
-    </div>
-  );
-  const note = (text: React.ReactNode, tone: "hint" | "error" = "hint") => (
+  const reasonText = (sys: string, o: MappingOptionSystem | undefined) => {
+    if (sys === "code") return tx("只能通过“接受建议”修改", "change it by accepting a suggestion");
+    switch (o?.unavailable_reason) {
+      case "registry_cutover":
+        return tx("来源登记切换中，暂时只读", "read-only while sources move to the new registry");
+      case "system_not_supported":
+        return sys === "deploy" ? tx("交付类映射暂不支持编辑", "delivery mappings can't be edited yet") : tx("看板类映射暂不支持编辑", "dashboard mappings can't be edited yet");
+      case "ambiguous_targets":
+        return tx("这一类登记了多个目标，暂时不能编辑", "more than one target is registered; can't be edited");
+      case "forbidden":
+        return tx("需要 服务目录·修改 和 连接器与映射·管理 权限", "needs Service catalog · Change and Connectors & mapping · Manage");
+      default:
+        return tx("暂不支持编辑", "can't be edited yet");
+    }
+  };
+  const notReadyText = (code: string) =>
+    (
+      ({
+        connector_disabled: tx("连接器已停用", "connector disabled"),
+        tool_disabled: tx("数据读取开关未打开", "data read switched off"),
+        options_invalid: tx("连接器配置无效", "connector settings invalid"),
+        credential_missing: tx("缺少凭据", "credential missing"),
+        credential_not_approved: tx("凭据未批准", "credential not approved"),
+      }) as Record<string, string>
+    )[code] ?? code;
+  const note = (text: ReactNode, tone: "hint" | "error" = "hint") => (
     <span className="map-edit-note" style={{ gridColumn: "2 / -1", color: tone === "error" ? "var(--danger)" : "var(--faint)" }}>
       {text}
     </span>
   );
+  const readOnlyRow = (sysId: string, label: string) => {
+    const o = sysOf(sysId);
+    const value = row.save.bindings.find((b) => b.system_id === sysId)?.resource ?? o?.current?.resource_id;
+    return (
+      <div key={sysId} className="map-edit-row">
+        <Muted>{label}</Muted>
+        <Row gap={6} style={{ gridColumn: "2 / -1", minWidth: 0 }}>
+          {sysId === "code" ? <Badge>GitLab</Badge> : <Icon name="lock" size={12} color="var(--faint)" />}
+          <span className="mono ellipsis" style={{ fontSize: "var(--fs-sub)" }}>{value || "—"}</span>
+          <Muted size={11.5}>· {reasonText(sysId, o)}</Muted>
+        </Row>
+      </div>
+    );
+  };
 
   return (
     <Drawer
@@ -138,19 +197,24 @@ export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { ro
             <span className="grow">{formErr}</span>
           </div>
         )}
-        {!legacy && options.isLoading && <Skeleton h={220} />}
-        {!legacy && !options.isLoading && !opts && (
+        {loadingOptions && <Skeleton h={220} />}
+        {optionsFailed && (
           <div className="unk-banner warn" role="status">
             <Icon name="alert" size={14} />
-            <span className="grow">{tx("暂时读不到可选的连接器和资源，现在不能编辑，请稍后再试。", "The connectors and resources to choose from can't be read right now, so editing isn't possible. Try again later.")}</span>
+            <span className="grow">
+              {options.error instanceof ApiError && options.error.status === 403
+                ? tx("需要查看这个环境连接器的权限（连接器与映射·查看），现在不能编辑。", "Viewing this environment's connectors (Connectors & mapping · View) is needed to edit.")
+                : tx("暂时读不到可选的连接器和资源，现在不能编辑，请稍后再试。", "The connectors and resources to choose from can't be read right now, so editing isn't possible. Try again later.")}
+            </span>
           </div>
         )}
-        {(legacy || opts) &&
+        {!loadingOptions &&
+          !optionsFailed &&
           systems.map((s) => {
+            const mode = modeOf(s.id);
             const b = draft[s.id];
-            if (s.id === "code") return readOnlyRow(s.id, s.label, b, tx("只能通过“接受建议”修改", "change it by accepting a suggestion"), false);
-            if (READ_ONLY.has(s.id) && !legacy) return readOnlyRow(s.id, s.label, b, s.id === "deploy" ? tx("交付类映射暂不支持编辑", "delivery mappings can't be edited yet") : tx("看板类映射暂不支持编辑", "dashboard mappings can't be edited yet"));
-            if (legacy) {
+            if (mode === "readonly") return readOnlyRow(s.id, s.label);
+            if (mode === "legacy") {
               const kinds = KINDS[s.id] ?? [];
               return (
                 <div key={s.id} className="map-edit-row">
@@ -161,11 +225,10 @@ export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { ro
                 </div>
               );
             }
-            const plane = opts!.systems[s.id];
-            if (!plane) return readOnlyRow(s.id, s.label, b, tx("暂不支持编辑", "can't be edited yet"));
-            const connectors = plane.connectors;
+            const o = sysOf(s.id)!;
+            const connectors = o.options;
+            const current = connectors.find((c) => c.connector_id === b?.connector_id);
             const resources = b?.connector_id ? resourcesFor(s.id, b.connector_id) : [];
-            const current = connectors.find((c) => c.id === b?.connector_id);
             return (
               <div key={s.id} className="map-edit-row">
                 <Muted>{s.label}</Muted>
@@ -179,20 +242,20 @@ export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { ro
                     value={b?.connector_id || "none"}
                     // Changing the connector clears the resource: catalog resources are listed per connector.
                     onChange={(v) => {
-                      const c = connectors.find((x) => x.id === v);
-                      set(s.id, c ? { connector_id: c.id, kind: c.provider.toLowerCase(), resource: "" } : { connector_id: "", kind: "", resource: "" });
+                      const c = connectors.find((x) => x.connector_id === v);
+                      set(s.id, c ? { connector_id: c.connector_id, kind: c.provider, resource: "" } : { connector_id: "", kind: "", resource: "" });
                     }}
                     options={[
                       { value: "none", label: tx("未绑定", "Not bound") },
                       ...connectors.map((c) => ({
-                        value: c.id,
+                        value: c.connector_id,
                         label: (
                           <span className="ellipsis">
                             <span className="mono">{c.name}</span> <Muted size={11.5}>· {c.provider}</Muted>
                           </span>
                         ),
-                        hint: c.ready === false ? c.not_ready_reason ?? tx("未就绪", "Not ready") : undefined,
-                        disabled: c.ready === false && c.id !== b?.connector_id,
+                        hint: c.ready ? undefined : c.not_ready.map(notReadyText).join(tx("、", ", ")) || tx("未就绪", "Not ready"),
+                        disabled: !c.ready && c.connector_id !== b?.connector_id,
                       })),
                     ]}
                   />
@@ -219,12 +282,12 @@ export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { ro
                   )}
                 {b?.connector_id && resources.length === 0 && !notInCatalog.has(s.id) && note(tx("需要部署方在审查目录里为 {svc} 登记{s}资源后才能选。这一项可以先不绑定。", "The deployer has to register a {s} resource for {svc} in the reviewed catalog first. You can leave this unbound.", { svc: row.service, s: s.label }))}
                 {notInCatalog.has(s.id) && note(tx("{r} 不在目录里（可能刚被部署方移除），请重新选择。", "{r} isn't in the catalog (the deployer may have just removed it). Choose another.", { r: b!.resource }), "error")}
-                {current && current.ready === false && note(tx("连接器 {c} 未就绪：{why}", "Connector {c} isn't ready: {why}", { c: current.name, why: current.not_ready_reason ?? tx("原因未知", "reason unknown") }))}
+                {current && !current.ready && note(tx("连接器 {c} 未就绪：{why}", "Connector {c} isn't ready: {why}", { c: current.name, why: current.not_ready.map(notReadyText).join(tx("、", ", ")) || tx("原因未知", "reason unknown") }))}
               </div>
             );
           })}
         <Row gap={6}>
-          <Muted size={11.5}>{tx("保存会替换这个服务在当前环境的全部绑定；清空一项等于解除该项绑定。", "Saving replaces all of this service's bindings in this environment; clearing one unbinds it.")}</Muted>
+          <Muted size={11.5}>{tx("保存会替换这个服务在当前环境的全部绑定；清空一项等于解除该项绑定。只读的项按原样保留。", "Saving replaces all of this service's bindings in this environment; clearing one unbinds it. Read-only ones stay as they are.")}</Muted>
         </Row>
       </div>
     </Drawer>

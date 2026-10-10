@@ -9,7 +9,7 @@ import { ChipSelect } from "../../ui/demo";
 import { useI18n } from "../../i18n";
 import { serviceIdOf } from "../events/rollback";
 
-/** Kinds the server accepts per system (v3catalog mappingKind); only for legacy editing (registry_not_enabled). */
+/** Kinds the server accepts per system (v3catalog mappingKind); only for legacy editing (a backend without the options route). */
 const KINDS: Record<string, string[]> = {
   metrics: ["prometheus", "victoriametrics"],
   logs: ["loki", "elasticsearch"],
@@ -26,8 +26,8 @@ type Mode = "pick" | "legacy" | "readonly";
  * Edit one service's bindings in the selected environment (approved design boards). Saving replaces the full binding
  * set with the revision read from GET; a stale revision is 409 and the page reloads. Per system, GET
  * /services/{id}/external-targets/options says whether it can be edited: editable systems choose a connector and a
- * reviewed catalog resource; registry_not_enabled keeps the earlier kind + resource editing; anything else is
- * read-only and is sent back exactly as read (PA-19 stage 2).
+ * reviewed catalog resource; anything else is read-only and is sent back exactly as read (PA-19 stage 2). Since P4
+ * every system is on the registry; only a backend without the options route keeps the earlier kind + resource editing.
  */
 export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { row: { service: string; save: MappingSave } | null; systems: ServiceMapping["systems"]; conflict?: boolean; onClose: () => void; onSaved: (conflict: boolean) => void }) {
   const { tx } = useI18n();
@@ -54,7 +54,6 @@ export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { ro
     if (noRoute) return "legacy";
     const o = sysOf(id);
     if (!o) return "readonly";
-    if (o.unavailable_reason === "registry_not_enabled") return "legacy";
     return o.editable ? "pick" : "readonly";
   };
 
@@ -104,10 +103,7 @@ export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { ro
         setFormErr(tx("有一类登记了多个目标（可能刚有人导入或修改），这次没有保存。已重新读取，请核对。", "A system has more than one registered target (someone may have just imported or changed it), so nothing was saved. It was reloaded — check it."));
         void options.refetch();
       } else if (e instanceof ApiError && e.status === 409) onSaved(true);
-      else if (code === "registry_cutover") {
-        setFormErr(tx("来源登记切换期间，指标、日志、链路和工作负载只能保持原样，这次修改没有生效。已重新读取。", "While sources move to the new registry, metrics, logs, traces and workload have to stay as they are; this change wasn't saved. It was reloaded."));
-        void options.refetch();
-      } else if (code === "system_not_supported") setFormErr(tx("部署和看板映射暂不支持编辑，这次修改没有生效，请重试。", "Deploy and dashboard mappings can't be edited yet; this change wasn't saved. Try again."));
+      else if (code === "system_not_supported") setFormErr(tx("部署和看板映射暂不支持编辑，这次修改没有生效，请重试。", "Deploy and dashboard mappings can't be edited yet; this change wasn't saved. Try again."));
       else if (code === "resource_not_in_catalog") {
         // Reread the catalog: the rows whose resource is gone show the error under them.
         const fresh = await options.refetch();
@@ -126,8 +122,6 @@ export function MappingEditor({ row, systems, conflict, onClose, onSaved }: { ro
   const reasonText = (sys: string, o: MappingOptionSystem | undefined) => {
     if (sys === "code") return tx("只能通过“接受建议”修改", "change it by accepting a suggestion");
     switch (o?.unavailable_reason) {
-      case "registry_cutover":
-        return tx("来源登记切换中，暂时只读", "read-only while sources move to the new registry");
       case "system_not_supported":
         return sys === "deploy" ? tx("交付类映射暂不支持编辑", "delivery mappings can't be edited yet") : tx("看板类映射暂不支持编辑", "dashboard mappings can't be edited yet");
       case "ambiguous_targets":

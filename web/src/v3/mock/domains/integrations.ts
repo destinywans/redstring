@@ -1,4 +1,5 @@
 import { mock, MockError } from "../router";
+import { at } from "../time";
 import { l } from "../../i18n";
 import { series } from "../../charts";
 
@@ -207,6 +208,7 @@ mock("GET", "/ingest/pull/:id", () => ({
   sample: {
     status: 200,
     meta: P("84 ms · 3.2 KB · 取自 14:31 的测试请求", "84 ms · 3.2 KB · test request at 14:31"),
+    captured_at: at("14:31"),
     body: '{\n  "data": [\n    {\n      "svc": "checkout-api",\n      "metric": "db_wait_p95",\n      "unit": "ms",\n      "tags": {"pod": "7f9c-4", "env": "prod"},\n      "points": [\n        [1790160180000, 12.4],\n        [1790160210000, 13.1],\n        [1790160240000, 418.0]\n      ]\n    }\n  ],\n  "next": null\n}',
     highlights: [
       { text: '"checkout-api"', color: "c1" },
@@ -270,10 +272,10 @@ mock("GET", "/ingest/push", () => ({
     ],
   },
   deliveries: [
-    { time: "14:03:41", source: "jenkins", key: "jenkins-812-deploy", code: "202", tone: "ok", result: P("已接收", "Accepted"), ms: "38 ms" },
-    { time: "14:03:41", source: "jenkins", key: "jenkins-812-deploy", code: "409", tone: "neutral", result: P("重复", "Duplicate"), ms: "6 ms" },
-    { time: "13:12:05", source: "gitlab", key: "gl-8811-pipeline", code: "202", tone: "ok", result: P("已接收", "Accepted"), ms: "41 ms" },
-    { time: "12:40:19", source: "argo", key: "argo-sync-5521", code: "422", tone: "danger", result: P("env 缺失", "env missing"), ms: "12 ms" },
+    { time: "14:03:41", at: at("14:03:41"), source: "jenkins", key: "jenkins-812-deploy", code: "202", tone: "ok", result: P("已接收", "Accepted"), ms: "38 ms" },
+    { time: "14:03:41", at: at("14:03:41"), source: "jenkins", key: "jenkins-812-deploy", code: "409", tone: "neutral", result: P("重复", "Duplicate"), ms: "6 ms" },
+    { time: "13:12:05", at: at("13:12:05"), source: "gitlab", key: "gl-8811-pipeline", code: "202", tone: "ok", result: P("已接收", "Accepted"), ms: "41 ms" },
+    { time: "12:40:19", at: at("12:40:19"), source: "argo", key: "argo-sync-5521", code: "422", tone: "danger", result: P("env 缺失", "env missing"), ms: "12 ms" },
   ],
   stack: {
     enabled: false,
@@ -323,8 +325,8 @@ const mapBindings = (r: (typeof MAP_ROWS)[number]) =>
     .map(([sys, c]) => ({ system_id: sys, kind: MAP_CONNECTOR[sys][1], connector_id: MAP_CONNECTOR[sys][0], resource: sys === "logs" && r.service === "payment-gateway" ? "logs-payment-old" : (c.value as string) }));
 const mapSave = (r: (typeof MAP_ROWS)[number]) => {
   const bindings = mapBindings(r);
-  // notification-svc: the whole row is read-only in the table during the switch.
-  if (r.service === "notification-svc") return { service_id: r.service, service_environment_id: `app-env-${r.service}-prod`, binding_revision: 6, bindings, editable: false, unavailable_reason: "registry_cutover" };
+  // notification-svc: stored bindings the registry can't keep, so the row is read-only in the table.
+  if (r.service === "notification-svc") return { service_id: r.service, service_environment_id: `app-env-${r.service}-prod`, binding_revision: 6, bindings, editable: false, unavailable_reason: "unsupported_persisted_bindings" };
   return { service_id: r.service, service_environment_id: `app-env-${r.service}-prod`, binding_revision: 6, bindings, editable: true };
 };
 const keyOfService = (id: string) => {
@@ -346,12 +348,9 @@ const mapOptions = (service: string) => {
     const b = bound.find((x) => x.system_id === sys);
     return b ? { target_id: sys === "deploy" || sys === "dash" || service === "search-api" ? null : `tgt-${service}-${sys}`, connector_id: b.connector_id, resource_id: b.resource } : null;
   };
-  // order-service stands for steps 2–5 (telemetry read-only), search-api for "not switched yet" (legacy editing).
   const reasonFor = (sys: string): string | null => {
     if (sys === "deploy" || sys === "dash") return "system_not_supported";
     if (!TELEMETRY.includes(sys)) return null;
-    if (service === "order-service") return "registry_cutover";
-    if (service === "search-api") return "registry_not_enabled";
     if (service === "user-center" && sys === "workload") return "ambiguous_targets";
     return null;
   };
@@ -395,7 +394,6 @@ mock("PUT", "/service-mappings", ({ body }) => {
   const key = (b?: { connector_id: string; resource: string }) => (b ? `${b.connector_id}|${b.resource}` : "");
   const same = (sys: string) => key(item.bindings.find((b) => b.system_id === sys)) === key(before.find((b) => b.system_id === sys));
   for (const sys of o.systems) {
-    if (sys.unavailable_reason === "registry_cutover" && !same(sys.system_id)) throw new MockError(422, "registry_cutover", "Telemetry and workload bindings must match the registry during the switch");
     if (sys.unavailable_reason === "system_not_supported" && !same(sys.system_id)) throw new MockError(422, "system_not_supported", "Deploy and dashboard bindings can't be changed");
     if (sys.unavailable_reason === "ambiguous_targets" && !same(sys.system_id)) throw new MockError(409, "ambiguous_targets", "More than one target is registered");
   }
@@ -467,10 +465,10 @@ mock("GET", "/coverage", () => ({
 /* ---------------- webhooks & API ---------------- */
 mock("GET", "/webhooks", () => ({
   inbound: [
-    { id: "am-prod", brand: "prometheus", name: P("Alertmanager · 生产", "Alertmanager · prod"), url: "/hooks/alertmanager/prod", verify: "Bearer", count: "27", last: "200 · 14:30", status: "ok" },
-    { id: "gitlab", brand: "gitlab", name: P("GitLab 流水线事件", "GitLab pipeline events"), url: "/hooks/gitlab/platform", verify: P("签名令牌", "Secret token"), count: "64", last: "200 · 14:28", status: "ok" },
-    { id: "github", brand: "githubactions", name: "GitHub Actions", url: "/hooks/github/shop", verify: "HMAC SHA-256", count: "12", last: "200 · 13:12", status: "ok" },
-    { id: "argocd", brand: "argo", name: P("Argo CD 通知", "Argo CD notifications"), url: "/hooks/argocd", verify: "Bearer", count: "27", last: "200 · 14:04", status: "ok" },
+    { id: "am-prod", brand: "prometheus", name: P("Alertmanager · 生产", "Alertmanager · prod"), url: "/hooks/alertmanager/prod", verify: "Bearer", count: "27", last: "200 · 14:30", last_at: at("14:30"), last_code: 200, status: "ok" },
+    { id: "gitlab", brand: "gitlab", name: P("GitLab 流水线事件", "GitLab pipeline events"), url: "/hooks/gitlab/platform", verify: P("签名令牌", "Secret token"), count: "64", last: "200 · 14:28", last_at: at("14:28"), last_code: 200, status: "ok" },
+    { id: "github", brand: "githubactions", name: "GitHub Actions", url: "/hooks/github/shop", verify: "HMAC SHA-256", count: "12", last: "200 · 13:12", last_at: at("13:12"), last_code: 200, status: "ok" },
+    { id: "argocd", brand: "argo", name: P("Argo CD 通知", "Argo CD notifications"), url: "/hooks/argocd", verify: "Bearer", count: "27", last: "200 · 14:04", last_at: at("14:04"), last_code: 200, status: "ok" },
     { id: "grafana", brand: "grafana", name: P("Grafana 告警", "Grafana alerts"), url: "/hooks/grafana", verify: "Bearer", count: "0", last: P("401 · 昨天", "401 · yesterday"), status: "error" },
   ],
   deliveries: [

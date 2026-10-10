@@ -123,7 +123,7 @@ export default function WebhooksPage() {
                             <Num>{h.count}</Num>
                           </td>
                           <td>
-                            <Muted>{when.text(h.last)}</Muted>
+                            <Muted>{h.last_at !== undefined ? (h.last_at ? `${h.last_code ?? "—"} · ${when.short(h.last_at)}` : tx("未知", "Unknown")) : when.text(h.last)}</Muted>
                           </td>
                           <td>
                             <State tone={h.status === "ok" ? "ok" : "danger"}>{h.status === "ok" ? tx("已启用", "Enabled") : tx("异常", "Error")}</State>

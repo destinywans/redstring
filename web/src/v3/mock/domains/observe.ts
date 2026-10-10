@@ -1,4 +1,5 @@
 import { mock } from "../router";
+import { at } from "../time";
 import { l } from "../../i18n";
 import { series } from "../../charts";
 
@@ -67,8 +68,8 @@ mock("GET", "/services/:id", ({ params }) => {
     ],
     slo: { availability: "99.87%", target: "99.9%", budget_left: 38, burn: [{ window: P("1 小时燃烧", "1 h burn"), value: "14.4×", tone: "danger", pct: 100 }, { window: P("6 小时", "6 h"), value: "3.1×", tone: "warn", pct: 42 }, { window: P("3 天", "3 d"), value: "0.9×", tone: "ok", pct: 12 }], note: P("按当前速率约 2 小时耗尽", "Exhausted in ~2 h at this rate") },
     changes: [
-      { brand: "gitlab", title: "#8812 · v2.8.1 · feat: invoice title on checkout", meta: P("14:03 · 李明 · 成功", "14:03 · Li Ming · success"), tag: P("代码变更", "Code change") },
-      { brand: "argo", title: P("Argo CD 同步 checkout-api → 生产", "Argo CD sync checkout-api → prod"), meta: P("14:04 · 自动 · Synced", "14:04 · auto · Synced") },
+      { brand: "gitlab", title: "#8812 · v2.8.1 · feat: invoice title on checkout", meta: P("14:03 · 李明 · 成功", "14:03 · Li Ming · success"), at: at("14:03"), tag: P("代码变更", "Code change") },
+      { brand: "argo", title: P("Argo CD 同步 checkout-api → 生产", "Argo CD sync checkout-api → prod"), meta: P("14:04 · 自动 · Synced", "14:04 · auto · Synced"), at: at("14:04") },
       { brand: "gitlab", title: "#8790 · v2.8.0 · feat: coupon stacking", meta: P("9/19 · 李明 · 成功", "9/19 · Li Ming · success") },
     ],
     deps: {
@@ -216,7 +217,14 @@ mock("GET", "/metrics/dashboard", ({ query }) => {
   );
   const pod = (seed: number, k: number, from = REL) => bump(series(N, 12, 3, 10, seed), from, RB, k);
   return {
-    window: { labels: Array.from({ length: N }, (_, i) => hhmm(13 * 60 + 35 + Math.round(i * 1.714))), ticks: ["13:35", "13:50", "14:05", "14:20", "14:35"], release_at: REL, rollback_at: RB, incident: [17, 28], incident_label: "INV-231 · 14:05 – 14:22" },
+    // The incident chip keeps the demo's investigation id, so no incident_start_at / incident_end_at here.
+    window: {
+      labels: Array.from({ length: N }, (_, i) => hhmm(13 * 60 + 35 + Math.round(i * 1.714))),
+      ticks: ["13:35", "13:50", "14:05", "14:20", "14:35"],
+      label_times: Array.from({ length: N }, (_, i) => at(hhmm(13 * 60 + 35 + Math.round(i * 1.714)))),
+      tick_times: ["13:35", "13:50", "14:05", "14:20", "14:35"].map((t) => at(t)),
+      release_at: REL, rollback_at: RB, incident: [17, 28], incident_label: "INV-231 · 14:05 – 14:22",
+    },
     kpis: [
       { id: "rps", label: P("请求量", "Requests"), value: "1.21k", unit: P("次/秒", "/s"), delta: "+2%", delta_good: true, sub: P("与上周同期持平", "Flat vs last week"), series: rps },
       { id: "err", label: P("5xx 比例", "5xx ratio"), value: "8.4", unit: "%", delta: "+42×", delta_good: false, tone: "danger", sub: P("阈值 1%", "Threshold 1%"), series: err },

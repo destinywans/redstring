@@ -12,9 +12,10 @@ import { useI18n } from "../../i18n";
 import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./events.css";
 import { openExternal, copyText } from "../../ui/demo";
-import { useWhen } from "../../ui/when";
+import { useWhen, parseStamp } from "../../ui/when";
 
-const KIND_ICON: Record<InboxItem["kind"], IconName> = { alert: "alert", approval: "shield", mention: "message", runbook: "book", report: "file", access: "user", agent: "cpu" };
+type Day = InboxItem["day"] | "earlier";
+const KIND_ICON: Record<InboxItem["kind"], IconName> = { alert: "alert", approval: "shield", mention: "message", runbook: "book", report: "file", access: "user", agent: "cpu", assignment: "pin" };
 
 export function AlertDetailView({ id }: { id: string }) {
   const { tx } = useI18n();
@@ -198,6 +199,7 @@ export function AlertDetailView({ id }: { id: string }) {
 
 export default function InboxPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const [tab, setTab] = useState<"all" | "mine" | "mentions" | "subscribed">("all");
@@ -224,9 +226,18 @@ export default function InboxPage() {
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [items, selId, setParams]);
-  const days: [InboxItem["day"], string][] = [
+  // The server's today/yesterday is its own time zone; `at` (PA-83) lets the viewer's day decide.
+  const dayOf = (it: InboxItem): Day => {
+    const t = parseStamp(it.at);
+    if (t === null) return it.day;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return t >= start.getTime() ? "today" : t >= start.getTime() - 86400_000 ? "yesterday" : "earlier";
+  };
+  const days: [Day, string][] = [
     ["today", tx("今天", "Today")],
     ["yesterday", tx("昨天", "Yesterday")],
+    ["earlier", tx("更早", "Earlier")],
   ];
   return (
     <Page
@@ -259,7 +270,7 @@ export default function InboxPage() {
             </Col>
           )}
           {days.map(([d, label]) => {
-            const list = items.filter((i) => i.day === d);
+            const list = items.filter((i) => dayOf(i) === d);
             if (!list.length) return null;
             return (
               <div key={d}>
@@ -276,11 +287,11 @@ export default function InboxPage() {
                               {it.title}
                             </span>
                             <span className="ellipsis muted" style={{ fontSize: "var(--fs-sub)" }}>
-                              {it.sub}
+                              {it.kind === "assignment" ? tx("已分配给你", "Assigned to you") : it.sub}
                             </span>
                           </Col>
                           <Col gap={6} align="flex-end">
-                            <Muted size={11.5}>{it.time}</Muted>
+                            <Muted size={11.5}>{it.at ? (d === "earlier" ? when.at(it.at) : when.time(it.at)) : it.time}</Muted>
                             {unread && <Dot tone="accent" size={7} />}
                           </Col>
                         </button>

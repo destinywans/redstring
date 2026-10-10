@@ -11,7 +11,7 @@ import "./trace.css";
 import { ChipSelect, openForm, usePickLists, useRanges } from "../../ui/demo";
 import { toast } from "../../ui/overlays";
 import { BudgetNotice, DenseCard, LookbackCard, coveredWindow, isScopeLimit, lookbackOf, rangeSeconds, useAxisNote, useWindowText, withErrors } from "./TraceLimit";
-import { useWhen } from "../../ui/when";
+import { useWhen, thinLabels } from "../../ui/when";
 
 export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`);
 
@@ -327,7 +327,7 @@ export default function TracesPage() {
                 <div className="v3-col" style={{ gap: 6 }}>
                   <StackedBars data={data.histogram.counts} colors={["var(--c1s)", "var(--danger)"]} height={96} names={[tx("正常", "OK"), tx("错误", "Error")]} />
                   <Row gap={0} style={{ justifyContent: "space-between" }}>
-                    {(covered ? wt.ticks(covered) : data.histogram.axis).map((a, i) => (
+                    {(data.histogram.axis_times?.length ? thinLabels(when.axis(data.histogram.axis_times, data.histogram.axis), 6) : covered ? wt.ticks(covered) : data.histogram.axis).map((a, i) => (
                       <Muted key={`${i}-${a}`} size={10.5}>{a}</Muted>
                     ))}
                   </Row>

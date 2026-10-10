@@ -70,6 +70,6 @@ mock("GET", "/home", () => ({
     { id: "r1", kind: "investigation", title: l("发布后 checkout-api 5xx 上升", "checkout-api 5xx after release"), meta: l("Canvas · 4 个分支 · 进行中", "Canvas · 4 branches · active"), href: "/canvas/INV-231" },
     { id: "r2", kind: "conversation", title: l("checkout-api 大促扩容评估", "checkout-api capacity for the sale"), meta: l("对话 · 12 分钟前", "Chat · 12 min ago"), href: "/conversations/C-311" },
     { id: "r3", kind: "conversation", title: l("Harbor 镜像保留策略", "Harbor image retention policy"), meta: l("对话 · 昨天", "Chat · yesterday"), href: "/conversations/C-298" },
-    { id: "r4", kind: "artifact", title: l("checkout-api 故障报告 v3", "checkout-api incident report v3"), meta: l("产物 · 14:26", "Artifact · 14:26"), href: "/conversations/C-320?artifact=report" },
+    { id: "r4", kind: "artifact", title: l("checkout-api 故障报告 v3", "checkout-api incident report v3"), meta: l("产物 · 14:26", "Artifact · 14:26"), at: at("14:26"), href: "/conversations/C-320?artifact=report" },
   ],
 }));

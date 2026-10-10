@@ -188,7 +188,7 @@ def main():
                 ok = status in DENIED or (method == 'GET' and status == 200 and '{' not in path)
             else:
                 ok = status == 403
-            inconclusive = not ok and not allowed and scoped and method != 'GET' and status in (400, 409, 422, 501, 503)
+            inconclusive = not ok and not allowed and scoped and method != 'GET' and status in (400, 409, 412, 422, 428, 501, 503)
             row = {'route': key, 'role': role, 'module': module, 'action': action, 'object_scoped': scoped,
                    'allowed': allowed, 'status': status, 'code': code, 'ok': ok, 'inconclusive': inconclusive}
             results.append(row)

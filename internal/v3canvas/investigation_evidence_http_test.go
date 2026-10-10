@@ -141,7 +141,7 @@ func TestInvestigationEvidenceRegisteredRoute(t *testing.T) {
 				}}}, nil
 			}
 			runner.run = func(runCtx context.Context, req inference.Request, emit func(inference.Event) error) (string, error) {
-				if len(req.Tools) != 1 || req.MaxToolCalls != 4 || req.MaxCalls != 5 || req.BranchID != "branch" || req.EnvironmentID != "test" {
+				if len(req.Tools) != 1 || req.MaxToolCalls != 6 || req.MaxCalls != 7 || req.BranchID != "branch" || req.EnvironmentID != "test" {
 					return "", errors.New("wrong scoped tools or budget")
 				}
 				for _, m := range req.Messages {

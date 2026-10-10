@@ -193,3 +193,58 @@ func TestRuntimeFinalSuffixPersistenceFailure(t *testing.T) {
 		t.Fatalf("answer=%q err=%v", answer, err)
 	}
 }
+
+// PA-77: a caller that stores the answer gets only what the model wrote after
+// its tool calls, while the stream still carries every round; the language
+// rule reaches the model, and without one the instruction is unchanged.
+func TestRuntimeFinalRoundOnlyAndLanguage(t *testing.T) {
+	for _, c := range []struct {
+		language, rule string
+	}{
+		{"zh", "Write every visible word in Simplified Chinese"},
+		{"en", "Write every visible word in English"},
+		{"", ""},
+	} {
+		t.Run("language="+c.language, func(t *testing.T) {
+			var calls atomic.Int32
+			var bodies []string
+			texts := []string{"I'll investigate this systematically.\n", "Checking again.\n", "错误率在修订 8 之后升高。"}
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				raw, _ := json.Marshal(body)
+				bodies = append(bodies, string(raw))
+				i := int(calls.Add(1)) - 1
+				writeToolRound(w, "chat_completions", texts[i], i < 2, i)
+			}))
+			defer s.Close()
+			r, err := New(Config{Providers: []Provider{{ID: "test", Kind: "openai", API: "chat_completions", Model: "test-model", BaseURL: s.URL}},
+				HTTPClient: s.Client(), MaxCalls: 3, Timeout: 10 * time.Second})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var streamed strings.Builder
+			answer, err := r.Run(context.Background(), Request{ModelID: "test", Messages: []Message{{Role: "user", Content: "Investigate"}},
+				Language: c.language, FinalRoundOnly: true,
+				Tools: []EvidenceTool{{Name: "read_health", Description: "health", Read: func(context.Context, string) (Evidence, error) {
+					return Evidence{Content: "ok"}, nil
+				}}}}, func(e Event) error {
+				if e.Type == "delta" {
+					streamed.WriteString(e.Delta)
+				}
+				return nil
+			})
+			if err != nil || answer != texts[2] || streamed.String() != strings.Join(texts, "") {
+				t.Fatalf("answer=%q streamed=%q err=%v", answer, streamed.String(), err)
+			}
+			if c.rule != "" && !strings.Contains(bodies[0], c.rule) {
+				t.Fatalf("language rule missing from the request: %s", bodies[0])
+			}
+			if c.rule == "" && (strings.Contains(bodies[0], "Write every visible word") || strings.Contains(bodies[0], "announce a plan")) {
+				t.Fatalf("no language asked, instruction changed: %s", bodies[0])
+			}
+		})
+	}
+}

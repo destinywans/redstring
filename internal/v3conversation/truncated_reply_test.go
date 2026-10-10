@@ -110,3 +110,34 @@ func TestEvidenceLimitReplyCompletesAndCancellationIsReadable(t *testing.T) {
 		})
 	}
 }
+
+type languageRuntime struct{ requests []inference.Request }
+
+func (*languageRuntime) Models() []inference.Model { return nil }
+func (l *languageRuntime) Run(_ context.Context, req inference.Request, emit func(inference.Event) error) (string, error) {
+	l.requests = append(l.requests, req)
+	if err := emit(inference.Event{Type: "delta", Delta: "答复"}); err != nil {
+		return "", err
+	}
+	return "答复", nil
+}
+
+// PA-77: a chat turn asks the model for the request's language. The chat
+// stream is append-only, so it keeps every round (no FinalRoundOnly).
+func TestChatTurnAsksForTheRequestLanguage(t *testing.T) {
+	for english, want := range map[bool]string{false: "zh", true: "en"} {
+		db := isolatedConversationDB(t)
+		runtime := &languageRuntime{}
+		svc := New(db, runtime, Options{
+			RefreshSession: func(context.Context, string) (core.User, error) {
+				return core.User{ID: "persisted-owner"}, nil
+			},
+			AuthorizeBackgroundTurn:   func(context.Context, string, string) error { return nil },
+			AuthorizeBackgroundTurnTx: func(context.Context, pgx.Tx, string, string) error { return nil },
+		})
+		svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session", english)
+		if len(runtime.requests) != 1 || runtime.requests[0].Language != want || runtime.requests[0].FinalRoundOnly {
+			t.Fatalf("english=%v requests=%+v", english, runtime.requests)
+		}
+	}
+}

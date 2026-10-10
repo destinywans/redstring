@@ -111,7 +111,7 @@ export function BudgetNotice({ count, w, range, actions }: { count: number; w: C
           <b>{wt.span(w.seconds)}</b>
           {post}
         </span>
-        <span className="muted">{tx("想看更早的链路，请缩小范围：加上服务或 TraceQL 条件，或者选更短的时间范围。", "To see earlier traces, narrow it down: add a service or a TraceQL condition, or choose a shorter range.")}</span>
+        <span className="muted">{tx("想看更早的链路，请加上服务或 TraceQL 条件。", "To see earlier traces, add a service or a TraceQL condition.")}</span>
         {actions && <Row gap={6} wrap>{actions}</Row>}
       </div>
     </div>

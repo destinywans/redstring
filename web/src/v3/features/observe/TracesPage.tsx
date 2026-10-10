@@ -108,7 +108,8 @@ export default function TracesPage() {
     if (data) setKnownViews({ scope, views: data.views });
   }, [data, scope]);
   const views = data?.views ?? (knownViews.scope === scope ? knownViews.views : []);
-  const shortcuts = (order: ("svc" | "err" | "r15")[]) => {
+  // A shorter range never reaches earlier traces (the search goes newest-first), so only narrowing is offered.
+  const shortcuts = (order: ("svc" | "err")[]) => {
     const all = {
       svc: scope === "app" && !service && (
         <Btn key="svc" h={26} icon="box" onClick={() => setPickNonce((n) => n + 1)}>
@@ -118,11 +119,6 @@ export default function TracesPage() {
       err: scope === "app" && !/\bstatus\s*=\s*error\b/.test(applied) && (
         <Btn key="err" h={26} icon="alert" onClick={() => { const next = withErrors(q); setQ(next); setApplied(next); }}>
           {tx("只看错误", "Only errors")}
-        </Btn>
-      ),
-      r15: range !== "15m" && (
-        <Btn key="r15" h={26} kind="ghost" icon="clock" onClick={() => setRange("15m")}>
-          {tx("最近 15 分钟", "Last 15 minutes")}
         </Btn>
       ),
     };
@@ -248,7 +244,7 @@ export default function TracesPage() {
               <Unavailable reason={errorReason(error)} source="Tempo" desc={error instanceof ApiError && error.status === 422 ? error.message : undefined} />
             </Card>
           )}
-          {covered && data && !noSource && !blocked && <BudgetNotice count={data.items?.length ?? 0} w={covered} range={range} actions={shortcuts(["svc", "err", "r15"])} />}
+          {covered && data && !noSource && !blocked && <BudgetNotice count={data.items?.length ?? 0} w={covered} range={range} actions={shortcuts(["svc", "err"])} />}
           {data?.partial && !covered && !noSource && !blocked && (
             <PartialBanner fields={[]}>
               {tx("这里只列出这次有界搜索找到并确认已结束的链路，不是完整结果：总数、分面、数量分布和耗时分布暂缺。", "Only the finished traces this bounded search found are listed — not a complete result: totals, facets and the count and duration charts are missing.")}

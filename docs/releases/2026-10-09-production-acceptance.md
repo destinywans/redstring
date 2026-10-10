@@ -2,7 +2,7 @@
 
 方案与通过标准见[验收计划](../plans/2026-10-09-production-acceptance.md)。编号 PA-xx；状态为“已修复”的条目都附了回归证据。
 
-2026-10-10 用户确认全部登记到 Linear：父任务 WAN-297，子任务 WAN-298 至 WAN-368 依次对应 PA-01 至 PA-71，之后新增的 PA-72 至 PA-74 为 WAN-372 至 WAN-374、PA-75、PA-76 为 WAN-375、WAN-376（已验证的为 Done，处理中为 In Progress，后续轮次为 Backlog）。
+2026-10-10 用户确认全部登记到 Linear：父任务 WAN-297，子任务 WAN-298 至 WAN-368 依次对应 PA-01 至 PA-71，之后新增的 PA-72 至 PA-74 为 WAN-372 至 WAN-374、PA-75 至 PA-77 为 WAN-375 至 WAN-377（已验证的为 Done，处理中为 In Progress，后续轮次为 Backlog）。
 
 ## 第一轮全页面对拍（空实例，修复前）
 

@@ -149,9 +149,14 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
                         {w.service ? <Badge>{w.service}</Badge> : <Badge tone="warn">{tx("未映射", "Unmapped")}</Badge>}
                       </Row>
                       <Muted size={11.5}>
-                        <span className="mono">
-                          {w.namespace} / {w.deployment}
-                        </span>
+                        {/* Empty when the catalog has no scope for this key. */}
+                        {w.namespace || w.deployment ? (
+                          <span className="mono">
+                            {w.namespace} / {w.deployment}
+                          </span>
+                        ) : (
+                          tx("目录里没有这个工作负载的范围", "The catalog has no scope for this workload")
+                        )}
                       </Muted>
                       <Row gap={6} wrap>
                         {w.rollback === null ? (

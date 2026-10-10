@@ -6,7 +6,8 @@ import { currentEnv } from "../../app/environment";
 
 /** Sample-only references (chat C-320, run_7f3a, report EXE-51, sample evidence sources) never show in real mode. */
 const demo = API_MODE === "mock";
-import type { CanvasGraph, CanvasNode, EvidenceTrayItem } from "../../api/types";
+import type { CanvasGraph, CanvasNode, EvidenceTrayItem, RollbackSuggestion } from "../../api/types";
+import { RollbackSuggestionCard, useSuggestionStale } from "../events/RollbackSuggestion";
 import { AvatarGroup, Badge, Btn, Col, Dot, Env, Icon, IconBtn, Muted, Row, Section, Segmented, Skeleton, Spacer, Strong, Tabs, Tile, KV, Mono, cx, type IconName } from "../../ui/core";
 import { BrandMark } from "../../ui/BrandMark";
 import { toast } from "../../ui/overlays";
@@ -85,6 +86,7 @@ function NodeCard({
   k = 1,
   flash,
   writebacks = 0,
+  onShowSuggestion,
 }: {
   n: CanvasNode;
   selected: boolean;
@@ -97,11 +99,13 @@ function NodeCard({
   flash?: boolean;
   /** Writebacks into this node: the server's count, or (older payloads) children whose writeback points here. */
   writebacks?: number;
+  /** Opens the inspector's chat at this node's AI rollback suggestion (PA-72). */
+  onShowSuggestion?: () => void;
 }) {
   const { tx } = useI18n();
   const [q, setQ] = useState("");
   // The sample root shows its sample count; real nodes show what the server recorded.
-  const received = demo ? (n.kind === "root" ? 3 : 0) : writebacks;
+  const received = n.writebacks ? n.writebacks.received : demo ? (n.kind === "root" ? 3 : 0) : writebacks;
   const icon: IconName = n.kind === "root" ? "alert" : n.kind === "evidence" ? (n.evidence?.type === "log" ? "terminal" : n.evidence?.type === "diff" ? "code" : "activity") : n.status === "ruled_out" ? "branch" : "database";
   const tone = n.kind === "root" ? "danger" : n.status === "ruled_out" ? "ok" : "accent";
   const collapsed = n.kind === "branch" && n.status === "ruled_out";
@@ -123,7 +127,9 @@ function NodeCard({
           <div className="cv-lite-head">
             <span className="cv-lite-dot" style={{ background: n.kind === "evidence" ? n.evidence?.color : `var(--${tone === "accent" ? "accent" : tone})` }} />
             <b className="ellipsis">{n.title}</b>
-            {status && <span className={cx("cv-lite-tag", status[1])}>{status[0]}</span>}
+            {/* One tag keeps the title readable: a suggestion takes the place of "confirmed" (approved design). */}
+            {status && !(n.rollback_suggestion && n.status !== "running") && <span className={cx("cv-lite-tag", status[1])}>{status[0]}</span>}
+            {n.rollback_suggestion && n.status !== "running" && <SuggestionLiteTag s={n.rollback_suggestion} />}
           </div>
           {line && <div className="cv-lite-line">{line}</div>}
         </div>
@@ -176,7 +182,7 @@ function NodeCard({
           )}
           {n.summary ? <Markdown text={n.summary} /> : n.status === "running" && <Muted>{tx("AI 正在分析这个分支…", "The AI is working on this branch…")}</Muted>}
           {n.series && <Lines series={[{ values: n.series, color: "var(--c3)", fill: "var(--c3s)" }]} height={50} grid={2} hover={false} />}
-          {(n.evidence_refs || received > 0) && (
+          {(n.evidence_refs || received > 0 || n.rollback_suggestion) && (
             <Row gap={4} wrap className="cv-refs">
               {/* Real refs are evidence IDs: the card shows how many, never the IDs themselves (PA-62). */}
               {n.evidence_refs &&
@@ -194,6 +200,7 @@ function NodeCard({
                   {tx("已回写 {n}", "{n} written back", { n: received })}
                 </Badge>
               )}
+              {n.rollback_suggestion && <SuggestionHint s={n.rollback_suggestion} onClick={onShowSuggestion} />}
             </Row>
           )}
           {n.writeback && (
@@ -247,9 +254,23 @@ function NodeCard({
   );
 }
 
-function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin }: { n: CanvasNode; nodes: CanvasNode[]; tray?: EvidenceTrayItem[]; onClose: () => void; onWriteback: () => void; pinned: boolean; onPin: (v: boolean) => void }) {
+function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin, investigation, focus }: { n: CanvasNode; nodes: CanvasNode[]; tray?: EvidenceTrayItem[]; onClose: () => void; onWriteback: () => void; pinned: boolean; onPin: (v: boolean) => void; investigation?: { id: string; title: string }; focus?: number }) {
   const { tx, fmt } = useI18n();
   const [tab, setTab] = useState<"chat" | "evidence" | "context" | "agent">("context");
+  const openRollback = useRollbackDrawer((x) => x.open);
+  const card = useRef<HTMLDivElement>(null);
+  const [scrollTo, setScrollTo] = useState(false);
+  // From a node's suggestion hint: open the chat tab and bring the card into view (approved design, PA-72).
+  useEffect(() => {
+    if (!focus) return;
+    setTab("chat");
+    setScrollTo(true);
+  }, [focus]);
+  useEffect(() => {
+    if (!scrollTo || tab !== "chat" || !card.current) return;
+    card.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    setScrollTo(false);
+  }, [scrollTo, tab]);
   const kids = nodes.filter((x) => x.parent === n.id);
   const used = n.context.tokens;
   const budget = 28000;
@@ -376,8 +397,18 @@ function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin }: { n:
         {tab === "chat" && (
           <Col gap={12}>
             <Muted size={11.5}>{tx("这个节点自己的对话，与其他分支相互隔离。", "This node's own thread, isolated from other branches.")}</Muted>
-            {demo && <div className="cv-msg user">{tx("连接等待是从什么时候开始升高的？", "When did connection wait start rising?")}</div>}
+            {/* The sample question belongs to the sample retry-storm investigation (its nodes carry versions). */}
+            {demo && n.versions.length > 0 && <div className="cv-msg user">{tx("连接等待是从什么时候开始升高的？", "When did connection wait start rising?")}</div>}
             <div className="cv-msg">{n.summary ? <Markdown text={n.summary} /> : <Muted>—</Muted>}</div>
+            {/* The branch's latest AI rollback suggestion, right under the reply; it only opens the proposal drawer. */}
+            {n.rollback_suggestion && investigation && (
+              <RollbackSuggestionCard
+                ref={card}
+                s={n.rollback_suggestion}
+                onCite={() => setTab("evidence")}
+                onOpen={(r) => openRollback({ investigationId: investigation.id, investigationTitle: investigation.title, serviceId: r.serviceId, preselect: r.preselect || undefined })}
+              />
+            )}
             {demo && (
               <Btn icon="message" to="/conversations/C-320">
                 {tx("在对话模式中打开", "Open in chat mode")}
@@ -459,6 +490,8 @@ export default function CanvasPage() {
   const { data, isLoading } = useGet<CanvasGraph>(id ? `/investigations/${id}/canvas` : null);
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
   const [sel, setSel] = useState<string | null>(null);
+  // Bumped when a node's suggestion hint is clicked: the inspector switches to chat and scrolls to the card.
+  const [suggestionFocus, setSuggestionFocus] = useState(0);
   const [pinned, setPinned] = usePinned("canvas");
   const [view, setView] = useState<View>({ x: 0, y: 0, k: 1 });
   const dirKey = `aiops-v3-canvas-dir:${id}`;
@@ -698,10 +731,11 @@ export default function CanvasPage() {
   };
   const ask = async (nodeId: string, text: string) => {
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, status: "running" } : n)));
-    const res = await api<{ summary: string; new_branch?: { title: string; subtitle: string; summary: string } }>("POST", `/investigations/${id}/nodes/${nodeId}/messages`, { body: { text } });
+    const res = await api<{ summary: string; new_branch?: { title: string; subtitle: string; summary: string }; rollback_suggestion?: RollbackSuggestion | null }>("POST", `/investigations/${id}/nodes/${nodeId}/messages`, { body: { text } });
     setTimeout(() => {
       setNodes((ns) => {
-        const next = ns.map((n) => (n.id === nodeId ? { ...n, status: "confirmed" as const, summary: res.summary, context: { ...n.context, messages: n.context.messages + 2 } } : n));
+        // The node shows the branch's most recent suggestion (contract): a reply without one keeps the earlier one.
+        const next = ns.map((n) => (n.id === nodeId ? { ...n, status: "confirmed" as const, summary: res.summary, context: { ...n.context, messages: n.context.messages + 2 }, ...(res.rollback_suggestion ? { rollback_suggestion: res.rollback_suggestion } : {}) } : n));
         const parent = ns.find((n) => n.id === nodeId);
         if (!res.new_branch || !parent) return next;
         // The AI derived a follow-up branch: place it right of its parent; existing nodes stay where they are.
@@ -754,7 +788,7 @@ export default function CanvasPage() {
     setParams(next, { replace: true });
   };
 
-  const inspector = selected ? <Inspector n={selected} nodes={nodes} tray={data?.tray} onClose={() => setSel(null)} onWriteback={() => setWriteback("b-amp")} pinned={pinned} onPin={setPinned} /> : null;
+  const inspector = selected ? <Inspector n={selected} nodes={nodes} tray={data?.tray} onClose={() => setSel(null)} onWriteback={() => setWriteback("b-amp")} pinned={pinned} onPin={setPinned} investigation={data?.investigation ? { id: data.investigation.id, title: data.investigation.title } : undefined} focus={suggestionFocus} /> : null;
   // Keep the selected node clear of the floating card by panning the canvas.
   useEffect(() => {
     if (!selected || pinned || !area.current) return;
@@ -900,6 +934,10 @@ export default function CanvasPage() {
                 selected={sel === n.id}
                 onSelect={() => setSel(n.id)}
                 onAsk={(t) => ask(n.id, t)}
+                onShowSuggestion={() => {
+                  setSel(n.id);
+                  setSuggestionFocus((f) => f + 1);
+                }}
                 k={view.k}
                 onDragStart={(e) => {
                   if ((e.target as HTMLElement).closest("button,input")) return;
@@ -987,4 +1025,33 @@ export default function CanvasPage() {
       />
     </Page>
   );
+}
+
+/** One-line hint on a node with an AI rollback suggestion; grey once it's out of date (PA-72). */
+function SuggestionHint({ s, onClick }: { s: RollbackSuggestion; onClick?: () => void }) {
+  const { tx } = useI18n();
+  const stale = useSuggestionStale(s) === true;
+  return (
+    // Selecting a node moves it to the top of the canvas, which would swallow a mouse click: act on pointer down,
+    // and keep click for the keyboard (detail 0).
+    <button
+      type="button"
+      className={cx("cv-hint", stale && "stale")}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        onClick?.();
+      }}
+      onClick={(e) => e.detail === 0 && onClick?.()}
+      aria-label={stale ? tx("建议已过期，查看详情", "Suggestion out of date; open details") : tx("建议回滚到修订 {r}，查看详情", "Suggests revision {r}; open details", { r: s.target_revision })}>
+      <Icon name="undo" size={11} />
+      {stale ? tx("建议已过期", "Suggestion out of date") : tx("建议回滚到修订 {r}", "Suggests revision {r}", { r: s.target_revision })}
+    </button>
+  );
+}
+
+/** The same hint as a small tag when the canvas is zoomed out. */
+function SuggestionLiteTag({ s }: { s: RollbackSuggestion }) {
+  const { tx } = useI18n();
+  const stale = useSuggestionStale(s) === true;
+  return <span className={cx("cv-lite-tag", stale ? "neutral" : "accent")}>{stale ? tx("建议已过期", "Out of date") : tx("建议回滚", "Rollback suggested")}</span>;
 }

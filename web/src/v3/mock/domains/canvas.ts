@@ -65,17 +65,67 @@ const graph = {
   ],
 };
 
-mock("GET", "/investigations/:id/canvas", ({ params }) => ({
-  ...graph,
-  investigation: params.id === "INV-231" ? graph.investigation : { ...graph.investigation, id: params.id },
-}));
+// INV-236: the lab bad-release drill (PA-72). The AI read the workload revisions and suggests rolling back to 6;
+// an older branch still carries yesterday's suggestion (from revision 6), which is out of date now.
+const CHECKOUT = "Y2hlY2tvdXQtYXBpAHByb2Q";
+const suggestion = {
+  service_id: CHECKOUT,
+  workload: "aiops-lab/checkout-api",
+  from_revision: "7",
+  target_revision: "6",
+  target_created_at: at("09:15"),
+  target_change_cause: "lab drill bad-release reverted",
+  reasons: [
+    { text: l("修订 7 上线时间与 5xx 升高吻合", "Revision 7 went out when 5xx rose"), cites: [1] },
+    { text: l("两次修订只差 LAB_FAULTS", "The two revisions differ only in LAB_FAULTS"), cites: [3] },
+    { text: l("修订 6 运行期间错误率 0.2%，低于 2% 的验证阈值", "Errors were 0.2% on revision 6, under the 2% verification threshold"), cites: [1] },
+  ],
+  reply_id: "INR-7f31",
+  evidence_ids: ["EVD-a1", "EVD-a2", "EVD-a3"],
+  suggested_at: at("10:49"),
+};
+const ctx = (version: string, messages: number) => ({ version, inherits: "v2", tokens: 3200, messages, excludes: [] });
+const badRelease = {
+  investigation: { id: "INV-236", title: l("checkout-api 修订 7 上线后 5xx", "checkout-api 5xx after revision 7"), status: "active", env: "prod", participants: ["王晨", "AI"] },
+  loop: [
+    { key: "anomaly", label: l("异常", "Anomaly"), detail: "10:44", state: "done" },
+    { key: "evidence", label: l("取证", "Evidence"), detail: l("5 个工具", "5 tools"), state: "done" },
+    { key: "proposal", label: l("提案", "Proposal"), detail: "—", state: "active" },
+    { key: "approval", label: l("审批", "Approval"), detail: "—", state: "pending" },
+    { key: "execution", label: l("执行", "Execute"), detail: "—", state: "pending" },
+    { key: "verify", label: l("验证", "Verify"), detail: "—", state: "pending" },
+  ],
+  nodes: [
+    { id: "root", kind: "root", title: l("异常：/checkout 5xx 48%", "Anomaly: /checkout 5xx 48%"), subtitle: l("主线 · 上下文 v2", "Main line · context v2"), status: "active", x: 24, y: 260, w: 240,
+      summary: l("10:44 起 /checkout 5xx 比例从 0.2% 升到 48%，10:42 刚上线修订 7。", "/checkout 5xx rose from 0.2% to 48% from 10:44; revision 7 went out at 10:42."), evidence_refs: ["2"], writebacks: { received: 0, sources: [] },
+      context: { version: "v2", tokens: 2600, messages: 3, excludes: [] }, versions: [], rollback_suggestion: null },
+    { id: "b-release", kind: "branch", parent: "root", title: l("是不是发布引起的？", "Was it the release?"), subtitle: l("独立上下文 v2 · 继承主线 v2", "Isolated context v2 · inherits main v2"), status: "confirmed", x: 340, y: 30, w: 250,
+      summary: l("是。修订 7 上线后 /checkout 5xx 从 0.2% 升到 48%[1]；错误日志只出现在修订 7 的 Pod[2]；修订 7 与 6 只差环境变量 LAB_FAULTS[3]。", "Yes. After revision 7, /checkout 5xx went from 0.2% to 48%[1]; the errors only come from revision 7 Pods[2]; revisions 7 and 6 differ only in LAB_FAULTS[3]."),
+      tools: l("5 个工具 · 9.4k tokens", "5 tools · 9.4k tokens"), confidence: "high", evidence_refs: [l("① 指标", "① Metrics"), l("② 日志", "② Logs"), l("③ Kubernetes", "③ Kubernetes")], context: ctx("v2", 2), versions: [], rollback_suggestion: suggestion },
+    { id: "b-deps", kind: "branch", parent: "root", title: l("下游依赖是否异常", "Are dependencies failing?"), subtitle: l("独立上下文 v1", "Isolated context v1"), status: "ruled_out", x: 340, y: 400, w: 240,
+      summary: l("库存与支付的错误率和延迟都正常，已排除。", "Inventory and payments are healthy — ruled out."), context: ctx("v1", 2), versions: [], rollback_suggestion: null },
+    { id: "b-yesterday", kind: "branch", parent: "root", title: l("昨天 16:40 的同类告警", "Yesterday's 16:40 alert"), subtitle: l("独立上下文 v1", "Isolated context v1"), status: "confirmed", x: 340, y: 520, w: 250,
+      summary: l("昨天修订 6 上线后也短暂出现 5xx，当时建议回到修订 5。", "Revision 6 also caused brief 5xx yesterday; the suggestion then was revision 5."), evidence_refs: [l("① 指标", "① Metrics")], context: ctx("v1", 2), versions: [],
+      rollback_suggestion: { ...suggestion, from_revision: "6", target_revision: "5", target_change_cause: "lab drill bad-release: /checkout answers 5xx at ratio 0.2", reasons: [{ text: l("修订 6 上线后 5xx 升高", "5xx rose after revision 6"), cites: [1] }], reply_id: "INR-5c02", evidence_ids: ["EVD-b1"], suggested_at: at("16:41", -1) } },
+  ],
+  tray: [],
+};
+mock("GET", "/investigations/:id/canvas", ({ params }) =>
+  params.id === "INV-236"
+    ? badRelease
+    : {
+        ...graph,
+        investigation: params.id === "INV-231" ? graph.investigation : { ...graph.investigation, id: params.id },
+      },
+);
 mock("POST", "/investigations/:id/branches", ({ body }) => {
   const b = body as { parent_id: string; title: string; x: number; y: number };
   return { id: `b-${Date.now()}`, kind: "branch", parent: b.parent_id, title: b.title, subtitle: l("独立上下文 v1 · 刚刚派生", "Isolated context v1 · just forked"), status: "running", x: b.x, y: b.y, w: 240, summary: "", context: { version: "v1", inherits: "v4", tokens: 1200, messages: 0, excludes: [] }, versions: [] };
 });
 mock("PATCH", "/investigations/:id/nodes/:node", ({ body }) => body);
 let derived = 0;
-mock("POST", "/investigations/:id/nodes/:node/messages", () => ({
+mock("POST", "/investigations/:id/nodes/:node/messages", ({ params }) => params.id === "INV-236" ? { summary: badRelease.nodes[1].summary, rollback_suggestion: suggestion } : ({
+  rollback_suggestion: null,
   // The first follow-up in a session makes the AI derive one extra branch, to show how new nodes appear.
   new_branch: derived++ === 0 ? { title: l("四个库存实例对比", "The four inventory instances"), subtitle: l("AI 派生 · 读取节点指标（只读）", "Derived by AI · reads node metrics (read-only)"), summary: l("只有 inventory-03 的磁盘 IO 等待升高（2 → 180 ms）；另外 3 个实例的超时来自被放大的重试流量。", "Only inventory-03's disk IO wait rose (2 → 180 ms); the other 3 instances time out under the amplified retry traffic.") } : undefined,
   summary: l("重试占库存调用的 68%：每次超时后立即重试 3 次、没有退避。重试降为 1 次并打开熔断后，调用量应在 1 分钟内回到 1.3k/s 以下。", "Retries are 68% of inventory calls: each timeout is retried 3 times at once, with no backoff. Retrying once with the circuit breaker on should bring calls under 1.3k/s within a minute."),

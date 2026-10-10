@@ -9,10 +9,8 @@ import { Heatmap, Lines, VBars, C, CS } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./parts.css";
 import { openExternal } from "../../ui/demo";
-import { API_MODE, useGet } from "../../api/client";
-import type { RollbackCandidates } from "../../api/types";
-import { Gated } from "../../ui/permission";
-import { useRollbackBlocked } from "../events/rollback";
+import { API_MODE } from "../../api/client";
+import { RollbackSuggestionCard } from "../events/RollbackSuggestion";
 
 /** Pin / add-to-report / download / edit buttons only have sample behaviour; real mode has no writer for them yet. */
 const demo = API_MODE === "mock";
@@ -436,7 +434,7 @@ export function PartView({ part, actions, streamingText, streaming }: { part: Pa
         </Row>
       );
     case "rollback_suggestion":
-      return actions?.openRollback ? <RollbackSuggestion p={part} onOpen={actions.openRollback} onCite={actions.onCite} /> : null;
+      return actions?.openRollback ? <RollbackSuggestionCard s={part} onOpen={actions.openRollback} onCite={actions.onCite} /> : null;
     case "data_gap":
       return (
         <div className="part-gap">
@@ -473,59 +471,5 @@ function GapLink() {
       {tx("去接入", "Connect data")}
       <Icon name="right" size={12} />
     </>
-  );
-}
-
-/**
- * AI rollback suggestion (approved design board §4): the suggested revision and why, with a button that only opens
- * the proposal drawer. The AI never submits. If the Deployment moved on since, the card says it's out of date.
- */
-function RollbackSuggestion({ p, onOpen, onCite }: { p: Extract<Part, { type: "rollback_suggestion" }>; onOpen: (r: { serviceId: string; preselect: string }) => void; onCite?: (n: number) => void }) {
-  const { tx } = useI18n();
-  const blocked = useRollbackBlocked();
-  const { data } = useGet<RollbackCandidates>(`/services/${p.service_id}/rollback-candidates`, undefined, { staleTime: 30_000, retry: false });
-  const stale = !!data && (data.workload?.current_revision !== p.from_revision || !data.candidates.some((c) => c.revision === p.target_revision && !c.current));
-  return (
-    <div className={cx("rb-suggest", stale && "stale")}>
-      <div className="sh">
-        <Icon name="undo" size={14} />
-        {tx("建议回滚到修订 {r}", "Suggests rolling back to revision {r}", { r: p.target_revision })}
-        <Spacer />
-        {stale && <Badge>{tx("已过期", "Out of date")}</Badge>}
-      </div>
-      <div className="sb">
-        <Row gap={8} wrap style={{ fontSize: "var(--fs-sub)" }}>
-          <Muted>{tx("工作负载", "Workload")}</Muted>
-          <span className="mono">{p.workload}</span>
-          <Muted>·</Muted>
-          <span>
-            {tx("当前 {f} → 建议 {t}", "Current {f} → suggested {t}", { f: p.from_revision, t: p.target_revision })}
-            {p.target_change_cause && <Muted> · {p.target_change_cause}</Muted>}
-          </span>
-        </Row>
-        {stale ? (
-          <Muted size={12.5}>{tx("当前修订已经不是 {f}。打开抽屉会按最新的修订列表重新选择。", "The current revision is no longer {f}. The drawer will list the latest revisions to choose from.", { f: p.from_revision })}</Muted>
-        ) : (
-          <ol>
-            {p.reasons.map((r, i) => (
-              <li key={i}>
-                {r.text}
-                {r.cites?.map((n) => (
-                  <Sup key={n} n={n} onClick={() => onCite?.(n)} />
-                ))}
-              </li>
-            ))}
-          </ol>
-        )}
-        <Row gap={10} wrap>
-          <Gated reason={blocked}>
-            <Btn kind={stale ? "secondary" : "primary"} h={28} icon="undo" onClick={() => onOpen({ serviceId: p.service_id, preselect: stale ? "" : p.target_revision })}>
-              {tx("打开回滚提案", "Open rollback proposal")}
-            </Btn>
-          </Gated>
-          <Muted size={11.5}>{tx("AI 不会提交提案。打开后由你确认修订和原因，再提交给两人批准。", "The AI never submits. You confirm the revision and reason, then submit it for two approvals.")}</Muted>
-        </Row>
-      </div>
-    </div>
   );
 }

@@ -118,8 +118,12 @@ export const rollbackProposal = (id: string) => ({
 });
 
 const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString();
-const samplesFrom = (startAgo: number, values: [number, number][]) => values.map(([err, rate], i) => ({ at: iso(startAgo - i * 15_000), request_rate: rate, error_ratio: err, sample_age_seconds: 12 + (i % 4) * 2, ok: err <= plan.max_error_ratio && rate >= plan.min_request_rate }));
-const healthy: [number, number][] = [0.006, 0.004, 0.005, 0.003, 0.004, 0.002, 0.003, 0.004, 0.003, 0.002, 0.003, 0.002, 0.003].map((e, i) => [e, [1.4, 1.6, 1.5, 1.7, 1.6, 1.5, 1.6, 1.8, 1.6, 1.5, 1.7, 1.6, 1.6][i]]);
+// One sample every 15 s from the start of verification; null = the query had no value (PA-73), which is never ok.
+const samplesFrom = (startAgo: number, values: [number | null, number | null][]) =>
+  values.map(([err, rate], i) => ({ at: iso(startAgo - i * 15_000), request_rate: rate, error_ratio: err, sample_age_seconds: err === null ? null : 12 + (i % 4) * 2, ok: err !== null && rate !== null && err <= plan.max_error_ratio && rate >= plan.min_request_rate }));
+// The first 60 s still carry the bad revision's traffic in the rate windows (settling period, never judged).
+const settling: [number, number][] = [[0.31, 1.5], [0.12, 1.6], [0.05, 1.5], [0.021, 1.6]];
+const healthy: [number, number][] = [0.006, 0.004, 0.005, 0.003, 0.004, 0.002, 0.003, 0.004, 0.003].map((e, i) => [e, [1.4, 1.6, 1.5, 1.7, 1.6, 1.5, 1.6, 1.8, 1.6][i]]);
 
 /** Execution detail for EXE-RB* (events domain routes /executions/:id here): verifying, failed, needs attention, recovered. */
 export function rolloutExecution(id: string) {
@@ -146,9 +150,19 @@ export function rolloutExecution(id: string) {
       target: { ...base.target, target_revision: "5" },
       status: "failed",
       status_reason: "verification_failed",
-      timeline: tl([["reserved", 140_000], ["dispatching", 139_000], ["applied", 138_000], ["rolling_out", 137_000], ["verifying", 72_000], ["failed", 57_000]]),
-      rollout: { desired: 2, updated: 2, available: 2, current_revision: "8", observed_at: iso(72_000) },
-      verification: { plan, started_at: iso(72_000), finished_at: iso(57_000), result: "failed", samples: samplesFrom(57_000, [[0.46, 1.5]]) },
+      timeline: tl([["reserved", 210_000], ["dispatching", 209_000], ["applied", 208_000], ["rolling_out", 207_000], ["verifying", 140_000], ["failed", 65_000]]),
+      rollout: { desired: 2, updated: 2, available: 2, current_revision: "8", observed_at: iso(140_000) },
+      verification: { plan, started_at: iso(140_000), finished_at: iso(65_000), result: "failed", samples: samplesFrom(140_000, [[0.47, 1.5], [0.46, 1.6], [0.45, 1.5], [0.46, 1.5], [0.45, 1.6], [0.46, 1.5]]) },
+    };
+  // Pods restarted after the settling period: two samples had no requests (null values), so it can't count as recovered.
+  if (id === "EXE-RB5")
+    return {
+      ...base,
+      status: "needs_attention",
+      status_reason: "verification_unavailable",
+      timeline: tl([["reserved", 250_000], ["dispatching", 249_000], ["applied", 248_000], ["rolling_out", 247_000], ["verifying", 180_000], ["needs_attention", 75_000]]),
+      rollout: { desired: 2, updated: 2, available: 2, current_revision: "8", observed_at: iso(180_000) },
+      verification: { plan, started_at: iso(180_000), finished_at: iso(75_000), result: "unavailable", samples: samplesFrom(180_000, [...settling, [0.004, 1.5], [null, null], [null, null], [0.003, 1.4]]) },
     };
   if (id === "EXE-RB3")
     return {
@@ -164,9 +178,9 @@ export function rolloutExecution(id: string) {
       ...base,
       status: "succeeded",
       status_reason: null,
-      timeline: tl([["reserved", 420_000], ["dispatching", 419_000], ["applied", 418_000], ["rolling_out", 417_000], ["verifying", 352_000], ["succeeded", 52_000]]),
-      rollout: { desired: 2, updated: 2, available: 2, current_revision: "8", observed_at: iso(352_000) },
-      verification: { plan, started_at: iso(352_000), finished_at: iso(52_000), result: "passed", samples: samplesFrom(352_000, [...healthy, ...healthy.slice(0, 7)]) },
+      timeline: tl([["reserved", 480_000], ["dispatching", 479_000], ["applied", 478_000], ["rolling_out", 477_000], ["verifying", 412_000], ["succeeded", 52_000]]),
+      rollout: { desired: 2, updated: 2, available: 2, current_revision: "8", observed_at: iso(412_000) },
+      verification: { plan, started_at: iso(412_000), finished_at: iso(52_000), result: "passed", samples: samplesFrom(412_000, [...settling, ...healthy, ...healthy, ...healthy.slice(0, 2)]) },
     };
   return {
     ...base,
@@ -174,6 +188,6 @@ export function rolloutExecution(id: string) {
     status_reason: null,
     timeline: tl([["reserved", 262_000], ["dispatching", 261_000], ["applied", 260_000], ["rolling_out", 259_000], ["verifying", 195_000]]),
     rollout: { desired: 2, updated: 2, available: 2, current_revision: "8", observed_at: iso(195_000) },
-    verification: { plan, started_at: iso(195_000), finished_at: null, result: "pending", samples: samplesFrom(195_000, healthy) },
+    verification: { plan, started_at: iso(195_000), finished_at: null, result: "pending", samples: samplesFrom(195_000, [...settling, ...healthy]) },
   };
 }

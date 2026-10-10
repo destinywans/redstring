@@ -24,7 +24,7 @@ E2E = LOCAL / 'e2e'
 
 # verified · partial (backend done, frontend pending, or part of the scope) · open · later (next round) · gap
 STATUS_OVERRIDES = {
-    'PA-05': 'verified', 'PA-08': 'verified', 'PA-09': 'partial', 'PA-12': 'verified', 'PA-19': 'partial', 'PA-68': 'verified',
+    'PA-05': 'verified', 'PA-08': 'verified', 'PA-09': 'verified', 'PA-12': 'verified', 'PA-19': 'partial', 'PA-68': 'verified',
     'PA-21': 'verified', 'PA-43': 'verified', 'PA-67': 'verified', 'PA-72': 'verified', 'PA-73': 'verified', 'PA-74': 'verified',
     'PA-78': 'verified', 'PA-79': 'verified', 'PA-80': 'verified', 'PA-81': 'verified', 'PA-82': 'verified',
 }

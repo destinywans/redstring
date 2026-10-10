@@ -36,6 +36,9 @@ type Source struct {
 	AuthMethod  string
 	ResourceID  string
 	TenantID    string
+	// CredentialRef is the connector's Vault reference ("" without auth);
+	// a reader resolves it through the approved credential bindings.
+	CredentialRef string
 	// Scope is the provider's reviewed scope; empty for Prometheus.
 	Scope connectors.ApplicationTelemetry
 	// Queries are Prometheus's reviewed expressions by query ID.
@@ -76,6 +79,7 @@ func (r *Resolver) Resolve(ctx context.Context, q Querier, applicationID, enviro
 			&enabled, &tools, &options, &s.ResourceID); err != nil {
 			break
 		}
+		s.CredentialRef = credentialRef
 		s.NotReady = r.readiness(&s, environmentID, credentialRef, enabled, tools, options)
 		found = append(found, s)
 	}

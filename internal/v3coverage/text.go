@@ -37,3 +37,23 @@ func (t text) label(id string) string {
 		return t.pick("变更", "Changes")
 	}
 }
+
+// readiness names why a registered source is not ready (v3telemetry
+// Source.NotReady).
+func (t text) readiness(reason string) string {
+	switch reason {
+	case "connector_disabled":
+		return t.pick("连接器已停用", "connector disabled")
+	case "tool_disabled":
+		return t.pick("读取工具未打开", "read tool switched off")
+	case "credential_missing":
+		return t.pick("未配置凭据", "no credential configured")
+	case "credential_not_approved":
+		return t.pick("凭据未获服务端批准", "credential not approved on the server")
+	case "options_invalid":
+		return t.pick("连接器选项无效", "connector options invalid")
+	case "scope_missing":
+		return t.pick("目录里没有审查过的范围", "no reviewed scope in the catalog")
+	}
+	return reason
+}

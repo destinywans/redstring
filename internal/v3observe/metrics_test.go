@@ -356,7 +356,7 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
 	const expression = `sum(rate(http_requests_total{application="app",environment="dev"}[5m]))`
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/query_range" || r.URL.Query().Get("query") != expression {
+		if r.URL.Path != "/api/v1/query_range" || r.FormValue("query") != expression {
 			t.Errorf("unexpected query: %s", r.URL)
 			http.Error(w, "bad query", 400)
 			return
@@ -370,7 +370,7 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 				return
 			}
 		}
-		start, parseErr := time.Parse(time.RFC3339Nano, r.URL.Query().Get("start"))
+		start, parseErr := time.Parse(time.RFC3339Nano, r.FormValue("start"))
 		if parseErr != nil {
 			t.Error(parseErr)
 			return

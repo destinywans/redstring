@@ -4,16 +4,16 @@
   "environments": [
     "prod"
   ],
-  "digest": "1c43057ba531c3c45a07ece588a99b4a9cf4c5ebd5e921ed9b6415921cada40c",
+  "digest": "77e95ac6e6bf14911d66c2d0eaf2c2153759620ddf0f974a5f535366e620bfea",
   "summary": {
     "bindings": 15,
-    "imported": 6,
+    "imported": 7,
     "deferred": 2,
-    "conflicts": 7,
+    "conflicts": 6,
     "reviews": 1,
     "connectors_created": 3,
-    "targets_created": 4,
-    "catalog_entries_added": 7
+    "targets_created": 5,
+    "catalog_entries_added": 8
   },
   "connectors": [
     {
@@ -124,6 +124,17 @@
       "target_kind": "trace_service",
       "external_id": "lab-order",
       "legacy_resource": "lab-order"
+    },
+    {
+      "action": "create",
+      "id": "5466d1f6c231bd5e663f1d05ff833a85",
+      "application_id": "app-lab-payments",
+      "environment_id": "prod",
+      "connector_id": "c9ea436d7e4f3b8be53212ce3e197292",
+      "target_kind": "metric_resource",
+      "external_id": "lab-payments",
+      "legacy_resource": "lab-payments",
+      "effect": "dashboard_and_service_views_read_this_target"
     }
   ],
   "credential_bindings": [
@@ -178,6 +189,14 @@
         "resource_id": "lab-order-api",
         "query_id": "request_rate",
         "expression": "sum(rate(lab_http_requests_total{application=\"order\"}[5m]))"
+      },
+      {
+        "connector_id": "c9ea436d7e4f3b8be53212ce3e197292",
+        "application_id": "app-lab-payments",
+        "environment_id": "prod",
+        "resource_id": "lab-payments",
+        "query_id": "dashboard",
+        "expression": "sum(rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + rate(lab_http_requests_total{application=\"payments\"}[5m]) + vector(0))"
       }
     ],
     "scopes": [
@@ -272,15 +291,6 @@
       "resource": "lab-unregistered",
       "reasons": [
         "resource_not_registered"
-      ]
-    },
-    {
-      "application_id": "app-lab-payments",
-      "environment_id": "prod",
-      "kind": "prometheus",
-      "resource": "lab-payments",
-      "reasons": [
-        "query_invalid:dashboard"
       ]
     },
     {

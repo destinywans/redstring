@@ -5,7 +5,10 @@
 S['V3CoverageCell'] = obj({
     'state': string(enum=['partial', 'missing', 'unknown']),
     'brand': string(), 'text': string(),
-    'availability': string(enum=['configured_unverified', 'not_configured', 'unavailable']),
+    # PA-19 P3 stage 2 step 1: not_ready is a registered source that cannot be
+    # read yet; text names why (connector disabled, read tool off, credential
+    # missing or not approved, no reviewed scope, or more than one source).
+    'availability': string(enum=['configured_unverified', 'not_ready', 'not_configured', 'unavailable']),
 }, ['state', 'availability'])
 S['V3CoverageRow'] = obj({
     'id': string(), 'service': string(), 'environment_id': string(),

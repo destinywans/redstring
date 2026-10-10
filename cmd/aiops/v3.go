@@ -371,7 +371,8 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return fmt.Errorf("configure V3 text commands: %w", err)
 	}
 	discovery.Register(api)
-	v3coverage.New(s.DB, policy).Register(api)
+	coverage := v3coverage.New(s.DB, policy)
+	coverage.Register(api)
 	v3home.New(s.DB, policy).Register(api)
 	mcpService := v3mcp.New(s.DB, policy)
 	mcpService.AuthorizeRegistrationEndpoint, err = loadV3MCPRegistrationBindings(
@@ -592,6 +593,15 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	if err != nil {
 		return err
 	}
+	// PA-19 P3 stage 2: readers switch to the registry one at a time.
+	unifiedReaders, err := v3telemetry.ParseReaders(os.Getenv("AIOPS_V3_UNIFIED_READERS"))
+	if err != nil {
+		return err
+	}
+	slog.Info("source registry", "mode", string(registryMode), "unified_readers", unifiedReaders.Names())
+	sourceResolver := &v3telemetry.Resolver{Tier: cfg.Tier, Catalog: sourceCatalog, Approvals: v3telemetry.NewApprovals(credentialBindings)}
+	// Step 1 (PA-67): coverage answers from the registry.
+	coverage.Registry, coverage.Unified = sourceResolver, unifiedReaders.Unified(v3telemetry.ReaderCoverage)
 	var sourceCompare v3telemetry.Observer
 	if registryMode == v3telemetry.ModeCompare {
 		comparer := v3telemetry.NewComparer(s.DB, &v3telemetry.Resolver{Tier: cfg.Tier, Catalog: sourceCatalog,

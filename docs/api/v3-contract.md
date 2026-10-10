@@ -333,7 +333,7 @@ Pull 仅使用服务端私有配置登记的 Prometheus `metric_resource` 目标
 | POST | `/service-mappings/accept` | `{ candidates: [{ id, version, service_id, environment_id, system_id, binding_revision }] }` | `{ accepted, items }` | implemented |
 | POST | `/service-mappings/discover` | | `{ suggestions, source_state, candidates }` | implemented |
 | PUT | `/service-mappings` | `{ environment_id, items: [{ service_id, service_environment_id, binding_revision, bindings }] }`；1–50 个完整替换项 | `{ environment_id, items }`；返回持久身份、绑定及写后修订号 | implemented |
-| GET | `/coverage` | 单个可选 `app`（精确应用 ID 或 key） | 授权应用/环境的配置证据矩阵；实时覆盖、评分与 Agent 影响未知值为 `null` 或明确可用性 | implemented |
+| GET | `/coverage` | 单个可选 `app`（精确应用 ID 或 key） | 授权应用/环境的配置证据矩阵；实时覆盖、评分与 Agent 影响未知值为 `null` 或明确可用性；`AIOPS_V3_UNIFIED_READERS` 含 `coverage` 时，指标、日志、链路单元格由统一登记给出：已就绪为 `configured_unverified`，已登记但未就绪为 `state=partial`、`availability=not_ready`（`text` 写原因，或"登记了多个来源"），未登记为 `not_configured`，旧应用绑定不再计入；变更单元格只看代码和交付目标（PA-67） | implemented |
 | GET | `/webhooks` | | 当前授权通用 Push 与原生 Alertmanager/GitLab 入站登记；通用 Push 的 24 小时非合成收据、Alertmanager 的已入库接收次数，GitLab 历史次数未知；未接类别以 `availability: not_connected` 标记 | implemented |
 | POST | `/webhooks/{id}/redeliver` | | 结果 | mock |
 | POST | `/api-tokens` | 单环境、当前真人 Cookie 会话；`{ name, scopes: ["connectors:view"], ttl }`，TTL 为 1 小时/1 天/7 天/30 天 | 当前有权时原子签发 256 位随机密钥，只保存 SHA-256；返回元数据和仅一次可见的 `secret_shown_once`，可用于该环境的精确 `GET /connectors` Bearer 读取 | implemented |

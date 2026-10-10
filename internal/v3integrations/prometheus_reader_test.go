@@ -130,7 +130,7 @@ func TestPrometheusRegistrationBindingVaultAndScopedQuery(t *testing.T) {
 			w.WriteHeader(http.StatusNoContent)
 		case "/api/v1/query_range":
 			queryCalls.Add(1)
-			if r.URL.Query().Get("query") != expression || r.URL.Query().Get("limit") != "100" {
+			if r.FormValue("query") != expression || r.FormValue("limit") != "100" {
 				t.Errorf("unexpected registered query request")
 			}
 			if queryEntered != nil {
@@ -141,7 +141,7 @@ func TestPrometheusRegistrationBindingVaultAndScopedQuery(t *testing.T) {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				return
 			}
-			start, parseErr := time.Parse(time.RFC3339Nano, r.URL.Query().Get("start"))
+			start, parseErr := time.Parse(time.RFC3339Nano, r.FormValue("start"))
 			if parseErr != nil {
 				t.Errorf("query start: %v", parseErr)
 				return

@@ -48,7 +48,7 @@ func TestParseCatalogRejectsMixedOrUnsafeScopes(t *testing.T) {
 		"bad resource id":       `{"scopes":[{"connector_id":"c","application_id":"app","environment_id":"prod","resource_id":"../x","provider":"loki","loki_labels":{"app":"a"}}]}`,
 		"duplicate scope": `{"scopes":[{"connector_id":"c","application_id":"app","environment_id":"prod","resource_id":"r","provider":"loki","loki_labels":{"app":"a"}},
  {"connector_id":"c","application_id":"app","environment_id":"prod","resource_id":"r","provider":"loki","loki_labels":{"app":"b"}}]}`,
-		"long expression": `{"queries":[{"connector_id":"c","application_id":"app","environment_id":"prod","resource_id":"r","query_id":"q","expression":"` + strings.Repeat("x", 2049) + `"}]}`,
+		"long expression": `{"queries":[{"connector_id":"c","application_id":"app","environment_id":"prod","resource_id":"r","query_id":"q","expression":"` + strings.Repeat("x", 8193) + `"}]}`,
 		"trailing data":   `{"queries":[]} {}`,
 	} {
 		if _, err := ParseCatalog([]byte(file)); err == nil {

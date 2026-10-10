@@ -125,7 +125,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	var providerCalls atomic.Int32
 	var empty atomic.Bool
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/query_range" || r.URL.Query().Get("query") != expression {
+		if r.URL.Path != "/api/v1/query_range" || r.FormValue("query") != expression {
 			t.Errorf("unexpected provider request %s", r.URL)
 			http.Error(w, "bad fixture query", 400)
 			return
@@ -135,14 +135,14 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 			_, _ = io.WriteString(w, `{"status":"success","data":{"resultType":"matrix","result":[]}}`)
 			return
 		}
-		end, parseErr := time.Parse(time.RFC3339Nano, r.URL.Query().Get("end"))
+		end, parseErr := time.Parse(time.RFC3339Nano, r.FormValue("end"))
 		if parseErr != nil {
 			t.Errorf("invalid provider window: %v", parseErr)
 			http.Error(w, "bad fixture window", 400)
 			return
 		}
-		start, parseErr := time.Parse(time.RFC3339Nano, r.URL.Query().Get("start"))
-		if parseErr != nil || end.Sub(start) != time.Hour || r.URL.Query().Get("step") != "120" {
+		start, parseErr := time.Parse(time.RFC3339Nano, r.FormValue("start"))
+		if parseErr != nil || end.Sub(start) != time.Hour || r.FormValue("step") != "120" {
 			t.Errorf("wrong selected one-hour window: %s", r.URL)
 			http.Error(w, "bad fixture window", 400)
 			return

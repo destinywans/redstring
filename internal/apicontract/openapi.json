@@ -72326,6 +72326,7 @@
             "type": "string",
             "enum": [
               "configured_unverified",
+              "not_ready",
               "not_configured",
               "unavailable"
             ]

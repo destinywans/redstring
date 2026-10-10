@@ -1,6 +1,6 @@
 # Kubernetes 回滚执行器与连接器登记切换设计（PA-08、PA-19 P3/P4）
 
-**状态**：设计稿，待批准，未实现。V3 对 Kubernetes 的写操作要先确认后端设计，见 2026-10-09 生产验收计划。
+**状态**：2026-10-10 用户批准，决定见第 8 节。分两阶段交付：第一阶段为 P3 的 Kubernetes 部分和 PA-08 端到端；第二阶段为 P3 其余读取方、POST 与 8 KiB、默认切换、覆盖度，然后是 P4。
 
 **来源**：
 - 生产验收问题 PA-08（WAN-305）：V3 执行器只能执行静默，不能做 Kubernetes 回滚。
@@ -150,13 +150,10 @@
 | A：`credential_file` | 凭据批准条目里用 `credential_file`（绝对路径）代替 `credential_ref`：`{tier, environment, connector_id, provider, endpoint, credential_file}`。读取时检查文件属主为进程用户、权限不宽于 0600，内容只在内存使用，不进日志和审计 | 不需要新组件；与现在验收用的令牌文件一致；约 0.5 人日 | 没有租约和轮换；与生产推荐（Vault）不一样，生产层级的验收不能完全代表真实部署 |
 | B：实验环境起一个 Vault | 在 aiops-test 用容器运行开发模式 Vault（KV v2），脚本写入令牌，进程用 Vault 令牌读取 | 与生产路径一致，验收覆盖 Vault 读取、拒绝和失效 | 多一个要维护的组件；开发模式重启后数据清空，需要初始化脚本；约 1–1.5 人日（含 aiops-test 脚本和文档） |
 
-**建议 A**，加两条护栏：
-1. **非生产层级**：直接允许。
-2. **生产层级**：
-   - 只有在部署方显式设置 `AIOPS_V3_ALLOW_CREDENTIAL_FILES=1` 时才接受，启动时打印警告；
-   - 验收记录里要注明“生产层级用文件凭据，仅用于验收”。
-
-真实生产部署仍要求 Vault。B 留作以后要验收 Vault 路径时再做。写凭据（第 5.4 节）也走同样的规则。
+**决定（2026-10-10）：采用 B**。
+- 实验会话在 aiops-test 提供开发模式 Vault（KV v2）和初始化脚本。
+- 验收实例的 Kubernetes 读令牌、回滚写令牌和 Elasticsearch 密码都用 `vault://` 引用，经现有凭据批准机制读取（见 `docs/api/v3-connector-credentials.md`）。
+- 本轮不做 `credential_file`，也不加 `AIOPS_V3_ALLOW_CREDENTIAL_FILES`。
 
 ### 3.9 迁移
 
@@ -251,10 +248,10 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
   {"tier": "production", "environment": "prod", "connector_id": "<Kubernetes 连接器 ID>",
    "namespace": "aiops-lab", "deployments": ["checkout-api", "order-api"],
    "actions": ["deployment.rollback"],
-   "credential_file": "/abs/path/rollback.token"}
+   "credential_ref": "vault://aiops/lab/k8s/rollback#token"}
   ```
 
-  - 生产层级用 `credential_ref` 指向 Vault；按第 3.8 节的护栏，验收时可以用 `credential_file`。
+  - 两个层级都用 `credential_ref` 指向 Vault（第 3.8 节决定 B）。
   - 只有执行器读这份文件。读取方、探测和提案生成都用连接器自己的读凭据。
   - 名单之外的命名空间和 Deployment 不能写。
 - **实验集群的写账号**：在 `aiops-lab` 新建 ServiceAccount `aiops-rollback`，附带只限本命名空间的 Role，见附录 B：
@@ -262,7 +259,7 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
   - `replicasets`：`get`、`list`；
   - 不能 `create`、`delete`、`update`，也不能读 Secret 或 Pod 日志。
 
-  原有只读账号保持只读。令牌用 `kubectl create token --duration` 签发有时限的令牌，由 aiops-test 脚本写到验收目录下的文件；过期后重签，不用永久 Secret 令牌。
+  原有只读账号保持只读。令牌用 `kubectl create token --duration` 签发有时限的令牌，由实验会话写入 Vault；过期后重签，不用永久 Secret 令牌。
 - **执行器**（参照静默）：
   - 后台 Worker 每 15 秒拉取“已批准、未认领”的回滚提案；
   - 在一个事务里：锁提案和动作 → 用审批证明重验两票（审批人仍是人类、仍有批准授权、证明未过期、未被撤销）→ 重新解析目标并核对 `binding_fingerprint` → 写入一次性认领行。
@@ -321,7 +318,7 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 | 规则 | production | nonprod |
 | --- | --- | --- |
 | 审批 | 两人通行密钥（与现在相同） | 两人通行密钥（与静默一致，不放宽） |
-| 写凭据 | Vault；验收时可用 `credential_file`，见 3.8 | `credential_file` 或 Vault |
+| 写凭据 | Vault（`credential_ref`） | Vault（`credential_ref`） |
 | 观察窗口 | 至少 300 秒 | 至少 180 秒 |
 | 审批到执行的有效期 | 沿用审批证明的有效期（`expires_at`）；过期需重新批准 | 同左 |
 | 回滚目标 | 只能回到仍存在的 ReplicaSet 修订 | 同左 |
@@ -393,15 +390,25 @@ P4 要等 P3 在两个验收实例上稳定运行，并且第 6 节的回滚验�
 - **前端依赖**：执行视图和评审页没改好之前，只能通过 API 和脚本验收后端，不能声称页面已验收。
 - **旧计划失效**：P4 会使已批准、未执行的旧回滚计划失效。V3 里旧 Worker 不运行，实际影响为零，但仍需在发布说明里写明。
 
-## 8. 需要用户确认的决定
+## 8. 决定（2026-10-10 用户批准）
 
-1. 凭据方式：采用第 3.8 节的建议 A（`credential_file`，生产层级需显式开关），还是在实验环境起 Vault（B）。
-2. nonprod 也保持两人审批（建议保持）。
-3. 观察窗口：生产 300 秒、非生产 180 秒；阈值由演练标定后写入目录。
-4. AI 只能建议回滚，由人提交提案（建议如此），不能自动提交。
-5. 在 aiops-test 新建 `aiops-rollback` 写账号和 Role（属于 2026-10-09 已授权的实验集群写操作，这里再次列出以便确认）。
-6. 建议顺序：P3 的 Kubernetes 部分 → PA-08 → P3 其余部分 → 验收 → P4。是否认可。
-7. 迁移 169 及 PA-08 的新表，仍只在隔离库和验收实例执行，现有业务库另行征得同意。
+1. **凭据**：采用 B，实验环境起开发模式 Vault。Kubernetes 读令牌、回滚写令牌、Elasticsearch 密码都用 `vault://` 引用；本轮不做 `credential_file`。写入批准在两个层级都用 `credential_ref`。
+2. **审批**：nonprod 也保持两人审批。
+3. **观察窗口**：生产 300 秒，非生产 180 秒。阈值用演练数据标定后写入目录。
+4. **AI 的角色**：AI 只能建议回滚，由人提交提案。
+5. **写账号**：批准在 aiops-lab 新建 `aiops-rollback` 账号和 Role。由实验会话创建，并把有时限的令牌写入 Vault。
+6. **交付分两阶段**：
+   - **第一阶段**：
+     - P3 的 Kubernetes 部分：连接器类型、工作负载目标、目录范围、导入、迁移 169；
+     - PA-08 端到端：提案接口、候选列表、审批允许列表、执行器、账本、回读、验证、执行视图；
+     - 这些连接器的 Vault 凭据读取；
+     - 第 6 节第 2–6 步的实验端到端验收。
+     
+     实验 Vault 和写账号就绪后，才在生产层级验收实例上运行。
+   - **第二阶段**：P3 其余读取方、POST 与 8 KiB、默认切换到 `unified`、覆盖度，然后是 P4。
+7. **迁移**：迁移 169 和新表只在隔离库和验收实例执行，现有业务库另行征得同意。
+
+前端第 5.9 节的五处界面先出设计图，所以候选列表、提案、执行投影和 `content.rollback` 的接口契约要先定下来、保持稳定。
 
 ## 附录 A：对照前提的命令
 

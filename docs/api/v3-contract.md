@@ -598,6 +598,8 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | `GET /guardrails` | `trend_days` | `2006-01-02` | UTC 日历日 | `trend_starts_at[]`（各日 UTC 零点）；分桶仍按 UTC 日 |
 | `GET /silences` | `window` | `2006-01-02 15:04 -07:00 – …` | Alertmanager 返回的偏移 | 已有 `starts_at`、`ends_at`，不改 |
 
+**旧字段的删除**：前端已改读上表的结构化字段（2026-10-11），旧的文字时间字段本轮不删，留到下一轮清理。删除前要先给首页 `recent[]` 补一个结构化的环境字段：`recent[].meta` 是“环境 · 时间”，去掉它后前端没有别的地方取环境。
+
 不改的：韧性提案的 `requirement` 文字里的调查更新时间（随提案持久化，属于摘要内容）；邀请邮件正文的到期时间（邮件，不经前端）；审计 `volume`（按 UTC 日分桶，不带时间标签）。其余返回时间的字段本来就是 RFC 3339。
 
 ## 变更记录
@@ -610,6 +612,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | 2026-10-10 | PA-19 P4：V3 实例不再读 `AIOPS_KUBERNETES_REGISTRY`，也不加载演示 Kubernetes 连接器 `AIOPS_CONNECTOR_CONFIG`（`demo-kubernetes`），设了只记一条警告；工作负载只从统一登记读，旧模式照旧。路由与响应形状不变（相关旧路由在 V3 上本来就是 501）。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-83：后端预格式化的时间字段补上 RFC 3339 结构化字段（看板 `label_times`/`tick_times`/事件起止、Trace 与变更 `axis_times`、收件箱 `at`、推送与 Webhook、首页、服务详情、账号会话、连接器 `checked_at`、Pull 样例、模型检查、复盘草稿、护栏 `trend_starts_at`），旧字段过渡期保留；盘点见“时间字段的显示（PA-83）” |
 | 2026-10-11 | PA-84：收件箱分配条目的 `href` 指向被分配的对象（`/incidents/{id}` 或 `/review/{id}`），新增 `assignment_kind`，`sub` 按请求语言生成；OpenAPI `V3InboxItem.kind` 补上 `assignment` |
+| 2026-10-11 | PA-83：旧的文字时间字段本轮保留，下一轮清理；删除前先给首页 `recent[]` 补结构化的环境字段 |
 | 2026-10-09 | 生产验收 PA-05/PA-16：新增「未知」约定（`null` + `unavailable` 原因）。`/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard` 在可选证据缺失时返回 200，受影响字段可空；`ProfileView`、`SecurityView`、`LogSearch`、`TraceList`、`MetricsDashboard` 字段由必有改为可空，属于破坏性语义修改，`types.ts` 与页面由前端轮同步。OpenAPI 已重新生成。 |
 | 2026-10-07 | 后端对齐 v1.1：27 个新接口具备持久化/真实读取，5 个可信来源缺口已接线并按用户决定明确 503；服务端参数、迁移 158～161、OpenAPI 与定向隔离验证已同步，原 166 项不升级。 |
 | 2026-10-07 | 契约 v1.1：新增「v1.1 页面交互接口」一节。第 1 张表列出前端需对齐的已实现约束（令牌有效期与权限、邀请角色、护栏内置策略、新建实验和 Agent 的请求体），第 2 张表补入后端已实现的 19 个接口，第 3 张表新定义 32 个待实现接口，并补充查询参数。原 166 项的路径和字段不变，没有破坏性修改。 |

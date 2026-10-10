@@ -120,4 +120,10 @@ func TestParseReaders(t *testing.T) {
 	if _, err := ParseReaders("nonsense"); err == nil {
 		t.Fatal("unknown reader accepted")
 	}
+	if readers, err := ParseReaders("coverage"); err != nil || !readers.Unified(ReaderCoverage) || readers.Unified(ReaderLogs) {
+		t.Fatalf("coverage: %v %v", readers, err)
+	}
+	if _, err := ParseReaders("coverage,coverage"); err == nil {
+		t.Fatal("repeated reader accepted")
+	}
 }

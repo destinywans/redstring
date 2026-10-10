@@ -16,6 +16,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 type Access interface {
@@ -25,6 +26,12 @@ type Access interface {
 type Service struct {
 	DB     *pgxpool.Pool
 	Access Access
+	// Registry, with Unified, makes the metrics, logs and traces cells
+	// answer from the connector registry (PA-19 P3 stage 2 step 1, PA-67):
+	// ready, registered but not ready (with the reasons), ambiguous or not
+	// registered. Legacy application bindings no longer count then.
+	Registry *v3telemetry.Resolver
+	Unified  bool
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
@@ -254,6 +261,11 @@ func configured(brand, reason string) cell {
 	return cell{State: "partial", Brand: brand, Text: reason, Availability: "configured_unverified"}
 }
 
+// notReady is a registered source that cannot be read yet (PA-19 P3).
+func notReady(brand, reason string) cell {
+	return cell{State: "partial", Brand: brand, Text: reason, Availability: "not_ready"}
+}
+
 func (s *Service) project(ctx context.Context, user core.User, p profile, t text) (coverageRow, []fix, error) {
 	row := coverageRow{ID: p.AppID + ":" + p.EnvironmentID, Service: p.Key,
 		EnvironmentID: p.EnvironmentID, Tier: p.Tier, Owner: p.Owner, Cells: map[string]cell{}}
@@ -268,7 +280,11 @@ func (s *Service) project(ctx context.Context, user core.User, p profile, t text
 	if err != nil {
 		return row, nil, err
 	}
-	if canConnect {
+	if canConnect && s.Unified && s.Registry != nil {
+		if err := s.registryCells(ctx, p, t, &row, &fixes); err != nil {
+			return row, nil, err
+		}
+	} else if canConnect {
 		bindings, err := s.connectorBindings(ctx, p)
 		if err != nil {
 			return row, nil, err
@@ -327,6 +343,51 @@ func (s *Service) project(ctx context.Context, user core.User, p profile, t text
 	return row, fixes, nil
 }
 
+// registryCells answers the source cells from the registry: metrics, logs and
+// traces from the resolver, changes from code and delivery targets.
+func (s *Service) registryCells(ctx context.Context, p profile, t text, row *coverageRow, fixes *[]fix) error {
+	addFix := func(id string) {
+		if len(*fixes) == 0 {
+			*fixes = append(*fixes, fix{Text: p.Key + " · " + p.EnvironmentID + t.pick("：配置"+t.label(id)+"来源", ": configure a "+strings.ToLower(t.label(id))+" source"),
+				Impact: t.pick("影响未量化", "Impact not quantified"), Action: t.pick("查看连接器", "View connectors"), Href: "/integrations"})
+		}
+	}
+	for _, surface := range []v3telemetry.Surface{v3telemetry.Metrics, v3telemetry.Logs, v3telemetry.Traces} {
+		id := string(surface)
+		source, err := s.Registry.Resolve(ctx, s.DB, p.AppID, p.EnvironmentID, surface)
+		switch {
+		case errors.Is(err, v3telemetry.ErrNotConfigured):
+			row.Cells[id] = absent(t.pick("未登记来源", "No source registered"))
+			addFix(id)
+		case errors.Is(err, v3telemetry.ErrAmbiguous):
+			row.Cells[id] = notReady("", t.pick("登记了多个来源，读取会失败关闭", "More than one source registered; reads fail closed"))
+			addFix(id)
+		case err != nil:
+			return err
+		case len(source.NotReady) > 0:
+			reasons := make([]string, 0, len(source.NotReady))
+			for _, reason := range source.NotReady {
+				reasons = append(reasons, t.readiness(reason))
+			}
+			row.Cells[id] = notReady(source.Provider, t.pick("来源已登记但未就绪：", "Source registered but not ready: ")+strings.Join(reasons, t.pick("、", ", ")))
+			addFix(id)
+		default:
+			row.Cells[id] = configured(source.Provider, t.pick("来源已登记，实时数据覆盖未验证", "Source registered; live data coverage not verified"))
+		}
+	}
+	changes, err := s.targetColumns(ctx, p)
+	if err != nil {
+		return err
+	}
+	if brand := changes["changes"]; brand != "" {
+		row.Cells["changes"] = configured(brand, t.pick("来源已登记，实时数据覆盖未验证", "Source registered; live data coverage not verified"))
+	} else {
+		row.Cells["changes"] = absent(t.pick("未登记来源", "No source registered"))
+		addFix("changes")
+	}
+	return nil
+}
+
 // Only a persisted V3 connector in the same environment can make a legacy
 // application binding an identified configuration fact. No probe status is
 // interpreted as live coverage or successful data delivery.
@@ -375,6 +436,20 @@ func (s *Service) connectorBindings(ctx context.Context, p profile) (map[string]
 	}
 	// Target registration is stronger than the historical application binding
 	// for code/deployment sources, but still only proves configuration.
+	targets, err := s.targetColumns(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	for id, provider := range targets {
+		result[id] = provider
+	}
+	return result, nil
+}
+
+// targetColumns maps the providers of the service's registered targets to
+// coverage columns.
+func (s *Service) targetColumns(ctx context.Context, p profile) (map[string]string, error) {
+	result := map[string]string{}
 	rows, err := s.DB.Query(ctx, `SELECT c.provider FROM v3_connector_targets t
  JOIN v3_connectors c ON c.id=t.connector_id AND c.environment_id=t.environment_id
  WHERE t.application_id=$1 AND t.environment_id=$2 ORDER BY c.provider LIMIT 101`, p.AppID, p.EnvironmentID)

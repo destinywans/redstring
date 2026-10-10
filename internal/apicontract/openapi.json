@@ -27733,6 +27733,136 @@
         }
       }
     },
+    "/investigations/{id}/nodes/{node}/replies": {
+      "get": {
+        "summary": "Page an investigation branch's AI replies, newest first",
+        "operationId": "get_investigations_id_nodes_node_replies",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary read-only route (PA-75). Same session, environment and canvas.view checks as GET /investigations/{id}/canvas; an inaccessible investigation or unknown branch returns 404. Replies of this branch only, newest first, at most page_size (default 20) and 2 MiB per page; next_cursor continues with older replies and is bound to the investigation and branch (422 otherwise). answer is set only for completed replies; a running attempt whose lease expired is failed with lease_expired. evidence_ids are the evidence the reply read, in reading order. Unlike /messages, which returns the model context including history inherited at fork, this lists the reply records.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3InvestigationReplyPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "investigations"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "node",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 1024
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/investigations/{id}/writeback-preview": {
       "get": {
         "summary": "Preview persisted branch-to-ancestor context writeback",
@@ -69771,6 +69901,13 @@
               "type": "string"
             }
           },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 281
+          },
           "writebacks": {
             "type": "object",
             "properties": {
@@ -69817,6 +69954,7 @@
           "context",
           "versions",
           "writebacks",
+          "summary",
           "rollback_suggestion"
         ]
       },
@@ -70004,6 +70142,148 @@
           "text",
           "state",
           "created_at"
+        ]
+      },
+      "V3InvestigationReply": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "author": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The AI reply; null unless state is completed"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "completed",
+              "failed"
+            ]
+          },
+          "failure_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the attempt failed; lease_expired for a running attempt whose lease ran out"
+          },
+          "model": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "provider": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name",
+              "provider"
+            ]
+          },
+          "reasoning": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Evidence this reply read, in reading order (the numbers a rollback suggestion cites)"
+          },
+          "rollback_suggestion": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3RollbackSuggestion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "text",
+          "author",
+          "answer",
+          "state",
+          "failure_code",
+          "model",
+          "reasoning",
+          "created_at",
+          "completed_at",
+          "evidence_ids",
+          "rollback_suggestion"
+        ]
+      },
+      "V3InvestigationReplyPage": {
+        "type": "object",
+        "properties": {
+          "investigation_id": {
+            "type": "string"
+          },
+          "node_id": {
+            "type": "string"
+          },
+          "replies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3InvestigationReply"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "investigation_id",
+          "node_id",
+          "replies",
+          "has_more",
+          "next_cursor"
         ]
       },
       "V3InvestigationWritebackCandidate": {

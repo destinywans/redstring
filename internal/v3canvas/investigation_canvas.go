@@ -21,6 +21,7 @@ const (
 	maxInvestigationNodes    = 100
 	maxInvestigationVersions = 1000
 	maxInvestigationEvidence = 100
+	maxNodeSummaryRunes      = 280
 	maxInvestigationText     = 16 << 10
 )
 
@@ -153,6 +154,10 @@ type investigationCanvasNode struct {
 	Context       investigationCanvasContext    `json:"context"`
 	Versions      []investigationCanvasVersion  `json:"versions"`
 	Writebacks    investigationCanvasWritebacks `json:"writebacks"`
+	// Summary is the start of the branch's latest completed AI reply (at most
+	// 280 characters, "…" when cut), or null; the full replies are on
+	// /investigations/{id}/nodes/{node}/replies (PA-75).
+	Summary *string `json:"summary"`
 	// RollbackSuggestion is the latest AI rollback suggestion of this branch
 	// (PA-72), or null. The card re-reads the candidates to tell if it is
 	// out of date.
@@ -473,6 +478,33 @@ func (s *Service) readCanvasGraph(ctx context.Context, tx pgx.Tx, target investi
 			}
 		}
 		sort.Strings(graph.Nodes[atIndex].Writebacks.Sources)
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	if err != nil {
+		return graph, graphUnavailable()
+	}
+	rows, err = tx.Query(ctx, `SELECT DISTINCT ON (branch_id) branch_id,left(assistant_text,$2+1) FROM v3_investigation_node_replies
+ WHERE branch_id=ANY($1::text[]) AND state='completed'
+ ORDER BY branch_id,completed_at DESC,id DESC`, ids, maxNodeSummaryRunes)
+	if err != nil {
+		return graph, graphUnavailable()
+	}
+	for rows.Next() {
+		var branchID, text string
+		if err = rows.Scan(&branchID, &text); err != nil {
+			break
+		}
+		if atIndex, found := index[branchID]; found {
+			if runes := []rune(strings.TrimSpace(text)); len(runes) > maxNodeSummaryRunes {
+				text = string(runes[:maxNodeSummaryRunes]) + "…"
+			} else {
+				text = string(runes)
+			}
+			graph.Nodes[atIndex].Summary = &text
+		}
 	}
 	if err == nil {
 		err = rows.Err()

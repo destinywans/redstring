@@ -8,6 +8,7 @@ import { Dialog, Drawer, toast } from "../../ui/overlays";
 import { ChipSelect } from "../../ui/demo";
 import { Unavailable } from "../../ui/unknown";
 import { useI18n } from "../../i18n";
+import { Gate } from "../../ui/permission";
 import { serviceApplicationId } from "../../api/ids";
 import "./events.css";
 
@@ -161,9 +162,11 @@ export function SilenceProposalDrawer({ open, onClose, onSubmitted }: { open: bo
             <Muted size={11.5}>{tx("需要两人用通行密钥批准，执行器写入 Alertmanager 后才生效。", "Two approvers confirm with passkeys; it takes effect once the executor writes it to Alertmanager.")}</Muted>
             <Spacer />
             <Btn kind="ghost" onClick={onClose}>{tx("取消", "Cancel")}</Btn>
-            <Btn kind="primary" loading={busy} disabled={!invId || !complete || !reason.trim()} onClick={() => void submit()}>
-              {tx("提交静默提案", "Submit proposal")}
-            </Btn>
+            <Gate need={["silences", "manage"]}>
+              <Btn kind="primary" loading={busy} disabled={!invId || !complete || !reason.trim()} onClick={() => void submit()}>
+                {tx("提交静默提案", "Submit proposal")}
+              </Btn>
+            </Gate>
           </>
         )
       }
@@ -261,7 +264,9 @@ export function ExpireSilenceDialog({ silenceId, onClose, onSubmitted }: { silen
       footer={
         <>
           <Btn kind="ghost" onClick={onClose}>{tx("取消", "Cancel")}</Btn>
-          <Btn kind="primary" loading={busy} disabled={!invId || !reason.trim()} onClick={() => void submit()}>{tx("提交结束提案", "Submit proposal")}</Btn>
+          <Gate need={["silences", "manage"]}>
+            <Btn kind="primary" loading={busy} disabled={!invId || !reason.trim()} onClick={() => void submit()}>{tx("提交结束提案", "Submit proposal")}</Btn>
+          </Gate>
         </>
       }
     >

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
-import { API_MODE, useGet } from "../../api/client";
-import type { AgentLevel, ToolRow, ToolsView } from "../../api/types";
+import { API_MODE, api, useGet, useSend } from "../../api/client";
+import type { AgentLevel, ConnectorList, ToolRow, ToolsView } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, Mono, Muted, Num, Pills, Row, SearchBox, Section, Strong, Tile, cx } from "../../ui/core";
 import { DataTable } from "../../ui/data";
 import { toast } from "../../ui/overlays";
@@ -14,9 +14,13 @@ export default function ToolsPage() {
   const [kind, setKind] = useState<"all" | "read" | "write">("all");
   const [q, setQ] = useState("");
   const { data } = useGet<ToolsView>("/agent-tools", { kind });
-  const [level, setLevel] = useState<AgentLevel>("L2");
-  const [sel, setSel] = useState<string | null>("rollback_deployment");
-  const risk = (r: ToolRow["risk"]) => ({ low: [tx("低", "Low"), "ok"], medium: [tx("中", "Medium"), "warn"], high: [tx("高", "High"), "danger"] })[r] as [string, "ok" | "warn" | "danger"];
+  const demo = API_MODE === "mock";
+  // The sample overview shows the Investigator's level; real levels are per agent and set on the agent page.
+  const [level, setLevel] = useState<AgentLevel | "">(demo ? "L2" : "");
+  const [sel, setSel] = useState<string | null>(demo ? "rollback_deployment" : null);
+  const register = useSend<{ name: string; kind: string; connector_id: string }>("POST", "/agent-tools", ["/agent-tools"]);
+  const risk = (r: ToolRow["risk"]): [string, "ok" | "warn" | "danger" | "neutral"] =>
+    (({ low: [tx("低", "Low"), "ok"], medium: [tx("中", "Medium"), "warn"], high: [tx("高", "High"), "danger"] }) as Record<string, [string, "ok" | "warn" | "danger"]>)[r] ?? [r || tx("未评估", "Unrated"), "neutral"];
   const fConn = useFacet(data?.items, (t) => t.brand);
   const fAgent = useFacet(data?.items, (t) => t.agents.split(" · "));
   const rows = data?.items.filter((t) => (!q || t.name.includes(q)) && fConn.test(t) && fAgent.test(t));
@@ -25,18 +29,33 @@ export default function ToolsPage() {
         <Btn
           kind="primary"
           icon="plus"
+          loading={register.isPending}
           onClick={async () => {
+            // Real registrations pick one of this environment's connectors; the sample form lists sample kinds.
+            let connectors = ["kubernetes", "prometheus", "gitlab", "elasticsearch"].map((c) => ({ value: c, label: c }));
+            if (!demo) {
+              try {
+                const list = await api<ConnectorList>("GET", "/connectors");
+                connectors = list.items.map((c) => ({ value: c.id, label: `${c.name} · ${c.kind}` }));
+              } catch (e) {
+                return toast(e instanceof Error ? e.message : tx("读取连接器失败", "Couldn't load connectors"), { tone: "danger" });
+              }
+              if (!connectors.length) return toast(tx("这个环境还没有连接器：先在集成中心接入", "No connectors in this environment yet — add one in Integrations first"));
+            }
             const v = await openForm({
               title: tx("登记工具", "Register a tool"),
               desc: tx("写操作工具只能被 Agent 用来生成提案，执行仍需人工批准。", "Write tools can only produce proposals; execution still needs human approval."),
               fields: [
                 { key: "name", label: tx("工具名", "Tool name"), required: true, mono: true, placeholder: "get_pod_events" },
                 { key: "kind", label: tx("类型", "Type"), type: "select", options: [{ value: "read", label: tx("只读", "Read") }, { value: "write", label: tx("写操作（仅提案）", "Write (proposal only)") }] },
-                { key: "connector", label: tx("来源连接器", "Connector"), type: "select", options: ["kubernetes", "prometheus", "gitlab", "elasticsearch"].map((c) => ({ value: c, label: c })) },
+                { key: "connector", label: tx("来源连接器", "Connector"), type: "select", options: connectors },
               ],
               submit: tx("登记", "Register"),
             });
-            if (v) toast(tx("工具 {n} 已登记，尚未授予任何 Agent", "Tool {n} registered; not granted to any agent yet", { n: v.name }));
+            if (!v) return;
+            const ok = () => toast(tx("工具 {n} 已登记，尚未授予任何 Agent", "Tool {n} registered; not granted to any agent yet", { n: v.name }));
+            if (demo) return ok();
+            register.mutate({ name: v.name, kind: v.kind || "read", connector_id: v.connector || connectors[0].value }, { onSuccess: ok, onError: (e) => toast(e.message, { tone: "danger" }) });
           }}
         >
           {tx("登记工具", "Register tool")}
@@ -56,9 +75,9 @@ export default function ToolsPage() {
                 value={kind}
                 onChange={setKind}
                 options={[
-                  { value: "all", label: tx("全部", "All"), count: 23 },
-                  { value: "read", label: tx("只读", "Read"), count: 17 },
-                  { value: "write", label: tx("写操作", "Write"), count: 6 },
+                  { value: "all", label: tx("全部", "All"), count: demo ? 23 : undefined },
+                  { value: "read", label: tx("只读", "Read"), count: demo ? 17 : undefined },
+                  { value: "write", label: tx("写操作", "Write"), count: demo ? 6 : undefined },
                 ]}
               />
               <SearchBox placeholder={tx("搜索工具", "Search tools")} value={q} onChange={setQ} width={200} />
@@ -102,7 +121,7 @@ export default function ToolsPage() {
             <Tile icon="shield" tone="accent" />
             <Col gap={0}>
               <Strong size={14}>{tx("自治级别", "Autonomy levels")}</Strong>
-              <Muted size={11.5}>{tx("决定 Agent 能自己做到哪一步 · 调查助手", "How far an agent may go on its own · Investigator")}</Muted>
+              <Muted size={11.5}>{demo ? tx("决定 Agent 能自己做到哪一步 · 调查助手", "How far an agent may go on its own · Investigator") : tx("决定 Agent 能自己做到哪一步；在各 Agent 详情页设置", "How far an agent may go on its own; set on each agent's page")}</Muted>
             </Col>
           </Row>
           <Col gap={16} style={{ padding: 16 }}>

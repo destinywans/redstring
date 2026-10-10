@@ -6,6 +6,7 @@ import type { ServiceCatalog, ServiceDetail, Me, WatchedService } from "../../ap
 import { Avatar, Bar, Brand, Btn, Card, Check, Col, Dot, Env, Muted, Num, Pills, Row, SearchBox, Section, State, Tier, Tile, Chip, Mono, Badge } from "../../ui/core";
 import { DataTable, Kpi, KpiRow } from "../../ui/data";
 import { useI18n } from "../../i18n";
+import { Gate } from "../../ui/permission";
 import { PageHead } from "../conversation/ConversationsPage";
 import "./observe.css";
 import { LoadError, PartialBanner, UnknownValue, anyReason, unknownLabels } from "../../ui/unknown";
@@ -90,10 +91,14 @@ export default function ServicesPage() {
       crumbs={[tx("资源与观测", "Resources"), tx("服务目录", "Services")]}
       actions={
         <>
-          <Btn icon="rotate" to="/services/new">{tx("从 Kubernetes 同步", "Sync from Kubernetes")}</Btn>
-          <Btn kind="primary" icon="plus" to="/services/new">
-            {tx("登记服务", "Register service")}
-          </Btn>
+          <Gate need={["services", "change"]}>
+            <Btn icon="rotate" to="/services/new">{tx("从 Kubernetes 同步", "Sync from Kubernetes")}</Btn>
+          </Gate>
+          <Gate need={["services", "change"]}>
+            <Btn kind="primary" icon="plus" to="/services/new">
+              {tx("登记服务", "Register service")}
+            </Btn>
+          </Gate>
         </>
       }
     >

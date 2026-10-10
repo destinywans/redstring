@@ -7,6 +7,7 @@ import { AvatarGroup, Badge, Btn, Card, Chip, Col, Icon, Muted, Num, Pills, Row,
 import { DataTable, Kpi, KpiRow } from "../../ui/data";
 import { MenuButton } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
+import { Gate } from "../../ui/permission";
 import "./conversation.css";
 import { ChipSelect, useFacet } from "../../ui/demo";
 
@@ -53,9 +54,11 @@ export default function ConversationsPage() {
           <Btn icon="branch" to="/templates">
             {tx("从模板新建调查", "New from template")}
           </Btn>
-          <Btn kind="primary" icon="plus" to="/conversations/new">
-            {tx("新建对话", "New conversation")}
-          </Btn>
+          <Gate need={["conversation", "change"]}>
+            <Btn kind="primary" icon="plus" to="/conversations/new">
+              {tx("新建对话", "New conversation")}
+            </Btn>
+          </Gate>
         </>
       }
     >

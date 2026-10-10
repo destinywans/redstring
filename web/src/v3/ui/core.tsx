@@ -236,7 +236,8 @@ export const Btn = forwardRef<HTMLButtonElement, BtnProps>(function Btn({ kind =
   );
   const cls = cx("v3-btn", `k-${kind}`, className);
   const st = { height: h, ...style };
-  if (to)
+  // A disabled link renders as a disabled button so it can't be followed.
+  if (to && !rest.disabled)
     return (
       <Link to={to} className={cls} style={st}>
         {inner}
@@ -251,7 +252,7 @@ export const Btn = forwardRef<HTMLButtonElement, BtnProps>(function Btn({ kind =
 export function IconBtn({ icon, label, size = 28, color, onClick, to, active, style, submit, disabled }: { icon: IconName; label: string; size?: number; color?: string; onClick?: () => void; to?: string; active?: boolean; style?: CSSProperties; submit?: boolean; disabled?: boolean }) {
   const cls = cx("v3-iconbtn", active && "active");
   const st = { width: size, height: size, color, ...style };
-  if (to)
+  if (to && !disabled)
     return (
       <Link to={to} className={cls} aria-label={label} title={label} style={st}>
         <Icon name={icon} size={16} />

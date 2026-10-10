@@ -9,6 +9,7 @@ import { useI18n } from "../../i18n";
 import "./agents.css";
 import { openForm, ChipSelect } from "../../ui/demo";
 import { useFirstSelection } from "../../ui/selection";
+import { Unavailable } from "../../ui/unknown";
 
 function withVars(text: string): ReactNode[] {
   return text.split(/(\{\w+\})/g).map((p, i) => (p.startsWith("{") ? <span key={i} className="pvar">{p}</span> : p));
@@ -28,9 +29,11 @@ export default function PromptsPage() {
   const text = draft ?? p?.lines.map((l) => l.text).join("\n") ?? "";
   const items = list?.items.filter((i) => !q || i.name.toLowerCase().includes(q.toLowerCase()));
   const group = (kind: PromptItem["kind"]) => items?.filter((i) => i.kind === kind) ?? [];
+  const demo = API_MODE === "mock";
   return (
     <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("提示词与 Skills", "Prompts & skills")]} actions={
-        <Btn
+        // Real registration needs an Agent and the first text (POST /prompts); this sample form only names a draft.
+        demo && <Btn
           kind="primary"
           icon="plus"
           onClick={async () => {
@@ -99,9 +102,17 @@ export default function PromptsPage() {
                   icon="check"
                   disabled={draft === null}
                   loading={save.isPending}
-                  onClick={() => save.mutate({ text }, { onSuccess: (r) => { setDraft(null); toast(tx("已保存为 {v}，需通过评测才能发布", "Saved as {v}; it must pass evals before release", { v: r.version })); } })}
+                  onClick={() =>
+                    save.mutate({ text }, {
+                      onSuccess: (r) => {
+                        setDraft(null);
+                        toast(tx("已保存为 {v}，需通过评测才能发布", "Saved as {v}; it must pass evals before release", { v: r.version }));
+                      },
+                      onError: (e) => toast(e.message, { tone: "danger" }),
+                    })
+                  }
                 >
-                  {tx("保存为 v14", "Save as v14")}
+                  {demo ? tx("保存为 v14", "Save as v14") : tx("保存为新版本", "Save as new version")}
                 </Btn>
               </Row>
               <Row gap={6}>
@@ -138,6 +149,11 @@ export default function PromptsPage() {
               <Muted size={11.5}>{tx("用评测用例比较两个版本", "Compare two versions on an eval case")}</Muted>
             </Col>
           </Row>
+          {/* Real trials need a registered case with trusted input and two saved versions; until that picker exists the
+              sample cases, versions and models stay out of real mode. */}
+          {!demo ? (
+            <Unavailable reason="not_connected" icon="play" title={tx("试运行对比还没有接入", "Trial comparison isn't connected yet")} desc={tx("需要登记带输入内容的评测用例，并保存至少两个版本后才能对比。", "It needs a registered eval case with input and at least two saved versions.")} />
+          ) : (
           <Col gap={12} style={{ padding: 16 }}>
             <Field label={tx("用例", "Case")}>
               <ChipSelect label="" showLabel={false} defaultValue="INV-187" options={[{ value: "INV-187", label: tx("INV-187 · 下游超时（回放）", "INV-187 · downstream timeouts (replay)") }, { value: "INV-176", label: tx("INV-176 · 发布后 5xx（回放）", "INV-176 · 5xx after release (replay)") }, { value: "INV-162", label: tx("INV-162 · 磁盘写满（回放）", "INV-162 · disk full (replay)") }]} />
@@ -181,6 +197,7 @@ export default function PromptsPage() {
             ))}
             {trial.data && <TextLink to="/agents/evals">{tx("加入回归评测集", "Add to regression set")}</TextLink>}
           </Col>
+          )}
         </aside>
       </div>
     </Page>

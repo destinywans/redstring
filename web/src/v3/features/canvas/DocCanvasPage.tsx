@@ -10,6 +10,7 @@ import { Composer } from "../../ui/Composer";
 import { describeChoice, useModelCatalog } from "../../ui/ModelPicker";
 import { VBars } from "../../charts";
 import { useI18n } from "../../i18n";
+import { useNeed } from "../../ui/permission";
 import { CanvasState, KindTag } from "./CanvasesPage";
 import { LITE_ZOOM } from "./CanvasPage";
 import { DetailPanel, useFloatCover, usePinned } from "../../ui/DetailPanel";
@@ -121,6 +122,7 @@ export default function DocCanvasPage() {
   const { id = "" } = useParams();
   const { tx } = useI18n();
   const { data: me } = useGet<Me>("/me", undefined, { staleTime: 5 * 60_000 });
+  const nodeBlocked = useNeed(["canvas", "change"]);
   const nav = useNavigate();
   const { data, isLoading } = useGet<CanvasDoc>(`/canvases/${id}`);
   const { data: catalog } = useModelCatalog();
@@ -243,7 +245,7 @@ export default function DocCanvasPage() {
       }
       footer={
             <div style={{ padding: "0 12px 12px", flex: "none" }}>
-              <Composer minRows={1} maxRows={6} placeholder={tx("在这个节点继续…", "Continue in this node…")} sending={!!busy} turn={busy} choice={choice} onChoiceChange={setChoice} onSend={(t, _a, x) => void ask(t, x.choice)} />
+              <Composer minRows={1} maxRows={6} blocked={nodeBlocked} placeholder={tx("在这个节点继续…", "Continue in this node…")} sending={!!busy} turn={busy} choice={choice} onChoiceChange={setChoice} onSend={(t, _a, x) => void ask(t, x.choice)} />
             </div>
       }
     >

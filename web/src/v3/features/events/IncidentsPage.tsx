@@ -8,6 +8,7 @@ import { AiAvatar, Avatar, Brand, Btn, Card, Chip, Col, IconBtn, Input, KV, Mono
 import { MenuButton, toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
+import { Gate } from "../../ui/permission";
 import { useCreateParam } from "../../ui/forms";
 import { NewIncidentDrawer } from "./CreateDrawers";
 import "./events.css";
@@ -61,7 +62,7 @@ export default function IncidentsPage() {
     }
   };
   return (
-    <Page flush crumbs={[tx("事件与告警", "Events"), tx("事件", "Incidents")]} actions={<Btn kind="primary" icon="plus" onClick={() => setCreating(true)}>{tx("新建事件", "New incident")}</Btn>}>
+    <Page flush crumbs={[tx("事件与告警", "Events"), tx("事件", "Incidents")]} actions={<Gate need={["events", "change"]}><Btn kind="primary" icon="plus" onClick={() => setCreating(true)}>{tx("新建事件", "New incident")}</Btn></Gate>}>
       <NewIncidentDrawer open={creating} onClose={() => setCreating(false)} />
       <div className="v3-split">
         <div className="side" style={{ width: 340 }}>

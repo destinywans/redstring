@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { API_MODE, useGet, useSend } from "../../api/client";
 import type { AgentDetail, AgentVersion } from "../../api/types";
 import { Badge, Btn, Col, Icon, Legend, Mono, Muted, Num, Panel, Row, Skeleton, Spacer, State, Tabs, TextLink, Tile, cx, type IconName } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
+import { Unavailable, UnknownValue } from "../../ui/unknown";
 import { useAgentLabels } from "./LifecyclePage";
 import "./agents.css";
 import { openForm } from "../../ui/demo";
@@ -14,31 +15,35 @@ import { openForm } from "../../ui/demo";
 export default function AgentPage() {
   const { tx } = useI18n();
   const lb = useAgentLabels();
-  const { id = "investigator" } = useParams();
-  const { data: a } = useGet<AgentDetail>(`/agents/${id}`);
+  const { id = API_MODE === "mock" ? "investigator" : "" } = useParams();
+  const demo = API_MODE === "mock";
+  const { data: a, error } = useGet<AgentDetail>(id ? `/agents/${id}` : null);
   const [tab, setTab] = useState("release");
   const [confirm, setConfirm] = useState(false);
   const [target, setTarget] = useState(50);
   const rollout = useSend<{ to: string; percent: number; override: boolean }>("POST", `/agents/${id}/rollout`, ["/agents"]);
   const rollback = useSend<void>("POST", `/agents/${id}/rollback`, ["/agents"]);
-  const vs = (s: AgentVersion["status"]) => ({ canary: [tx("灰度中", "Canary"), "accent"], stable: [tx("稳定", "Stable"), "ok"], retired: [tx("已下线", "Retired"), "neutral"] })[s] as [string, "accent" | "ok" | "neutral"];
+  const vs = (s: AgentVersion["status"]) => ({ canary: [tx("灰度中", "Canary"), "accent"], stable: [tx("稳定", "Stable"), "ok"], retired: [tx("已下线", "Retired"), "neutral"], draft: [tx("草稿", "Draft"), "neutral"] })[s] as [string, "accent" | "ok" | "neutral"];
   if (!a)
     return (
-      <Page crumbs={[tx("Agent 运行台", "Agent console"), tx("Agent 与版本", "Agents & versions")]}>
+      <Page crumbs={[tx("Agent 运行台", "Agent console"), tx("Agent 与版本", "Agents & versions")]} error={error} errorSource={tx("Agent 记录", "agent records")}>
         <div className="v3-content">
           <Skeleton h={60} />
           <Skeleton h={300} />
         </div>
       </Page>
     );
-  const passed = a.release.gates.every((g) => g.pass);
+  // Gates, observed traffic and tokens are null until routing and evaluation producers exist (unknown, not passed).
+  const gatesKnown = a.release.gates !== null;
+  const passed = !!a.release.gates?.every((g) => g.pass);
+  const current = a.release.current ?? a.release.configured_canary_percent ?? 0;
   return (
     <Page
       flush
       crumbs={[tx("Agent 运行台", "Agent console"), tx("Agent 与版本", "Agents & versions"), a.name]}
       actions={
         <>
-          <Btn icon="rotate" loading={rollback.isPending} onClick={() => rollback.mutate(undefined, { onSuccess: () => toast(tx("已回滚到 {v}，灰度流量清零", "Rolled back to {v}; canary traffic cleared", { v: a.release.from }), { undo: () => undefined }) })}>
+          <Btn icon="rotate" loading={rollback.isPending} onClick={() => rollback.mutate(undefined, { onSuccess: () => toast(tx("已回滚到 {v}，灰度流量清零", "Rolled back to {v}; canary traffic cleared", { v: a.release.from }), demo ? { undo: () => undefined } : {}), onError: (e) => toast(e.message, { tone: "danger" }) })}>
             {tx("回滚到 {v}", "Roll back to {v}", { v: a.release.from })}
           </Btn>
           <Btn
@@ -54,6 +59,7 @@ export default function AgentPage() {
                 ],
                 submit: tx("创建草稿", "Create draft"),
               });
+              // Real versions need an artifact reference (POST /agents/{id}/versions); the sample form only pretends.
               if (v) toast(tx("已基于 {b} 创建草稿版本，下一步运行评测", "Draft created from {b}; run the evals next", { b: v.base }));
             }}
           >
@@ -73,7 +79,7 @@ export default function AgentPage() {
               <State tone={a.status === "canary" ? "accent" : "ok"} pulse={a.status === "canary"}>{lb.status(a.status)}</State>
             </Row>
             <Muted>
-              {a.summary} · {tx("负责人", "Owner")} {a.owner} · {tx("服务账号", "Service account")} {a.account}
+              {a.summary} · {tx("负责人", "Owner")} {a.owner} · {tx("服务账号", "Service account")} {a.account ?? <UnknownValue reason="not_generated" />}
             </Muted>
           </Col>
         </Row>
@@ -122,22 +128,18 @@ export default function AgentPage() {
                             <State tone={vs(v.status)[1]}>{vs(v.status)[0]}</State>
                           </td>
                           <td>
-                            <Num>{v.traffic}</Num>
+                            {v.traffic !== null ? <Num>{v.traffic}</Num> : v.configured_traffic ? <Muted>{tx("配置 {t}", "Configured {t}", { t: v.configured_traffic })}</Muted> : <UnknownValue reason="not_generated" />}
                           </td>
-                          <td>
-                            <Num>{v.score}</Num>
-                          </td>
-                          <td>
-                            <Num>{v.success}</Num>
-                          </td>
+                          <td>{v.score !== null ? <Num>{v.score}</Num> : <UnknownValue reason="not_generated" />}</td>
+                          <td>{v.success !== null ? <Num>{v.success}</Num> : <UnknownValue reason="not_generated" />}</td>
                           <td>
                             <Row gap={6}>
-                              <Num>{v.tokens}</Num>
+                              {v.tokens !== null ? <Num>{v.tokens}</Num> : <UnknownValue reason="not_generated" />}
                               {v.delta && <Badge tone="warn">{v.delta}</Badge>}
                             </Row>
                           </td>
                           <td>
-                            <Muted>{v.created}</Muted>
+                            <Muted>{/^\d{4}-\d{2}-\d{2}T/.test(v.created) ? new Date(v.created).toLocaleString() : v.created}</Muted>
                           </td>
                         </tr>
                       ))}
@@ -148,18 +150,29 @@ export default function AgentPage() {
                   <Col gap={12}>
                     <Col gap={6}>
                       <div className="ro-slider">
-                        <span className="cur" style={{ width: `${a.release.current}%` }} />
-                        <span className="tgt" style={{ left: `${a.release.current}%`, width: `${target - a.release.current}%` }} />
-                        <input type="range" min={a.release.current} max={100} step={10} value={target} onChange={(e) => setTarget(Number(e.target.value))} aria-label={tx("目标流量", "Target traffic")} />
+                        <span className="cur" style={{ width: `${current}%` }} />
+                        <span className="tgt" style={{ left: `${current}%`, width: `${Math.max(0, target - current)}%` }} />
+                        <input type="range" min={current} max={100} step={10} value={Math.max(target, current)} onChange={(e) => setTarget(Number(e.target.value))} aria-label={tx("目标流量", "Target traffic")} />
                       </div>
                       <Row gap={6}>
-                        <Muted size={11.5}>{tx("{v} 当前 {p}%", "{v} now {p}%", { v: a.release.to, p: a.release.current })}</Muted>
+                        <Muted size={11.5}>
+                          {a.release.current !== null
+                            ? tx("{v} 当前 {p}%", "{v} now {p}%", { v: a.release.to, p: a.release.current })
+                            : tx("{v} 配置 {p}%（实际流量未知）", "{v} configured {p}% (actual traffic unknown)", { v: a.release.to, p: current })}
+                        </Muted>
                         <Spacer />
                         <Muted size={11.5}>{tx("目标 {p}%", "Target {p}%", { p: target })}</Muted>
                       </Row>
                     </Col>
                     <Col gap={7}>
-                      {a.release.gates.map((g) => (
+                      {!gatesKnown && (
+                        <Row gap={8}>
+                          <Muted size={11.5}>{tx("评测门禁", "Eval gates")}</Muted>
+                          <Spacer />
+                          <UnknownValue reason="not_generated" />
+                        </Row>
+                      )}
+                      {a.release.gates?.map((g) => (
                         <Row key={g.label} gap={8}>
                           <Icon name={g.pass ? "check" : "x"} size={14} color={g.pass ? "var(--ok)" : "var(--danger)"} />
                           <span style={{ fontSize: "var(--fs-sm)", flexGrow: 1 }}>{g.label}</span>
@@ -173,13 +186,18 @@ export default function AgentPage() {
                         <Spacer />
                         <Legend items={[[a.release.from, "var(--c5)"], [a.release.to, "var(--c1)"]]} />
                       </Row>
-                      <Lines series={[{ name: a.release.from, values: a.release.tokens.base, color: "var(--c5)" }, { name: a.release.to, values: a.release.tokens.canary, color: "var(--c1)" }]} height={48} max={14} grid={2} />
+                      {a.release.tokens ? (
+                        <Lines series={[{ name: a.release.from, values: a.release.tokens.base, color: "var(--c5)" }, { name: a.release.to, values: a.release.tokens.canary, color: "var(--c1)" }]} height={48} max={14} grid={2} />
+                      ) : (
+                        <UnknownValue reason="not_generated" />
+                      )}
                     </Col>
                     <Row gap={8}>
                       <Btn kind="primary" icon="up" onClick={() => setConfirm(true)}>
                         {tx("推进到 {p}%", "Promote to {p}%", { p: target })}
                       </Btn>
-                      {!passed && <Muted size={11.5}>{tx("门禁未全部通过；平台管理员可手动放行", "Not all gates passed; an admin may override")}</Muted>}
+                      {gatesKnown && !passed && <Muted size={11.5}>{tx("门禁未全部通过；平台管理员可手动放行", "Not all gates passed; an admin may override")}</Muted>}
+                      {!gatesKnown && <Muted size={11.5}>{tx("门禁结果未知，推进需要管理员放行", "Gate results are unknown; promoting needs an admin override")}</Muted>}
                     </Row>
                   </Col>
                 </Panel>
@@ -187,8 +205,9 @@ export default function AgentPage() {
             )}
             <Row gap={14} align="stretch">
               <Panel title={tx("{a} → {b} 差异", "{a} → {b} diff", { a: a.release.from, b: a.release.to })} right={<TextLink to="/agents/prompts">{tx("完整对比", "Full diff")}</TextLink>} style={{ flex: "1 1 0", minWidth: 0 }}>
+                {!a.diff && <Unavailable reason="not_generated" title={tx("版本差异", "Version diff")} desc={tx("还没有记录这两个版本之间的差异。", "No diff between these versions is recorded yet.")} icon="code" />}
                 <ul className="diff-list">
-                  {a.diff.map((d) => (
+                  {a.diff?.map((d) => (
                     <li key={d.key}>
                       <span className="k">{d.key}</span>
                       <Col gap={3} grow>
@@ -200,8 +219,9 @@ export default function AgentPage() {
                 </ul>
               </Panel>
               <Panel title={tx("当前配置 · {v}", "Current config · {v}", { v: a.release.from })} style={{ width: 380, flex: "none" }}>
+                {!a.config && <Unavailable reason="not_generated" title={tx("当前配置", "Current config")} desc={tx("还没有可展示的配置记录。", "No configuration record to show yet.")} icon="sliders" />}
                 <div className="cfg-grid">
-                  {a.config.map((c) => (
+                  {a.config?.map((c) => (
                     <Row key={c.key} gap={10}>
                       <Tile icon={c.icon as IconName} size={26} />
                       <Col gap={0} style={{ minWidth: 0 }}>
@@ -234,7 +254,7 @@ export default function AgentPage() {
                   {
                     onSuccess: () => {
                       setConfirm(false);
-                      toast(tx("{v} 灰度已调整到 {p}%", "{v} canary set to {p}%", { v: a.release.to, p: target }), { undo: () => undefined });
+                      toast(tx("{v} 灰度已调整到 {p}%", "{v} canary set to {p}%", { v: a.release.to, p: target }), demo ? { undo: () => undefined } : {});
                     },
                   },
                 )
@@ -249,10 +269,20 @@ export default function AgentPage() {
           {!passed && (
             <div className="warn-note">
               <Icon name="alert" size={13} style={{ marginTop: 2 }} />
-              <span>{tx("成本门禁未通过（+14%，门禁 ≤ 10%）。放行会记录到审计日志。", "The cost gate failed (+14%, gate ≤ 10%). An override is written to the audit log.")}</span>
+              <span>
+                {demo
+                  ? tx("成本门禁未通过（+14%，门禁 ≤ 10%）。放行会记录到审计日志。", "The cost gate failed (+14%, gate ≤ 10%). An override is written to the audit log.")
+                  : gatesKnown
+                    ? tx("评测门禁未全部通过。放行会记录到审计日志。", "Not all eval gates passed. An override is written to the audit log.")
+                    : tx("评测门禁结果未知。放行会记录到审计日志。", "Eval gate results are unknown. An override is written to the audit log.")}
+              </span>
             </div>
           )}
-          <Muted>{tx("流量调整立即生效；可随时回滚到 {v}。", "Traffic changes apply immediately; you can roll back to {v} at any time.", { v: a.release.from })}</Muted>
+          <Muted>
+            {demo
+              ? tx("流量调整立即生效；可随时回滚到 {v}。", "Traffic changes apply immediately; you can roll back to {v} at any time.", { v: a.release.from })
+              : tx("这里调整的是配置的灰度比例；实际流量是否切换取决于路由是否接入。可随时回滚到 {v}。", "This sets the configured canary share; whether traffic actually moves depends on the routing integration. You can roll back to {v} at any time.", { v: a.release.from })}
+          </Muted>
         </Col>
       </Dialog>
     </Page>

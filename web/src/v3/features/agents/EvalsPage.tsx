@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, useGet, useSend } from "../../api/client";
-import { PageUnavailable } from "../../ui/unknown";
+import { PageUnavailable, Unavailable } from "../../ui/unknown";
 import type { EvalExperiment, EvalList } from "../../api/types";
 import { DataTable } from "../../ui/data";
 import { Badge, Brand, Btn, Card, Col, Icon, Legend, Mono, Muted, Num, Panel, Row, Section, Skeleton, Spacer, Tabs, TextLink, Tile, cx } from "../../ui/core";
@@ -24,7 +24,11 @@ export default function EvalsPage() {
   // Hooks stay above the early return below: opening a new experiment must not change the hook order.
   const [tab, setTab] = useState("exp");
   const [selPick, setSel] = useState(API_MODE === "mock" ? "INV-187" : "");
-  const sel = selPick || e?.cases[0]?.id || "";
+  const sel = selPick || e?.cases?.[0]?.id || "";
+  const demo = API_MODE === "mock";
+  // Version names come from the experiment; the sample data uses its sample versions.
+  const verA = demo ? "v12" : e?.baseline_version ?? "A";
+  const verB = demo ? "v13" : e?.candidate_version ?? "B";
   const rerun = useSend<void, { id: string }>("POST", "/evals");
   const create = useSend<{ agent_id: string; title: string; baseline_version: string; candidate_version: string }, { id: string; status: string; execution_available: boolean }>("POST", "/evals");
   const newExperiment = async () => {
@@ -140,27 +144,40 @@ export default function EvalsPage() {
                   <Col gap={1}>
                     <Row gap={8}>
                       <b style={{ fontSize: "var(--fs-lg)" }}>{e.title}</b>
-                      <Badge>{e.dataset}</Badge>
+                      {e.dataset && <Badge>{e.dataset}</Badge>}
+                      {!demo && e.status && <Badge tone={e.status === "passed" ? "ok" : e.status === "failed" ? "danger" : "neutral"}>{e.status}</Badge>}
+                      {!demo && <Mono color="var(--muted)">{verA} → {verB}</Mono>}
                     </Row>
                     <Muted size={11.5}>{e.meta}</Muted>
                   </Col>
                   <Spacer />
-                  <Btn icon="edit" to={`/agents/evals/${sel}`}>
-                    {tx("人工标注 3 条", "Review 3 cases")}
-                  </Btn>
-                  <Btn kind="ghost" icon="rotate" loading={rerun.isPending} onClick={() => rerun.mutate(undefined, { onSuccess: () => toast(tx("实验已排队，预计 26 分钟", "Experiment queued, ~26 min")) })}>
-                    {tx("重新运行", "Re-run")}
-                  </Btn>
+                  {/* Review count and re-run are sample-only; real results and runs come from the execution record. */}
+                  {demo && (
+                    <>
+                      <Btn icon="edit" to={`/agents/evals/${sel}`}>
+                        {tx("人工标注 3 条", "Review 3 cases")}
+                      </Btn>
+                      <Btn kind="ghost" icon="rotate" loading={rerun.isPending} onClick={() => rerun.mutate(undefined, { onSuccess: () => toast(tx("实验已排队，预计 26 分钟", "Experiment queued, ~26 min")) })}>
+                        {tx("重新运行", "Re-run")}
+                      </Btn>
+                    </>
+                  )}
                 </Row>
               </Card>
+              {!e.metrics || !e.cases || !e.radar ? (
+                <Card>
+                  <Unavailable reason="not_generated" icon="activity" title={tx("这个实验还没有结果", "No results for this experiment yet")} desc={tx("实验运行完成后，这里显示两个版本的指标对比、评测维度和用例结果。", "Once the experiment has run, the metric comparison, dimensions and case results show here.")} />
+                </Card>
+              ) : (
+              <>
               <Row gap={14} align="stretch">
                 <Panel title={tx("指标对比", "Metrics")} right={e.gate_failed && <Badge tone="warn"><Icon name="alert" size={11} />{e.gate_failed}</Badge>} style={{ flex: "1 1 0", minWidth: 0 }}>
                   <table className="v3-table">
                     <thead>
                       <tr>
                         <th style={{ width: "34%" }}>{tx("指标", "Metric")}</th>
-                        <th>v12</th>
-                        <th>v13</th>
+                        <th>{verA}</th>
+                        <th>{verB}</th>
                         <th>{tx("变化", "Change")}</th>
                         <th>{tx("门禁", "Gate")}</th>
                         <th />
@@ -188,28 +205,28 @@ export default function EvalsPage() {
                     </tbody>
                   </table>
                 </Panel>
-                <Panel title={tx("评测维度 · v12 vs v13", "Dimensions · v12 vs v13")} style={{ width: 280, flex: "none" }}>
+                <Panel title={tx("评测维度 · {a} vs {b}", "Dimensions · {a} vs {b}", { a: verA, b: verB })} style={{ width: 280, flex: "none" }}>
                   <Col gap={4} align="center">
-                    <Radar axes={e.radar.axes} size={204} series={[{ values: e.radar.a, color: "var(--c5)", name: "v12" }, { values: e.radar.b, color: "var(--c1)", fill: "var(--c1s)", name: "v13" }]} />
-                    <Legend items={[["v12", "var(--c5)"], ["v13", "var(--c1)"]]} />
+                    <Radar axes={e.radar.axes} size={204} series={[{ values: e.radar.a, color: "var(--c5)", name: verA }, { values: e.radar.b, color: "var(--c1)", fill: "var(--c1s)", name: verB }]} />
+                    <Legend items={[[verA, "var(--c5)"], [verB, "var(--c1)"]]} />
                     <Muted size={11}>{tx("越靠外越好；速度与成本已归一化", "Outer is better; speed and cost normalised")}</Muted>
                   </Col>
                 </Panel>
               </Row>
-              <Panel title={tx("用例结果 · 48 例（显示差异项）", "Case results · 48 (showing differences)")} right={<TextLink onClick={() => setTab("label")}>{tx("全部用例", "All cases")}</TextLink>}>
+              <Panel title={demo ? tx("用例结果 · 48 例（显示差异项）", "Case results · 48 (showing differences)") : tx("用例结果 · {n} 例", "Case results · {n}", { n: e.cases.length })} right={<TextLink onClick={() => setTab("label")}>{tx("全部用例", "All cases")}</TextLink>}>
                 <table className="v3-table">
                   <thead>
                     <tr>
                       <th style={{ width: "34%" }}>{tx("用例", "Case")}</th>
                       <th>{tx("期望", "Expected")}</th>
-                      <th>v12</th>
-                      <th>v13</th>
+                      <th>{verA}</th>
+                      <th>{verB}</th>
                       <th>{tx("评分", "Score")}</th>
                       <th>{tx("耗时", "Duration")}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {e.cases.map((c) => (
+                    {(e.cases ?? []).map((c) => (
                       <tr key={c.id} className={cx("clickable", sel === c.id && "selected")} style={{ height: 36 }} onClick={() => setSel(c.id)} onDoubleClick={() => nav(`/agents/evals/${c.id}`)}>
                         <td>
                           <Row gap={8}>
@@ -237,6 +254,8 @@ export default function EvalsPage() {
                   </tbody>
                 </table>
               </Panel>
+              </>
+              )}
             </div>
           )}
         </div>
@@ -260,7 +279,8 @@ export default function EvalsPage() {
               </TextLink>
             }>
             <ul className="plain-list">
-              {e?.datasets.map((d) => (
+              {e && !e.datasets && <Muted size={11.5}>{tx("这个实验还没有关联数据集", "No dataset is linked to this experiment yet")}</Muted>}
+              {e?.datasets?.map((d) => (
                 <li key={d.name}>
                   <Icon name="layers" size={14} color={`var(--${d.tone === "neutral" ? "muted" : d.tone})`} />
                   <Col gap={2} grow>
@@ -277,7 +297,8 @@ export default function EvalsPage() {
           </Section>
           <Section title={tx("评测器", "Evaluators")}>
             <Col gap={8}>
-              {e?.evaluators.map((v) => (
+              {e && !e.evaluators && <Muted size={11.5}>{tx("还没有记录评测器", "No evaluators are recorded yet")}</Muted>}
+              {e?.evaluators?.map((v) => (
                 <Row key={v.name} gap={8}>
                   <Icon name="check" size={13} color="var(--ok)" />
                   <span style={{ fontSize: "var(--fs-sm)", flexGrow: 1 }}>{v.name}</span>
@@ -319,7 +340,7 @@ function EvalsTab({ tab, e, onOpen }: { tab: string; e: EvalExperiment; onOpen: 
             </tr>
           </thead>
           <tbody>
-            {e.datasets.map((d) => (
+            {(e.datasets ?? []).map((d) => (
               <tr key={d.name} style={{ height: 40 }}>
                 <td>
                   <b>{d.name}</b>
@@ -347,7 +368,7 @@ function EvalsTab({ tab, e, onOpen }: { tab: string; e: EvalExperiment; onOpen: 
             </tr>
           </thead>
           <tbody>
-            {e.evaluators.map((v) => (
+            {(e.evaluators ?? []).map((v) => (
               <tr key={v.name} style={{ height: 40 }}>
                 <td>
                   <b>{v.name}</b>
@@ -372,7 +393,7 @@ function EvalsTab({ tab, e, onOpen }: { tab: string; e: EvalExperiment; onOpen: 
           </tr>
         </thead>
         <tbody>
-          {e.cases.map((c) => (
+          {(e.cases ?? []).map((c) => (
             <tr key={c.id} className="clickable" style={{ height: 40 }} onClick={() => onOpen(c.id)}>
               <td>
                 <b>{c.id}</b> <Muted>{c.title}</Muted>

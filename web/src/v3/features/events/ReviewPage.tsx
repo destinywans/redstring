@@ -9,12 +9,14 @@ import { Markdown } from "../../ui/Markdown";
 import { Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
 import { PasskeyApproval } from "./PasskeyApproval";
+import { usePermission, Gated } from "../../ui/permission";
 import "./events.css";
 
 export default function ReviewPage() {
   const { id = "" } = useParams();
   const { tx } = useI18n();
   const nav = useNavigate();
+  const can = usePermission();
   // After approval, poll briefly until the executor records its status and the upstream ID.
   const { data: p, refetch } = useGet<Proposal>(id ? `/proposals/${id}` : null, undefined, {
     refetchInterval: (q) => (q.state.data?.execution && !q.state.data.execution.status ? 3000 : false),
@@ -37,6 +39,8 @@ export default function ReviewPage() {
   const risk = { low: ["ok", tx("低风险", "Low risk")], medium: ["warn", tx("中风险", "Medium risk")], high: ["danger", tx("高风险", "High risk")] } as const;
   const all = checks.size === p.checklist.length;
   const approve = () => setApproving(true);
+  // Approving and rejecting both need the approve grant; "conditional" still goes through the passkey ceremony.
+  const decideBlocked = can(["proposals", "approve"]);
   return (
     <Page
       crumbs={[tx("事件收件箱", "Inbox"), p.title]}
@@ -144,12 +148,16 @@ export default function ReviewPage() {
               <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tx("写给执行记录和报告的说明…", "A note for the execution record and report…")} style={{ minHeight: 60 }} />
             </label>
             <Row gap={8}>
-              <Btn kind="danger" h={32} style={{ flexGrow: 1 }} onClick={() => setRejecting(true)}>
-                {tx("拒绝", "Reject")}
-              </Btn>
-              <Btn kind="primary" icon="key" h={32} style={{ flexGrow: 2 }} disabled={!all} onClick={approve} title={all ? undefined : tx("先完成核对清单", "Complete the checklist first")}>
-                {tx("用通行密钥批准", "Approve with a passkey")}
-              </Btn>
+              <Gated reason={decideBlocked} grow={1}>
+                <Btn kind="danger" h={32} style={{ flexGrow: 1 }} onClick={() => setRejecting(true)}>
+                  {tx("拒绝", "Reject")}
+                </Btn>
+              </Gated>
+              <Gated reason={decideBlocked} grow={2}>
+                <Btn kind="primary" icon="key" h={32} style={{ flexGrow: 2 }} disabled={!all} onClick={approve} title={all ? undefined : tx("先完成核对清单", "Complete the checklist first")}>
+                  {tx("用通行密钥批准", "Approve with a passkey")}
+                </Btn>
+              </Gated>
             </Row>
             <Row gap={8} align="flex-start">
               <Icon name="shield" size={14} color="var(--muted)" style={{ marginTop: 1 }} />
@@ -224,9 +232,13 @@ export default function ReviewPage() {
               kind="danger"
               onClick={async () => {
                 const comment = note.trim().replace(/\s+/g, " ").slice(0, 1000);
-                await api("POST", `/proposals/${p.id}/reject`, { body: comment ? { comment } : {} });
-                setRejecting(false);
-                toast(tx("已拒绝提案", "Proposal rejected"));
+                try {
+                  await api("POST", `/proposals/${p.id}/reject`, { body: comment ? { comment } : {} });
+                  setRejecting(false);
+                  toast(tx("已拒绝提案", "Proposal rejected"));
+                } catch (e) {
+                  toast(e instanceof Error ? e.message : tx("拒绝失败，请稍后重试", "Couldn't reject; try again later"), { tone: "danger" });
+                }
                 void refetch();
               }}
             >

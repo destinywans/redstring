@@ -7,6 +7,7 @@ import { Avatar, Badge, Bar, Btn, Card, Chip, Col, Icon, Mono, Muted, Num, Pills
 import { DataTable, Kpi, KpiRow } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
+import { Gate } from "../../ui/permission";
 import { NewRunbookDialog } from "./NewRunbookPage";
 import { PageHead } from "../conversation/ConversationsPage";
 import "./knowledge.css";
@@ -32,12 +33,16 @@ export default function RunbooksPage() {
       crumbs={[tx("知识与记忆", "Knowledge"), "Runbook"]}
       actions={
         <>
-          <Btn icon="sparkles" onClick={() => setStart("postmortem")}>
-            {tx("从复盘生成", "Generate from postmortems")}
-          </Btn>
-          <Btn kind="primary" icon="plus" onClick={() => setStart("blank")}>
-            {tx("新建 Runbook", "New runbook")}
-          </Btn>
+          <Gate need={["knowledge", "manage"]}>
+            <Btn icon="sparkles" onClick={() => setStart("postmortem")}>
+              {tx("从复盘生成", "Generate from postmortems")}
+            </Btn>
+          </Gate>
+          <Gate need={["knowledge", "manage"]}>
+            <Btn kind="primary" icon="plus" onClick={() => setStart("blank")}>
+              {tx("新建 Runbook", "New runbook")}
+            </Btn>
+          </Gate>
         </>
       }
     >

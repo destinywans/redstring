@@ -61,7 +61,10 @@
   border: 1px solid var(--border);
   background: var(--panel);
 }
-.v3-sidebar .new-btn:hover {
+.v3-sidebar .new-btn:disabled {
+  opacity: 0.5;
+}
+.v3-sidebar .new-btn:hover:not(:disabled) {
   background: var(--hover);
 }
 .nav-list {

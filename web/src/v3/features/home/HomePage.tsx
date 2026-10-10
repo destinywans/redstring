@@ -13,6 +13,7 @@ import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./home.css";
 import { ChipSelect, RangeChip, useFacet } from "../../ui/demo";
 import { Unavailable, UnknownValue } from "../../ui/unknown";
+import { Gate, Gated, usePermission } from "../../ui/permission";
 
 const TODO_TONE = { approval: "accent", report: "info", runbook: "t1", access: "warn" } as const;
 const ACT_ICON: Record<string, IconName> = { ai: "sparkles", change: "branch", alert: "bell", runbook: "book", approval: "shield", system: "cpu" };
@@ -139,6 +140,10 @@ export default function HomePage() {
   const { tx, fmt } = useI18n();
   const nav = useNavigate();
   const { data } = useGet<HomeSummary>("/home");
+  const can = usePermission();
+  const chatBlocked = can(["conversation", "change"]);
+  // Headline counts services whose alerts are still firing (PA-58), not attention rows.
+  const firing = data ? (data.firing_services !== undefined ? data.firing_services : data.attention.filter((x) => x.severity === "P1" || x.severity === "P2").length) : undefined;
   const fKind = useFacet(data?.activity, (a) => a.kind);
   const KIND_LABEL: Record<string, string> = { ai: tx("AI", "AI"), change: tx("变更", "Changes"), alert: tx("告警", "Alerts"), runbook: "Runbook", approval: tx("审批", "Approvals"), system: tx("系统", "System") };
   const ask = (text: string) => nav(`/conversations/new?q=${encodeURIComponent(text)}`);
@@ -165,7 +170,15 @@ export default function HomePage() {
             <h2>
               {greetingWord(tx)}，{data?.greeting.name ?? "…"}
             </h2>
-            <p className="muted">{data ? tx("{a} 个服务异常，{t} 项等待你处理", "{a} services degraded, {t} items waiting for you", { a: data.attention.filter((x) => x.severity === "P1" || x.severity === "P2").length, t: data.todos.length }) : <Skeleton w={260} h={12} />}</p>
+            <p className="muted">
+              {!data ? (
+                <Skeleton w={260} h={12} />
+              ) : firing === null ? (
+                tx("服务告警情况未知，{t} 项等待你处理", "Service alert state unknown, {t} items waiting for you", { t: data.todos.length })
+              ) : (
+                tx("{a} 个服务异常，{t} 项等待你处理", "{a} services degraded, {t} items waiting for you", { a: firing ?? 0, t: data.todos.length })
+              )}
+            </p>
           </div>
           <StatusRow data={data} onOpen={(h) => nav(h)} />
           <div className="home-composer" ref={band}>
@@ -175,6 +188,7 @@ export default function HomePage() {
               spanRef={band}
               placeholder={tx("问问题、下指令，或描述一个异常。例如：checkout-api 现在的 P99 是多少，周六大促要不要扩容？", "Ask, instruct, or describe an anomaly. e.g. What is checkout-api's P99 now — should we scale for Saturday's sale?")}
               onSend={(t, att, x) => nav(newConversationUrl(t, att, x))}
+              blocked={chatBlocked}
             />
           </div>
           <EnvLine />
@@ -199,6 +213,7 @@ export default function HomePage() {
                     <Row gap={6}>
                       <b style={{ fontWeight: 600 }}>{a.service}</b>
                       <Env env={a.env} />
+                      {a.alert_state === "resolved" && <Badge>{tx("已恢复", "Recovered")}</Badge>}
                     </Row>
                     <span>{a.symptom}</span>
                     <Muted>{a.meta}</Muted>
@@ -217,9 +232,12 @@ export default function HomePage() {
                         <Muted size={11.5}>{tx("处理中", "Working")}</Muted>
                       </Row>
                     )}
-                    <Btn h={26} to={a.href} kind={a.ai === "done" ? "secondary" : a.owner ? "ghost" : "secondary"}>
-                      {a.ai === "done" ? tx("查看调查", "View investigation") : a.owner ? tx("继续", "Continue") : tx("发起调查", "Investigate")}
-                    </Btn>
+                    {/* Starting an investigation creates a canvas; viewing or continuing one doesn't need it. */}
+                    <Gated reason={a.ai !== "done" && !a.owner ? can(["canvas", "change"]) : null}>
+                      <Btn h={26} to={a.href} kind={a.ai === "done" ? "secondary" : a.owner ? "ghost" : "secondary"}>
+                        {a.ai === "done" ? tx("查看调查", "View investigation") : a.owner ? tx("继续", "Continue") : tx("发起调查", "Investigate")}
+                      </Btn>
+                    </Gated>
                   </div>
                 </li>
               ))}
@@ -328,7 +346,7 @@ export default function HomePage() {
             </ul>
           </Card>
           <Card className="home-card anim-rise">
-            <CardHead title={tx("最近对话与画布", "Recent conversations & canvases")} right={<Btn kind="ghost" icon="plus" h={24} to="/conversations/new">{tx("新建", "New")}</Btn>} />
+            <CardHead title={tx("最近对话与画布", "Recent conversations & canvases")} right={<Gate need={["conversation", "change"]}><Btn kind="ghost" icon="plus" h={24} to="/conversations/new">{tx("新建", "New")}</Btn></Gate>} />
             <ul style={{ padding: "6px 16px 8px" }}>
               {data?.recent.map((r) => (
                 <li key={r.id}>

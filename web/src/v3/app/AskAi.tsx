@@ -8,6 +8,7 @@ import { BrandMark } from "../ui/BrandMark";
 import { Composer, NextSteps, type SendExtra } from "../ui/Composer";
 import { PartView } from "../features/conversation/Parts";
 import { useI18n } from "../i18n";
+import { useNeed } from "../ui/permission";
 import { useAskAi } from "./askState";
 import { locate } from "./nav";
 import "./ask-ai.css";
@@ -22,6 +23,7 @@ export { useAskAi } from "./askState";
 export function AskAiCard() {
   const { isOpen, setOpen, draft } = useAskAi();
   const { tx, tl } = useI18n();
+  const askBlocked = useNeed(["conversation", "change"]);
   const nav = useNavigate();
   const { pathname } = useLocation();
   const where = locate(pathname);
@@ -151,6 +153,7 @@ export function AskAiCard() {
         <Composer
           key={`${draft}:${epoch}:${view}`}
           compact
+          blocked={askBlocked}
           placeholder={draft || (messages.length ? tx("继续追问…", "Follow up…") : tx("问一个问题…", "Ask a question…"))}
           autoFocus
           sending={sending}

@@ -50,11 +50,18 @@
 
 ## 3. PA-19 P3：切换到统一登记
 
-### 3.1 前提
+### 3.1 前提（2026-10-10 已满足）
 
-- 两个验收实例（prod、nonprod）各跑一次 `import-legacy -out` 和 `compare -out`。
-- 计划没有冲突，对照退出码为 0（没有差异）。
-- 生产实例的现有报告已满足；nonprod 还要补跑，命令见附录 A。
+要求：两个验收实例（prod、nonprod）各跑一次 `import-legacy` 和 `compare`，计划没有冲突，对照退出码为 0。命令见附录 A。
+
+已完成情况，详见验收记录的“PA-19 P3 前提”和 D13：
+- **处理查询 ID**：第一次 dry run 有 9 条绑定，其中 6 条可导入、3 条冲突。原因是遥测文件里有 5 个中文查询 ID，统一目录键只允许 ASCII。处理办法：删掉 4 个与英文 ID 重复的，“依赖操作速率”改名为 `dependency_rate`。之后 9/9 可导入、0 冲突，并复用了已登记的 Prometheus、Loki、Tempo 连接器。
+- **应用计划**：以管理员身份 apply，prod 新建 6 个目标，nonprod 新建 9 个。两个实例都改用 `AIOPS_V3_SOURCE_CATALOG`（旧查询目录变量置空），并在 `compare` 模式下运行。
+- **启用工具开关**：第一次静态对照中，prod 有 6 条、nonprod 9 条都是 `match_not_ready`，原因均为 `tool_disabled`。通过 `PATCH /connectors/{id}` 打开 `query_metrics`、`search_logs`、`query_traces` 后，两个实例都是 9/9 `match`，退出码 0。服务、日志、Trace 和指标看板都返回 200，prod 爬取 0 异常。
+
+由此得到切换前的检查项：
+1. 连接器的工具开关要先打开，否则切换后这些数据面会显示“未就绪”。
+2. 切换前取一次运行时对照日志的计数汇总（`source registry compare summary`），确认真实流量下也没有差异。
 
 ### 3.2 开关与默认值
 
@@ -95,6 +102,7 @@
 
 - `GET /connector-registrations` 从 `v3_connectors` 和目标投影。P4 后返回 `Deprecation` 头，再下一轮移除。
 - 能力标签由“连接器已启用 + 有目标 + 目录有范围 + 凭据已批准”推导。Kubernetes 的回滚相关标签（`rollback.propose` 等）另外要求第 5.4 节的写入批准存在。
+- **连接器详情的 `tools`**：现在总是返回 `[]`，理由是“连接器驱动的 Agent 执行尚未接通”。但从 P2 起，这些开关决定登记里的数据面是否就绪（`tool_disabled`），返回空列表会让管理员以为工具都没开。P3 改为投影已保存的开关，并保留 `agent_execution_available: false`，说明它们只控制数据读取，不授予 Agent 执行。`GET /connectors/{id}/tool-settings` 的 `registered_tools` 本来就读已保存的开关，已有测试覆盖开、读、关、读。
 
 ### 3.6 Kubernetes 连接器与工作负载目标
 

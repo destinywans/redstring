@@ -1,9 +1,9 @@
 // Package v3telemetry is the PA-19 single source registry for telemetry. The
 // database (v3_connectors, v3_connector_targets) says which upstream serves
 // which service; a private, operator-reviewed catalog says which data that
-// service may see. This round (P0-P2) adds the catalog, a resolver, an
-// importer for the file configuration and a compare mode; readers still use
-// AIOPS_TELEMETRY_CONFIG until P3 switches them.
+// service may see, and bounds every client. The importer and the compare
+// report read the legacy file configuration; since P4 every V3 reader reads
+// the registry and a V3 instance no longer reads AIOPS_TELEMETRY_CONFIG.
 package v3telemetry
 
 import (
@@ -37,7 +37,45 @@ type Catalog struct {
 	Scopes  map[ScopeKey]Scope
 	// Workloads are reviewed Kubernetes workload scopes (PA-08).
 	Workloads map[ScopeKey]WorkloadScope
+	// Limits bound every registry client (PA-19 P4: they moved here from
+	// the telemetry file, which a V3 instance no longer reads).
+	Limits Limits
+	// TempoSearchFailClosed are the Tempo connector IDs whose deployment
+	// is verified to fail a search on high live-store lag, so an answered
+	// search is the complete population (the file's
+	// tempo_search_fail_closed, per connector since P4).
+	TempoSearchFailClosed map[string]bool
 }
+
+// Limits are the time and size bounds of the registry clients, in the
+// telemetry file's field names. Zero keeps the client default (15 s timeout,
+// 1 h window, 7 d lookback, 5 s step, 1000 samples, 1000 log entries).
+type Limits struct {
+	TimeoutSeconds      int `json:"timeout_seconds,omitempty"`
+	MaxWindowSeconds    int `json:"max_window_seconds,omitempty"`
+	MaxLookbackSeconds  int `json:"max_lookback_seconds,omitempty"`
+	MinStepSeconds      int `json:"min_step_seconds,omitempty"`
+	MaxSamplesPerSeries int `json:"max_samples_per_series,omitempty"`
+	MaxLogEntries       int `json:"max_log_entries,omitempty"`
+}
+
+// Config is the client configuration of the limits.
+func (l Limits) Config() connectors.TelemetryConfig {
+	return connectors.TelemetryConfig{TimeoutSeconds: l.TimeoutSeconds, MaxWindowSeconds: l.MaxWindowSeconds,
+		MaxLookbackSeconds: l.MaxLookbackSeconds, MinStepSeconds: l.MinStepSeconds,
+		MaxSamplesPerSeries: l.MaxSamplesPerSeries, MaxLogEntries: l.MaxLogEntries}
+}
+
+// LimitsOf are the limits of a telemetry file.
+func LimitsOf(c connectors.TelemetryConfig) Limits {
+	return Limits{TimeoutSeconds: c.TimeoutSeconds, MaxWindowSeconds: c.MaxWindowSeconds,
+		MaxLookbackSeconds: c.MaxLookbackSeconds, MinStepSeconds: c.MinStepSeconds,
+		MaxSamplesPerSeries: c.MaxSamplesPerSeries, MaxLogEntries: c.MaxLogEntries}
+}
+
+// validLimits accepts what a client accepts: each value in its range after
+// the defaults are applied.
+func validLimits(l Limits) bool { return connectors.ValidLimits(l.Config()) }
 
 // Scope is one provider's subset of a legacy application registration.
 type Scope struct {
@@ -96,21 +134,25 @@ func scopeEntry(key ScopeKey, scope Scope) ScopeEntry {
 // CatalogFile is the private JSON file: {"queries":[...],"scopes":[...]}.
 // A file with only "queries" is the existing Prometheus query catalog.
 type CatalogFile struct {
-	Queries   []QueryEntry    `json:"queries"`
-	Scopes    []ScopeEntry    `json:"scopes,omitempty"`
-	Workloads []WorkloadEntry `json:"workloads,omitempty"`
+	Queries               []QueryEntry    `json:"queries"`
+	Scopes                []ScopeEntry    `json:"scopes,omitempty"`
+	Workloads             []WorkloadEntry `json:"workloads,omitempty"`
+	Limits                *Limits         `json:"limits,omitempty"`
+	TempoSearchFailClosed []string        `json:"tempo_search_fail_closed,omitempty"`
 }
 
 const (
 	maxCatalogBytes = 1 << 20
 	maxQueries      = 500
 	maxScopes       = 500
+	maxFailClosed   = 100
 )
 
 // LoadCatalog reads the file at path; an empty path is an empty catalog.
 func LoadCatalog(path string) (Catalog, error) {
 	if path == "" {
-		return Catalog{Queries: map[v3integrations.PrometheusQueryKey]string{}, Scopes: map[ScopeKey]Scope{}, Workloads: map[ScopeKey]WorkloadScope{}}, nil
+		return Catalog{Queries: map[v3integrations.PrometheusQueryKey]string{}, Scopes: map[ScopeKey]Scope{}, Workloads: map[ScopeKey]WorkloadScope{},
+			TempoSearchFailClosed: map[string]bool{}}, nil
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -136,7 +178,22 @@ func ParseCatalog(data []byte) (Catalog, error) {
 	if len(file.Queries) > maxQueries || len(file.Scopes) > maxScopes {
 		return Catalog{}, fmt.Errorf("source catalog has too many entries")
 	}
-	out := Catalog{Queries: map[v3integrations.PrometheusQueryKey]string{}, Scopes: map[ScopeKey]Scope{}}
+	out := Catalog{Queries: map[v3integrations.PrometheusQueryKey]string{}, Scopes: map[ScopeKey]Scope{}, TempoSearchFailClosed: map[string]bool{}}
+	if file.Limits != nil {
+		if !validLimits(*file.Limits) {
+			return Catalog{}, fmt.Errorf("invalid source catalog limits")
+		}
+		out.Limits = *file.Limits
+	}
+	if len(file.TempoSearchFailClosed) > maxFailClosed {
+		return Catalog{}, fmt.Errorf("source catalog has too many fail-closed Tempo connectors")
+	}
+	for i, id := range file.TempoSearchFailClosed {
+		if id == "" || len(id) > 128 || out.TempoSearchFailClosed[id] {
+			return Catalog{}, fmt.Errorf("invalid fail-closed Tempo connector at index %d", i)
+		}
+		out.TempoSearchFailClosed[id] = true
+	}
 	for i, entry := range file.Queries {
 		key := v3integrations.PrometheusQueryKey{ConnectorID: entry.ConnectorID, ApplicationID: entry.ApplicationID,
 			EnvironmentID: entry.EnvironmentID, ResourceID: entry.ResourceID, QueryID: entry.QueryID}
@@ -283,6 +340,14 @@ func (c Catalog) File() CatalogFile {
 		return a.EnvironmentID+"\x00"+a.ApplicationID+"\x00"+a.ConnectorID+"\x00"+a.ResourceID <
 			b.EnvironmentID+"\x00"+b.ApplicationID+"\x00"+b.ConnectorID+"\x00"+b.ResourceID
 	})
+	if c.Limits != (Limits{}) {
+		limits := c.Limits
+		out.Limits = &limits
+	}
+	for id := range c.TempoSearchFailClosed {
+		out.TempoSearchFailClosed = append(out.TempoSearchFailClosed, id)
+	}
+	sort.Strings(out.TempoSearchFailClosed)
 	return out
 }
 
@@ -290,7 +355,11 @@ func (c Catalog) File() CatalogFile {
 // loaded configuration.
 func (c Catalog) Clone() Catalog {
 	out := Catalog{Queries: make(map[v3integrations.PrometheusQueryKey]string, len(c.Queries)), Scopes: make(map[ScopeKey]Scope, len(c.Scopes)),
-		Workloads: make(map[ScopeKey]WorkloadScope, len(c.Workloads))}
+		Workloads: make(map[ScopeKey]WorkloadScope, len(c.Workloads)), Limits: c.Limits,
+		TempoSearchFailClosed: make(map[string]bool, len(c.TempoSearchFailClosed))}
+	for id := range c.TempoSearchFailClosed {
+		out.TempoSearchFailClosed[id] = true
+	}
 	for key, value := range c.Workloads {
 		out.Workloads[key] = value
 	}

@@ -87,7 +87,7 @@ func TestConfiguredV3ChangeRoutesReviewAndCoverage(t *testing.T) {
 	runner := &v3BindingRunner{}
 	api := httpapi.New(st, runner, true)
 	cfg := httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "test", EnvironmentIDs: []string{"test"}}
-	if err := configureV3(ctx, st, runner, api, nil, nil, &v3Instance{}, cfg, operations.Config{}); err != nil {
+	if err := configureV3(ctx, st, runner, api, nil, &v3Instance{}, cfg, operations.Config{}); err != nil {
 		t.Fatal(err)
 	}
 	call := func(method, path, body string) *httptest.ResponseRecorder {
@@ -205,7 +205,7 @@ func TestConfiguredV3ChangeRoutesReviewAndCoverage(t *testing.T) {
 	}
 	t.Setenv("AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG", coverageFile)
 	api = httpapi.New(st, runner, true)
-	if err := configureV3(ctx, st, runner, api, nil, nil, &v3Instance{}, cfg,
+	if err := configureV3(ctx, st, runner, api, nil, &v3Instance{}, cfg,
 		operations.Config{Sources: []operations.Source{source}}); err != nil {
 		t.Fatal(err)
 	}

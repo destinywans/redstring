@@ -577,6 +577,10 @@ func BuildPlan(input ImportInput, state State) Plan {
 			catalog.Queries[qk] = expression
 			plan.Summary.CatalogAdded++
 		}
+		// PA-19 P4: the file's search attestation is per Tempo connector.
+		if b.Kind == "tempo" && input.Telemetry.TempoSearchFailClosed {
+			catalog.TempoSearchFailClosed[connector.ID] = true
+		}
 		if scope != nil {
 			catalog.Scopes[key] = *scope
 			plan.Summary.CatalogAdded++
@@ -587,6 +591,11 @@ func BuildPlan(input ImportInput, state State) Plan {
 				ConnectorID: connector.ID, Provider: b.Kind, Endpoint: legacy.Endpoint, AuthMethod: legacy.AuthMethod,
 				Approved: input.Approvals.AnyFor(input.Tier, b.EnvironmentID, connector.ID, b.Kind, legacy.Endpoint)})
 		}
+	}
+	// PA-19 P4: a V3 instance takes its client limits from the catalog. A
+	// catalog that already has limits keeps them.
+	if catalog.Limits == (Limits{}) {
+		catalog.Limits = LimitsOf(input.Telemetry)
 	}
 	plan.Catalog = catalog.File()
 	plan.Digest = plan.digest()

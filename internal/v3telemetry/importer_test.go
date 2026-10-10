@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/wans/aiops-canvas/internal/connectors"
@@ -224,5 +225,36 @@ func TestBuildPlanImportsWorkloads(t *testing.T) {
 		ConnectorID: "other-cluster", Provider: WorkloadProvider, TargetKind: WorkloadTargetKind, ExternalID: "checkout-api"})
 	if got := conflicts(input, state); len(got) != 1 || got[0] != "existing_target_other_source" {
 		t.Fatalf("other source: %v", got)
+	}
+}
+
+// PA-19 P4: the plan's catalog carries the file's limits and its Tempo
+// search attestation (per imported Tempo connector); a catalog that already
+// has limits keeps them.
+func TestBuildPlanCarriesLimitsAndTempoAttestation(t *testing.T) {
+	input := labInput()
+	input.Telemetry.MaxWindowSeconds, input.Telemetry.MaxLookbackSeconds = 7200, 14*86400
+	input.Telemetry.TempoSearchFailClosed = true
+	plan := BuildPlan(input, labState())
+	var tempo []string
+	for _, c := range plan.Connectors {
+		if c.Provider == "tempo" {
+			tempo = append(tempo, c.ID)
+		}
+	}
+	if plan.Catalog.Limits == nil || *plan.Catalog.Limits != (Limits{MaxWindowSeconds: 7200, MaxLookbackSeconds: 14 * 86400}) ||
+		len(tempo) != 1 || !reflect.DeepEqual(plan.Catalog.TempoSearchFailClosed, tempo) {
+		t.Fatalf("plan catalog: %+v %v tempo %v", plan.Catalog.Limits, plan.Catalog.TempoSearchFailClosed, tempo)
+	}
+	raw, _ := json.Marshal(plan.Catalog)
+	if _, err := ParseCatalog(raw); err != nil {
+		t.Fatalf("generated catalog: %v", err)
+	}
+	if plan.Digest == BuildPlan(labInput(), labState()).Digest {
+		t.Fatal("the limits and attestation are not part of the reviewed plan")
+	}
+	input.Catalog.Limits = Limits{TimeoutSeconds: 20}
+	if kept := BuildPlan(input, labState()); *kept.Catalog.Limits != (Limits{TimeoutSeconds: 20}) {
+		t.Fatalf("catalog limits replaced: %+v", kept.Catalog.Limits)
 	}
 }

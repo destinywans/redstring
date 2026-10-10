@@ -202,20 +202,9 @@ func LoadTelemetryConfig(path string) (TelemetryConfig, error) {
 	e = json.Unmarshal(b, &c)
 	return c, e
 }
-func NewTelemetry(config TelemetryConfig) (*Telemetry, error) {
-	// Deep-copy registration maps, so a caller cannot expand the scope after construction.
-	b, e := json.Marshal(config)
-	if e != nil {
-		return nil, e
-	}
-	var c TelemetryConfig
-	if e = json.Unmarshal(b, &c); e != nil {
-		return nil, e
-	}
-	c.Prometheus = c.Prometheus.withRuntime(config.Prometheus)
-	c.Loki = c.Loki.withRuntime(config.Loki)
-	c.Elasticsearch = c.Elasticsearch.withRuntime(config.Elasticsearch)
-	c.Tempo = c.Tempo.withRuntime(config.Tempo)
+
+// limitDefaults fills the unset time and result limits.
+func (c *TelemetryConfig) limitDefaults() {
 	if c.TimeoutSeconds == 0 {
 		c.TimeoutSeconds = 15
 	}
@@ -234,7 +223,39 @@ func NewTelemetry(config TelemetryConfig) (*Telemetry, error) {
 	if c.MaxLogEntries == 0 {
 		c.MaxLogEntries = 1000
 	}
-	if c.TimeoutSeconds < 1 || c.TimeoutSeconds > 60 || c.MaxWindowSeconds < 1 || c.MaxWindowSeconds > 86400 || c.MaxLookbackSeconds < c.MaxWindowSeconds || c.MaxLookbackSeconds > 366*86400 || c.MinStepSeconds < 1 || c.MinStepSeconds > c.MaxWindowSeconds || c.MaxSamplesPerSeries < 2 || c.MaxSamplesPerSeries > 11000 || c.MaxLogEntries < 1 || c.MaxLogEntries > 5000 {
+}
+
+func (c TelemetryConfig) limitsValid() bool {
+	return c.TimeoutSeconds >= 1 && c.TimeoutSeconds <= 60 && c.MaxWindowSeconds >= 1 && c.MaxWindowSeconds <= 86400 &&
+		c.MaxLookbackSeconds >= c.MaxWindowSeconds && c.MaxLookbackSeconds <= 366*86400 && c.MinStepSeconds >= 1 &&
+		c.MinStepSeconds <= c.MaxWindowSeconds && c.MaxSamplesPerSeries >= 2 && c.MaxSamplesPerSeries <= 11000 &&
+		c.MaxLogEntries >= 1 && c.MaxLogEntries <= 5000
+}
+
+// ValidLimits reports whether the time and result limits of c are in range
+// once the unset ones take their defaults; endpoints and applications are not
+// checked.
+func ValidLimits(c TelemetryConfig) bool {
+	c.limitDefaults()
+	return c.limitsValid()
+}
+
+func NewTelemetry(config TelemetryConfig) (*Telemetry, error) {
+	// Deep-copy registration maps, so a caller cannot expand the scope after construction.
+	b, e := json.Marshal(config)
+	if e != nil {
+		return nil, e
+	}
+	var c TelemetryConfig
+	if e = json.Unmarshal(b, &c); e != nil {
+		return nil, e
+	}
+	c.Prometheus = c.Prometheus.withRuntime(config.Prometheus)
+	c.Loki = c.Loki.withRuntime(config.Loki)
+	c.Elasticsearch = c.Elasticsearch.withRuntime(config.Elasticsearch)
+	c.Tempo = c.Tempo.withRuntime(config.Tempo)
+	c.limitDefaults()
+	if !c.limitsValid() {
 		return nil, errors.New("invalid telemetry time or result limits")
 	}
 	if len(c.Applications) == 0 {

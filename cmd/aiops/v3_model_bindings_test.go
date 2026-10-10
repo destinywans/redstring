@@ -57,7 +57,7 @@ func TestConfiguredV3ModelRuntimeUsesOneBindingSnapshot(t *testing.T) {
 
 func TestMalformedV3ModelBindingsFailBeforeV3Configuration(t *testing.T) {
 	t.Setenv("AIOPS_V3_MODEL_BINDINGS_FILE", filepath.Join(t.TempDir(), "missing.json"))
-	err := configureV3(context.Background(), &store.Store{}, &v3BindingRunner{}, nil, nil, nil, &v3Instance{}, httpapi.V3InstanceConfig{Tier: "nonprod", EnvironmentIDs: []string{"dev"}}, operations.Config{})
+	err := configureV3(context.Background(), &store.Store{}, &v3BindingRunner{}, nil, nil, &v3Instance{}, httpapi.V3InstanceConfig{Tier: "nonprod", EnvironmentIDs: []string{"dev"}}, operations.Config{})
 	if err == nil || !strings.Contains(err.Error(), "load V3 model bindings") {
 		t.Fatalf("invalid binding path reached V3 registration: %v", err)
 	}

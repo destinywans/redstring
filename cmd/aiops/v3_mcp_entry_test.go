@@ -137,7 +137,7 @@ func TestConfiguredV3MCPCatalogAndReviewRoutes(t *testing.T) {
 	runner := &v3BindingRunner{}
 	api := httpapi.New(st, runner, true)
 	instance := httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}
-	if err := configureV3(ctx, st, runner, api, nil, nil, &info, instance, operations.Config{}); err != nil {
+	if err := configureV3(ctx, st, runner, api, nil, &info, instance, operations.Config{}); err != nil {
 		t.Fatal(err)
 	}
 	entry := httptest.NewServer(api)

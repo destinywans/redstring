@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -18,9 +17,9 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-// Telemetry registration is operator configuration, never model-supplied URLs or queries.
-func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) (*connectors.Telemetry, error) {
-	path := os.Getenv("AIOPS_TELEMETRY_CONFIG")
+// Telemetry registration is operator configuration, never model-supplied URLs
+// or queries. path is AIOPS_TELEMETRY_CONFIG, empty on a V3 instance.
+func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker, path string) error {
 	if path == "" {
 		api.RegisterTelemetryBatch(nil)
 		registerTelemetryMetadata(api, connectors.TelemetryConfig{}, nil)
@@ -29,11 +28,11 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) (*connector
 			httpapi.NewIntegration("loki", "Loki", "connector", "loki", false, nil, []string{"logs.read"}),
 			httpapi.NewIntegration("elasticsearch", "Elasticsearch", "connector", "elasticsearch", false, nil, []string{"logs.read"}),
 			httpapi.NewIntegration("tempo", "Tempo", "connector", "tempo", false, nil, []string{"traces.read"}))
-		return nil, nil
+		return nil
 	}
 	config, e := connectors.LoadTelemetryConfig(path)
 	if e != nil {
-		return nil, e
+		return e
 	}
 	metrics := httpapi.NewIntegration("prometheus", "Prometheus", "connector", "prometheus", config.Prometheus.URL != "", nil, []string{"metrics.read"})
 	logs := httpapi.NewIntegration("loki", "Loki", "connector", "loki", config.Loki.URL != "", nil, []string{"logs.read"})
@@ -58,7 +57,7 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) (*connector
 	api.Integrations = append(api.Integrations, metrics, logs, esLogs, traces)
 	client, e := connectors.NewTelemetry(config)
 	if e != nil {
-		return nil, e
+		return e
 	}
 	api.RegisterTelemetryBatch(client)
 	previous := worker.Tools
@@ -145,7 +144,7 @@ func configureTelemetry(api *httpapi.Server, worker *httpapi.Worker) (*connector
 		}
 		httpapi.WriteJSON(w, 200, result)
 	})
-	return client, nil
+	return nil
 }
 
 // The model receives a small bounded sample. Interactive log browsing retains

@@ -27,9 +27,13 @@ type Clients struct {
 	// Credentials resolves a source's credential reference; it must enforce
 	// the approved credential bindings (v3integrations.BoundResolver).
 	Credentials v3integrations.CredentialResolver
-	// Limits are the time, size and Tempo settings every client uses (the
-	// file registration's, so readers behave the same after the switch).
+	// Limits are the time and size bounds every client uses (the catalog's
+	// limits since PA-19 P4).
 	Limits connectors.TelemetryConfig
+	// TempoSearchFailClosed are the Tempo connectors attested to fail a
+	// search on high live-store lag (the catalog's list); only their
+	// searches count as a complete population.
+	TempoSearchFailClosed map[string]bool
 	// CredentialTTL caches a resolved credential; zero is 60 s. A 401 or 403
 	// answer drops it at once.
 	CredentialTTL time.Duration
@@ -121,7 +125,9 @@ func (c *Clients) ForGroup(env string, sources []Source) (*connectors.Telemetry,
 		return nil, ErrClientUnavailable
 	}
 	key := env + "\x00" + s.ConnectorID + "\x00" + strings.Join(resources, "\x00")
-	digest := clientDigest(env, s, scopes, c.Limits)
+	limits := c.Limits
+	limits.TempoSearchFailClosed = s.Provider == "tempo" && c.TempoSearchFailClosed[s.ConnectorID]
+	digest := clientDigest(env, s, scopes, limits)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if cached, ok := c.clients[key]; ok && cached.digest == digest {
@@ -139,7 +145,7 @@ func (c *Clients) ForGroup(env string, sources []Source) (*connectors.Telemetry,
 		}
 		endpoint.Unauthorized = func() { c.forget(credentialKey) }
 	}
-	config := c.Limits
+	config := limits
 	config.Prometheus, config.Loki, config.Elasticsearch, config.Tempo = connectors.TelemetryEndpoint{}, connectors.TelemetryEndpoint{},
 		connectors.TelemetryEndpoint{}, connectors.TelemetryEndpoint{}
 	switch s.Provider {

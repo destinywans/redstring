@@ -119,7 +119,7 @@ func TestConfiguredV3PageInteractions(t *testing.T) {
 	if err = json.Unmarshal([]byte(`{"tier":"nonprod","domain":"page.example.invalid","environments":[{"id":"dev"},{"id":"test"}]}`), &info); err != nil {
 		t.Fatal(err)
 	}
-	if err = configureV3(ctx, st, runner, api, nil, know, &info, httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}}, operations.Config{}); err != nil {
+	if err = configureV3(ctx, st, runner, api, know, &info, httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}}, operations.Config{}); err != nil {
 		t.Fatal(err)
 	}
 	currentT := t

@@ -54,7 +54,7 @@ func TestV3PullCatalogFailsBeforeRouteConfiguration(t *testing.T) {
 			t.Setenv("AIOPS_V3_PULL_SOURCES_CONFIG", path)
 			// A malformed catalog must fail before ConfigureV3Environment or
 			// route registration touches the deliberately absent API server.
-			err := configureV3(context.Background(), &store.Store{DB: db}, nil, nil, nil, nil,
+			err := configureV3(context.Background(), &store.Store{DB: db}, nil, nil, nil,
 				&v3Instance{}, httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, operations.Config{})
 			if err == nil || !strings.Contains(err.Error(), "Pull") {
 				t.Fatalf("unsafe Pull catalog passed the startup gate: %v", err)

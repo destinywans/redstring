@@ -17,7 +17,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/aiextensions"
-	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/delivery"
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -211,11 +210,11 @@ func configuredV3ModelRuntime(path string, cfg httpapi.V3InstanceConfig, runtime
 
 // configureV3 enables the new backend only with explicit instance
 // configuration. A partial deployment cannot silently claim production scope.
-func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, api *httpapi.Server, telemetry *connectors.Telemetry, know *knowledge.Service, info *v3Instance, cfg httpapi.V3InstanceConfig, opsConfig operations.Config) error {
-	return configureV3WithNativeSources(ctx, s, runtime, api, telemetry, know, info, cfg, opsConfig, nil)
+func configureV3(ctx context.Context, s *store.Store, runtime inference.Runner, api *httpapi.Server, know *knowledge.Service, info *v3Instance, cfg httpapi.V3InstanceConfig, opsConfig operations.Config) error {
+	return configureV3WithNativeSources(ctx, s, runtime, api, know, info, cfg, opsConfig, nil)
 }
 
-func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime inference.Runner, api *httpapi.Server, telemetry *connectors.Telemetry, know *knowledge.Service, info *v3Instance, cfg httpapi.V3InstanceConfig, opsConfig operations.Config, gitLabs []delivery.GitLabConfig) error {
+func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime inference.Runner, api *httpapi.Server, know *knowledge.Service, info *v3Instance, cfg httpapi.V3InstanceConfig, opsConfig operations.Config, gitLabs []delivery.GitLabConfig) error {
 	if info == nil {
 		return nil
 	}
@@ -600,9 +599,11 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	// the registry.
 	coverage.Registry = sourceResolver
 	catalog.Registry = sourceResolver
-	// The readers build one client per registered connector, with the file
-	// registration's limits and approved Vault credentials.
-	sourceClients := &v3telemetry.Clients{Tier: cfg.Tier, Credentials: credentialResolver, Limits: telemetry.Registration()}
+	// The readers build one client per registered connector, with the
+	// catalog's limits and Tempo search attestations (PA-19 P4) and approved
+	// Vault credentials.
+	sourceClients := &v3telemetry.Clients{Tier: cfg.Tier, Credentials: credentialResolver, Limits: sourceCatalog.Limits.Config(),
+		TempoSearchFailClosed: sourceCatalog.TempoSearchFailClosed}
 	metricReader, err := v3integrations.NewPrometheusReader(s.DB, cfg.Tier, connector.Prober.Resolver, metricCatalog)
 	if err != nil {
 		return fmt.Errorf("configure V3 Prometheus reader: %w", err)

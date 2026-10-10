@@ -11,7 +11,7 @@ import (
 )
 
 // Legacy is one file-configured source: a persisted binding resolved through
-// AIOPS_TELEMETRY_CONFIG, as the current readers use it.
+// AIOPS_TELEMETRY_CONFIG, as the legacy readers use it.
 type Legacy struct {
 	Provider   string
 	Resource   string

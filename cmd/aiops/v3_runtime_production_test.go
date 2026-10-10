@@ -130,7 +130,7 @@ func TestConfiguredV3MemoryEvaluationAndAgentExecution(t *testing.T) {
 	if err = json.Unmarshal([]byte(`{"tier":"nonprod","domain":"runtime.example.invalid","environments":[{"id":"dev"}]}`), &info); err != nil {
 		t.Fatal(err)
 	}
-	if err = configureV3(ctx, st, runner, api, nil, know, &info, httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, operations.Config{}); err != nil {
+	if err = configureV3(ctx, st, runner, api, know, &info, httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, operations.Config{}); err != nil {
 		t.Fatal(err)
 	}
 	server := httptest.NewServer(api)

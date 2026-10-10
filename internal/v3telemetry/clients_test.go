@@ -241,3 +241,37 @@ func TestClientsForGroupAndTempoScopes(t *testing.T) {
 		t.Fatal("a Tempo selector over 6 KiB was accepted")
 	}
 }
+
+// PA-19 P4: clients take the catalog's limits, and only a Tempo connector the
+// catalog attests searches its population completely.
+func TestClientsTakeTheCatalogLimitsAndTempoAttestation(t *testing.T) {
+	clients := &Clients{Tier: "nonprod", Limits: Limits{MaxWindowSeconds: 7200, MaxLookbackSeconds: 14 * 86400}.Config(),
+		TempoSearchFailClosed: map[string]bool{"tempo-a": true}}
+	tempo := func(connector string) Source {
+		return Source{TargetID: "t-" + connector, ConnectorID: connector, Provider: "tempo", Endpoint: "http://127.0.0.1:3200",
+			AuthMethod: "none", ResourceID: "checkout",
+			Scope: connectors.ApplicationTelemetry{TempoService: "checkout", TempoAttributes: map[string]string{"deployment.environment": "lab"}}}
+	}
+	attested, _, err := clients.For("dev", tempo("tempo-a"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, err := clients.For("dev", tempo("tempo-b"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !attested.Registration().TempoSearchFailClosed || other.Registration().TempoSearchFailClosed ||
+		attested.Limits().MaxWindowSeconds != 7200 || attested.Limits().MaxLookbackSeconds != 14*86400 {
+		t.Fatalf("attested %+v other %+v", attested.Limits(), other.Limits())
+	}
+	// A limit set alone attests nothing; the list decides.
+	clients.Limits.TempoSearchFailClosed = true
+	if again, _, _ := clients.For("dev", tempo("tempo-b")); again.Registration().TempoSearchFailClosed {
+		t.Fatal("an unlisted Tempo connector was attested")
+	}
+	// A changed list rebuilds the client.
+	clients.TempoSearchFailClosed = map[string]bool{}
+	if again, _, _ := clients.For("dev", tempo("tempo-a")); again == attested || again.Registration().TempoSearchFailClosed {
+		t.Fatal("a removed attestation was kept")
+	}
+}

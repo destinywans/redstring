@@ -13,13 +13,18 @@
     {"connector_id": "...", "application_id": "...", "environment_id": "...", "resource_id": "lab-checkout", "provider": "loki", "loki_labels": {"app": "checkout"}},
     {"connector_id": "...", "application_id": "...", "environment_id": "...", "resource_id": "lab-search", "provider": "elasticsearch", "elasticsearch_index": "search-logs", "elasticsearch_filters": {"service.name": "search"}},
     {"connector_id": "...", "application_id": "...", "environment_id": "...", "resource_id": "lab-checkout", "provider": "tempo", "tempo_service": "checkout", "tempo_attributes": {"deployment.environment": "lab"}}
-  ]
+  ],
+  "limits": {"max_window_seconds": 3600, "max_lookback_seconds": 604800},
+  "tempo_search_fail_closed": ["<Tempo 连接器 ID>"]
 }
 ```
 
 - `queries`：每条表达式最多 8192 字符（PA-43，原为 2048），键为连接器、应用、环境、资源和查询 ID。读取方（看板、服务视图、Pull、拓扑、指标提问、回滚验证）用 POST 表单（`application/x-www-form-urlencoded`）发查询，表达式不出现在 URL 里；查询窗口规范到毫秒。
 - `scopes` 字段名与 `AIOPS_TELEMETRY_CONFIG.applications` 相同，每条只能填自己供应商的字段，并沿用相同的校验（标签名、Elasticsearch 字段不得带 `.keyword`、Tempo 必须有属性范围等）。范围里不能写 PromQL。
 - `tempo_attributes` 的键直接写资源属性名（如 `deployment.environment`），不能以 `resource.` 或 `span.` 开头：搜索时会自动加 `resource.`，带前缀的键会查成 `resource.resource.…` 而什么都匹配不到（D19）。遥测文件和统一目录都在加载时拒绝，服务启动和 `import-legacy` 直接报错。
+- `limits`（P4，可选）：所有登记读取方客户端的时间与大小上限，字段名与遥测文件相同：`timeout_seconds`（默认 15，1–60）、`max_window_seconds`（单次请求窗口，默认 3600，最长 86400）、`max_lookback_seconds`（最远回看，默认 604800 即 7 天，不小于窗口、最长 366 天）、`min_step_seconds`（默认 5）、`max_samples_per_series`（默认 1000，2–11000）、`max_log_entries`（默认 1000，1–5000）。不写或写 0 取默认值；越界或未知字段时目录加载失败、服务拒绝启动。
+- `tempo_search_fail_closed`（P4，可选）：Tempo 连接器 ID 列表，声明这些 Tempo 部署已确认在 live-store 滞后时让搜索失败而不是返回不完整的 200（见 [Trace 来源](v3-traces-source.md)）。只有列出的连接器的搜索算完整集合；多连接器的列表要全部列出才给总数、分面和直方图。不能为了让列表显示总数而列出未确认的连接器。最多 100 个，不能重复。
+- `limits` 和 `tempo_search_fail_closed` 原在遥测文件里（P4 之前对所有登记的 Tempo 连接器统一生效）；V3 实例从 P4 起不再读遥测文件，它们只从目录取。把它们放进目录而不是连接器的 `options`，是因为 `options` 目前只能由 `import-legacy` 写入、没有写接口，而目录本来就是运维审查过的私有配置（与 Tempo 选择器同处）。`aiops connectors import-legacy` 生成的目录会带上遥测文件的上限（目录里已有 `limits` 时保留目录的），文件声明了搜索完整时列出导入的 Tempo 连接器。
 - 两个变量只能设一个，同时设置会启动失败。旧文件（只有 `queries`）可以直接改用新变量名。
 - 目录决定数据范围，只放在服务端；集成中心看不到也不能编辑。
 
@@ -128,7 +133,7 @@ Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `d
 - **GET 与 URL 长度**：TraceQL 搜索仍是 GET（Tempo 没有 POST 形式）。请求 URI（路径加查询串）超过 8 KiB 时不发送，列表返回 422 `query_too_long`。目录里每条 Tempo 范围的选择器 URL 编码后不得超过 6 KiB，加上最长 512 字符的 `q`（编码后最多约 1.5 KiB）仍在 8 KiB 以内，所以登记的范围只会因用户过滤条件过长而触发这个错误。旧文件里的范围不受目录校验，超长时同样 422。按 ID 读 Trace 的 URL 很短，不受影响。
 - **时间范围（PA-79）**：`range` 是搜索的外边界，可以长到 `max_lookback_seconds`（默认 7 天，更长为 422 `range_exceeds_lookback`）；每次 Tempo 请求仍不超过 `max_window_seconds`（默认 1 小时），从新到旧，计入 64 次搜索预算。所以流量很小、范围很长时也可能以 `search_budget` 结束：每个服务每小时至少一次搜索，3 个服务时 64 次约覆盖 21 小时。
 - **视图（PA-80）**：错误视图把 `{ status = error }`、慢视图把 `{ trace:duration >= 1s }` 并入每次搜索，与用户的 `q` 同时满足，覆盖整个时间范围，而不是对最近 40 条做后筛选。
-- `tempo_search_fail_closed` 目前仍取自 `AIOPS_TELEMETRY_CONFIG`，对所有登记的 Tempo 连接器生效；P4 删除遥测文件之前要给它换位置。
+- `tempo_search_fail_closed` 和 `max_window_seconds`、`max_lookback_seconds` 等上限从 P4 起取自统一目录（见上文“统一目录”），按连接器声明；V3 实例不再读遥测文件。
 
 ### AI 指标工具与服务清单（第二阶段第 5 步）
 

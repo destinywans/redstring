@@ -115,7 +115,7 @@ func NewServiceMetricsTool(opts ServiceMetricsToolOptions) (inference.EvidenceTo
 
 // metricQuery documents a well-known query ID (PA-51): what it measures and
 // which series labels the model may see. The expression itself is only in the
-// reviewed per-service catalog (prometheus_queries of AIOPS_TELEMETRY_CONFIG).
+// reviewed source catalog (AIOPS_V3_SOURCE_CATALOG).
 type metricQuery struct {
 	meaning string
 	labels  []string

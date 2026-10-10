@@ -17,7 +17,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/connectors"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
@@ -219,7 +218,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	api := httpapi.New(st, nil, true)
 	traces := New(st, policy)
 	traces.Registry = &v3telemetry.Resolver{Tier: "nonprod", Catalog: catalog, Approvals: approvals}
-	traces.Clients = &v3telemetry.Clients{Tier: "nonprod", Credentials: vault, Limits: connectors.TelemetryConfig{TempoSearchFailClosed: true},
+	traces.Clients = &v3telemetry.Clients{Tier: "nonprod", Credentials: vault, TempoSearchFailClosed: map[string]bool{"tempo-a": true, "tempo-b": true},
 		Now: func() time.Time { return time.Unix(0, clock.Load()) }}
 	traces.Register(api)
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}},
@@ -294,6 +293,19 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	if both := list("/api/v1/traces?range=1h"); both.Total != 3 {
 		t.Fatalf("two connectors: %+v", both)
 	}
+	// The population is complete only when the catalog attests every
+	// searched Tempo connector (PA-19 P4: tempo_search_fail_closed).
+	traces.Clients.TempoSearchFailClosed = map[string]bool{"tempo-a": true}
+	var unattested struct {
+		Total         *int   `json:"total"`
+		Partial       bool   `json:"partial"`
+		PartialReason string `json:"partial_reason"`
+	}
+	if w := request("/api/v1/traces?range=1h"); w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &unattested) != nil ||
+		unattested.Total != nil || !unattested.Partial || unattested.PartialReason != "search_unattested" {
+		t.Fatalf("one unattested connector: %d %s", w.Code, w.Body.String())
+	}
+	traces.Clients.TempoSearchFailClosed = map[string]bool{"tempo-a": true, "tempo-b": true}
 	if view := detail("/api/v1/traces/" + t3); len(view.Spans) != 1 || tempoB.lastAuth() != "" {
 		t.Fatalf("trace in the second Tempo: %+v auth %q", view, tempoB.lastAuth())
 	}

@@ -165,8 +165,12 @@ func run() error {
 		}
 		return tools, nil
 	}
-	telemetryClient, e := configureTelemetry(api, worker)
-	if e != nil {
+	// PA-19 P4: a V3 instance reads telemetry only through the connector
+	// registry and the source catalog. The telemetry file stays for the
+	// legacy mode and for aiops connectors import-legacy.
+	telemetryPath := legacyOnlyConfig(v3Info != nil, "AIOPS_TELEMETRY_CONFIG",
+		"the connector registry and AIOPS_V3_SOURCE_CATALOG serve every reader")
+	if e = configureTelemetry(api, worker, telemetryPath); e != nil {
 		return e
 	}
 	operationsConfig, e := operations.LoadConfig(os.Getenv("AIOPS_OPERATIONS_CONFIG"))
@@ -177,10 +181,10 @@ func run() error {
 	if e != nil {
 		return e
 	}
-	if e = configureV3WithNativeSources(ctx, s, runtime, api, telemetryClient, know, v3Info, v3Scope, operationsConfig, deliveryConfig.GitLabs); e != nil {
+	if e = configureV3WithNativeSources(ctx, s, runtime, api, know, v3Info, v3Scope, operationsConfig, deliveryConfig.GitLabs); e != nil {
 		return e
 	}
-	registry, e := configurePlatform(ctx, s, api, acts, worker, connector, connectorConfig)
+	registry, e := configurePlatform(ctx, s, api, acts, worker, connector, connectorConfig, telemetryPath)
 	if e != nil {
 		return e
 	}

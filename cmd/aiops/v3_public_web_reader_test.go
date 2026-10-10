@@ -43,7 +43,7 @@ func TestConfiguredV3SourceRegistryRequiresExplicitPublicWebOptIn(t *testing.T) 
 
 func TestInvalidPublicWebReaderFlagFailsBeforeV3Configuration(t *testing.T) {
 	t.Setenv("AIOPS_V3_PUBLIC_WEB_READER_ENABLED", "yes")
-	err := configureV3(context.Background(), &store.Store{}, nil, nil, nil, nil, &v3Instance{}, httpapi.V3InstanceConfig{}, operations.Config{})
+	err := configureV3(context.Background(), &store.Store{}, nil, nil, nil, &v3Instance{}, httpapi.V3InstanceConfig{}, operations.Config{})
 	if err == nil || !strings.Contains(err.Error(), "AIOPS_V3_PUBLIC_WEB_READER_ENABLED") {
 		t.Fatalf("invalid flag reached V3 configuration side effects: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestInvalidPublicWebReaderFlagFailsBeforeV3Configuration(t *testing.T) {
 
 func TestInvalidExternalSourceBindingsFailBeforeV3Configuration(t *testing.T) {
 	t.Setenv("AIOPS_V3_EXTERNAL_SOURCE_BINDINGS", `[{"type":"notion","credential_ref":"plaintext"}]`)
-	err := configureV3(context.Background(), &store.Store{}, nil, nil, nil, nil, &v3Instance{}, httpapi.V3InstanceConfig{}, operations.Config{})
+	err := configureV3(context.Background(), &store.Store{}, nil, nil, nil, &v3Instance{}, httpapi.V3InstanceConfig{}, operations.Config{})
 	if err == nil || !strings.Contains(err.Error(), "configure V3 Confluence/Notion bindings") {
 		t.Fatalf("invalid source binding reached V3 configuration side effects: %v", err)
 	}

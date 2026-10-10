@@ -9,7 +9,7 @@ import { Drawer, toast } from "../../ui/overlays";
 import { Gated } from "../../ui/permission";
 import { useI18n } from "../../i18n";
 import { InvestigationPicker, useOpenInvestigations } from "./SilenceProposal";
-import { BlockedCard, ChangeTags, PlanTiles, appOfService, envOfService, fmtAt, useBlockedText, useRollbackBlocked } from "./rollback";
+import { BlockedCard, ChangeTags, PlanTiles, appOfService, envOfService, useBlockedText, useRollbackBlocked, useWhen } from "./rollback";
 
 /**
  * Rollback proposal drawer (approved design board §1; contract docs/api/v3-rollback.md §1–2). Opened from a service,
@@ -48,6 +48,7 @@ function RollbackProposalDrawer({ req, onClose }: { req: RollbackRequest; onClos
   const env = useEnv((s) => s.env);
   const blockedText = useBlockedText();
   const permission = useRollbackBlocked();
+  const fmtAt = useWhen().at;
   const { items: investigations } = useOpenInvestigations(true);
   // Also names the service in the header when the workload can't be read.
   const services = useGet<ServiceCatalog>("/services", undefined, { staleTime: 5 * 60_000 });

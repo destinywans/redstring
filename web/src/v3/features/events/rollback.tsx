@@ -9,11 +9,13 @@ import "./rollback.css";
 
 /* Shared pieces of the Kubernetes rollback flow (PA-08, approved design board; contract docs/api/v3-rollback.md). */
 
-/** Service IDs are base64url("application\0environment"); sample data uses plain service names. */
-export const appOfService = (serviceId: string) => (API_MODE === "mock" ? serviceId : serviceParts(serviceId)?.application ?? null);
-export const envOfService = (serviceId: string) => (API_MODE === "mock" ? null : serviceParts(serviceId)?.environment ?? null);
+/**
+ * Service IDs are base64url("application\0environment") (rollback_suggestion.service_id uses the same form). The
+ * sample catalog still keys services by name, so in sample mode a plain name stands for its own application.
+ */
+export const appOfService = (serviceId: string) => serviceParts(serviceId)?.application ?? (API_MODE === "mock" ? serviceId : null);
+export const envOfService = (serviceId: string) => serviceParts(serviceId)?.environment ?? null;
 export function serviceIdOf(applicationId: string, environmentId: string) {
-  if (API_MODE === "mock") return applicationId;
   const raw = `${applicationId}\u0000${environmentId}`;
   return btoa(String.fromCharCode(...new TextEncoder().encode(raw)))
     .replace(/\+/g, "-")
@@ -27,8 +29,18 @@ export function useRollbackBlocked() {
   return can(["resources", "view"]) ?? can(["resources", "change"]) ?? can(["proposals", "change"]);
 }
 
-const short = (iso: string | null) => (iso ? new Date(iso).toLocaleString([], { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }) : null);
-export const fmtAt = short;
+/** Times in the app's language (not the browser's): date + minute, and a seconds clock for ledger steps (PA-74). */
+export function useWhen() {
+  const { locale, fmt } = useI18n();
+  const clock = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  return {
+    at: (iso: string | null | undefined) => (iso ? fmt.dateTime(iso) : null),
+    clock: (iso: string | null | undefined) => (iso ? clock.format(new Date(iso)) : null),
+  };
+}
+
+/** Readings with 2–3 significant digits (e.g. 0.202), never a raw float. */
+export const sig = (n: number) => (n === 0 ? "0" : String(Number(n.toPrecision(n >= 100 ? 4 : 3))));
 
 /** Why a workload can't be rolled back right now, and where to fix it (blocked_reason, plus the 503 and empty cases). */
 export function useBlockedText() {
@@ -109,7 +121,7 @@ export function PlanTiles({ plan, compact }: { plan: RollbackVerificationPlan; c
         <span className="mono">{plan.error_ratio_query_id}</span>
       </div>
       <div>
-        <b>{tx("请求率 ≥ {v}/秒", "Requests ≥ {v}/s", { v: plan.min_request_rate })}</b>
+        <b>{tx("请求率 ≥ {v}/秒", "Requests ≥ {v}/s", { v: sig(plan.min_request_rate) })}</b>
         <span className="mono">{plan.request_rate_query_id}</span>
       </div>
       <div>

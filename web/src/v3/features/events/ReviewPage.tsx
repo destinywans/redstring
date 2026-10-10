@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
-import type { Proposal } from "../../api/types";
+import { API_MODE, api, useGet } from "../../api/client";
+import type { Me, Proposal, Tone } from "../../api/types";
 import { AiAvatar, Avatar, Badge, Btn, Card, CardHead, Col, Icon, IconBtn, KV, Muted, Row, Skeleton, Spacer, Textarea, type IconName } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
@@ -15,9 +15,10 @@ import "./events.css";
 
 export default function ReviewPage() {
   const { id = "" } = useParams();
-  const { tx } = useI18n();
+  const { tx, fmt } = useI18n();
   const nav = useNavigate();
   const can = usePermission();
+  const { data: me } = useGet<Me>("/me");
   // After approval, poll briefly until the executor records its status and the upstream ID.
   const { data: p, refetch } = useGet<Proposal>(id ? `/proposals/${id}` : null, undefined, {
     refetchInterval: (q) => (q.state.data?.execution && !q.state.data.execution.status ? 3000 : false),
@@ -42,12 +43,40 @@ export default function ReviewPage() {
   const approve = () => setApproving(true);
   // Approving and rejecting both need the approve grant; "conditional" still goes through the passkey ceremony.
   const decideBlocked = can(["proposals", "approve"]);
+  // The API sends the proposer's user ID; show a name when it's the viewer, otherwise a short ID (PA-74).
+  const isMine = !!me && (p.proposed_by === me.id || p.proposed_by === me.name);
+  const idLike = /^[0-9a-f-]{16,}$/i.test(p.proposed_by);
+  const proposer = isMine ? me!.name : idLike ? tx("用户 {id}", "User {id}", { id: `${p.proposed_by.slice(0, 6)}…` }) : p.proposed_by;
+  const when = (t: string) => (/^\d{4}-\d{2}-\d{2}T/.test(t) ? fmt.dateTime(t) : t);
+  const [statusTone, statusLabel] = ((): [Tone, string] => {
+    switch (p.status) {
+      case "pending":
+        return !decideBlocked && !isMine ? ["accent", tx("待你复核", "Awaiting your review")] : ["neutral", tx("待审批", "Awaiting approval")];
+      case "approved":
+        return ["ok", tx("已批准", "Approved")];
+      case "rejected":
+        return ["danger", tx("已拒绝", "Rejected")];
+      case "executed":
+        return ["ok", tx("已执行", "Executed")];
+      default:
+        return (p.status as string) === "expired" ? ["neutral", tx("已过期", "Expired")] : ["neutral", p.status];
+    }
+  })();
+  // Executor ledger states (silence and rollback) in words; terminal ones get their own tone.
+  const execStatus = (s: string): [Tone, string] =>
+    ["succeeded", "confirmed", "verified"].includes(s)
+      ? ["ok", p.rollback ? tx("已恢复", "Recovered") : tx("已完成", "Completed")]
+      : s === "failed"
+        ? ["danger", tx("失败", "Failed")]
+        : s === "needs_attention"
+          ? ["warn", tx("需要人工处理", "Needs attention")]
+          : ["accent", tx("执行中", "Executing")];
   return (
     <Page
       crumbs={[tx("事件收件箱", "Inbox"), p.title]}
       actions={
         <>
-          <Badge tone="accent">{tx("待你复核", "Awaiting your review")}</Badge>
+          <Badge tone={statusTone}>{statusLabel}</Badge>
           <Btn kind="ghost" icon="branch" to={`/canvas/${p.investigation_id}`}>
             {tx("在调查中查看", "View in investigation")}
           </Btn>
@@ -60,9 +89,9 @@ export default function ReviewPage() {
             <h1 style={{ fontSize: 19, fontWeight: 600, letterSpacing: "-0.01em" }}>{p.title}</h1>
             <Row gap={8} wrap style={{ fontSize: "var(--fs-sm)" }}>
               {/* Rollbacks are always proposed by a person (the AI only suggests). */}
-              {p.rollback ? <Avatar name={p.proposed_by} size={18} /> : <AiAvatar size={18} />}
+              {p.rollback || API_MODE !== "mock" ? <Avatar name={proposer} size={18} /> : <AiAvatar size={18} />}
               <Muted size={12.5}>
-                {p.proposed_by} · {p.proposed_at}
+                {proposer} · {when(p.proposed_at)}
               </Muted>
               <Badge tone={risk[p.risk][0]}>{risk[p.risk][1]}</Badge>
               {/* A rollback's impact is a sentence; it gets its own card below. */}
@@ -179,7 +208,7 @@ export default function ReviewPage() {
                   <b style={{ fontSize: "var(--fs-sm)" }}>{tx("执行", "Execution")}</b>
                   <Spacer />
                   {p.execution.status ? (
-                    <Badge tone={/confirm|succeed|done|ok/i.test(p.execution.status) ? "ok" : /fail|error/i.test(p.execution.status) ? "danger" : "accent"}>{p.execution.status}</Badge>
+                    <Badge tone={execStatus(p.execution.status)[0]}>{execStatus(p.execution.status)[1]}</Badge>
                   ) : (
                     <Row gap={6}>
                       <span className="v3-spinner spin" style={{ color: "var(--accent)" }} />
@@ -187,7 +216,7 @@ export default function ReviewPage() {
                     </Row>
                   )}
                 </Row>
-                <KV k={tx("批准于", "Approved")} kw={64}>{new Date(p.execution.approved_at).toLocaleString()}</KV>
+                <KV k={tx("批准于", "Approved")} kw={64}>{when(p.execution.approved_at)}</KV>
                 <KV k={tx("执行 ID", "Execution")} kw={64}><span className="mono">{p.execution.execution_id}</span></KV>
                 {p.rollback && (
                   <Btn h={26} icon="play" style={{ alignSelf: "flex-start" }} to={`/executions/${p.execution.execution_id}`}>

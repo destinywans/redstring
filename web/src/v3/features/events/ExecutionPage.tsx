@@ -4,6 +4,7 @@ import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import { ROLLBACK_KIND, type Execution, type ExecutionDetail } from "../../api/types";
 import { RolloutExecutionPage } from "./RolloutExecution";
+import { useWhen } from "./rollback";
 import { PartialBanner, Unavailable, UnknownValue } from "../../ui/unknown";
 import { Badge, Btn, Card, CardHead, Col, Icon, Mono, Muted, Row, Sev, Skeleton, Spacer, Textarea, Tile, type IconName } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -21,12 +22,13 @@ export default function ExecutionPage() {
   return API_MODE === "mock" ? <SampleExecutionPage /> : <RealExecutionPage />;
 }
 
-const fmtTime = (t: string | null) => (t ? new Date(t).toLocaleString() : "—");
-
 /** Real execution record: persisted events, recovery summary and closed report; nothing is filled in from samples. */
 function RealExecutionPage() {
   const { id = "" } = useParams();
   const { tx } = useI18n();
+  // Times in the app's language, like the rest of the product (PA-74).
+  const when = useWhen();
+  const fmtTime = (t: string | null) => when.at(t) ?? "—";
   const { data: e, error, refetch } = useGet<ExecutionDetail>(id ? `/executions/${id}` : null);
   const [publishing, setPublishing] = useState(false);
   if (!e)
@@ -103,7 +105,7 @@ function RealExecutionPage() {
               {e.steps.map((s, i) => (
                 <li key={s.seq}>
                   <span className="tnum muted" style={{ width: 58, flex: "none", fontSize: "var(--fs-sub)", paddingTop: 2 }}>
-                    {new Date(s.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                    {when.clock(s.time)}
                   </span>
                   <span className="rail">
                     <Tile icon="check" size={22} />

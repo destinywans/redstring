@@ -141,6 +141,11 @@ func validExternalTarget(provider, kind, id string) bool {
 	if provider == "prometheus" && kind == "metric_resource" {
 		return prometheusResourceID.MatchString(id)
 	}
+	// A workload is also a reviewed catalog key; the namespace and Deployment
+	// come from the catalog (PA-08).
+	if provider == "kubernetes" && kind == "workload" {
+		return prometheusResourceID.MatchString(id)
+	}
 	// Jenkins currently accepts only server-configured aliases, but this
 	// service has no verified alias registry. Harbor has no safe reader yet.
 	// Keep both unavailable until those execution boundaries are connected.

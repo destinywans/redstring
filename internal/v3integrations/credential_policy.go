@@ -176,6 +176,20 @@ func (resolver *BoundResolver) CredentialAllowed(use CredentialUse, reference st
 	return allowed
 }
 
+// ResolveSibling reads another field of an approved credential's secret. The
+// approval covers the secret path, so the sibling needs no binding of its own.
+func (resolver *BoundResolver) ResolveSibling(ctx context.Context, reference, field string) (string, error) {
+	if resolver == nil || ctx == nil {
+		return "", ErrCredentialUnavailable
+	}
+	use, ok := ctx.Value(credentialUseKey{}).(CredentialUse)
+	sibling, valid := SiblingReference(reference, field)
+	if !ok || !valid || !resolver.CredentialAllowed(use, reference) {
+		return "", ErrCredentialUnavailable
+	}
+	return resolver.inner.Resolve(ctx, sibling)
+}
+
 func (resolver *BoundResolver) Resolve(ctx context.Context, reference string) (string, error) {
 	if resolver == nil || ctx == nil {
 		return "", ErrCredentialUnavailable

@@ -80,6 +80,23 @@ func (v *VaultResolver) Resolve(ctx context.Context, reference string) (string, 
 	return value, nil
 }
 
+// SiblingReference names another field of the same Vault secret, such as the
+// cluster CA stored next to a Kubernetes token (PA-08).
+func SiblingReference(reference, field string) (string, bool) {
+	m := vaultReference.FindStringSubmatch(reference)
+	if m == nil || !vaultField.MatchString(field) {
+		return "", false
+	}
+	return "vault://" + m[1] + "/" + m[2] + "#" + field, true
+}
+
+var vaultField = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// SiblingResolver reads a field next to an approved credential.
+type SiblingResolver interface {
+	ResolveSibling(ctx context.Context, reference, field string) (string, error)
+}
+
 func validateReference(reference string) error {
 	if vaultReference.MatchString(reference) {
 		return nil

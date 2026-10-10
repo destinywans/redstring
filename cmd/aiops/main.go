@@ -143,9 +143,9 @@ func run() error {
 	if e = acts.Migrate(ctx); e != nil {
 		return e
 	}
-	if v3Info != nil {
-		acts.RegisterWithoutExecutionDetail(api)
-	} else {
+	// PA-19 P4: a V3 instance serves none of the legacy action routes; its
+	// plans and executions stay readable through GET /executions/{id}.
+	if v3Info == nil {
 		acts.Register(api)
 	}
 	actionDone := make(chan struct{})

@@ -11,17 +11,9 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
+// Register serves the legacy rollback flow. Only a legacy deployment calls
+// it: a V3 instance registers none of these routes (PA-19 P4).
 func (s *Service) Register(api *httpapi.Server) {
-	s.register(api, true)
-}
-
-// RegisterWithoutExecutionDetail leaves the legacy action operations in
-// place while the V3 instance supplies its scoped execution detail handler.
-func (s *Service) RegisterWithoutExecutionDetail(api *httpapi.Server) {
-	s.register(api, false)
-}
-
-func (s *Service) register(api *httpapi.Server, executionDetail bool) {
 	s.Authorize = func(ctx context.Context, user, inv, action string) error {
 		app, e := s.Repository.Application(ctx, inv)
 		if e != nil {
@@ -87,12 +79,10 @@ func (s *Service) register(api *httpapi.Server, executionDetail bool) {
 		x, e := s.Enqueue(r.Context(), r.PathValue("id"), httpapi.CurrentUser(r).ID)
 		respond(w, x, e)
 	})
-	if executionDetail {
-		api.Register("GET /api/v1/executions/{id}", "viewer", func(w http.ResponseWriter, r *http.Request) {
-			x, e := s.Execution(r.Context(), r.PathValue("id"))
-			respond(w, x, e)
-		})
-	}
+	api.Register("GET /api/v1/executions/{id}", "viewer", func(w http.ResponseWriter, r *http.Request) {
+		x, e := s.Execution(r.Context(), r.PathValue("id"))
+		respond(w, x, e)
+	})
 }
 func respond(w http.ResponseWriter, v any, e error) {
 	if e != nil {

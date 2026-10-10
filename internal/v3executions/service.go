@@ -32,8 +32,8 @@ type Service struct {
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
 
-// Register requires the legacy actions GET /executions/{id} registration to
-// be omitted by the composition root first: net/http rejects duplicate paths.
+// Register owns GET /executions/{id} on a V3 instance, which registers none
+// of the legacy action routes (PA-19 P4).
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/executions/{id}", "viewer", s.Detail)
 	api.MarkV3ObjectRoute("GET /api/v1/executions/{id}", "proposals", "view")

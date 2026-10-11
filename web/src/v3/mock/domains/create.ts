@@ -118,7 +118,7 @@ mock("GET", "/postmortems/candidates", () => ({
   ],
 }));
 mock("GET", "/postmortems/draft", ({ query }) => ({
-  incident: { id: String(query.incident ?? "INC-1042"), title: P("checkout-api 5xx 升高", "checkout-api 5xx rising"), severity: "P1", window: "14:05 – 14:23", started_at: at("14:05"), closed_at: at("14:23"), duration: P("18 分钟", "18 min") },
+  incident: { id: String(query.incident ?? "INC-1042"), title: P("checkout-api 5xx 升高", "checkout-api 5xx rising"), severity: "P1", started_at: at("14:05"), closed_at: at("14:23"), duration: P("18 分钟", "18 min") },
   sections: [
     { key: "summary", title: P("概要", "Summary"), text: P("inventory-03 磁盘变慢，checkout-api 超时后立即重试 3 次，把库存调用放大到 3.2 倍，整个库存服务被压满，下单 5xx 升至 8.4%，持续 18 分钟。重试降为 1 次并打开熔断后恢复。14:03 的发布与此无关。", "inventory-03's disk slowed down; checkout-api retried each timeout 3 times at once, amplifying inventory calls 3.2×, the inventory service saturated and checkout 5xx reached 8.4% for 18 minutes. Retrying once with the breaker on restored service. The 14:03 release was unrelated.") },
     { key: "impact", title: P("影响", "Impact"), text: P("约 1.2 万笔下单失败，其中 83% 用户重试成功；无资金损失，无数据不一致。", "~12k checkouts failed; 83% of users succeeded on retry. No money lost, no data inconsistency.") },

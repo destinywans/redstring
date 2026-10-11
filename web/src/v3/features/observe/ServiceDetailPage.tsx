@@ -84,7 +84,7 @@ export default function ServiceDetailPage() {
           <div className="svc-ai">
             <Icon name="sparkles" size={16} color="var(--accent-text)" style={{ marginTop: 2 }} />
             <Col gap={8} grow>
-              <Markdown text={when.withAt(s.ai.text, s.ai.at) ?? ""} />
+              <Markdown text={s.ai.text} />
               <Row gap={6}>
                 <Btn h={26} icon="branch" to={`/canvas/${s.ai.investigation}`}>
                   {tx("打开调查", "Open investigation")}
@@ -94,7 +94,7 @@ export default function ServiceDetailPage() {
                     {tx("复核提案", "Review proposal")}
                   </Btn>
                 )}
-                <Muted size={11.5}>{when.withAt(s.ai.meta, s.ai.at)}</Muted>
+                <Muted size={11.5}>{[s.ai.meta, when.at(s.ai.at)].filter(Boolean).join(" · ")}</Muted>
               </Row>
             </Col>
           </div>
@@ -187,7 +187,7 @@ export default function ServiceDetailPage() {
                       <span className="ellipsis" style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>
                         {c.title}
                       </span>
-                      <Muted size={11.5}>{when.withAt(c.meta, c.at)}</Muted>
+                      <Muted size={11.5}>{[when.at(c.at), c.meta].filter(Boolean).join(" · ")}</Muted>
                     </Col>
                     {c.tag && <Badge tone="warn">{c.tag}</Badge>}
                   </li>

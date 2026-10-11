@@ -70,7 +70,7 @@ export default function ConnectorsPage() {
                       </Badge>
                     ))}
                   </span>
-                  <span className="meta" style={{ color: c.status === "ok" ? undefined : `var(--${STATUS_TONE[c.status]})` }}>{when.withAt(c.meta, c.checked_at)}</span>
+                  <span className="meta" style={{ color: c.status === "ok" ? undefined : `var(--${STATUS_TONE[c.status]})` }}>{[c.meta, when.at(c.checked_at)].filter(Boolean).join(" · ")}</span>
                 </button>
               ))}
               {data && (
@@ -129,7 +129,7 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
                   </Row>
                 </KV>
                 <KV k={tx("检查", "Checked")} kw={52}>
-                  {when.at(c.checked_at) ?? when.at(c.checked)}
+                  {when.at(c.checked_at) ?? tx("尚未检查", "Never checked")}
                 </KV>
               </Col>
             </Section>

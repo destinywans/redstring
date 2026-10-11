@@ -1,9 +1,8 @@
 import { useMemo } from "react";
 import { useI18n } from "../i18n";
 
-/** RFC3339 instants (the backend sends up to nanoseconds), and the "2006-01-02 15:04 UTC" form some reads use. */
+/** RFC3339 instants (the backend sends up to nanoseconds). */
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
-const UTC_TEXT = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}(?::\d{2})?) UTC$/;
 /** The same instants inside display text (e.g. "Checked 2026-10-10T02:21:22Z"). */
 const ISO_IN_TEXT = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})/g;
 
@@ -11,11 +10,9 @@ const ISO_IN_TEXT = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]
 export function parseStamp(v: string | number | null | undefined): number | null {
   if (typeof v === "number") return Number.isFinite(v) ? v : null;
   if (!v) return null;
-  const utc = UTC_TEXT.exec(v);
-  const iso = utc ? `${utc[1]}T${utc[2]}Z` : ISO.test(v) ? v : null;
-  if (!iso) return null;
+  if (!ISO.test(v)) return null;
   // JS dates keep milliseconds; longer fractions don't parse everywhere.
-  const t = Date.parse(iso.replace(/(\.\d{3})\d+/, "$1"));
+  const t = Date.parse(v.replace(/(\.\d{3})\d+/, "$1"));
   return Number.isFinite(t) ? t : null;
 }
 
@@ -71,28 +68,13 @@ export function whenFormats(locale: string) {
     log: fmt((t) => (sameDay(t) ? second.format(t) : daySecond.format(t))),
     /** The UTC calendar day a bucket stands for (buckets cut at UTC midnight), in the app's language. */
     utcDate: fmt((t) => utcDay.format(t)),
-    /**
-     * Axis labels from instants (PA-83): clock times within a day, date and time over a few days, dates beyond.
-     * Falls back to `texts` when the instants are missing or don't line up with them.
-     */
-    axis: (times: readonly (string | null)[] | null | undefined, texts: readonly string[] = []): string[] => {
+    /** Axis labels from instants (PA-83): clock times within a day, date and time over a few days, dates beyond. */
+    axis: (times: readonly (string | null)[] | null | undefined): string[] => {
       const ts = (times ?? []).map((v) => parseStamp(v));
-      if (!ts.length || ts.some((t) => t === null) || (texts.length > 0 && ts.length !== texts.length)) return [...texts];
+      if (!ts.length || ts.some((t) => t === null)) return [];
       const span = (ts[ts.length - 1] as number) - (ts[0] as number);
       const f = span < 22 * 3600_000 ? minute : span < 6 * 86400_000 ? dayMinute : day;
       return ts.map((t) => f.format(t as number));
-    },
-    /**
-     * Server text that embeds a timestamp, with that timestamp taken from its structured field (PA-83) and shown
-     * locally; without the text (once the server drops it), just the time.
-     */
-    withAt: (text: string | null | undefined, at: string | null | undefined): string | null => {
-      const local = (m: string) => { const x = parseStamp(m); return x === null ? m : dayMinute.format(x); };
-      const t = parseStamp(at);
-      if (t === null) return text ? text.replace(ISO_IN_TEXT, local) : (text ?? null);
-      if (!text) return dayMinute.format(t);
-      let first = true;
-      return text.replace(ISO_IN_TEXT, (m) => (first ? ((first = false), dayMinute.format(t)) : local(m)));
     },
     /** Display text with timestamps inside it, each shown as date and minute. */
     text: (v: string | null | undefined) =>

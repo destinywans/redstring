@@ -25,6 +25,7 @@
 - `limits`（P4，可选）：所有登记读取方客户端的时间与大小上限，字段名与遥测文件相同：`timeout_seconds`（默认 15，1–60）、`max_window_seconds`（单次请求窗口，默认 3600，最长 86400）、`max_lookback_seconds`（最远回看，默认 604800 即 7 天，不小于窗口、最长 366 天）、`min_step_seconds`（默认 5）、`max_samples_per_series`（默认 1000，2–11000）、`max_log_entries`（默认 1000，1–5000）。不写或写 0 取默认值；越界或未知字段时目录加载失败、服务拒绝启动。
 - `tempo_search_fail_closed`（P4，可选）：Tempo 连接器 ID 列表，声明这些 Tempo 部署已确认在 live-store 滞后时让搜索失败而不是返回不完整的 200（见 [Trace 来源](v3-traces-source.md)）。只有列出的连接器的搜索算完整集合；多连接器的列表要全部列出才给总数、分面和直方图。不能为了让列表显示总数而列出未确认的连接器。最多 100 个，不能重复。
 - `limits` 和 `tempo_search_fail_closed` 原在遥测文件里（P4 之前对所有登记的 Tempo 连接器统一生效）；V3 实例从 P4 起不再读遥测文件，它们只从目录取。把它们放进目录而不是连接器的 `options`，是因为 `options` 目前只能由 `import-legacy` 写入、没有写接口，而目录本来就是运维审查过的私有配置（与 Tempo 选择器同处）。`aiops connectors import-legacy` 生成的目录会带上遥测文件的上限（目录里已有 `limits` 时保留目录的），文件声明了搜索完整时列出导入的 Tempo 连接器。
+- `gitlab`（D11，可选）：GitLab 变更范围，每条为 `{"connector_id", "application_id", "environment_id", "project_id", "deploy_environment", "refs"}`。`project_id` 必须是该服务环境已确认的代码项目（见“代码项目”），否则读取时当作未配置；`deploy_environment` 是 GitLab environment 名，只统计它的部署；`refs` 是 1–5 个分支名（不能带修订语法），只列合并到这些分支的 MR，以及这些分支和 MR 上的流水线。最多 200 条，同一连接器、服务环境和项目不能重复。变更读取的说明见 [变更视图](v3-change-view.md)。
 - 两个变量只能设一个，同时设置会启动失败。旧文件（只有 `queries`）可以直接改用新变量名。
 - 目录决定数据范围，只放在服务端；集成中心看不到也不能编辑。
 
@@ -79,7 +80,7 @@ P4（2026-10-10）删除了 `legacy`、`compare` 两个模式和 `AIOPS_V3_SOURC
 
 - 读统一登记的读取方（设计稿第 10.3 节的名称）：
   - `coverage`（第 1 步）：覆盖度的指标、日志、链路单元格由解析器给出，未就绪时 `availability=not_ready` 并写明原因，旧应用绑定不计入。
-  - `mappings`（第 2 步）：服务映射的指标、日志、链路、工作负载读统一登记的目标（真实连接器 ID）；已存的遥测和工作负载绑定不显示；代码绑定和 GitLab 候选接受照旧；部署和看板只读（`system_not_supported`）。编辑器的选项见 `GET /services/{id}/external-targets/options`。
+  - `mappings`（第 2 步）：服务映射的指标、日志、链路、工作负载读统一登记的目标（真实连接器 ID）；已存的遥测和工作负载绑定不显示；代码绑定和 GitLab 候选接受照旧（D20 起代码改为已确认的项目目标，见下文“代码项目”）；部署和看板只读（`system_not_supported`）。编辑器的选项见 `GET /services/{id}/external-targets/options`。
   - `mapping_writes`（第 6 步）：服务映射的保存改为增删目标，见下文“映射写入”。
   - `logs`（第 3 步）：日志页 `GET /logs` 和 AI 工具 `read_service_logs` 读统一登记的 `log_stream`（Loki）、`log_index`（Elasticsearch）目标，见下文“日志读取方”。
   - `traces`（第 4 步）：Trace 列表 `GET /traces`（应用范围）和详情 `GET /traces/{id}` 读统一登记的 `trace_service` 目标，见下文“Trace 读取方”。
@@ -162,7 +163,7 @@ Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `d
   - 连接器必须属于本环境，供应商能服务该类且等于 `kind`（指标 `prometheus`，日志 `loki` / `elasticsearch`，链路 `tempo`，工作负载 `kubernetes`），否则 422 `connector_unavailable`；未就绪的连接器可以选，读取方会报未就绪；
   - 资源必须是目录里该连接器为本服务审查过的资源（与选项接口列出的相同），否则 422 `resource_not_in_catalog`；
   - 该资源已是其他服务的目标时 409 `target_owned_by_other_service`；一类已有多个目标时 409 `ambiguous_targets`；
-  - 代码仍存在旧绑定里：可以保留或移除，新增只能经候选接受（409 `code_mapping_requires_accept`）；部署和看板只读（422 `system_not_supported`）；
+  - 代码：可以保留或移除，新增只能经候选接受（409 `code_mapping_requires_accept`）；D20 起存在 `v3_service_code_projects`，不再是旧绑定（见下文“代码项目”）；部署和看板只读（422 `system_not_supported`）；
   - 已存的遥测和工作负载旧绑定不再更新，这就是回退时的数据差异。
 - **审计**：每个目标一条 `v3.connector.target_bound` 或 `v3.connector.target_unbound`（字段与集成中心的相同，另有 `source: service_mapping`），整次保存一条 `v3.service_mapping.saved`，带 `source: registry`、前后版本号、前后绑定和逐类的目标变化（`bound`、`unbound`、`rebound`）。原样回传的快照不写审计、版本号不变。
 - **候选接受**不变：仍写旧绑定里的 `gitlab` 绑定，候选的修订号仍是旧绑定的 `binding_revision`；接受后目标版本号跟着变化，打开着的编辑器会收到 409。
@@ -229,3 +230,12 @@ Prometheus 只比较旧文件里的查询 ID：目录里多出的查询（如 `d
 ## 共享验收实例
 
 本轮不在 `.local/acceptance` 的共享实例上执行 apply。需要实测时，先在 prod 实例跑 dry run，并把计划交给主会话审核。
+
+## 代码项目（D20，迁移 174，2026-10-11）
+
+服务在某个环境的“代码”映射，是一个已登记的 GitLab `project` 目标经确认后的记录，存在 `v3_service_code_projects`（每个服务环境至多一行，一个目标至多属于一个服务）。变更读取（`GET /changes` 的 GitLab 来源、`read_service_changes`）只读这张表找服务的项目。
+
+- **写入**：只有候选接受（`POST /service-mappings/accept`）新增；`PUT /service-mappings` 只能原样保留或移除。移除只删确认记录，项目目标保留。目标删除时记录随之删除。
+- **版本号**：记录的增删同样让服务环境的目标版本号加 1（迁移 172 的触发器）。
+- **迁移**：只在已绑定 V3 实例的库上执行。已存的 GitLab 代码绑定能对上同一服务环境的已登记项目目标时搬进新表（`source: migrated_binding`，没有确认人）；然后所有代码类绑定（GitLab、GitHub）从已存绑定里删除，每条审计 `v3.service_code_project.migrated` 或 `v3.service_code_project.not_migrated`。没搬的经候选重新接受。旧模式的库不变；之后才绑定 V3 的旧库保留其代码绑定，但 V3 不读。
+

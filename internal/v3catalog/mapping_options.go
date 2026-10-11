@@ -179,7 +179,6 @@ func (s *Service) optionSystems(ctx context.Context, tx pgx.Tx, app, env string,
 	serviceTargets := targets[app+"\x00"+env]
 	// GitLab projects bound to this service, by connector.
 	projects := map[string][]string{}
-	projectIDs := map[string]string{}
 	rows, err = tx.Query(ctx, `SELECT t.id,t.connector_id,t.external_id FROM v3_connector_targets t
  WHERE t.application_id=$1 AND t.environment_id=$2 AND t.target_kind='project' ORDER BY t.external_id LIMIT 101`, app, env)
 	if err != nil {
@@ -191,7 +190,6 @@ func (s *Service) optionSystems(ctx context.Context, tx pgx.Tx, app, env string,
 			break
 		}
 		projects[connector] = append(projects[connector], project)
-		projectIDs[connector+"\x00"+project] = id
 	}
 	if err == nil {
 		err = rows.Err()
@@ -230,17 +228,22 @@ func (s *Service) optionSystems(ctx context.Context, tx pgx.Tx, app, env string,
 		if reason != "" {
 			item.UnavailableReason = &reason
 		}
-		// Code and the read-only systems show their stored binding.
-		if !registrySystem(system.ID) {
+		// The confirmed code project (D20) is a target too.
+		if system.ID == "code" {
+			for _, target := range serviceTargets {
+				if target.System == "code" {
+					id := target.TargetID
+					item.Current = &mappingOptionCurrent{TargetID: &id, ConnectorID: target.ConnectorID, ResourceID: target.Resource}
+				}
+			}
+		}
+		// The read-only systems show their stored binding.
+		if !projectedSystem(system.ID) {
 			for _, binding := range legacy {
 				if mappingKind(binding.Kind) != system.ID {
 					continue
 				}
-				current := &mappingOptionCurrent{ConnectorID: binding.ConnectorID, ResourceID: binding.Resource}
-				if id, ok := projectIDs[binding.ConnectorID+"\x00"+binding.Resource]; ok && system.ID == "code" {
-					current.TargetID = &id
-				}
-				item.Current = current
+				item.Current = &mappingOptionCurrent{ConnectorID: binding.ConnectorID, ResourceID: binding.Resource}
 				break
 			}
 		}

@@ -345,12 +345,65 @@ S['V3ChangesView'] = obj({
     'pipelines':{'type':'array','items':ref('V3ChangePipeline'),'minItems':1,'maxItems':1},
     'detail':ref('V3ChangeDetail')},
     ['kpis','sources','lanes','axis_times','pipelines','detail'])
-v3_route('get','/changes','Read one evidence-bound native delivery run',
+# D11: GitLab source of the change view, one service and range (sources=gitlab).
+_gl_user = v3_nullable(obj({'username':string()},['username']))
+_gl_str = {'type':['string','null']}
+_gl_int = {'type':['integer','null']}
+_gl_ids = arr(integer())
+S['V3ChangeAdjacentAlert'] = obj({'incident_id':string(),
+    'offset_seconds':integer(description='Alert start minus the change time; negative when the alert came first'),
+    'basis':string(enum=['time_adjacent'],description='Only time adjacency; never a causal claim')},
+    ['incident_id','offset_seconds','basis'])
+S['V3GitLabDeployment'] = obj({'id':string(description='gitlab:deployment:<project>:<deployment id>'),
+    'deployment_id':integer(),'iid':integer(),
+    'status':string(enum=['created','running','success','failed','canceled','skipped','blocked']),
+    'environment':string(),'ref':string(),'sha':string(),'short_sha':string(),'pipeline_id':_gl_int,
+    'job':v3_nullable(obj({'id':integer(),'name':string()},['id','name'])),'user':_gl_user,
+    'created_at':string(format='date-time'),'finished_at':{**_gl_str,'format':'date-time'},'web_url':_gl_str,
+    'merge_request_iid':{**_gl_int,'description':'The merged merge request whose merge, squash or fast-forward head commit is this deployment commit; null when none or more than one'},
+    'kubernetes_revision':{**_gl_str,'description':'The cluster revision whose change cause names this deployment pipeline'},
+    'adjacent_alerts':{**v3_nullable(arr(ref('V3ChangeAdjacentAlert'))),'description':'Alerts starting 15 minutes before to 60 minutes after the deployment took effect; null when the alerts are unknown'}},
+    ['id','deployment_id','iid','status','environment','ref','sha','short_sha','pipeline_id','job','user','created_at',
+     'finished_at','web_url','merge_request_iid','kubernetes_revision','adjacent_alerts'])
+S['V3GitLabPipeline'] = obj({'id':string(description='gitlab:pipeline:<project>:<pipeline id>'),'pipeline_id':integer(),
+    'status':string(),'ref':string(),'sha':string(),'short_sha':string(),'source':string(),
+    'created_at':string(format='date-time'),'updated_at':string(format='date-time'),'web_url':_gl_str,
+    'merge_request_iid':{**_gl_int,'description':'From a merge request ref, or the merged merge request that landed as this commit'},
+    'deployment_ids':_gl_ids},
+    ['id','pipeline_id','status','ref','sha','short_sha','source','created_at','updated_at','web_url','merge_request_iid','deployment_ids'])
+S['V3GitLabMergeRequest'] = obj({'id':string(description='gitlab:mr:<project>:<iid>'),'iid':integer(),
+    'title':string(maxLength=200,description='User-written GitLab text, control characters replaced'),
+    'state':string(enum=['opened','closed','merged','locked']),'source_branch':string(),'target_branch':string(),
+    'author':_gl_user,'merged_by':_gl_user,'created_at':string(format='date-time'),
+    'merged_at':{**_gl_str,'format':'date-time'},'closed_at':{**_gl_str,'format':'date-time'},
+    'sha':_gl_str,'merge_commit_sha':_gl_str,'squash_commit_sha':_gl_str,'web_url':_gl_str,
+    'pipeline_ids':_gl_ids,'deployment_ids':_gl_ids},
+    ['id','iid','title','state','source_branch','target_branch','author','merged_by','created_at','merged_at','closed_at',
+     'sha','merge_commit_sha','squash_commit_sha','web_url','pipeline_ids','deployment_ids'])
+S['V3GitLabChangesView'] = obj({'service_id':string(),'environment_id':string(),'source':string(enum=['gitlab']),
+    'window':obj({'start_at':string(format='date-time'),'end_at':string(format='date-time')},['start_at','end_at']),
+    'project':obj({**fieldnames('connector_id project_id path web_url deploy_environment'),'refs':arr(string())},
+        ['connector_id','project_id','path','web_url','deploy_environment','refs']),
+    'kpis':{**arr(ref('V3ChangeKpi')),'description':'deployments, failed_deployments, pipelines, merged_merge_requests; a list whose connector tool is off has no KPI'},
+    'series_start_at':string(format='date-time'),'series_step_seconds':integer(enum=[3600,86400]),
+    'deployments':v3_nullable(arr(ref('V3GitLabDeployment'))),
+    'pipelines':v3_nullable(arr(ref('V3GitLabPipeline'))),
+    'merge_requests':v3_nullable(arr(ref('V3GitLabMergeRequest'))),
+    'alerts':v3_nullable(arr(obj({**fieldnames('incident_id title href'),'started_at':string(format='date-time'),
+        'ended_at':{**_gl_str,'format':'date-time'}},['incident_id','title','started_at','ended_at','href']))),
+    'kubernetes_revisions':v3_nullable(arr(obj({'revision':string(),'created_at':string(format='date-time'),
+        'change_cause':_gl_str,'gitlab_pipeline_id':_gl_int},['revision','created_at','change_cause','gitlab_pipeline_id']))),
+    'coverage':obj({'gitlab':string(enum=['complete']),'alerts':string(enum=['complete','unknown','not_authorized']),
+        'kubernetes':string(enum=['history_limited','not_configured','no_authorized_target','unavailable'])},['gitlab','alerts','kubernetes']),
+    'captured_at':string(format='date-time'),'unavailable':ref('V3Unavailable')},
+    ['service_id','environment_id','source','window','project','kpis','series_start_at','series_step_seconds',
+     'deployments','pipelines','merge_requests','alerts','kubernetes_revisions','coverage','captured_at','unavailable'])
+v3_route('get','/changes','Read one native delivery run, or a service\'s GitLab changes',
     query=[v3_query('service_id'),v3_query('run_id'),
            v3_query('range',string(enum=['24h','7d'],default='24h')),
-           v3_query('sources',string(enum=['native'],default='native'))],
-    response=ref('V3ChangesView'),
-    desc='Requires one selected environment, an exact base64url application-NUL-environment service_id, '
+           v3_query('sources',string(enum=['native','gitlab'],default='native'))],
+    response={'oneOf':[ref('V3ChangesView'),ref('V3GitLabChangesView')]},
+    desc='sources=native (default) requires one selected environment, an exact base64url application-NUL-environment service_id, '
          'and one persisted native Argo Workflows delivery run_id. Current services.view, events.view, '
          'source identity and session are rechecked before returning. Only that run appears in pipelines and detail. '
          'The selected 24h or 7d window bounds persisted delivery runs, verified GitOps deployment events and '
@@ -358,16 +411,51 @@ v3_route('get','/changes','Read one evidence-bound native delivery run',
          'KPIs are countable run and deployment facts, never inferred change failure rate, '
          'lead time, MTTR or alert causality. Complete diff, risk and alert text require separately reviewed evidence '
          'anchored to the exact run, snapshot and artifact digests, execution and incident; missing or changed review evidence, deployment '
-         'verification or alert coverage returns 503 rather than invented values. The current frontend omits '
-         'service_id and run_id and cannot receive a 200 until updated.')
+         'verification or alert coverage returns 503 rather than invented values. '
+         'sources=gitlab (D11) takes service_id and range without run_id and returns V3GitLabChangesView: the deployments, pipelines and '
+         'merge requests of the service\'s confirmed GitLab code project read on demand within the reviewed catalog scope, with exact links '
+         '(commit, pipeline, merge request number), the covered alerts of the window and the cluster revisions. It needs services.view on the '
+         'service and connectors.view on the environment; alerts need events.view and a reviewed coverage, otherwise they are null with a reason. '
+         'An alert next to a change is only time-adjacent. Not configured, credential or GitLab failures are 503, more than 100 items of a kind 413, '
+         'a source change during the read 409; nothing partial is returned.')
 for parameter in P['/changes']['get']['parameters']:
-    if parameter['name'] in ('service_id','run_id'):
+    if parameter['name'] == 'service_id':
         parameter['required'] = True
-P['/changes']['get']['responses']['422']['description'] = 'Missing, repeated or invalid service_id, run_id, range or sources'
+P['/changes']['get']['responses']['422']['description'] = 'Missing, repeated or invalid service_id, run_id, range or sources; run_id is required for native and refused for gitlab'
 P['/changes']['get']['responses']['413'] = {
-    'description':'Bounded change source exceeds 500 runs or deployment events or 200 incidents',
+    'description':'Bounded change source exceeds 500 runs or deployment events or 200 incidents, or 100 GitLab items of a kind',
     'content':{'application/json':{'schema':ref('Error')}}}
-P['/changes']['get']['responses']['503']['description'] = 'Required delivery, GitOps, incident coverage or reviewed detail evidence unavailable or changed'
+P['/changes']['get']['responses']['409'] = {
+    'description':'GitLab source changed during the read','content':{'application/json':{'schema':ref('Error')}}}
+P['/changes']['get']['responses']['403'] = {
+    'description':'GitLab source outside the caller\'s connector scope','content':{'application/json':{'schema':ref('Error')}}}
+P['/changes']['get']['responses']['503']['description'] = 'Required delivery, GitOps, incident coverage or reviewed detail evidence unavailable or changed; GitLab source not configured, credential unavailable or GitLab unavailable'
+S['V3GitLabPipelineDetail'] = obj({'id':string(),'pipeline_id':integer(),**fieldnames('status ref sha source'),'user':_gl_user,
+    'created_at':string(format='date-time'),'started_at':{**_gl_str,'format':'date-time'},'finished_at':{**_gl_str,'format':'date-time'},
+    'duration_seconds':{'type':['number','null']},'web_url':_gl_str,
+    'stages':arr(obj({'name':string(),'status':string(),'jobs':arr(obj({'id':integer(),'name':string(),'status':string(),
+        'manual':v3_bool(),'started_at':{**_gl_str,'format':'date-time'},'finished_at':{**_gl_str,'format':'date-time'},
+        'duration_seconds':{'type':['number','null']},'web_url':_gl_str},
+        ['id','name','status','manual','started_at','finished_at','duration_seconds','web_url']))},['name','status','jobs'])),
+    'commit':v3_nullable(obj({'sha':string(),'title':string(maxLength=200),'authored_at':string(format='date-time'),
+        'parent_ids':arr(string()),'stats':obj({'files':_gl_int,'additions':integer(minimum=0),'deletions':integer(minimum=0)},
+        ['files','additions','deletions']),'paths':{**v3_nullable(arr(string())),'description':'At most 20 changed paths; never diff text'}},
+        ['sha','title','authored_at','parent_ids','stats','paths'])),
+    'merge_request_iid':_gl_int,
+    'adjacent_alerts':{**v3_nullable(arr(ref('V3ChangeAdjacentAlert'))),'description':'Relative to the pipeline end (its last update while it runs)'},
+    'unavailable':ref('V3Unavailable')},
+    ['id','pipeline_id','status','ref','sha','source','user','created_at','started_at','finished_at','duration_seconds','web_url',
+     'stages','commit','merge_request_iid','adjacent_alerts','unavailable'])
+v3_route('get','/changes/pipelines/{pipeline_id}','Read one GitLab pipeline of a service',
+    query=[v3_query('service_id')],
+    response=ref('V3GitLabPipelineDetail'),
+    desc='D11 auxiliary read: one pipeline of the service\'s confirmed GitLab code project on a reviewed branch or one of its merge requests, '
+         'with jobs grouped by stage in pipeline order, the commit title, statistics and at most 20 changed paths (no message body or diff text) '
+         'and the covered alerts adjacent to the pipeline end. Needs get_pipeline; get_commit and get_commit_diff each add their part, otherwise '
+         'it is null with not_configured. Same authorization, errors and recheck as the GitLab change view; a pipeline outside the scope is 404.')
+for parameter in P['/changes/pipelines/{pipeline_id}']['get']['parameters']:
+    if parameter['name'] == 'service_id':
+        parameter['required'] = True
 S['V3ChangeReviewInput'] = obj({
     'service_id':string(),
     'decision':string(enum=['accept_for_display']),

@@ -22,6 +22,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 const pipelinesPerPage = 20
@@ -36,6 +37,12 @@ type Service struct {
 	Access   Access
 	Resolver v3integrations.CredentialResolver
 	Client   *http.Client
+	// Catalog returns the reviewed source catalog; its GitLab scopes say
+	// which deployments and branches are a service's changes (D11).
+	Catalog func() v3telemetry.Catalog
+	// Revisions reads the ReplicaSet revisions of a service's Deployment
+	// for a user, or one of the ErrRevisions errors.
+	Revisions func(ctx context.Context, user core.User, app, env string) ([]KubernetesRevision, error)
 }
 
 func New(db *pgxpool.Pool, tier string, access Access, resolver v3integrations.CredentialResolver) *Service {

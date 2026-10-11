@@ -52924,16 +52924,169 @@
     },
     "/changes": {
       "get": {
-        "summary": "Read one evidence-bound native delivery run",
+        "summary": "Read one native delivery run, or a service's GitLab changes",
         "operationId": "get_changes",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment, an exact base64url application-NUL-environment service_id, and one persisted native Argo Workflows delivery run_id. Current services.view, events.view, source identity and session are rechecked before returning. Only that run appears in pipelines and detail. The selected 24h or 7d window bounds persisted delivery runs, verified GitOps deployment events and ops_incidents from the exact reviewed Alertmanager source only when operator-attested complete_from covers the full window. KPIs are countable run and deployment facts, never inferred change failure rate, lead time, MTTR or alert causality. Complete diff, risk and alert text require separately reviewed evidence anchored to the exact run, snapshot and artifact digests, execution and incident; missing or changed review evidence, deployment verification or alert coverage returns 503 rather than invented values. The current frontend omits service_id and run_id and cannot receive a 200 until updated.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. sources=native (default) requires one selected environment, an exact base64url application-NUL-environment service_id, and one persisted native Argo Workflows delivery run_id. Current services.view, events.view, source identity and session are rechecked before returning. Only that run appears in pipelines and detail. The selected 24h or 7d window bounds persisted delivery runs, verified GitOps deployment events and ops_incidents from the exact reviewed Alertmanager source only when operator-attested complete_from covers the full window. KPIs are countable run and deployment facts, never inferred change failure rate, lead time, MTTR or alert causality. Complete diff, risk and alert text require separately reviewed evidence anchored to the exact run, snapshot and artifact digests, execution and incident; missing or changed review evidence, deployment verification or alert coverage returns 503 rather than invented values. sources=gitlab (D11) takes service_id and range without run_id and returns V3GitLabChangesView: the deployments, pipelines and merge requests of the service's confirmed GitLab code project read on demand within the reviewed catalog scope, with exact links (commit, pipeline, merge request number), the covered alerts of the window and the cluster revisions. It needs services.view on the service and connectors.view on the environment; alerts need events.view and a reviewed coverage, otherwise they are null with a reason. An alert next to a change is only time-adjacent. Not configured, credential or GitLab failures are 503, more than 100 items of a kind 413, a source change during the read 409; nothing partial is returned.",
         "responses": {
           "200": {
             "description": "Success",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/V3ChangesView"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/V3ChangesView"
+                    },
+                    {
+                      "$ref": "#/components/schemas/V3GitLabChangesView"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "GitLab source outside the caller's connector scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "GitLab source changed during the read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Missing, repeated or invalid service_id, run_id, range or sources; run_id is required for native and refused for gitlab",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Required delivery, GitOps, incident coverage or reviewed detail evidence unavailable or changed; GitLab source not configured, credential unavailable or GitLab unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Bounded change source exceeds 500 runs or deployment events or 200 incidents, or 100 GitLab items of a kind",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "changes"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "run_id",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "range",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "24h",
+                "7d"
+              ],
+              "default": "24h"
+            }
+          },
+          {
+            "name": "sources",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "native",
+                "gitlab"
+              ],
+              "default": "native"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
+    "/changes/pipelines/{pipeline_id}": {
+      "get": {
+        "summary": "Read one GitLab pipeline of a service",
+        "operationId": "get_changes_pipelines_pipeline_id",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. D11 auxiliary read: one pipeline of the service's confirmed GitLab code project on a reviewed branch or one of its merge requests, with jobs grouped by stage in pipeline order, the commit title, statistics and at most 20 changed paths (no message body or diff text) and the covered alerts adjacent to the pipeline end. Needs get_pipeline; get_commit and get_commit_diff each add their part, otherwise it is null with not_configured. Same authorization, errors and recheck as the GitLab change view; a pipeline outside the scope is 404.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3GitLabPipelineDetail"
                 }
               }
             }
@@ -52979,7 +53132,7 @@
             }
           },
           "422": {
-            "description": "Missing, repeated or invalid service_id, run_id, range or sources",
+            "description": "Invalid input",
             "content": {
               "application/json": {
                 "schema": {
@@ -52989,17 +53142,7 @@
             }
           },
           "503": {
-            "description": "Required delivery, GitOps, incident coverage or reviewed detail evidence unavailable or changed",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Bounded change source exceeds 500 runs or deployment events or 200 incidents",
+            "description": "Dependency unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -53019,43 +53162,20 @@
         ],
         "parameters": [
           {
+            "name": "pipeline_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "service_id",
             "in": "query",
             "schema": {
               "type": "string"
             },
             "required": true
-          },
-          {
-            "name": "run_id",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          },
-          {
-            "name": "range",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "24h",
-                "7d"
-              ],
-              "default": "24h"
-            }
-          },
-          {
-            "name": "sources",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "native"
-              ],
-              "default": "native"
-            }
           },
           {
             "name": "X-AIOps-Environment",
@@ -86684,6 +86804,936 @@
           "axis_times",
           "pipelines",
           "detail"
+        ]
+      },
+      "V3ChangeAdjacentAlert": {
+        "type": "object",
+        "properties": {
+          "incident_id": {
+            "type": "string"
+          },
+          "offset_seconds": {
+            "type": "integer",
+            "description": "Alert start minus the change time; negative when the alert came first"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "time_adjacent"
+            ],
+            "description": "Only time adjacency; never a causal claim"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "incident_id",
+          "offset_seconds",
+          "basis"
+        ]
+      },
+      "V3GitLabDeployment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "gitlab:deployment:<project>:<deployment id>"
+          },
+          "deployment_id": {
+            "type": "integer"
+          },
+          "iid": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "created",
+              "running",
+              "success",
+              "failed",
+              "canceled",
+              "skipped",
+              "blocked"
+            ]
+          },
+          "environment": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "short_sha": {
+            "type": "string"
+          },
+          "pipeline_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "job": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "name"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "user": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "username"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "web_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "merge_request_iid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The merged merge request whose merge, squash or fast-forward head commit is this deployment commit; null when none or more than one"
+          },
+          "kubernetes_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The cluster revision whose change cause names this deployment pipeline"
+          },
+          "adjacent_alerts": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3ChangeAdjacentAlert"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alerts starting 15 minutes before to 60 minutes after the deployment took effect; null when the alerts are unknown"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "deployment_id",
+          "iid",
+          "status",
+          "environment",
+          "ref",
+          "sha",
+          "short_sha",
+          "pipeline_id",
+          "job",
+          "user",
+          "created_at",
+          "finished_at",
+          "web_url",
+          "merge_request_iid",
+          "kubernetes_revision",
+          "adjacent_alerts"
+        ]
+      },
+      "V3GitLabPipeline": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "gitlab:pipeline:<project>:<pipeline id>"
+          },
+          "pipeline_id": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "short_sha": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "web_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "merge_request_iid": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "From a merge request ref, or the merged merge request that landed as this commit"
+          },
+          "deployment_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "pipeline_id",
+          "status",
+          "ref",
+          "sha",
+          "short_sha",
+          "source",
+          "created_at",
+          "updated_at",
+          "web_url",
+          "merge_request_iid",
+          "deployment_ids"
+        ]
+      },
+      "V3GitLabMergeRequest": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "gitlab:mr:<project>:<iid>"
+          },
+          "iid": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "User-written GitLab text, control characters replaced"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "opened",
+              "closed",
+              "merged",
+              "locked"
+            ]
+          },
+          "source_branch": {
+            "type": "string"
+          },
+          "target_branch": {
+            "type": "string"
+          },
+          "author": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "username"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "merged_by": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "username"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "merged_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "closed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "merge_commit_sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "squash_commit_sha": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "web_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pipeline_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "deployment_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "iid",
+          "title",
+          "state",
+          "source_branch",
+          "target_branch",
+          "author",
+          "merged_by",
+          "created_at",
+          "merged_at",
+          "closed_at",
+          "sha",
+          "merge_commit_sha",
+          "squash_commit_sha",
+          "web_url",
+          "pipeline_ids",
+          "deployment_ids"
+        ]
+      },
+      "V3GitLabChangesView": {
+        "type": "object",
+        "properties": {
+          "service_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "gitlab"
+            ]
+          },
+          "window": {
+            "type": "object",
+            "properties": {
+              "start_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "end_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "start_at",
+              "end_at"
+            ]
+          },
+          "project": {
+            "type": "object",
+            "properties": {
+              "connector_id": {
+                "type": "string"
+              },
+              "project_id": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "web_url": {
+                "type": "string"
+              },
+              "deploy_environment": {
+                "type": "string"
+              },
+              "refs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "connector_id",
+              "project_id",
+              "path",
+              "web_url",
+              "deploy_environment",
+              "refs"
+            ]
+          },
+          "kpis": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3ChangeKpi"
+            },
+            "description": "deployments, failed_deployments, pipelines, merged_merge_requests; a list whose connector tool is off has no KPI"
+          },
+          "series_start_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "series_step_seconds": {
+            "type": "integer",
+            "enum": [
+              3600,
+              86400
+            ]
+          },
+          "deployments": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3GitLabDeployment"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pipelines": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3GitLabPipeline"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "merge_requests": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3GitLabMergeRequest"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "alerts": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "incident_id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "href": {
+                      "type": "string"
+                    },
+                    "started_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "ended_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "incident_id",
+                    "title",
+                    "started_at",
+                    "ended_at",
+                    "href"
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kubernetes_revisions": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "revision": {
+                      "type": "string"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "change_cause": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "gitlab_pipeline_id": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "revision",
+                    "created_at",
+                    "change_cause",
+                    "gitlab_pipeline_id"
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "gitlab": {
+                "type": "string",
+                "enum": [
+                  "complete"
+                ]
+              },
+              "alerts": {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "unknown",
+                  "not_authorized"
+                ]
+              },
+              "kubernetes": {
+                "type": "string",
+                "enum": [
+                  "history_limited",
+                  "not_configured",
+                  "no_authorized_target",
+                  "unavailable"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "gitlab",
+              "alerts",
+              "kubernetes"
+            ]
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "unavailable": {
+            "$ref": "#/components/schemas/V3Unavailable"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "service_id",
+          "environment_id",
+          "source",
+          "window",
+          "project",
+          "kpis",
+          "series_start_at",
+          "series_step_seconds",
+          "deployments",
+          "pipelines",
+          "merge_requests",
+          "alerts",
+          "kubernetes_revisions",
+          "coverage",
+          "captured_at",
+          "unavailable"
+        ]
+      },
+      "V3GitLabPipelineDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "pipeline_id": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "sha": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "user": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "username"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "duration_seconds": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "web_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "jobs": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "integer"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      },
+                      "manual": {
+                        "type": "boolean"
+                      },
+                      "started_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date-time"
+                      },
+                      "finished_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date-time"
+                      },
+                      "duration_seconds": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "web_url": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "id",
+                      "name",
+                      "status",
+                      "manual",
+                      "started_at",
+                      "finished_at",
+                      "duration_seconds",
+                      "web_url"
+                    ]
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "status",
+                "jobs"
+              ]
+            }
+          },
+          "commit": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "sha": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "authored_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "parent_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "stats": {
+                    "type": "object",
+                    "properties": {
+                      "files": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ]
+                      },
+                      "additions": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "deletions": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "files",
+                      "additions",
+                      "deletions"
+                    ]
+                  },
+                  "paths": {
+                    "oneOf": [
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "At most 20 changed paths; never diff text"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "sha",
+                  "title",
+                  "authored_at",
+                  "parent_ids",
+                  "stats",
+                  "paths"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "merge_request_iid": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "adjacent_alerts": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3ChangeAdjacentAlert"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Relative to the pipeline end (its last update while it runs)"
+          },
+          "unavailable": {
+            "$ref": "#/components/schemas/V3Unavailable"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "pipeline_id",
+          "status",
+          "ref",
+          "sha",
+          "source",
+          "user",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "duration_seconds",
+          "web_url",
+          "stages",
+          "commit",
+          "merge_request_iid",
+          "adjacent_alerts",
+          "unavailable"
         ]
       },
       "V3ChangeReviewInput": {

@@ -25,6 +25,10 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_change_request", "Select one service and delivery run")
 		return
 	}
+	if f.Source == "gitlab" {
+		s.gitLabView(w, r, f)
+		return
+	}
 	app, env, _ := decodeServiceID(f.ServiceID)
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()

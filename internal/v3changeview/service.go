@@ -34,6 +34,9 @@ type Service struct {
 	Reviews      ReviewSource
 	AlertCovered AlertCovered
 	Now          func() time.Time
+	// GitLab reads the GitLab changes of sources=gitlab (D11); nil leaves
+	// that source not configured.
+	GitLab GitLabChanges
 }
 
 func New(st *store.Store, access Access, reviews ReviewSource, covered AlertCovered) *Service {
@@ -45,6 +48,8 @@ func (s *Service) Register(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("GET /api/v1/changes", "services", "view")
 	api.Register("POST /api/v1/changes/{run_id}/review", "viewer", s.acceptReview)
 	api.MarkV3ObjectRoute("POST /api/v1/changes/{run_id}/review", "services", "change")
+	api.Register("GET /api/v1/changes/pipelines/{pipeline_id}", "viewer", s.gitLabPipeline)
+	api.MarkV3ObjectRoute("GET /api/v1/changes/pipelines/{pipeline_id}", "services", "view")
 }
 
 type kpi struct {
@@ -165,7 +170,12 @@ func parseRequest(raw string) (requestFilter, bool) {
 		}
 	}
 	out.ServiceID, out.RunID = q.Get("service_id"), q.Get("run_id")
-	if out.ServiceID == "" || out.RunID == "" || len(out.RunID) > 128 || strings.ContainsAny(out.RunID, "\r\n\x00") {
+	// The GitLab view covers a service and range; a native view one run.
+	if q.Get("sources") == "gitlab" {
+		if out.ServiceID == "" || q.Has("run_id") {
+			return out, false
+		}
+	} else if out.ServiceID == "" || out.RunID == "" || len(out.RunID) > 128 || strings.ContainsAny(out.RunID, "\r\n\x00") {
 		return out, false
 	}
 	if _, _, ok := decodeServiceID(out.ServiceID); !ok {
@@ -182,6 +192,8 @@ func parseRequest(raw string) (requestFilter, bool) {
 	switch q.Get("sources") {
 	case "", "native":
 		out.Source = "native"
+	case "gitlab":
+		out.Source = "gitlab"
 	default:
 		return out, false
 	}

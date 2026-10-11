@@ -37,6 +37,9 @@ type Catalog struct {
 	Scopes  map[ScopeKey]Scope
 	// Workloads are reviewed Kubernetes workload scopes (PA-08).
 	Workloads map[ScopeKey]WorkloadScope
+	// GitLab are reviewed change scopes of code projects (D11), keyed with
+	// the project ID as resource ID.
+	GitLab map[ScopeKey]GitLabScope
 	// Limits bound every registry client (PA-19 P4: they moved here from
 	// the telemetry file, which a V3 instance no longer reads).
 	Limits Limits
@@ -137,6 +140,7 @@ type CatalogFile struct {
 	Queries               []QueryEntry    `json:"queries"`
 	Scopes                []ScopeEntry    `json:"scopes,omitempty"`
 	Workloads             []WorkloadEntry `json:"workloads,omitempty"`
+	GitLab                []GitLabEntry   `json:"gitlab,omitempty"`
 	Limits                *Limits         `json:"limits,omitempty"`
 	TempoSearchFailClosed []string        `json:"tempo_search_fail_closed,omitempty"`
 }
@@ -152,7 +156,7 @@ const (
 func LoadCatalog(path string) (Catalog, error) {
 	if path == "" {
 		return Catalog{Queries: map[v3integrations.PrometheusQueryKey]string{}, Scopes: map[ScopeKey]Scope{}, Workloads: map[ScopeKey]WorkloadScope{},
-			TempoSearchFailClosed: map[string]bool{}}, nil
+			GitLab: map[ScopeKey]GitLabScope{}, TempoSearchFailClosed: map[string]bool{}}, nil
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -222,6 +226,9 @@ func ParseCatalog(data []byte) (Catalog, error) {
 		return Catalog{}, err
 	}
 	out.Workloads = workloads
+	if out.GitLab, err = parseGitLab(file.GitLab); err != nil {
+		return Catalog{}, err
+	}
 	return out, nil
 }
 
@@ -340,6 +347,16 @@ func (c Catalog) File() CatalogFile {
 		return a.EnvironmentID+"\x00"+a.ApplicationID+"\x00"+a.ConnectorID+"\x00"+a.ResourceID <
 			b.EnvironmentID+"\x00"+b.ApplicationID+"\x00"+b.ConnectorID+"\x00"+b.ResourceID
 	})
+	for key, scope := range c.GitLab {
+		out.GitLab = append(out.GitLab, GitLabEntry{ConnectorID: key.ConnectorID, ApplicationID: key.ApplicationID,
+			EnvironmentID: key.EnvironmentID, ProjectID: key.ResourceID, DeployEnvironment: scope.DeployEnvironment,
+			Refs: append([]string(nil), scope.Refs...)})
+	}
+	sort.Slice(out.GitLab, func(i, j int) bool {
+		a, b := out.GitLab[i], out.GitLab[j]
+		return a.EnvironmentID+"\x00"+a.ApplicationID+"\x00"+a.ConnectorID+"\x00"+a.ProjectID <
+			b.EnvironmentID+"\x00"+b.ApplicationID+"\x00"+b.ConnectorID+"\x00"+b.ProjectID
+	})
 	if c.Limits != (Limits{}) {
 		limits := c.Limits
 		out.Limits = &limits
@@ -355,8 +372,11 @@ func (c Catalog) File() CatalogFile {
 // loaded configuration.
 func (c Catalog) Clone() Catalog {
 	out := Catalog{Queries: make(map[v3integrations.PrometheusQueryKey]string, len(c.Queries)), Scopes: make(map[ScopeKey]Scope, len(c.Scopes)),
-		Workloads: make(map[ScopeKey]WorkloadScope, len(c.Workloads)), Limits: c.Limits,
-		TempoSearchFailClosed: make(map[string]bool, len(c.TempoSearchFailClosed))}
+		Workloads: make(map[ScopeKey]WorkloadScope, len(c.Workloads)), GitLab: make(map[ScopeKey]GitLabScope, len(c.GitLab)),
+		Limits: c.Limits, TempoSearchFailClosed: make(map[string]bool, len(c.TempoSearchFailClosed))}
+	for key, value := range c.GitLab {
+		out.GitLab[key] = value
+	}
 	for id := range c.TempoSearchFailClosed {
 		out.TempoSearchFailClosed[id] = true
 	}

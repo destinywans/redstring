@@ -376,7 +376,7 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 					httpapi.Error(w, 503, "authorization_unavailable", "Mapping policy unavailable")
 					return
 				}
-				bindings := append([]core.Binding(nil), visibleBindings[candidate.appID]...)
+				bindings := withoutCode(visibleBindings[candidate.appID])
 				expected := core.Binding{Kind: "gitlab", ConnectorID: candidate.connectorID, Resource: candidate.externalID}
 				bindings = append(bindings, expected)
 				if !mappingBindingSupported(bindings, expected) {

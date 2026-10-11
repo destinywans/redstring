@@ -747,28 +747,92 @@ export type LogPattern = { template: string; level: LogLine["level"]; count: str
  * null too when no log source is bound at all (every key not_configured).
  */
 export type LogSearch = { total: string | null; errors: string | null; histogram: number[][] | null; items: LogLine[] | null; patterns: LogPattern[] | null; unavailable: Unavailable };
-export type Pipeline = { id: string; brand: string; ref: string; service: string; title: string; trigger: string; status: "success" | "failed" | "running" | "canceled"; stages: ("ok" | "danger" | "accent" | "neutral")[]; duration: string; time: string };
-/** GET /delivery/runs item (native delivery run), used to pick a run for the changes view. */
-export type DeliveryRunSummary = { id: string; pipeline_id?: string; application_id?: string; environment_id?: string; provider?: string; status?: string; version?: number; created_at?: string; updated_at?: string; snapshot?: { name?: string }; projection?: { status?: string; commit_sha?: string; message?: string } };
-export type ChangesView = {
+/** GitLab user as the change reads give it. */
+export type GitLabUser = { username: string } | null;
+/** An alert whose start fell near a change: only time adjacency, never a cause (basis is always time_adjacent). */
+export type ChangeAdjacentAlert = { incident_id: string; offset_seconds: number; basis: "time_adjacent" };
+export type GitLabDeployment = {
+  id: string;
+  deployment_id: number;
+  iid: number;
+  status: "created" | "running" | "success" | "failed" | "canceled" | "skipped" | "blocked";
+  environment: string;
+  ref: string;
+  sha: string;
+  short_sha: string;
+  pipeline_id: number | null;
+  job: { id: number; name: string } | null;
+  user: GitLabUser;
+  created_at: string;
+  finished_at: string | null;
+  web_url: string | null;
+  merge_request_iid: number | null;
+  /** The cluster revision whose change-cause names this pipeline; display only, not proof. */
+  kubernetes_revision: string | null;
+  adjacent_alerts: ChangeAdjacentAlert[] | null;
+};
+export type GitLabPipeline = { id: string; pipeline_id: number; status: string; ref: string; sha: string; short_sha: string; source: string; created_at: string; updated_at: string; web_url: string | null; merge_request_iid: number | null; deployment_ids: number[] };
+export type GitLabMergeRequest = {
+  id: string;
+  iid: number;
+  title: string;
+  state: "opened" | "closed" | "merged" | "locked";
+  source_branch: string;
+  target_branch: string;
+  author: GitLabUser;
+  merged_by: GitLabUser;
+  created_at: string;
+  merged_at: string | null;
+  closed_at: string | null;
+  sha: string | null;
+  merge_commit_sha: string | null;
+  squash_commit_sha: string | null;
+  web_url: string | null;
+  pipeline_ids: number[];
+  deployment_ids: number[];
+};
+/**
+ * GET /changes?service_id=&range=24h|7d&sources=gitlab (D11 §11.1, V3GitLabChangesView). A list is null when its
+ * connector tool is off (its KPIs are then missing and `unavailable["kpis.<id>"]` says not_configured).
+ */
+export type GitLabChangesView = {
+  service_id: string;
+  environment_id: string;
+  source: "gitlab";
+  window: { start_at: string; end_at: string };
+  project: { connector_id: string; project_id: string; path: string; web_url: string; deploy_environment: string; refs: string[] };
   kpis: Kpi[];
-  sources: { brand: string; name: string; count: number; on: boolean }[];
-  lanes: { service: string; marks: { at: number; tone: "ok" | "danger"; label?: string }[]; alerts: [number, number][] }[];
-  /** The timeline's axis instants (RFC 3339; PA-83). */
-  axis_times: string[];
-  pipelines: Pipeline[];
-  detail: {
-    id: string;
-    title: string;
-    meta: string;
-    /** The review time (RFC 3339; PA-83); meta carries no time. */
-    reviewed_at?: string | null;
-    brand: string;
-    stages: { name: string; jobs: { name: string; state: "ok" | "running"; brand?: string }[] }[];
-    diff: { path: string; minus: string; plus: string };
-    risk: { title: string; meta: string; text: string };
-    alert: { text: string; incident: string };
-  };
+  series_start_at: string;
+  series_step_seconds: number;
+  deployments: GitLabDeployment[] | null;
+  pipelines: GitLabPipeline[] | null;
+  merge_requests: GitLabMergeRequest[] | null;
+  /** null without an alert coverage statement (coverage.alerts unknown) or permission (not_authorized). */
+  alerts: { incident_id: string; title: string; href: string; started_at: string; ended_at: string | null }[] | null;
+  kubernetes_revisions: { revision: string; created_at: string; change_cause: string | null; gitlab_pipeline_id: number | null }[] | null;
+  coverage: { gitlab: "complete"; alerts: "complete" | "unknown" | "not_authorized"; kubernetes: "history_limited" | "not_configured" | "no_authorized_target" | "unavailable" };
+  captured_at: string;
+  unavailable: Unavailable;
+};
+/** GET /changes/pipelines/{pipeline_id}?service_id= (D11 §11.2, V3GitLabPipelineDetail); deployments come from the list row. */
+export type GitLabPipelineDetail = {
+  id: string;
+  pipeline_id: number;
+  status: string;
+  ref: string;
+  sha: string;
+  source: string;
+  user: GitLabUser;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_seconds: number | null;
+  web_url: string | null;
+  stages: { name: string; status: string; jobs: { id: number; name: string; status: string; manual: boolean; started_at: string | null; finished_at: string | null; duration_seconds: number | null; web_url: string | null }[] }[];
+  commit: { sha: string; title: string; authored_at: string; parent_ids: string[]; stats: { files: number | null; additions: number; deletions: number }; paths: string[] | null } | null;
+  merge_request_iid: number | null;
+  adjacent_alerts: ChangeAdjacentAlert[] | null;
+  unavailable: Unavailable;
 };
 
 /* ---------------- integrations ---------------- */

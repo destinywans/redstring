@@ -679,3 +679,136 @@
   color: var(--text);
   font-weight: 500;
 }
+
+/* ---------- D11: alert rule execution ---------- */
+.ar-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+}
+.ar-banner.warn {
+  background: var(--warn-soft);
+}
+.ar-banner.warn > svg {
+  color: var(--warn);
+}
+.ar-banner.danger {
+  background: var(--danger-soft);
+}
+.ar-banner.danger > svg {
+  color: var(--danger);
+}
+.ar-banner.info {
+  background: var(--sunken);
+  color: var(--muted);
+}
+.ar-banner > .v3-btn,
+.ar-banner > .perm-gate {
+  flex: none;
+}
+.ar-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .ar-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.ar-tl {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 16px 10px;
+}
+.ar-tl li {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 0;
+}
+.ar-tl li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 10px;
+  top: 32px;
+  bottom: -10px;
+  width: 2px;
+  background: var(--border);
+}
+.ar-tl li.done:not(:last-child)::before {
+  background: var(--ok);
+  opacity: 0.4;
+}
+.ar-tl .dot {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: var(--fs-cap);
+  font-weight: 700;
+}
+.ar-tl li.done .dot {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.ar-tl li.now .dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.ar-tl li.att .dot {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.ar-tl li.bad .dot {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.ar-tl li.todo {
+  opacity: 0.55;
+}
+.ar-tl .t {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.ar-tl .t code {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--sunken);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--fs-cap);
+  font-weight: 400;
+}
+.ar-tl .d {
+  color: var(--muted);
+  font-size: var(--fs-sub);
+  line-height: 1.5;
+}
+.ar-tl li.att .d {
+  color: var(--text);
+}
+.ar-tl li.bad .d {
+  color: var(--danger);
+}
+.ar-tl .tm {
+  flex: none;
+  padding-top: 2px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--fs-cap);
+}

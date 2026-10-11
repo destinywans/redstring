@@ -4,6 +4,7 @@ import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import { ROLLBACK_KIND, type Execution, type ExecutionDetail } from "../../api/types";
 import { RolloutExecutionPage } from "./RolloutExecution";
+import { AlertRuleExecutionPage } from "./AlertRuleExecution";
 import { useWhen } from "./rollback";
 import { PartialBanner, Unavailable, UnknownValue } from "../../ui/unknown";
 import { Badge, Btn, Card, CardHead, Col, Icon, Mono, Muted, Row, Sev, Skeleton, Spacer, Textarea, Tile, type IconName } from "../../ui/core";
@@ -17,8 +18,10 @@ import { downloadFile } from "../../ui/demo";
 export default function ExecutionPage() {
   const { id = "" } = useParams();
   // Rollback executions carry `kind`; the older projections don't (docs/api/v3-rollback.md §4). Same cache key as the pages below.
-  const { data } = useGet<{ kind?: string }>(id ? `/executions/${id}` : null);
+  const { data } = useGet<{ kind?: string; alert_rule?: unknown }>(id ? `/executions/${id}` : null);
   if (data?.kind === ROLLBACK_KIND) return <RolloutExecutionPage id={id} />;
+  // Alert rule enable/disable executions carry the alert_rule projection (D11 §11.5); others have it null.
+  if (data?.alert_rule) return <AlertRuleExecutionPage id={id} />;
   return API_MODE === "mock" ? <SampleExecutionPage /> : <RealExecutionPage />;
 }
 

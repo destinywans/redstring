@@ -3,6 +3,7 @@ import { NOW, at } from "../time";
 import { l } from "../../i18n";
 import { silences as created } from "./identity";
 import { rollbackProposal, rolloutExecution } from "./rollback";
+import { LIFECYCLE_RULES, RULE_PENDING, alertRuleExecution, alertRuleProposal, isAlertRuleExecution, isAlertRuleProposal } from "./alertRules";
 
 const P = (zh: string, en: string) => l(zh, en);
 const hhmm = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, "0")}`;
@@ -238,6 +239,8 @@ const RULES = [
   { id: "r-p99", folder: P("交易平台 / checkout-api", "Trading / checkout-api"), name: P("P99 超过 SLO", "P99 above SLO"), state: "ok" },
   { id: "r-retry", folder: P("交易平台 / checkout-api", "Trading / checkout-api"), name: P("下游重试占比过高", "High downstream retry ratio"), state: "firing" },
   { id: "r-restart", folder: P("交易平台 / checkout-api", "Trading / checkout-api"), name: P("实例重启频繁", "Frequent restarts"), state: "ok" },
+  // GitOps-managed rules (D11 §11.6), one per lifecycle state.
+  ...LIFECYCLE_RULES.map((r) => ({ ...r, folder: P("规则仓库 / checkout-api", "Rule repository / checkout-api"), schedule: undefined })),
   { id: "r-pay-p99", folder: P("交易平台 / payment-gateway", "Trading / payment-gateway"), name: P("P99 超过 SLO", "P99 above SLO"), state: "ok" },
   { id: "r-pay-cb", folder: P("交易平台 / payment-gateway", "Trading / payment-gateway"), name: P("支付回调失败率", "Payment callback failures"), state: "ok" },
   { id: "r-node", folder: P("平台基础", "Platform"), name: P("节点 NotReady", "Node NotReady"), state: "ok" },
@@ -246,7 +249,7 @@ const RULES = [
   { id: "r-cert", folder: P("周期规则", "Scheduled"), name: P("证书 30 天内到期", "Certificate expires in 30 days"), state: "ok", schedule: P("每天 09:00", "Daily 09:00") },
   { id: "r-diskpred", folder: P("周期规则", "Scheduled"), name: P("磁盘 7 天内写满预测", "Disk full in 7 days (forecast)"), state: "ok", schedule: P("每 6 小时", "Every 6 h") },
 ];
-mock("GET", "/alert-rules", () => ({ items: RULES, counts: { all: 23, firing: 3, scheduled: 2 }, empty_reason: null, unavailable: {} }));
+mock("GET", "/alert-rules", () => ({ items: RULES, counts: { all: 27, firing: 4, scheduled: 2 }, empty_reason: null, unavailable: {}, pending: RULE_PENDING }));
 mock("GET", "/alert-rules/:id", ({ params }) => {
   const r = RULES.find((x) => x.id === params.id) ?? RULES[0];
   return {
@@ -352,14 +355,16 @@ const proposal = {
   ],
 };
 // PRP-RB* / EXE-RB* are the sample rollback proposal and executions (docs/api/v3-rollback.md).
-mock("GET", "/proposals/:id", ({ params }) => (params.id.startsWith("PRP-RB") ? rollbackProposal(params.id) : { ...proposal, id: params.id, action_kind: "configcenter.patch", rollback: null }));
+mock("GET", "/proposals/:id", ({ params }) =>
+  params.id.startsWith("PRP-RB") ? rollbackProposal(params.id) : isAlertRuleProposal(params.id) ? alertRuleProposal(params.id) : { ...proposal, id: params.id, action_kind: "configcenter.patch", rollback: null, alert_rule: null },
+);
 mock("POST", "/proposals/:id/approve", () => ({ execution_id: "EXE-51" }));
 mock("POST", "/proposals/:id/reject", () => ({ ok: true }));
 mock("POST", "/proposals/:id/comments", ({ body }) => ({ author: "王晨", time: new Date().toTimeString().slice(0, 5), text: (body as { text: string }).text }));
 
 // Retries stop at once when the config lands, so the drop is steep (the same curve as wans.run/redstring).
 const obs = [8.1, 8.6, 8.3, 8.9, 8.4, 8.2, 8.7, 8.5, 8.3, 8.8, 8.4, 8.6, 7.9, 5.2, 1.9, 0.6, 0.38, 0.3, 0.26, 0.24, 0.22, 0.24, 0.21, 0.2, 0.23, 0.21, 0.19, 0.22, 0.2, 0.21];
-mock("GET", "/executions/:id", ({ params }) => params.id.startsWith("EXE-RB") ? rolloutExecution(params.id) : ({
+mock("GET", "/executions/:id", ({ params }) => params.id.startsWith("EXE-RB") ? rolloutExecution(params.id) : isAlertRuleExecution(params.id) ? alertRuleExecution(params.id) : ({
   id: params.id,
   proposal_id: "PRP-88",
   status: "succeeded",

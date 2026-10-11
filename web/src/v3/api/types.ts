@@ -348,13 +348,37 @@ export type Incident = {
 };
 
 /* ---------------- alert rules, routing, silences ---------------- */
-export type AlertRuleSummary = { id: string; folder: string; name: string; state: "firing" | "pending" | "ok"; schedule?: string };
+export type AlertRuleSummary = {
+  id: string;
+  folder: string;
+  name: string;
+  state: "firing" | "pending" | "ok";
+  schedule?: string;
+  /** D11 §11.6: where the rule is in its GitOps lifecycle (separate from whether it fires); ids are null without a disable in progress. */
+  lifecycle?: AlertRuleLifecycle;
+};
+export type AlertRuleLifecycle = { state: "active" | "disable_pending_approval" | "disabling" | "needs_attention"; proposal_id: string | null; execution_id: string | null };
+/** D11 §11.6: an enable or disable not in effect yet (only proposals the viewer may see; newest first, at most 50). */
+export type AlertRulePending = {
+  proposal_id: string;
+  execution_id: string | null;
+  operation: "enable" | "disable";
+  rule_name: string;
+  group: string;
+  application_id: string;
+  environment_id: string;
+  /** failed and rejected only within 7 days. */
+  state: "pending_approval" | "executing" | "needs_attention" | "failed" | "rejected";
+  updated_at: string;
+  /** The review page while pending approval, the execution page once it runs. */
+  href: string;
+};
 /**
  * List-endpoint emptiness (PA-09): items null = source not configured (see unavailable); [] with
  * empty_reason "no_authorized_target" = nothing visible to this user; [] with null = genuinely none.
  */
 export type EmptyReason = "no_authorized_target" | null;
-export type AlertRuleList = { items: AlertRuleSummary[] | null; counts: { all: number; firing: number; scheduled: number } | null; empty_reason: EmptyReason; unavailable: Unavailable };
+export type AlertRuleList = { items: AlertRuleSummary[] | null; counts: { all: number; firing: number; scheduled: number } | null; empty_reason: EmptyReason; unavailable: Unavailable; pending?: AlertRulePending[] };
 export type AlertRule = AlertRuleSummary & {
   datasource: string;
   query_ref: string;
@@ -425,7 +449,46 @@ export type Proposal = {
   /** e.g. kubernetes.deployment.rollback; null for display-only proposals (docs/api/v3-rollback.md §3). */
   action_kind?: string | null;
   rollback?: ProposalRollback | null;
+  /** D11 §11.4: set for prometheus.alert_rule.enable / .disable, null otherwise. */
+  alert_rule?: ProposalAlertRule | null;
 };
+
+/* ---------------- Alert rule enable / disable through GitOps (D11 §11.4–11.5) ---------------- */
+export const ALERT_RULE_KINDS = ["prometheus.alert_rule.enable", "prometheus.alert_rule.disable"];
+export type ProposalAlertRule = {
+  operation: "enable" | "disable";
+  rule: { name: string; group: string; expr: string; for: string; severity: string; labels: Record<string, string>; annotations: Record<string, string> };
+  repository: { connector_id: string; project_id: string; project_path: string; web_url: string; target_branch: string; path: string; base_sha: string };
+  /** The whole file's difference; op " " is an unchanged line. */
+  change: { lines: { op: "+" | "-" | " "; text: string }[]; content_sha256: string };
+  prometheus: { group: string; file: string; readback_timeout_seconds: number };
+  merge: { method: "fast_forward"; by: "executor" };
+};
+export type AlertRuleExecState = "reserved" | "committing" | "merging" | "merged" | "loading" | "enabled" | "disabled" | "failed" | "needs_attention" | "uncertain";
+export type AlertRuleFailureCode = "stale_base" | "branch_conflict" | "mr_closed" | "protection_changed" | "load_timeout" | "rule_health_error" | "credential_rejected" | "approval_invalid";
+/** Fields of steps not reached yet are null. */
+export type ExecutionAlertRule = {
+  proposal_id: string;
+  operation: "enable" | "disable";
+  state: AlertRuleExecState;
+  steps: { state: AlertRuleExecState; at: string }[];
+  repository: { project_id: string; project_path: string; source_branch: string; target_branch: string; path: string; commit_sha: string | null; mr_iid: number | null; mr_url: string | null; merged_sha: string | null; merged_at: string | null };
+  readback: {
+    state: "pending" | "loaded" | "absent" | "mismatch" | "error" | "timeout";
+    checked_at: string | null;
+    first_seen_at: string | null;
+    health: string | null;
+    last_evaluation_at: string | null;
+    last_error: string | null;
+    reload: { last_successful: boolean | null; last_success_at: string | null } | null;
+  };
+  failure: { code: AlertRuleFailureCode | (string & {}); message: string } | null;
+};
+/**
+ * GET /executions/{id} for an alert rule. §11.5 only adds `alert_rule`; the approvers and approval time are assumed
+ * like the rollback execution's and hidden when absent. The rule's name comes from the proposal.
+ */
+export type AlertRuleExecutionDetail = { id: string; kind?: string; investigation_id?: string | null; approved_at?: string; approvers?: { name: string; verified_at: string }[]; alert_rule: ExecutionAlertRule };
 
 /* ---------------- Kubernetes rollback (docs/api/v3-rollback.md, PA-08) ---------------- */
 /**

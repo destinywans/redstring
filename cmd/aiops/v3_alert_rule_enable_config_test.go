@@ -83,7 +83,8 @@ func TestV3AlertRuleEnableConfigFilePull(t *testing.T) {
 		return path
 	}
 	binding := map[string]any{"environment_id": "test", "application_id": "app", "group": "g", "provider_file": ruleFile,
-		"project_id": 6, "target_branch": "main", "yaml_path": "rules/test/app.yml", "load": "file_pull", "readback_timeout_seconds": 300}
+		"project_id": 6, "target_branch": "main", "yaml_path": "rules/test/app.yml", "load": "file_pull", "readback_timeout_seconds": 300,
+		"project_path": "aiops-lab/prometheus-rules", "connector_id": "gitlab-test"}
 	config := map[string]any{"gitlab_url": gitlab.URL, "gitlab_token_ref": "vault://aiops/lab/gitlab/rules-write#token",
 		"gitlab_ca_field": "ca", "gitlab_web_url": "http://127.0.0.1:28080", "bindings": []any{binding}}
 	applier, environments, err := loadV3AlertRuleEnableApplier(write(config), instance, source, ruleBindings)
@@ -113,9 +114,10 @@ func TestV3AlertRuleEnableConfigFilePull(t *testing.T) {
 		"argo settings unused": func(c, _ map[string]any) {
 			c["argo_url"], c["argo_token_file"] = "https://argo.example.invalid", "/run/secrets/argo"
 		},
-		"unknown load":   func(_, b map[string]any) { b["load"] = "push" },
-		"short readback": func(_, b map[string]any) { b["readback_timeout_seconds"] = 10 },
-		"http endpoint":  func(c, _ map[string]any) { c["gitlab_url"] = "http://127.0.0.1:28080" },
+		"unknown load":     func(_, b map[string]any) { b["load"] = "push" },
+		"short readback":   func(_, b map[string]any) { b["readback_timeout_seconds"] = 10 },
+		"bad project path": func(_, b map[string]any) { b["project_path"] = "../rules" },
+		"http endpoint":    func(c, _ map[string]any) { c["gitlab_url"] = "http://127.0.0.1:28080" },
 	} {
 		c, b := map[string]any{}, map[string]any{}
 		for k, v := range config {

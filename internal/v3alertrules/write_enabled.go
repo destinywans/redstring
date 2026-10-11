@@ -321,6 +321,7 @@ func (s *WriteService) persistEnableIntent(ctx context.Context, actor core.User,
 		return nil, problem(422, "disable_unavailable", "This rule group is deployed without an executor merge; disable it in its repository")
 	}
 	intent.Deployment = plan
+	change, hasChange := s.proposalChange(ctx, intent)
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -377,6 +378,12 @@ func (s *WriteService) persistEnableIntent(ctx context.Context, actor core.User,
 		actor.ID, env, spec.ApplicationID, investigation, updated, key)
 	if err != nil {
 		return nil, dbWriteProblem(err)
+	}
+	if hasChange {
+		if _, err = tx.Exec(ctx, `INSERT INTO v3_alert_rule_proposal_changes(proposal_id,base_revision,content_sha256,lines)
+ VALUES($1,$2,$3,$4::jsonb)`, proposalID, plan.BaseRevision, plan.ContentDigest, change); err != nil {
+			return nil, err
+		}
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
  VALUES($1,'user',$2,$11,$3,'pending',jsonb_build_object(

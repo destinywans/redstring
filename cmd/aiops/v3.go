@@ -456,6 +456,9 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return fmt.Errorf("configure V3 alert rule drafts: %w", err)
 	}
 	alertRuleWriter := v3alertrules.NewWriteService(s.DB, policy, ruleService, alertRuleDraftRepository)
+	// D11 §11.6: the main rule list shows each rule's GitOps lifecycle and
+	// the enables and disables not in effect yet.
+	ruleService.Lifecycle = alertRuleWriter.RuleLifecycle
 	enableApplier, enableEnvironments, err := loadV3AlertRuleEnableApplier(
 		os.Getenv("AIOPS_V3_ALERT_RULE_ENABLE_CONFIG"), *info, ruleSource, ruleBindings)
 	if err != nil {
@@ -471,6 +474,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		enableWorker = newV3AlertRuleEnableWorker(alertRuleWriter, enableEnvironments)
 		alertRuleWriter.EnableReady = enableWorker.Ready
 		proposalService.AlertRuleEnableReady = enableWorker.Ready
+		proposalService.AlertRuleView = alertRuleWriter.ProposalAlertRule
 		proposalService.AlertRuleEnableIntent = func(ctx context.Context, tx pgx.Tx, proposalID string) (v3proposals.AlertRuleEnableReview, error) {
 			intent, err := v3alertrules.LoadAlertRuleEnableIntentWithTx(ctx, tx, proposalID)
 			if err != nil {
@@ -640,6 +644,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	connector.Workloads = rollouts.ConnectorWorkloads
 	changes.Revisions = changeRevisions(rollouts)
 	executions.Rollout = rollouts.Execution
+	executions.AlertRule = alertRuleWriter.ExecutionView
 	proposalService.RollbackReady = rollouts.Ready
 	if len(rollbackWriteBindings) > 0 {
 		go rollouts.Run(ctx)

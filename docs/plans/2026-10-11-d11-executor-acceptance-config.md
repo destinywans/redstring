@@ -14,6 +14,7 @@
 | `818fa458` | `POST /executions/{id}/recheck` |
 | `0af4ac00` | D32 标签规范与告警摄取的环境隔离 |
 | `dee3cd07` | 停用动作，迁移 177 |
+| 本文之后的提交 | 提案、执行、规则列表的结构化字段（§11.4–11.6），迁移 178 |
 
 **值的来源**：
 - 实验侧：`aiops-test/docs/plans/2026-10-11-d11-lab-prep.md`；
@@ -68,7 +69,8 @@ checkout-api 的应用 ID 是 `0a5cb01131f3c2387b848004e8f5db23`，`test` 环境
      "group": "redstring-test-checkout-api",
      "provider_file": "/etc/redstring-rules/current/rules/test/checkout-api.yml",
      "project_id": 6, "target_branch": "main", "yaml_path": "rules/test/checkout-api.yml",
-     "load": "file_pull", "readback_timeout_seconds": 300}
+     "load": "file_pull", "readback_timeout_seconds": 300,
+     "project_path": "aiops-lab/prometheus-rules", "connector_id": "9cf0ccfeff69213747e3ded07ba998af"}
   ]
 }
 ```
@@ -105,7 +107,8 @@ checkout-api 的应用 ID 是 `f79b3ba7bc6224bbdcf7e9114099991a`。
      "group": "redstring-prod-checkout-api",
      "provider_file": "/etc/redstring-rules/current/rules/prod/checkout-api.yml",
      "project_id": 6, "target_branch": "main", "yaml_path": "rules/prod/checkout-api.yml",
-     "load": "file_pull", "readback_timeout_seconds": 300}
+     "load": "file_pull", "readback_timeout_seconds": 300,
+     "project_path": "aiops-lab/prometheus-rules"}
   ]
 }
 ```
@@ -123,6 +126,7 @@ prod 现有的 `AIOPS_OPERATIONS_CONFIG`（`.local/acceptance/prod/operations.js
   - 超时记 `load_timeout`，worker 在合并后 24 小时内继续读回；超过 24 小时用执行页的“重新核对”。
   - 这个值计入批准内容，改了它，已批准但未执行的提案会因计划变化而失效。
 - `gitlab_token_ref`、`gitlab_ca_field`：写令牌和它旁边的 `ca` 字段（验收 TLS 代理的证书），每次请求都从 Vault 读，不缓存。读不到时不发请求。
+- `project_path`、`connector_id`：只用于展示（提案页、执行页的仓库链接与连接器），不进批准范围，可以不写。nonprod 的 `connector_id` 是该实例的 GitLab 连接器；prod 现在没有 GitLab 连接器，不写。
 - `gitlab_web_url`：GitLab 自报的外部地址，`GET /projects/6` 返回的 `web_url` 以 `http://127.0.0.1:28080` 开头。它只用于核对 MR 链接，产品不会访问它。
 
 **标签规范**：产品写入的每条规则都带下面两个作用域标签，告警摄取靠它们对到服务、并留在自己的环境里。
@@ -183,7 +187,7 @@ prod 现有的 `AIOPS_OPERATIONS_CONFIG`（`.local/acceptance/prod/operations.js
 
 ## 7. 部署步骤
 
-1. **构建**：用含上述提交的集成分支构建，替换验收二进制。迁移 175、176、177 在启动时自动执行。它们只改 `v3_alert_rule_enable_executions` 和 `v3_proposal_actions` 的约束和列，不改写已有行。
+1. **构建**：用含上述提交的集成分支构建，替换验收二进制。迁移 175–178 在启动时自动执行。它们只改 `v3_alert_rule_enable_executions` 和 `v3_proposal_actions` 的约束和列，不改写已有行。
 2. **写配置**：
    - 按第 3、4 节写两个实例的两份 JSON。写入批准文件设为 0600。
    - 在各自的环境文件里设 `AIOPS_V3_ALERT_RULES_CONFIG` 和 `AIOPS_V3_ALERT_RULE_ENABLE_CONFIG`。

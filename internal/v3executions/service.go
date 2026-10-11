@@ -28,6 +28,9 @@ type Service struct {
 	// Rollout answers a V3 rollback execution ID (PA-08) and reports whether
 	// it did; other IDs fall through to the legacy projection.
 	Rollout func(http.ResponseWriter, *http.Request, string) bool
+	// AlertRule answers an alert rule enable or disable execution ID (D11
+	// §11.5) the same way.
+	AlertRule func(http.ResponseWriter, *http.Request, string) bool
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
@@ -331,6 +334,9 @@ func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Rollout != nil && s.Rollout(w, r, r.PathValue("id")) {
+		return
+	}
+	if s.AlertRule != nil && s.AlertRule(w, r, r.PathValue("id")) {
 		return
 	}
 	tx, err := s.DB.Begin(r.Context())

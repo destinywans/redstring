@@ -35,6 +35,10 @@ type AlertRuleGitOpsBinding struct {
 	ArgoApplication, ArgoProject, ArgoNamespace             string
 	ArgoSourcePath, DestinationServer, DestinationNamespace string
 	Load                                                    string
+	// ProjectPath and ConnectorID are display-only (D11 §11.4): the
+	// project's path and the GitLab connector, shown in the proposal and
+	// execution views. They are not part of the scope.
+	ProjectPath, ConnectorID string
 	// ApplicationLabel is the trusted rule binding's application label
 	// value (D32); empty means ApplicationID. It is not part of the scope:
 	// the approved rule's labels already carry it.
@@ -221,6 +225,28 @@ func (a *GitOpsAlertRuleApplier) Plan(ctx context.Context, in AlertRuleEnableInt
 		plan.Load, plan.Merge, plan.ReadbackTimeoutSeconds = LoadFilePull, MergeByExecutor, b.ReadbackTimeoutSeconds
 	}
 	return plan, nil
+}
+
+// Preview renders the bound file at the plan's base revision before and
+// after the intent, for the review's whole-file difference (D11 §11.4).
+// The result must be the approved bytes.
+func (a *GitOpsAlertRuleApplier) Preview(ctx context.Context, in AlertRuleEnableIntent) ([]byte, []byte, error) {
+	b, err := a.binding(in)
+	if err != nil {
+		return nil, nil, err
+	}
+	before, err := a.readFile(ctx, b, in.Deployment.BaseRevision)
+	if err != nil {
+		return nil, nil, err
+	}
+	after, err := renderIntent(before, in)
+	if err != nil {
+		return nil, nil, err
+	}
+	if hashGitOpsBytes(after) != in.Deployment.ContentDigest {
+		return nil, nil, errors.New("previewed GitOps file differs from the plan")
+	}
+	return before, after, nil
 }
 
 func (a *GitOpsAlertRuleApplier) verifiedPlan(ctx context.Context, in AlertRuleEnableIntent) (AlertRuleGitOpsBinding, []byte, error) {
@@ -464,11 +490,23 @@ func renderRemovedRule(before []byte, spec DraftRuleSpec) ([]byte, error) {
 		return nil, errors.New("alert rule to disable is missing from GitOps file")
 	}
 	rules.Content = append(rules.Content[:index], rules.Content[index+1:]...)
-	out, err := yaml.Marshal(doc)
-	if err != nil || len(out) > 256<<10 {
+	return encodeRuleFile(doc)
+}
+
+// encodeRuleFile writes the file with two-space indentation, the usual
+// style of Prometheus rule files, so a file in that style changes only
+// where the rule does and the review difference stays small.
+func encodeRuleFile(doc *yaml.Node) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		return nil, errors.New("cannot encode GitOps rule file")
+	}
+	if err := enc.Close(); err != nil || buf.Len() > 256<<10 {
 		return nil, errors.New("deployable GitOps rule file exceeds limit")
 	}
-	return out, nil
+	return buf.Bytes(), nil
 }
 
 // renderDeployableRule rewrites the complete bounded native Prometheus file.
@@ -513,11 +551,7 @@ func renderDeployableRule(before []byte, spec DraftRuleSpec) ([]byte, error) {
 	} else {
 		rules.Content = append(rules.Content, rule.Content[0])
 	}
-	out, err := yaml.Marshal(doc)
-	if err != nil || len(out) > 256<<10 {
-		return nil, errors.New("deployable GitOps rule file exceeds limit")
-	}
-	return out, nil
+	return encodeRuleFile(doc)
 }
 
 func yamlMappingValue(node *yaml.Node, key string) *yaml.Node {

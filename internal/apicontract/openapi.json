@@ -4584,7 +4584,7 @@
       "get": {
         "summary": "Read persisted execution and recovery evidence",
         "operationId": "get_executions_id",
-        "description": "Minimum role: viewer with scoped proposals.view. V3 instance and environment scope apply. Reads the legacy execution, its approved action plan and investigation, up to 100 persisted events, optional recovery summary and optional closed report. Current application, environment and owner-team grants are checked. status_source distinguishes the authoritative legacy status from any missing derived evidence. proposal_id is null because no V3 proposal link exists. Steps contain persisted event sequence, type and timestamp only; an editorial timeline is not fabricated. Chart arrays, thresholds, report severity and action items have no producer and are null with missing reasons. A succeeded status is the legacy executor result and is not by itself proof that a report exists or is published. The frozen frontend Execution DTO expects populated mock fields and requires a null-aware adapter. A V3 rollback execution (kind kubernetes.deployment.rollback) is projected from the rollout ledger with its timeline, rollout readback and verification samples (PA-08).",
+        "description": "Minimum role: viewer with scoped proposals.view. V3 instance and environment scope apply. Reads the legacy execution, its approved action plan and investigation, up to 100 persisted events, optional recovery summary and optional closed report. Current application, environment and owner-team grants are checked. status_source distinguishes the authoritative legacy status from any missing derived evidence. proposal_id is null because no V3 proposal link exists. Steps contain persisted event sequence, type and timestamp only; an editorial timeline is not fabricated. Chart arrays, thresholds, report severity and action items have no producer and are null with missing reasons. A succeeded status is the legacy executor result and is not by itself proof that a report exists or is published. The frozen frontend Execution DTO expects populated mock fields and requires a null-aware adapter. A V3 rollback execution (kind kubernetes.deployment.rollback) is projected from the rollout ledger with its timeline, rollout readback and verification samples (PA-08). An alert rule enable or disable execution (D11 §11.5, kind prometheus.alert_rule.enable or .disable) is projected from the executor ledger: state (exporting is committing, or merging once the MR exists; awaiting_provider is loading, or needs_attention after load_timeout; stale_remote is needs_attention), the step timeline, the commit, MR and merge, the last Prometheus readback and the failure code. Fields of steps not reached yet are null; readback.reload is always null (not read yet). It needs proposals.view on the application or its owner team.",
         "responses": {
           "200": {
             "description": "Success",
@@ -4597,6 +4597,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/V3RolloutExecutionDetail"
+                    },
+                    {
+                      "$ref": "#/components/schemas/V3AlertRuleExecutionDetail"
                     }
                   ]
                 }
@@ -35284,7 +35287,7 @@
       "get": {
         "summary": "Read complete authorized alert rule summaries",
         "operationId": "get_alert_rules",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result (403/503). Counts describe the complete authorized result. When no application is visible to the caller before any provider read, the list is empty with empty_reason=no_authorized_target (PA-09) instead of 403. Without a configured rule provider or group bindings, items and counts are null with unavailable=not_configured instead of 503. Upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result (403/503). Counts describe the complete authorized result. When no application is visible to the caller before any provider read, the list is empty with empty_reason=no_authorized_target (PA-09) instead of 403. Without a configured rule provider or group bindings, items and counts are null with unavailable=not_configured instead of 503. Upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected. D11 §11.6: with the executor wired each item carries lifecycle (active, or disable_pending_approval, disabling or needs_attention with the disable proposal and execution IDs), apart from whether the rule fires; when it cannot be read, lifecycle is omitted and unavailable names items[].lifecycle.",
         "responses": {
           "200": {
             "description": "Success",
@@ -77806,6 +77809,9 @@
           },
           "schedule": {
             "type": "string"
+          },
+          "lifecycle": {
+            "$ref": "#/components/schemas/V3AlertRuleLifecycle"
           }
         },
         "additionalProperties": false,
@@ -77877,6 +77883,20 @@
           },
           "unavailable": {
             "$ref": "#/components/schemas/V3Unavailable"
+          },
+          "pending": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/V3AlertRulePending"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "D11 §11.6: enables and disables not in effect yet, only proposals the caller may view (proposals.view on the application or its owner team), newest first, at most 50; failed and rejected only within seven days. href is the review page until the executor has an execution, then the execution page. Null, with unavailable.pending, when it cannot be read; absent when no executor is wired."
           }
         },
         "additionalProperties": false,
@@ -80616,6 +80636,17 @@
                 "type": "null"
               }
             ]
+          },
+          "alert_rule": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/V3ProposalAlertRule"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "D11 §11.4: set for prometheus.alert_rule.enable and .disable, null otherwise or when the view cannot be built (the review content still shows the whole action). connector_id, project_path and web_url are null when the deployment binding does not name them; change is null for a proposal created before differences were recorded. change is the whole file from the base revision to the approved bytes (content_sha256 equals the approved digest); it is review evidence, not part of the approval. merge is fast_forward by the executor for a file_pull binding, merge_request by a human otherwise."
           }
         },
         "additionalProperties": false,
@@ -80641,7 +80672,8 @@
           "discussion",
           "execution",
           "action_kind",
-          "rollback"
+          "rollback",
+          "alert_rule"
         ]
       },
       "V3ProposalApprovalChallenge": {
@@ -92735,6 +92767,609 @@
           "service",
           "rollback",
           "write_approved"
+        ]
+      },
+      "V3ProposalAlertRule": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "enable",
+              "disable"
+            ]
+          },
+          "rule": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "group": {
+                "type": "string"
+              },
+              "expr": {
+                "type": "string"
+              },
+              "for": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string"
+              },
+              "labels": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "annotations": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "group",
+              "expr",
+              "for",
+              "severity",
+              "labels",
+              "annotations"
+            ]
+          },
+          "repository": {
+            "type": "object",
+            "properties": {
+              "connector_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "project_id": {
+                "type": "string"
+              },
+              "project_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "web_url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "target_branch": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "base_sha": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "connector_id",
+              "project_id",
+              "project_path",
+              "web_url",
+              "target_branch",
+              "path",
+              "base_sha"
+            ]
+          },
+          "change": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "lines": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "op": {
+                          "type": "string",
+                          "enum": [
+                            "+",
+                            "-",
+                            " "
+                          ]
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "op",
+                        "text"
+                      ]
+                    }
+                  },
+                  "content_sha256": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "lines",
+                  "content_sha256"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "prometheus": {
+            "type": "object",
+            "properties": {
+              "group": {
+                "type": "string"
+              },
+              "file": {
+                "type": "string"
+              },
+              "readback_timeout_seconds": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "group",
+              "file",
+              "readback_timeout_seconds"
+            ]
+          },
+          "merge": {
+            "type": "object",
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": [
+                  "fast_forward",
+                  "merge_request"
+                ]
+              },
+              "by": {
+                "type": "string",
+                "enum": [
+                  "executor",
+                  "human"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "method",
+              "by"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "operation",
+          "rule",
+          "repository",
+          "change",
+          "prometheus",
+          "merge"
+        ]
+      },
+      "V3AlertRuleExecutionDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "prometheus.alert_rule.enable",
+              "prometheus.alert_rule.disable"
+            ]
+          },
+          "proposal_id": {
+            "type": "string"
+          },
+          "investigation_id": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "approvers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "verified_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "verified_at"
+              ]
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "alert_rule": {
+            "type": "object",
+            "properties": {
+              "proposal_id": {
+                "type": "string"
+              },
+              "operation": {
+                "type": "string",
+                "enum": [
+                  "enable",
+                  "disable"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "reserved",
+                  "committing",
+                  "merging",
+                  "merged",
+                  "loading",
+                  "enabled",
+                  "disabled",
+                  "failed",
+                  "needs_attention",
+                  "uncertain"
+                ]
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "reserved",
+                        "committing",
+                        "merging",
+                        "merged",
+                        "loading",
+                        "enabled",
+                        "disabled",
+                        "failed",
+                        "needs_attention",
+                        "uncertain",
+                        "pending_review"
+                      ]
+                    },
+                    "at": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "state",
+                    "at"
+                  ]
+                }
+              },
+              "repository": {
+                "type": "object",
+                "properties": {
+                  "project_id": {
+                    "type": "string"
+                  },
+                  "project_path": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "source_branch": {
+                    "type": "string"
+                  },
+                  "target_branch": {
+                    "type": "string"
+                  },
+                  "path": {
+                    "type": "string"
+                  },
+                  "commit_sha": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "mr_iid": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "mr_url": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "merged_sha": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "merged_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "project_id",
+                  "project_path",
+                  "source_branch",
+                  "target_branch",
+                  "path",
+                  "commit_sha",
+                  "mr_iid",
+                  "mr_url",
+                  "merged_sha",
+                  "merged_at"
+                ]
+              },
+              "readback": {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "pending",
+                      "loaded",
+                      "absent",
+                      "mismatch",
+                      "error",
+                      "timeout"
+                    ]
+                  },
+                  "checked_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "first_seen_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "health": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "last_evaluation_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "last_error": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "reload": {
+                    "type": "null"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "state",
+                  "checked_at",
+                  "first_seen_at",
+                  "health",
+                  "last_evaluation_at",
+                  "last_error",
+                  "reload"
+                ]
+              },
+              "failure": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string",
+                        "enum": [
+                          "stale_base",
+                          "branch_conflict",
+                          "mr_closed",
+                          "protection_changed",
+                          "merge_refused",
+                          "credential_rejected",
+                          "approval_invalid",
+                          "plan_changed",
+                          "source_changed",
+                          "load_timeout",
+                          "rule_health_error"
+                        ]
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "code",
+                      "message"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "proposal_id",
+              "operation",
+              "state",
+              "steps",
+              "repository",
+              "readback",
+              "failure"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind",
+          "proposal_id",
+          "investigation_id",
+          "application_id",
+          "environment_id",
+          "approved_at",
+          "approvers",
+          "created_at",
+          "updated_at",
+          "alert_rule"
+        ]
+      },
+      "V3AlertRuleLifecycle": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disable_pending_approval",
+              "disabling",
+              "needs_attention"
+            ]
+          },
+          "proposal_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "proposal_id",
+          "execution_id"
+        ]
+      },
+      "V3AlertRulePending": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "type": "string"
+          },
+          "execution_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "enable",
+              "disable"
+            ]
+          },
+          "rule_name": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "application_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending_approval",
+              "executing",
+              "needs_attention",
+              "failed",
+              "rejected"
+            ]
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "proposal_id",
+          "execution_id",
+          "operation",
+          "rule_name",
+          "group",
+          "application_id",
+          "environment_id",
+          "state",
+          "updated_at",
+          "href"
         ]
       },
       "SecuritySSOProvider": {

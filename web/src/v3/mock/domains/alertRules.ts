@@ -2,7 +2,7 @@
  * Alert rule enable / disable through GitOps (D11 §11.4–11.6). Sample data only: the executor isn't built yet, so
  * every state of the review, execution and rule list pages comes from here.
  */
-import { mock } from "../router";
+import { mock, MockError } from "../router";
 import { l } from "../../i18n";
 import { at } from "../time";
 
@@ -93,7 +93,7 @@ export function alertRuleProposal(id: string) {
   };
 }
 
-type Exec = { proposal: string; op: "enable" | "disable"; state: string; steps: [string, string][]; mr?: boolean; merged?: boolean; readback: Record<string, unknown>; failure?: { code: string; message: string } | null };
+type Exec = { proposal: string; op: "enable" | "disable"; state: string; steps: [string, string][]; mr?: boolean; merged?: boolean; readback: Record<string, unknown>; failure?: { code: string; message: string } | null; observed?: string };
 const pendingReadback = { state: "pending", checked_at: null, first_seen_at: null, health: null, last_evaluation_at: null, last_error: null, reload: null };
 const EXECS: Record<string, Exec> = {
   "EXE-91": { proposal: "PRP-109", op: "enable", state: "enabled", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["merged", "14:30:14"], ["loading", "14:30:15"], ["enabled", "14:30:59"]], mr: true, merged: true, readback: { state: "loaded", checked_at: at("14:30:59"), first_seen_at: at("14:30:44"), health: "ok", last_evaluation_at: at("14:30:58"), last_error: null, reload: { last_successful: true, last_success_at: at("14:30:43") } } },
@@ -101,7 +101,7 @@ const EXECS: Record<string, Exec> = {
   "EXE-92": { proposal: "PRP-111", op: "enable", state: "merging", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"]], mr: true, readback: pendingReadback },
   "EXE-93": { proposal: "PRP-108", op: "enable", state: "uncertain", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["uncertain", "14:30:21"]], mr: true, readback: pendingReadback },
   "EXE-94": { proposal: "PRP-107", op: "enable", state: "needs_attention", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["merged", "14:30:14"], ["loading", "14:30:15"], ["needs_attention", "14:35:14"]], mr: true, merged: true, readback: { state: "timeout", checked_at: at("14:35:14"), first_seen_at: null, health: null, last_evaluation_at: null, last_error: null, reload: { last_successful: false, last_success_at: at("14:12:40") } }, failure: { code: "load_timeout", message: "rule not loaded within 300s; last reload failed" } },
-  "EXE-95": { proposal: "PRP-106", op: "enable", state: "failed", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["merged", "14:30:14"], ["loading", "14:30:15"], ["failed", "14:30:59"]], mr: true, merged: true, readback: { state: "error", checked_at: at("14:30:59"), first_seen_at: at("14:30:44"), health: "err", last_evaluation_at: at("14:30:58"), last_error: "many-to-many matching not allowed", reload: { last_successful: true, last_success_at: at("14:30:43") } }, failure: { code: "rule_health_error", message: "health=err" } },
+  "EXE-95": { proposal: "PRP-106", op: "enable", state: "failed", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["merged", "14:30:14"], ["loading", "14:30:15"], ["failed", "14:30:59"]], mr: true, merged: true, readback: { state: "error", checked_at: at("14:30:59"), first_seen_at: at("14:30:44"), health: "err", last_evaluation_at: at("14:30:58"), last_error: "many-to-many matching not allowed", reload: { last_successful: true, last_success_at: at("14:30:43") } }, failure: { code: "rule_health_error", message: "health=err" }, observed: "r-gl-5xx" },
   "EXE-96": { proposal: "PRP-105", op: "disable", state: "loading", steps: [["reserved", "14:40:02"], ["committing", "14:40:05"], ["merging", "14:40:08"], ["merged", "14:40:12"], ["loading", "14:40:13"]], mr: true, merged: true, readback: pendingReadback },
   "EXE-98": { proposal: "PRP-103", op: "disable", state: "needs_attention", steps: [["reserved", "13:50:02"], ["committing", "13:50:05"], ["merging", "13:50:08"], ["needs_attention", "13:52:40"]], mr: true, readback: pendingReadback, failure: { code: "mr_closed", message: "merge request closed by a user" } },
   "EXE-97": { proposal: "PRP-104", op: "disable", state: "disabled", steps: [["reserved", "13:10:02"], ["committing", "13:10:05"], ["merging", "13:10:08"], ["merged", "13:10:12"], ["loading", "13:10:13"], ["disabled", "13:10:51"]], mr: true, merged: true, readback: { state: "absent", checked_at: at("13:10:51"), first_seen_at: null, health: null, last_evaluation_at: null, last_error: null, reload: { last_successful: true, last_success_at: at("13:10:40") } } },
@@ -140,6 +140,7 @@ export function alertRuleExecution(id: string) {
       },
       readback: x.readback,
       failure: x.failure ?? null,
+      observed_rule_id: x.observed ?? null,
     },
   };
 }
@@ -159,5 +160,11 @@ export const RULE_PENDING = [
   { proposal_id: "PRP-106", execution_id: "EXE-95", operation: "enable", rule_name: "CheckoutHigh5xx", group: GROUP, application_id: "checkout-api", environment_id: "prod", state: "failed", updated_at: at("14:31"), href: "/executions/EXE-95" },
 ];
 
-// Provisional read-only recheck (D11 §5.4): a late load becomes enabled.
-mock("POST", "/executions/:id/recheck", () => ({ ok: true }));
+// Read-only recheck (D11 §5.4): one observation; the page rereads the execution.
+mock("POST", "/executions/:id/recheck", ({ params }) => ({ proposal_id: EXECS[params.id]?.proposal ?? "", execution_id: params.id, status: EXECS[params.id]?.state ?? "merged", observed_rule_id: EXECS[params.id]?.observed }));
+// Disable (D11 decision 7): only rules in the executor-merged rule file; the others are 422 disable_unavailable.
+mock("POST", "/alert-rules/:id/disable", ({ params, body }) => {
+  if (!LIFECYCLE_RULES.some((r) => r.id === params.id)) throw new MockError(422, "disable_unavailable", "This rule isn't in a file_pull binding");
+  if (!(body as { investigation_id?: string })?.investigation_id) throw new MockError(422, "invalid_request", "investigation_id is required");
+  return { proposal_id: "PRP-114", status: "pending_approval" };
+});

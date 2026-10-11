@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { api, useGet } from "../../api/client";
 import type { AlertRule, AlertRuleLifecycle, AlertRuleList, AlertRulePending, AlertRuleSummary, Tone } from "../../api/types";
@@ -12,6 +12,7 @@ import { Gate } from "../../ui/permission";
 import "./events.css";
 import { ChipSelect, AddChip, SampleOnly } from "../../ui/demo";
 import { useFirstSelection } from "../../ui/selection";
+import { DisableRuleDialog } from "./DisableRuleDialog";
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
@@ -28,14 +29,23 @@ function Step({ n, title, children }: { n: number; title: string; children: Reac
 export default function RulesPage() {
   const { tx } = useI18n();
   const [filter, setFilter] = useState<"all" | "firing" | "scheduled">("all");
-  const [q, setQ] = useState("");
+  // ?q= (e.g. from an execution page) searches and selects the first matching rule.
+  const [params] = useSearchParams();
+  const [q, setQ] = useState(() => params.get("q") ?? "");
   const [sel, setSel] = useState("");
+  const [disabling, setDisabling] = useState(false);
   const [tab, setTab] = useState<"def" | "history" | "preview">("def");
   const list = useGet<AlertRuleList>("/alert-rules");
   // items null = no rule source configured; [] with empty_reason = nothing visible to you; [] alone = no rules yet.
   const noSource = !!list.data && list.data.items === null;
   const nothing = !!list.data && list.data.items?.length === 0;
-  useFirstSelection(list.data?.items ?? undefined, (x) => x.id, sel, setSel);
+  const preferred = useMemo(() => {
+    const items = list.data?.items ?? undefined;
+    const want = params.get("q")?.toLowerCase();
+    const hit = want ? items?.find((x) => x.name.toLowerCase().includes(want)) : undefined;
+    return hit && items ? [hit, ...items.filter((x) => x !== hit)] : items;
+  }, [list.data, params]);
+  useFirstSelection(preferred, (x) => x.id, sel, setSel);
   const { data: r } = useGet<AlertRule>(sel ? `/alert-rules/${sel}` : null);
   const [threshold, setThreshold] = useState(1);
   const [forMin, setForMin] = useState(5);
@@ -161,6 +171,14 @@ export default function RulesPage() {
                 <State tone={STATE[r.state][0]}>{STATE[r.state][1]}</State>
                 <Muted size={11.5}>{r.last_eval}</Muted>
                 <Spacer />
+                {/* D11 decision 7: any rule in effect can be proposed for disabling; the server says when its file isn't executor-merged. */}
+                {(!life || life.state === "active") && (
+                  <Gate need={["alert_rules", "change"]}>
+                    <Btn kind="ghost" icon="x" onClick={() => setDisabling(true)}>
+                      {tx("提议停用", "Propose disabling")}
+                    </Btn>
+                  </Gate>
+                )}
                 <Btn
                   icon="play"
                   onClick={async () => {
@@ -174,6 +192,7 @@ export default function RulesPage() {
                   {tx("保存", "Save")}
                 </Btn>
               </Row>
+              <DisableRuleDialog open={disabling} onClose={() => setDisabling(false)} ruleId={r.id} ruleName={r.name} app={r.labels.find((l) => l.k === "application")?.v} />
               {life && (
                 <Row gap={6} style={{ marginTop: -8 }}>
                   <Muted size={11.5}>{tx("生命周期", "Lifecycle")}</Muted>

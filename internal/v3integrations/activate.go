@@ -2,9 +2,13 @@ package v3integrations
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -77,16 +81,55 @@ var errInvalidActivationTarget = errors.New("invalid activation target")
 var errInactiveActivationTarget = errors.New("inactive activation target")
 var errProjectUnavailable = errors.New("GitLab project unavailable")
 
-func (s *Service) verifyGitLabProject(ctx context.Context, c connector, projectID, token string) error {
+// activationFailure says why a project could not be verified, for the
+// service log only: a class, the upstream status and a transport or TLS
+// message without the request URL. It never holds a credential.
+type activationFailure struct {
+	class  string // endpoint, ca_invalid, tls, timeout, connection, upstream_status, invalid_response, project_mismatch
+	status int
+	detail string
+}
+
+func (f *activationFailure) Error() string { return "GitLab project unavailable: " + f.class }
+func (f *activationFailure) Unwrap() error { return errProjectUnavailable }
+
+// transportFailure classifies a client error. The URL wrapper is dropped:
+// only the underlying TLS, timeout or connection message is kept.
+func transportFailure(err error) *activationFailure {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		err = urlErr.Err
+	}
+	detail := err.Error()
+	if len(detail) > 300 {
+		detail = detail[:300]
+	}
+	var verify *tls.CertificateVerificationError
+	var unknown x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	var record tls.RecordHeaderError
+	var netErr net.Error
+	switch {
+	case errors.As(err, &verify) || errors.As(err, &unknown) || errors.As(err, &hostname) ||
+		errors.As(err, &invalid) || errors.As(err, &record) || strings.Contains(detail, "tls:") || strings.Contains(detail, "x509:"):
+		return &activationFailure{class: "tls", detail: detail}
+	case errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netErr) && netErr.Timeout()):
+		return &activationFailure{class: "timeout", detail: detail}
+	}
+	return &activationFailure{class: "connection", detail: detail}
+}
+
+func (s *Service) verifyGitLabProject(ctx context.Context, c connector, projectID, token, credentialRef string) error {
 	base, err := validEndpoint(c.Endpoint)
 	if err != nil || (c.AuthMethod != "pat" && c.AuthMethod != "oauth") {
-		return errProjectUnavailable
+		return &activationFailure{class: "endpoint"}
 	}
 	endpoint := *base
 	endpoint.Path = strings.TrimRight(base.Path, "/") + "/api/v4/projects/" + url.PathEscape(projectID)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
 	if err != nil {
-		return errProjectUnavailable
+		return &activationFailure{class: "endpoint"}
 	}
 	request.Header.Set("Accept", "application/json")
 	if c.AuthMethod == "pat" {
@@ -94,29 +137,31 @@ func (s *Service) verifyGitLabProject(ctx context.Context, c connector, projectI
 	} else {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
-	client := s.Prober.Client
-	if client == nil {
-		client = &http.Client{Timeout: 5 * time.Second}
+	// D11: trust only the private CA kept next to the token, like the probe
+	// and the change reader; ctx carries the credential use.
+	copyClient, err := PrivateCAClient(ctx, s.Prober.Resolver, credentialRef, base, s.Prober.Client)
+	if err != nil {
+		return &activationFailure{class: "ca_invalid"}
 	}
-	copyClient := *client
-	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	if copyClient.Timeout == 0 || copyClient.Timeout > 5*time.Second {
 		copyClient.Timeout = 5 * time.Second
 	}
 	response, err := copyClient.Do(request)
 	if err != nil {
-		return errProjectUnavailable
+		return transportFailure(err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return errProjectUnavailable
+		return &activationFailure{class: "upstream_status", status: response.StatusCode}
 	}
 	var project struct {
 		ID int64 `json:"id"`
 	}
-	if err = json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&project); err != nil ||
-		project.ID <= 0 || strconv.FormatInt(project.ID, 10) != projectID {
-		return errProjectUnavailable
+	if err = json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&project); err != nil || project.ID <= 0 {
+		return &activationFailure{class: "invalid_response", status: response.StatusCode}
+	}
+	if strconv.FormatInt(project.ID, 10) != projectID {
+		return &activationFailure{class: "project_mismatch", status: response.StatusCode}
 	}
 	return nil
 }
@@ -201,16 +246,22 @@ func (s *Service) activate(w http.ResponseWriter, r *http.Request) {
 	})
 	token, err := s.Prober.Resolver.Resolve(credentialCtx, credentialRef)
 	if err != nil || len(token) == 0 || len(token) > 4096 || strings.ContainsAny(token, "\r\n\x00") {
+		slog.Warn("V3 GitLab connector activation failed", "connector_id", c.ID, "environment", c.EnvironmentID,
+			"class", "credential_unavailable")
 		if !s.auditGitLabActivationFailure(w, r, c, targets, "credential_unavailable") {
 			return
 		}
 		httpapi.Error(w, 503, "credential_unavailable", "Vault credential is unavailable")
 		return
 	}
-	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	probeCtx, cancel := context.WithTimeout(credentialCtx, 15*time.Second)
 	defer cancel()
 	for _, target := range targets {
-		if err = s.verifyGitLabProject(probeCtx, c, target.ProjectID, token); err != nil {
+		if err = s.verifyGitLabProject(probeCtx, c, target.ProjectID, token, credentialRef); err != nil {
+			failure := &activationFailure{class: "unknown"}
+			errors.As(err, &failure)
+			slog.Warn("V3 GitLab connector activation failed", "connector_id", c.ID, "environment", c.EnvironmentID,
+				"project_id", target.ProjectID, "class", failure.class, "upstream_status", failure.status, "detail", failure.detail)
 			if !s.auditGitLabActivationFailure(w, r, c, targets, "project_unavailable") {
 				return
 			}

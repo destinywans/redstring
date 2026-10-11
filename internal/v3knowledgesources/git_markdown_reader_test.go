@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -27,6 +28,14 @@ func gitReaderFixture(t *testing.T, handler http.HandlerFunc) (*GitMarkdownReade
 
 func gitReaderFixtureWithProject(t *testing.T, handler http.HandlerFunc, webURLOverride string) (*GitMarkdownReader, v3sourceregistry.ReadSpec, *atomic.Int32, *atomic.Bool) {
 	t.Helper()
+	return gitReaderFixtureOptions(t, handler, webURLOverride, false)
+}
+
+// withCA keeps the GitLab test certificate in the Vault entry's "ca" field
+// and gives the reader a client that does not trust it otherwise (D11).
+func gitReaderFixtureOptions(t *testing.T, handler http.HandlerFunc, webURLOverride string, withCA bool) (*GitMarkdownReader, v3sourceregistry.ReadSpec, *atomic.Int32, *atomic.Bool) {
+	t.Helper()
+	var ca string
 	var vaultCalls atomic.Int32
 	var denyVault atomic.Bool
 	vault := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +49,11 @@ func gitReaderFixtureWithProject(t *testing.T, handler http.HandlerFunc, webURLO
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":{"data":{"token":"repo-read-only"}}}`))
+		entry := map[string]string{"token": "repo-read-only"}
+		if ca != "" {
+			entry["ca"] = ca
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"data": entry}})
 	}))
 	t.Cleanup(vault.Close)
 	var gitlab *httptest.Server
@@ -60,6 +73,11 @@ func gitReaderFixtureWithProject(t *testing.T, handler http.HandlerFunc, webURLO
 		handler(w, r)
 	}))
 	t.Cleanup(gitlab.Close)
+	client := gitlab.Client()
+	if withCA {
+		ca = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: gitlab.Certificate().Raw}))
+		client = nil
+	}
 	binding := GitMarkdownBinding{
 		SourceURL: gitlab.URL + "/team/handbook", Endpoint: gitlab.URL,
 		ProjectID: 123, Branch: "main", PathPrefix: "docs", CredentialRef: "vault://ops/gitlab#token",
@@ -70,7 +88,7 @@ func gitReaderFixtureWithProject(t *testing.T, handler http.HandlerFunc, webURLO
 		Tier: binding.Tier, EnvironmentID: binding.EnvironmentID, ConnectorID: binding.ConnectorID,
 		Provider: "gitlab", Endpoint: binding.Endpoint, CredentialRef: binding.CredentialRef,
 	}})
-	reader, err := NewGitMarkdownReader([]GitMarkdownBinding{binding}, resolver, gitlab.Client())
+	reader, err := NewGitMarkdownReader([]GitMarkdownBinding{binding}, resolver, client)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +170,8 @@ func TestGitMarkdownReaderPinnedReadAndProbe(t *testing.T) {
 		t.Fatal("hash is not from exact returned body")
 	}
 	observations, err := reader.Read(t.Context(), spec)
-	if err != nil || !observations.Complete || len(observations.Items) != 1 || visits.Load() != 12 || vaultCalls.Load() != 3 {
+	// Each read resolves the token and its "ca" sibling (D11).
+	if err != nil || !observations.Complete || len(observations.Items) != 1 || visits.Load() != 12 || vaultCalls.Load() != 6 {
 		t.Fatalf("observation read failed: result=%+v err=%v requests=%d vault=%d", observations, err, visits.Load(), vaultCalls.Load())
 	}
 }
@@ -387,7 +406,22 @@ func TestGitMarkdownReaderRejectsProjectURLMismatch(t *testing.T) {
 	if _, err := reader.ReadGitMarkdown(t.Context(), spec); !errors.Is(err, ErrGitMarkdownRead) {
 		t.Fatalf("project metadata mismatch must fail: %v", err)
 	}
-	if repositoryCalls.Load() != 0 || vaultCalls.Load() != 1 {
+	if repositoryCalls.Load() != 0 || vaultCalls.Load() != 2 {
 		t.Fatal("mismatched project must fail before branch, tree, and raw reads")
+	}
+}
+
+// D11: a self-hosted GitLab's private CA kept next to the token is the only
+// root the reader trusts; without it the read fails.
+func TestGitMarkdownReaderTrustsPrivateCA(t *testing.T) {
+	var visits atomic.Int32
+	reader, spec, _, _ := gitReaderFixtureOptions(t, gitSuccessHandler(t, &visits), "", true)
+	if result, err := reader.ReadGitMarkdown(t.Context(), spec); err != nil || len(result.Files) != 1 {
+		t.Fatalf("read through the private CA: %+v %v", result, err)
+	}
+	plain, spec, _, _ := gitReaderFixtureOptions(t, gitSuccessHandler(t, &visits), "", false)
+	plain.client = &http.Client{}
+	if _, err := plain.ReadGitMarkdown(t.Context(), spec); !errors.Is(err, ErrGitMarkdownRead) {
+		t.Fatalf("an untrusted certificate was accepted: %v", err)
 	}
 }

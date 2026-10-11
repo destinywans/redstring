@@ -104,14 +104,9 @@ func (s *Service) fetchMergeRequests(ctx context.Context, t target, page int, st
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	req.Header.Set("Accept", "application/json")
-	client := s.Client
-	if client == nil {
-		client = &http.Client{Timeout: 5 * time.Second}
-	}
-	copyClient := *client
-	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	if copyClient.Timeout == 0 || copyClient.Timeout > 5*time.Second {
-		copyClient.Timeout = 5 * time.Second
+	copyClient, err := s.httpClient(ctx, t, base, 5*time.Second)
+	if err != nil {
+		return nil, 0, errDisabled
 	}
 	response, err := copyClient.Do(req)
 	if err != nil {

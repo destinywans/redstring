@@ -92,7 +92,8 @@ func (a *GitOpsAlertRuleApplier) validMR(b AlertRuleGitOpsBinding, branch string
 		return errors.New("untrusted GitOps MR identity")
 	}
 	u, err := url.Parse(m.URL)
-	if err != nil || u.Scheme != a.gitlab.base.Scheme || !strings.EqualFold(u.Host, a.gitlab.base.Host) || u.User != nil || u.Fragment != "" || u.Path == "" {
+	web := a.webBase()
+	if err != nil || u.Scheme != web.Scheme || !strings.EqualFold(u.Host, web.Host) || u.User != nil || u.Fragment != "" || u.Path == "" {
 		return errors.New("untrusted GitOps MR URL")
 	}
 	return nil
@@ -164,7 +165,8 @@ func (a *GitOpsAlertRuleApplier) remoteReceipt(ctx context.Context, b AlertRuleG
 		return AlertRuleDeploymentReceipt{}, errors.New("GitOps MR content differs from approved plan")
 	}
 	return AlertRuleDeploymentReceipt{ProjectID: b.ProjectID, MR: m.IID, URL: m.URL, SourceBranch: branch,
-		TargetBranch: b.TargetBranch, Path: b.YAMLPath, ContentDigest: in.Deployment.ContentDigest, State: "opened"}, nil
+		TargetBranch: b.TargetBranch, Path: b.YAMLPath, ContentDigest: in.Deployment.ContentDigest, State: "opened",
+		SourceRevision: m.SHA}, nil
 }
 
 func (a *GitOpsAlertRuleApplier) Lookup(ctx context.Context, in AlertRuleEnableIntent, executionID string) (AlertRuleDeploymentReceipt, bool, error) {
@@ -182,6 +184,11 @@ func (a *GitOpsAlertRuleApplier) Lookup(ctx context.Context, in AlertRuleEnableI
 	m, found, err := a.mrByBranch(ctx, b, branch)
 	if err != nil || !found {
 		return zero, found, err
+	}
+	// The executor's own merge (D11) is the result of this execution.
+	if m.State == "merged" && in.Deployment.ExecutorMerges() {
+		receipt, err := a.mergedReceipt(ctx, b, in, branch, m)
+		return receipt, err == nil, err
 	}
 	receipt, err := a.remoteReceipt(ctx, b, in, branch, m)
 	return receipt, err == nil, err
@@ -290,6 +297,15 @@ func (a *GitOpsAlertRuleApplier) Observe(ctx context.Context, in AlertRuleEnable
 	}
 	if err := validateDeploymentPlan(in.Deployment); err != nil {
 		return zero, err
+	}
+	if b.Load == LoadFilePull || in.Deployment.ExecutorMerges() {
+		if b.Load != LoadFilePull || !in.Deployment.ExecutorMerges() || b.ProjectID != in.Deployment.ProjectID ||
+			b.TargetBranch != in.Deployment.TargetBranch || b.YAMLPath != in.Deployment.Path ||
+			deploymentScope(b) != in.Deployment.ScopeFingerprint || receipt.ProjectID != b.ProjectID ||
+			receipt.TargetBranch != b.TargetBranch || receipt.Path != b.YAMLPath || receipt.ContentDigest != in.Deployment.ContentDigest {
+			return zero, errors.New("untrusted GitOps deployment receipt")
+		}
+		return a.observeFilePull(ctx, b, in, receipt)
 	}
 	if b.ProjectID != in.Deployment.ProjectID || b.TargetBranch != in.Deployment.TargetBranch ||
 		b.YAMLPath != in.Deployment.Path || deploymentScope(b) != in.Deployment.ScopeFingerprint ||
@@ -525,4 +541,151 @@ func (a *GitOpsAlertRuleApplier) observeArgo(ctx context.Context, b AlertRuleGit
 		return zero, errors.New("Argo CD synchronization failed")
 	}
 	return AlertRuleDeploymentObservation{State: "waiting_sync", MergeRevision: mergeRevision, ContentDigest: digest}, nil
+}
+
+// errMergeRefused is a definite merge refusal: GitLab did not merge, or the
+// target moved so the approved base no longer holds. Code names why.
+type errMergeRefused struct{ Code string }
+
+func (e errMergeRefused) Error() string { return "GitOps merge refused: " + e.Code }
+
+// MergeRefusal returns the refusal code of err, if it is a definite one.
+func MergeRefusal(err error) (string, bool) {
+	var refused errMergeRefused
+	if errors.As(err, &refused) {
+		return refused.Code, true
+	}
+	return "", false
+}
+
+// mergedReceipt verifies the executor's merged MR (D11): its merge revision
+// carries the exact approved bytes at the bound path.
+func (a *GitOpsAlertRuleApplier) mergedReceipt(ctx context.Context, b AlertRuleGitOpsBinding, in AlertRuleEnableIntent,
+	branch string, m enableGitMRWire) (AlertRuleDeploymentReceipt, error) {
+	if m.State != "merged" || m.MergedAt.IsZero() || !deploymentRevisionRE.MatchString(m.SHA) {
+		return AlertRuleDeploymentReceipt{}, errors.New("GitOps merge identity unverified")
+	}
+	if err := a.commitParent(ctx, b, m.SHA, in.Deployment.BaseRevision); err != nil {
+		return AlertRuleDeploymentReceipt{}, err
+	}
+	// A fast-forward merge puts the MR head itself on the target branch.
+	revision := m.SHA
+	if m.MergeCommitSHA != "" {
+		if !deploymentRevisionRE.MatchString(m.MergeCommitSHA) {
+			return AlertRuleDeploymentReceipt{}, errors.New("GitOps merge revision invalid")
+		}
+		revision = m.MergeCommitSHA
+	}
+	merged, err := a.fileAt(ctx, b, revision)
+	if err != nil {
+		return AlertRuleDeploymentReceipt{}, err
+	}
+	if hashGitOpsBytes(merged) != in.Deployment.ContentDigest {
+		return AlertRuleDeploymentReceipt{}, errors.New("GitOps merged content differs from approval")
+	}
+	at := m.MergedAt.UTC()
+	return AlertRuleDeploymentReceipt{ProjectID: b.ProjectID, MR: m.IID, URL: m.URL, SourceBranch: branch,
+		TargetBranch: b.TargetBranch, Path: b.YAMLPath, ContentDigest: in.Deployment.ContentDigest, State: "merged",
+		SourceRevision: m.SHA, MergeRevision: revision, MergedAt: &at}, nil
+}
+
+// Merge merges the approved MR of an executor-merged plan (D11). The MR head
+// must still be the approved single-file change on the approved base, and
+// the target branch must still be at that base: GitLab merges only that head
+// (sha), and the project merges fast-forward, so the target receives exactly
+// the approved bytes. A definite refusal is errMergeRefused; any other error
+// leaves the result unknown, and a retry reads the MR first.
+func (a *GitOpsAlertRuleApplier) Merge(ctx context.Context, in AlertRuleEnableIntent, receipt AlertRuleDeploymentReceipt, executionID string) (AlertRuleDeploymentReceipt, error) {
+	var zero AlertRuleDeploymentReceipt
+	b, err := a.binding(in)
+	if err != nil {
+		return zero, err
+	}
+	branch := "aiops-alert-rule-enable/" + executionID
+	if !in.Deployment.ExecutorMerges() || b.Load != LoadFilePull || !hexID(executionID) || receipt.SourceBranch != branch ||
+		receipt.MR <= 0 || receipt.ProjectID != b.ProjectID || in.Deployment.ScopeFingerprint != deploymentScope(b) {
+		return zero, errors.New("untrusted GitOps merge identity")
+	}
+	m, err := a.mrByIID(ctx, b, receipt.MR, branch)
+	if err != nil {
+		return zero, err
+	}
+	if m.State == "merged" {
+		return a.mergedReceipt(ctx, b, in, branch, m)
+	}
+	if m.State != "opened" {
+		return zero, errMergeRefused{Code: "mr_closed"}
+	}
+	if _, err := a.remoteReceipt(ctx, b, in, branch, m); err != nil {
+		return zero, errMergeRefused{Code: "branch_conflict"}
+	}
+	base, err := a.protectedTarget(ctx, b)
+	if err != nil {
+		return zero, errMergeRefused{Code: "protection_changed"}
+	}
+	if base != in.Deployment.BaseRevision {
+		return zero, errMergeRefused{Code: "stale_base"}
+	}
+	body := map[string]any{"sha": m.SHA, "should_remove_source_branch": false, "squash": false}
+	var merged enableGitMRWire
+	status, raw, _, err := a.gitlab.request(ctx, http.MethodPut, a.mrRoot(b)+"/"+strconv.FormatInt(m.IID, 10)+"/merge", nil, body)
+	switch {
+	case err == nil && status == http.StatusOK:
+		if json.Unmarshal(raw, &merged) != nil {
+			return zero, errors.New("GitOps merge response unreadable")
+		}
+	case status == http.StatusMethodNotAllowed || status == http.StatusNotAcceptable || status == http.StatusUnprocessableEntity:
+		return zero, errMergeRefused{Code: "merge_refused"}
+	case status == http.StatusConflict:
+		return zero, errMergeRefused{Code: "branch_conflict"}
+	case status == http.StatusUnauthorized || status == http.StatusForbidden || errors.Is(err, errGitOpsCredential):
+		return zero, errMergeRefused{Code: "credential_rejected"}
+	default:
+		return zero, fmt.Errorf("GitOps merge result uncertain: %w", err)
+	}
+	// Read the MR again rather than trusting the merge response alone.
+	m, err = a.mrByIID(ctx, b, receipt.MR, branch)
+	if err != nil {
+		return zero, err
+	}
+	return a.mergedReceipt(ctx, b, in, branch, m)
+}
+
+// observeFilePull reports a merged file_pull deployment as synced while the
+// target branch still holds the approved bytes at the bound path; it names
+// the bound group's alerts in the merged file for the whole-group readback.
+func (a *GitOpsAlertRuleApplier) observeFilePull(ctx context.Context, b AlertRuleGitOpsBinding, in AlertRuleEnableIntent,
+	receipt AlertRuleDeploymentReceipt) (AlertRuleDeploymentObservation, error) {
+	var zero AlertRuleDeploymentObservation
+	if receipt.State != "merged" || !strings.HasPrefix(receipt.SourceBranch, "aiops-alert-rule-enable/") {
+		return zero, errors.New("untrusted GitOps deployment receipt")
+	}
+	m, err := a.mrByIID(ctx, b, receipt.MR, receipt.SourceBranch)
+	if err != nil {
+		return zero, err
+	}
+	current, err := a.mergedReceipt(ctx, b, in, receipt.SourceBranch, m)
+	if err != nil {
+		return zero, err
+	}
+	if current.MergeRevision != receipt.MergeRevision || current.URL != receipt.URL {
+		return zero, errors.New("GitOps merge identity drift")
+	}
+	head, err := a.protectedTarget(ctx, b)
+	if err != nil {
+		return zero, err
+	}
+	content, err := a.fileAt(ctx, b, head)
+	if err != nil {
+		return zero, err
+	}
+	if hashGitOpsBytes(content) != in.Deployment.ContentDigest {
+		return zero, errors.New("GitOps target no longer holds the approved rule file")
+	}
+	rules, err := groupRules(content, in.Spec.Group)
+	if err != nil {
+		return zero, err
+	}
+	return AlertRuleDeploymentObservation{State: "synced", MergeRevision: receipt.MergeRevision,
+		SyncedRevision: receipt.MergeRevision, ContentDigest: in.Deployment.ContentDigest, GroupRules: rules}, nil
 }

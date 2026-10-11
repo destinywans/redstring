@@ -82,7 +82,7 @@ func (s *WriteService) reconcileEnableExecution(ctx context.Context, proposalID 
 		json.Unmarshal(raw, &record.Deployment) != nil {
 		return zero, true, problem(503, "execution_invalid", "Original deployment identity is invalid")
 	}
-	if record.State == "pending_review" || record.State == "awaiting_provider" || record.State == "enabled" {
+	if enableExecutionSettled(record.State) {
 		if !validRecoveryReceipt(intent.Deployment, record.ID, record.Deployment) {
 			return zero, true, problem(503, "execution_invalid", "Deployment MR record is invalid")
 		}
@@ -137,6 +137,15 @@ func (s *WriteService) reconcileEnableExecution(ctx context.Context, proposalID 
 			return zero, true, problem(409, "deployment_requires_review", "Remote deployment identity requires human review")
 		}
 		retained, reason, state = &receipt, "approval_unavailable_remote_found", "pending_review"
+		// D11: the executor's merge is this execution's result; an MR it has
+		// not merged stays unmerged without a current approval.
+		if intent.Deployment.ExecutorMerges() {
+			if receipt.State == "merged" {
+				reason, state = "deployment_merged", "merged"
+			} else {
+				reason, state = "approval_unavailable_mr_opened", "stale_remote"
+			}
+		}
 	}
 	if err := s.markEnableExecution(ctx, record, state, retained, reason); err != nil {
 		return zero, true, err
@@ -167,6 +176,11 @@ func (a *GitOpsAlertRuleApplier) LookupForReconciliation(ctx context.Context, in
 	m, found, err := a.mrByBranch(ctx, b, branch)
 	if err != nil || !found {
 		return zero, found, err
+	}
+	// The executor's own merge (D11) is the result of this execution.
+	if m.State == "merged" && in.Deployment.ExecutorMerges() {
+		receipt, err := a.mergedReceipt(ctx, b, in, branch, m)
+		return receipt, err == nil, err
 	}
 	state := m.State
 	// Reuse the exact source-parent, one-file diff and complete-byte checks.

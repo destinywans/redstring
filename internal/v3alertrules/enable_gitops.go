@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -19,51 +21,115 @@ import (
 // AlertRuleGitOpsBinding is an operator-owned exact route. ProviderFile is the
 // Prometheus group identity from RuleGroupBinding.File, not a client path.
 // RepoURL and Argo source/destination fields pin the application being read.
+//
+// Load says how Prometheus gets the rule file (D11):
+//   - "" (argo_cd, WAN-118): the executor opens an MR, a person reviews and
+//     merges it in GitLab and Argo CD syncs it;
+//   - "file_pull": after the two passkey approvals the executor merges the
+//     MR itself (fast-forward, guarded by the head SHA) and Prometheus loads
+//     the target branch it pulls; no Argo fields.
 type AlertRuleGitOpsBinding struct {
 	EnvironmentID, ApplicationID, Group, ProviderFile       string
 	ProjectID                                               int64
 	TargetBranch, YAMLPath, RepoURL                         string
 	ArgoApplication, ArgoProject, ArgoNamespace             string
 	ArgoSourcePath, DestinationServer, DestinationNamespace string
+	Load                                                    string
+	// ReadbackTimeoutSeconds bounds how long a file_pull deployment waits
+	// for Prometheus to load the merged file before it needs attention
+	// (default 300). The approval covers it.
+	ReadbackTimeoutSeconds int
 }
+
+// LoadFilePull is the D11 load kind: the executor merges and Prometheus
+// pulls the target branch.
+const LoadFilePull = "file_pull"
+
+// DefaultReadbackTimeoutSeconds is a file_pull binding's default load wait.
+const DefaultReadbackTimeoutSeconds = 300
 
 type AlertRuleGitOpsConfig struct {
 	GitLabURL, GitLabTokenFile string
-	ArgoURL, ArgoTokenFile     string
-	AllowLoopbackHTTP          bool // isolated local integration only
-	Bindings                   []AlertRuleGitOpsBinding
+	// GitLabToken, when set, replaces GitLabTokenFile: it reads the write
+	// token on every request (a Vault read through the deployer's write
+	// binding). GitLabCAPEM is a private CA kept next to the token.
+	GitLabToken func(context.Context) (string, error)
+	GitLabCAPEM string
+	// GitLabCA, when set, reads that CA on every request instead (the "ca"
+	// field next to the Vault token); empty means the system roots.
+	GitLabCA func(context.Context) (string, error)
+	// GitLabWebURL is the base of the MR web URLs GitLab reports (its
+	// external URL), when it differs from GitLabURL (e.g. a TLS entry in
+	// front of it). Empty means GitLabURL.
+	GitLabWebURL           string
+	ArgoURL, ArgoTokenFile string
+	AllowLoopbackHTTP      bool // isolated local integration only
+	Bindings               []AlertRuleGitOpsBinding
 }
 
-// GitOpsAlertRuleApplier creates a reviewable deployable MR. Neither its
-// credentials nor its methods can merge an MR or call Argo's sync endpoint.
+// GitOpsAlertRuleApplier creates a deployable MR. For an argo_cd binding
+// neither its credentials nor its methods merge an MR or call Argo's sync
+// endpoint; for a file_pull binding Merge merges the approved MR (D11).
 type GitOpsAlertRuleApplier struct {
 	gitlab   enableGitOpsHTTP
 	argo     enableGitOpsHTTP
+	web      *url.URL
 	bindings map[string]AlertRuleGitOpsBinding
 }
 
 func NewGitOpsAlertRuleApplier(config AlertRuleGitOpsConfig) (*GitOpsAlertRuleApplier, error) {
-	gitlab, err := newEnableGitOpsHTTP(config.GitLabURL, config.GitLabTokenFile, config.AllowLoopbackHTTP, true)
-	if err != nil {
-		return nil, err
+	var gitlab enableGitOpsHTTP
+	var err error
+	if config.GitLabToken != nil {
+		gitlab, err = newEnableGitOpsHTTPWithSource(config.GitLabURL, config.GitLabToken, config.GitLabCAPEM, config.AllowLoopbackHTTP, true)
+		gitlab.caSource = config.GitLabCA
+	} else {
+		gitlab, err = newEnableGitOpsHTTP(config.GitLabURL, config.GitLabTokenFile, config.AllowLoopbackHTTP, true)
 	}
-	argo, err := newEnableGitOpsHTTP(config.ArgoURL, config.ArgoTokenFile, config.AllowLoopbackHTTP, false)
 	if err != nil {
 		return nil, err
 	}
 	if len(config.Bindings) == 0 || len(config.Bindings) > 1000 {
 		return nil, errors.New("invalid alert rule deployment bindings")
 	}
-	result := &GitOpsAlertRuleApplier{gitlab: gitlab, argo: argo, bindings: make(map[string]AlertRuleGitOpsBinding, len(config.Bindings))}
+	result := &GitOpsAlertRuleApplier{gitlab: gitlab, bindings: make(map[string]AlertRuleGitOpsBinding, len(config.Bindings))}
+	if config.GitLabWebURL != "" {
+		web, err := url.Parse(config.GitLabWebURL)
+		if err != nil || (web.Scheme != "https" && web.Scheme != "http") || web.Host == "" || web.User != nil ||
+			web.RawQuery != "" || web.Fragment != "" || (web.Path != "" && web.Path != "/") {
+			return nil, errors.New("invalid GitLab web URL")
+		}
+		result.web = web
+	}
+	needsArgo := false
 	for _, b := range config.Bindings {
 		if b.EnvironmentID == "" || b.ApplicationID == "" || b.Group == "" || b.ProviderFile == "" ||
 			b.ProjectID <= 0 || !deploymentBranchRE.MatchString(b.TargetBranch) ||
 			b.YAMLPath == "" || len(b.YAMLPath) > 240 || path.Clean(b.YAMLPath) != b.YAMLPath || strings.HasPrefix(b.YAMLPath, "/") ||
 			strings.Contains(b.YAMLPath, "\\") || strings.HasPrefix(b.YAMLPath, "../") ||
-			!(strings.HasSuffix(b.YAMLPath, ".yaml") || strings.HasSuffix(b.YAMLPath, ".yml")) ||
-			b.ArgoApplication == "" || b.ArgoProject == "" || b.ArgoNamespace == "" || b.ArgoSourcePath == "" ||
-			b.DestinationServer == "" || b.DestinationNamespace == "" || !validGitOpsRepoURL(b.RepoURL) {
+			!(strings.HasSuffix(b.YAMLPath, ".yaml") || strings.HasSuffix(b.YAMLPath, ".yml")) {
 			return nil, errors.New("invalid alert rule deployment binding")
+		}
+		switch b.Load {
+		case "":
+			if b.ReadbackTimeoutSeconds != 0 || b.ArgoApplication == "" || b.ArgoProject == "" || b.ArgoNamespace == "" || b.ArgoSourcePath == "" ||
+				b.DestinationServer == "" || b.DestinationNamespace == "" || !validGitOpsRepoURL(b.RepoURL) {
+				return nil, errors.New("invalid alert rule deployment binding")
+			}
+			needsArgo = true
+		case LoadFilePull:
+			if b.ArgoApplication != "" || b.ArgoProject != "" || b.ArgoNamespace != "" || b.ArgoSourcePath != "" ||
+				b.DestinationServer != "" || b.DestinationNamespace != "" || b.RepoURL != "" {
+				return nil, errors.New("a file_pull alert rule binding has no Argo CD or repository fields")
+			}
+			if b.ReadbackTimeoutSeconds == 0 {
+				b.ReadbackTimeoutSeconds = DefaultReadbackTimeoutSeconds
+			}
+			if b.ReadbackTimeoutSeconds < 60 || b.ReadbackTimeoutSeconds > 3600 {
+				return nil, errors.New("alert rule readback timeout must be 60 to 3600 seconds")
+			}
+		default:
+			return nil, errors.New("invalid alert rule deployment load")
 		}
 		key := gitOpsBindingKey(b.EnvironmentID, b.ApplicationID, b.Group)
 		if _, ok := result.bindings[key]; ok {
@@ -71,7 +137,22 @@ func NewGitOpsAlertRuleApplier(config AlertRuleGitOpsConfig) (*GitOpsAlertRuleAp
 		}
 		result.bindings[key] = b
 	}
+	if needsArgo {
+		if result.argo, err = newEnableGitOpsHTTP(config.ArgoURL, config.ArgoTokenFile, config.AllowLoopbackHTTP, false); err != nil {
+			return nil, err
+		}
+	} else if config.ArgoURL != "" || config.ArgoTokenFile != "" {
+		return nil, errors.New("Argo CD settings without an argo_cd binding")
+	}
 	return result, nil
+}
+
+// webBase is the scheme and host of the MR web URLs.
+func (a *GitOpsAlertRuleApplier) webBase() *url.URL {
+	if a.web != nil {
+		return a.web
+	}
+	return a.gitlab.base
 }
 
 func validGitOpsRepoURL(raw string) bool {
@@ -94,10 +175,15 @@ func (a *GitOpsAlertRuleApplier) binding(in AlertRuleEnableIntent) (AlertRuleGit
 }
 
 func deploymentScope(b AlertRuleGitOpsBinding) string {
-	return enableDigest("aiops.alert_rule.gitops.scope.v1", []byte(strings.Join([]string{
-		b.EnvironmentID, b.ApplicationID, b.Group, b.ProviderFile, strconv.FormatInt(b.ProjectID, 10), b.TargetBranch,
+	fields := []string{b.EnvironmentID, b.ApplicationID, b.Group, b.ProviderFile, strconv.FormatInt(b.ProjectID, 10), b.TargetBranch,
 		b.YAMLPath, b.RepoURL, b.ArgoApplication, b.ArgoProject, b.ArgoNamespace, b.ArgoSourcePath,
-		b.DestinationServer, b.DestinationNamespace}, "\x00")))
+		b.DestinationServer, b.DestinationNamespace}
+	// A file_pull binding's scope also names its load, so an approval never
+	// moves between load kinds. The argo_cd scope keeps its WAN-118 digest.
+	if b.Load != "" {
+		fields = append(fields, "load="+b.Load)
+	}
+	return enableDigest("aiops.alert_rule.gitops.scope.v1", []byte(strings.Join(fields, "\x00")))
 }
 
 func (a *GitOpsAlertRuleApplier) Plan(ctx context.Context, in AlertRuleEnableIntent) (AlertRuleDeploymentPlan, error) {
@@ -118,8 +204,12 @@ func (a *GitOpsAlertRuleApplier) Plan(ctx context.Context, in AlertRuleEnableInt
 		return AlertRuleDeploymentPlan{}, err
 	}
 	hash := sha256.Sum256(content)
-	return AlertRuleDeploymentPlan{ProjectID: b.ProjectID, TargetBranch: b.TargetBranch, Path: b.YAMLPath,
-		BaseRevision: base, ContentDigest: hex.EncodeToString(hash[:]), ScopeFingerprint: deploymentScope(b)}, nil
+	plan := AlertRuleDeploymentPlan{ProjectID: b.ProjectID, TargetBranch: b.TargetBranch, Path: b.YAMLPath,
+		BaseRevision: base, ContentDigest: hex.EncodeToString(hash[:]), ScopeFingerprint: deploymentScope(b)}
+	if b.Load == LoadFilePull {
+		plan.Load, plan.Merge, plan.ReadbackTimeoutSeconds = LoadFilePull, MergeByExecutor, b.ReadbackTimeoutSeconds
+	}
+	return plan, nil
 }
 
 func (a *GitOpsAlertRuleApplier) verifiedPlan(ctx context.Context, in AlertRuleEnableIntent) (AlertRuleGitOpsBinding, []byte, error) {
@@ -129,7 +219,8 @@ func (a *GitOpsAlertRuleApplier) verifiedPlan(ctx context.Context, in AlertRuleE
 	}
 	if validateDeploymentPlan(in.Deployment) != nil || in.Deployment.ProjectID != b.ProjectID ||
 		in.Deployment.TargetBranch != b.TargetBranch || in.Deployment.Path != b.YAMLPath ||
-		in.Deployment.ScopeFingerprint != deploymentScope(b) {
+		in.Deployment.ScopeFingerprint != deploymentScope(b) || in.Deployment.Load != b.Load ||
+		in.Deployment.ReadbackTimeoutSeconds != b.ReadbackTimeoutSeconds {
 		return b, nil, errors.New("alert rule deployment binding drift")
 	}
 	base, err := a.protectedTarget(ctx, b)
@@ -390,4 +481,88 @@ func yamlMappingValue(node *yaml.Node, key string) *yaml.Node {
 		}
 	}
 	return nil
+}
+
+// GroupRule is one alert rule of the bound group in the merged file, as the
+// whole-group readback compares it with Prometheus (D11). Expr is the file's
+// text; Prometheus reports a normalized expression.
+type GroupRule struct {
+	Name        string            `json:"name"`
+	Expr        string            `json:"expr"`
+	ForSeconds  float64           `json:"for_seconds"`
+	Labels      map[string]string `json:"labels,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// groupRules lists the alert rules of one group in a native Prometheus rule
+// file, sorted by name.
+func groupRules(content []byte, group string) ([]GroupRule, error) {
+	var file struct {
+		Groups []struct {
+			Name  string `yaml:"name"`
+			Rules []struct {
+				Alert       string            `yaml:"alert"`
+				Expr        string            `yaml:"expr"`
+				For         string            `yaml:"for"`
+				Labels      map[string]string `yaml:"labels"`
+				Annotations map[string]string `yaml:"annotations"`
+			} `yaml:"rules"`
+		} `yaml:"groups"`
+	}
+	if err := yaml.Unmarshal(content, &file); err != nil {
+		return nil, errors.New("bound rule file is not a Prometheus rule file")
+	}
+	found := false
+	rules := []GroupRule{}
+	for _, g := range file.Groups {
+		if g.Name != group {
+			continue
+		}
+		if found {
+			return nil, errors.New("bound rule group is not unique")
+		}
+		found = true
+		for _, rule := range g.Rules {
+			if rule.Alert == "" {
+				continue
+			}
+			seconds, ok := promDurationSeconds(rule.For)
+			if !ok {
+				return nil, errors.New("bound rule group has an invalid duration")
+			}
+			rules = append(rules, GroupRule{Name: rule.Alert, Expr: rule.Expr, ForSeconds: seconds,
+				Labels: rule.Labels, Annotations: rule.Annotations})
+		}
+	}
+	if !found {
+		return nil, errors.New("bound rule group missing")
+	}
+	sort.Slice(rules, func(i, j int) bool { return rules[i].Name < rules[j].Name })
+	return rules, nil
+}
+
+var promDurationRE = regexp.MustCompile(`^(([0-9]+)y)?(([0-9]+)w)?(([0-9]+)d)?(([0-9]+)h)?(([0-9]+)m)?(([0-9]+)s)?(([0-9]+)ms)?$`)
+
+// promDurationSeconds parses a Prometheus duration ("1h30m", "2d"); empty
+// is zero.
+func promDurationSeconds(value string) (float64, bool) {
+	if value == "" || value == "0" {
+		return 0, true
+	}
+	m := promDurationRE.FindStringSubmatch(value)
+	if m == nil {
+		return 0, false
+	}
+	units := []float64{365 * 86400, 7 * 86400, 86400, 3600, 60, 1, 0.001}
+	total := 0.0
+	for i, unit := range units {
+		if n := m[2+2*i]; n != "" {
+			v, err := strconv.ParseFloat(n, 64)
+			if err != nil {
+				return 0, false
+			}
+			total += v * unit
+		}
+	}
+	return total, true
 }

@@ -2,8 +2,6 @@ package v3integrations
 
 import (
 	"context"
-	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -93,29 +91,18 @@ func (p Prober) Check(ctx context.Context, provider, rawURL, authMethod, credent
 	case "oauth", "bearer":
 		request.Header.Set("Authorization", "Bearer "+credential)
 	}
-	client := p.Client
-	if client == nil {
-		client = &http.Client{}
-	}
 	// A cluster API or a self-hosted GitLab (D11) usually has a private CA,
 	// kept next to the token in the same approved secret (field "ca").
-	if (provider == "kubernetes" || provider == "gitlab") && base.Scheme == "https" {
-		if siblings, ok := p.Resolver.(SiblingResolver); ok {
-			if pem, err := siblings.ResolveSibling(ctx, credentialRef, "ca"); err == nil && pem != "" {
-				pool := x509.NewCertPool()
-				if !pool.AppendCertsFromPEM([]byte(pem)) {
-					return ProbeResult{}, ErrCredentialUnavailable
-				}
-				transport := http.DefaultTransport.(*http.Transport).Clone()
-				transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
-				client = &http.Client{Transport: transport, Timeout: client.Timeout}
-			}
-		}
+	resolver := p.Resolver
+	if provider != "kubernetes" && provider != "gitlab" {
+		resolver = nil
+	}
+	copyClient, err := PrivateCAClient(ctx, resolver, credentialRef, base, p.Client)
+	if err != nil {
+		return ProbeResult{}, ErrCredentialUnavailable
 	}
 	// Preserve a caller's transport for controlled tests, but never let it
 	// redirect a credentialed probe to an endpoint outside its binding.
-	copyClient := *client
-	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	if copyClient.Timeout == 0 || copyClient.Timeout > 5*time.Second {
 		copyClient.Timeout = 5 * time.Second
 	}

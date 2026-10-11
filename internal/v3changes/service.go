@@ -4,7 +4,6 @@ package v3changes
 
 import (
 	"context"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -76,22 +75,18 @@ func (s *Service) resolveTargetCredential(ctx context.Context, t target) (string
 	return s.Resolver.Resolve(s.credentialContext(ctx, t), t.CredentialRef)
 }
 
-// privateCA reads the optional "ca" field next to the connector credential:
-// a self-hosted GitLab often has a private CA (D11, like Kubernetes).
-func (s *Service) privateCA(ctx context.Context, t target) (*x509.CertPool, error) {
-	siblings, ok := s.Resolver.(v3integrations.SiblingResolver)
-	if !ok {
-		return nil, nil
-	}
-	pem, err := siblings.ResolveSibling(s.credentialContext(ctx, t), t.CredentialRef, "ca")
-	if err != nil || pem == "" {
-		return nil, nil
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM([]byte(pem)) {
+// httpClient is the GitLab client for t: s.Client (tests) or a default,
+// trusting only the private CA kept in the "ca" field next to the connector
+// credential (D11, like Kubernetes), never following redirects.
+func (s *Service) httpClient(ctx context.Context, t target, base *url.URL, timeout time.Duration) (*http.Client, error) {
+	client, err := v3integrations.PrivateCAClient(s.credentialContext(ctx, t), s.Resolver, t.CredentialRef, base, s.Client)
+	if err != nil {
 		return nil, ErrCredential
 	}
-	return pool, nil
+	if client.Timeout == 0 || client.Timeout > timeout {
+		client.Timeout = timeout
+	}
+	return client, nil
 }
 
 type pipeline struct {
@@ -267,15 +262,10 @@ func (s *Service) fetch(ctx context.Context, t target, page int) ([]pipeline, in
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	req.Header.Set("Accept", "application/json")
-	client := s.Client
-	if client == nil {
-		client = &http.Client{Timeout: 5 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	}
 	// A supplied client is only for tests. Redirects are refused here too.
-	copyClient := *client
-	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	if copyClient.Timeout == 0 || copyClient.Timeout > 5*time.Second {
-		copyClient.Timeout = 5 * time.Second
+	copyClient, err := s.httpClient(ctx, t, base, 5*time.Second)
+	if err != nil {
+		return nil, 0, errDisabled
 	}
 	response, err := copyClient.Do(req)
 	if err != nil {

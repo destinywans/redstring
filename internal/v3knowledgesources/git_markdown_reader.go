@@ -385,10 +385,24 @@ type gitTreeItem struct {
 func (r *GitMarkdownReader) fetch(ctx context.Context, b GitMarkdownBinding, spec v3sourceregistry.ReadSpec) (v3sourceregistry.GitMarkdownReadResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	token, err := r.resolver.Resolve(v3integrations.WithCredentialUse(ctx, gitCredentialUse(b)), b.CredentialRef)
+	credentialCtx := v3integrations.WithCredentialUse(ctx, gitCredentialUse(b))
+	token, err := r.resolver.Resolve(credentialCtx, b.CredentialRef)
 	if err != nil || token == "" {
 		return v3sourceregistry.GitMarkdownReadResult{}, ErrGitMarkdownRead
 	}
+	// D11: a self-hosted GitLab's private CA is kept in the "ca" field next
+	// to the token; this read trusts only it, like the connector probe.
+	endpoint, err := url.Parse(b.Endpoint)
+	if err != nil {
+		return v3sourceregistry.GitMarkdownReadResult{}, ErrGitMarkdownRead
+	}
+	client, err := v3integrations.PrivateCAClient(credentialCtx, r.resolver, b.CredentialRef, endpoint, r.client)
+	if err != nil {
+		return v3sourceregistry.GitMarkdownReadResult{}, ErrGitMarkdownRead
+	}
+	withCA := *r
+	withCA.client = client
+	r = &withCA
 	projectBase := b.Endpoint + "/api/v4/projects/" + strconv.FormatInt(b.ProjectID, 10)
 	var project struct {
 		ID     int64  `json:"id"`

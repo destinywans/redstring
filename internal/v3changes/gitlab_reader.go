@@ -2,7 +2,6 @@ package v3changes
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
@@ -289,26 +288,10 @@ func (s *Service) get(ctx context.Context, t target, path string, query url.Valu
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	req.Header.Set("Accept", "application/json")
-	timeout := s.requestTimeout()
-	client := http.Client{Timeout: timeout}
-	if s.Client != nil {
-		client = *s.Client
-		if client.Timeout == 0 || client.Timeout > timeout {
-			client.Timeout = timeout
-		}
+	client, err := s.httpClient(ctx, t, base, s.requestTimeout())
+	if err != nil {
+		return nil, err
 	}
-	if base.Scheme == "https" {
-		pool, err := s.privateCA(ctx, t)
-		if err != nil {
-			return nil, err
-		}
-		if pool != nil {
-			transport := http.DefaultTransport.(*http.Transport).Clone()
-			transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
-			client.Transport = transport
-		}
-	}
-	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	response, err := client.Do(req)
 	if err != nil {
 		return nil, ErrUnavailable

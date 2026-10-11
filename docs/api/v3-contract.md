@@ -619,6 +619,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | 2026-10-11 | D11 第 4 项：新增辅助路由 `GET /incidents/{id}/changes`（事件开始前后的 GitLab 部署与集群修订，只标时间相邻）；GitLab 读取层按实测修正部署结束时间（GitLab 19 取作业的 `finished_at`）并纳入 MR 源分支流水线 |
 | 2026-10-11 | D11 第 5 项：AI 只读取证工具 `read_service_changes`（普通对话与调查画布），`list_services` 新增 `changes` 列；见 [调查取证工具](v3-investigation-evidence-tools.md) |
 | 2026-10-11 | D11：GitLab 连接器的探测和变更读取支持私有 CA，CA 放在凭据同一 Vault 条目的 `ca` 字段（与 Kubernetes 相同） |
+| 2026-10-11 | D11 第 6 项（迁移 175）：告警规则启用的 `file_pull` 绑定由执行器在两人批准后合并 MR（fast-forward，带 `sha`），以整组读回与 `health` 确认生效；`GET /proposals/{id}` 的 `execution.status` 对告警规则新增 `merged`、`failed` 两个取值；接口形状不变；见 [告警规则写入](v3-alert-rule-writes.md)“D11：执行器合并与 file_pull 加载” |
 | 2026-10-11 | PA-87：应用范围链路列表跳过 Tempo 返回的不完整 Trace（缺父 Span 等）并以 `excluded_incomplete` 计数，不再整页 503；声明搜索完整时改报 `partial_reason: incomplete_traces`；链路与日志读取失败在服务日志里记录错误类型、信息和上游状态 |
 | 2026-10-11 | D30：已声明搜索完整的链路列表同时达到预算上限并跳过了不完整 Trace 时，`partial_reason` 为 `search_budget`（窗口照常给出，跳过条数仍在 `excluded_incomplete`），只有覆盖了整个范围时才为 `incomplete_traces` |
 | 2026-10-09 | 生产验收 PA-05/PA-16：新增「未知」约定（`null` + `unavailable` 原因）。`/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard` 在可选证据缺失时返回 200，受影响字段可空；`ProfileView`、`SecurityView`、`LogSearch`、`TraceList`、`MetricsDashboard` 字段由必有改为可空，属于破坏性语义修改，`types.ts` 与页面由前端轮同步。OpenAPI 已重新生成。 |

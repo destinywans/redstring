@@ -29,8 +29,11 @@ type enableGitOpsHTTP struct {
 	// tokenSource, when set, supplies the token on every request: a Vault
 	// read through the deployer's write binding (D11). It is never cached.
 	tokenSource func(context.Context) (string, error)
-	client      *http.Client
-	gitlab      bool
+	// caSource, when set, supplies a private CA on every request; empty
+	// means the client's own roots.
+	caSource func(context.Context) (string, error)
+	client   *http.Client
+	gitlab   bool
 }
 
 func validGitOpsEndpoint(rawURL string, allowLoopbackHTTP bool) (*url.URL, error) {
@@ -54,19 +57,29 @@ func newEnableGitOpsHTTPWithSource(rawURL string, source func(context.Context) (
 	if source == nil {
 		return enableGitOpsHTTP{}, errors.New("GitOps token source missing")
 	}
+	client, err := gitOpsClient(caPEM)
+	if err != nil {
+		return enableGitOpsHTTP{}, err
+	}
+	return enableGitOpsHTTP{base: u, tokenSource: source, gitlab: gitlab, client: client}, nil
+}
+
+// gitOpsClient never follows redirects or uses ambient proxy settings; caPEM,
+// when given, is its only root.
+func gitOpsClient(caPEM string) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	if caPEM != "" {
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM([]byte(caPEM)) {
-			return enableGitOpsHTTP{}, errors.New("invalid GitOps CA")
+			return nil, errors.New("invalid GitOps CA")
 		}
 		transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 	}
-	return enableGitOpsHTTP{base: u, tokenSource: source, gitlab: gitlab, client: &http.Client{
+	return &http.Client{
 		Timeout: 10 * time.Second, Transport: transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}}, nil
+	}, nil
 }
 
 func newEnableGitOpsHTTP(rawURL, tokenFile string, allowLoopbackHTTP, gitlab bool) (enableGitOpsHTTP, error) {
@@ -138,6 +151,19 @@ func (c enableGitOpsHTTP) request(ctx context.Context, method, endpoint string, 
 			return 0, nil, nil, errGitOpsCredential
 		}
 	}
+	client := c.client
+	if c.caSource != nil {
+		pem, err := c.caSource(ctx)
+		if err != nil {
+			return 0, nil, nil, errGitOpsCredential
+		}
+		if pem != "" {
+			if client, err = gitOpsClient(pem); err != nil {
+				return 0, nil, nil, errGitOpsCredential
+			}
+			defer client.CloseIdleConnections()
+		}
+	}
 	if c.gitlab {
 		req.Header.Set("PRIVATE-TOKEN", token)
 	} else {
@@ -146,7 +172,7 @@ func (c enableGitOpsHTTP) request(ctx context.Context, method, endpoint string, 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf("GitOps transport: %w", err)
 	}

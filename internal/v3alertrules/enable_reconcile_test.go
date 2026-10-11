@@ -145,6 +145,14 @@ type recoveryFixture struct {
 
 func seedEnableRecovery(t *testing.T, db *pgxpool.Pool, expired, revoked bool, state string) recoveryFixture {
 	t.Helper()
+	return seedEnableRecoveryPlan(t, db, expired, revoked, state, nil)
+}
+
+// seedEnableRecoveryPlan lets plan replace the fixed deployment plan, e.g.
+// with a real adapter's plan for the seeded application (D11).
+func seedEnableRecoveryPlan(t *testing.T, db *pgxpool.Pool, expired, revoked bool, state string,
+	plan func(AlertRuleEnableIntent) AlertRuleDeploymentPlan) recoveryFixture {
+	t.Helper()
 	ctx := t.Context()
 	exec := func(sql string, args ...any) {
 		t.Helper()
@@ -188,6 +196,9 @@ func seedEnableRecovery(t *testing.T, db *pgxpool.Pool, expired, revoked bool, s
 		ManifestDigest: enableDigest("aiops.v3.alert_rule.manifest.v1", manifest), ProjectID: 42, MR: 1,
 		MRURL: "https://gitlab.example.invalid/draft/1", Branch: branch, Path: artifactPath, Spec: spec,
 		Deployment: AlertRuleDeploymentPlan{ProjectID: 42, TargetBranch: "main", Path: "rules/alerts.yml", BaseRevision: strings.Repeat("b", 40), ContentDigest: strings.Repeat("c", 64), ScopeFingerprint: strings.Repeat("d", 64)}}
+	if plan != nil {
+		intent.Deployment = plan(intent)
+	}
 	marshalCanonical := func(v any) []byte {
 		t.Helper()
 		raw, err := json.Marshal(v)

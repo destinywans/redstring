@@ -2,14 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/url"
+	"os"
 	"path/filepath"
 
 	"github.com/wans/aiops-canvas/internal/v3alertrules"
+	"github.com/wans/aiops-canvas/internal/v3integrations"
 )
 
 // The deployment adapter is opt-in. The private file selects exact, reviewed
@@ -32,9 +35,14 @@ func loadV3AlertRuleEnableApplier(path string, instance v3Instance,
 	var config struct {
 		GitLabURL       string `json:"gitlab_url"`
 		GitLabTokenFile string `json:"gitlab_token_file"`
-		ArgoURL         string `json:"argo_url"`
-		ArgoTokenFile   string `json:"argo_token_file"`
-		Bindings        []struct {
+		// D11: the write token is a Vault reference read on every request;
+		// gitlab_ca_field names the private CA kept next to it.
+		GitLabTokenRef string `json:"gitlab_token_ref"`
+		GitLabCAField  string `json:"gitlab_ca_field"`
+		GitLabWebURL   string `json:"gitlab_web_url"`
+		ArgoURL        string `json:"argo_url"`
+		ArgoTokenFile  string `json:"argo_token_file"`
+		Bindings       []struct {
 			EnvironmentID        string `json:"environment_id"`
 			ApplicationID        string `json:"application_id"`
 			Group                string `json:"group"`
@@ -49,6 +57,8 @@ func loadV3AlertRuleEnableApplier(path string, instance v3Instance,
 			ArgoSourcePath       string `json:"argo_source_path"`
 			DestinationServer    string `json:"destination_server"`
 			DestinationNamespace string `json:"destination_namespace"`
+			Load                 string `json:"load"`
+			ReadbackTimeout      int    `json:"readback_timeout_seconds"`
 		} `json:"bindings"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(content))
@@ -59,9 +69,37 @@ func loadV3AlertRuleEnableApplier(path string, instance v3Instance,
 	if decoder.Decode(new(any)) != io.EOF || len(config.Bindings) == 0 || len(config.Bindings) > 1000 {
 		return nil, nil, errors.New("alert rule enable requires one bounded bindings object")
 	}
-	if !v3AlertRuleEnableHTTPS(config.GitLabURL) || !v3AlertRuleEnableHTTPS(config.ArgoURL) ||
-		!filepath.IsAbs(config.GitLabTokenFile) || !filepath.IsAbs(config.ArgoTokenFile) {
-		return nil, nil, errors.New("alert rule enable requires HTTPS GitOps endpoints and absolute private token paths")
+	argo := false
+	for _, item := range config.Bindings {
+		if item.Load == "" || item.Load == "argo_cd" {
+			argo = true
+		}
+	}
+	if !v3AlertRuleEnableHTTPS(config.GitLabURL) || (config.GitLabTokenFile == "") == (config.GitLabTokenRef == "") ||
+		(config.GitLabTokenFile != "" && !filepath.IsAbs(config.GitLabTokenFile)) ||
+		(config.GitLabCAField != "" && config.GitLabTokenRef == "") {
+		return nil, nil, errors.New("alert rule enable requires an HTTPS GitLab endpoint and one token: an absolute private file or a Vault reference")
+	}
+	if argo && (!v3AlertRuleEnableHTTPS(config.ArgoURL) || !filepath.IsAbs(config.ArgoTokenFile)) {
+		return nil, nil, errors.New("an argo_cd alert rule binding requires an HTTPS Argo CD endpoint and an absolute private token path")
+	}
+	var token, ca func(context.Context) (string, error)
+	if config.GitLabTokenRef != "" {
+		// The process Vault token reads only this reviewed reference and its
+		// CA sibling, never a connector request's reference.
+		ref := config.GitLabTokenRef
+		vault := v3integrations.NewVaultResolver(os.Getenv("AIOPS_VAULT_URL"), os.Getenv("AIOPS_VAULT_TOKEN"))
+		if _, ok := v3integrations.SiblingReference(ref, "ca"); !ok || vault.Address == "" || vault.Token == "" {
+			return nil, nil, errors.New("alert rule enable token reference requires vault://mount/path#field and the process Vault settings")
+		}
+		token = func(ctx context.Context) (string, error) { return vault.Resolve(ctx, ref) }
+		if config.GitLabCAField != "" {
+			sibling, ok := v3integrations.SiblingReference(ref, config.GitLabCAField)
+			if !ok {
+				return nil, nil, errors.New("alert rule enable CA field is invalid")
+			}
+			ca = func(ctx context.Context) (string, error) { return vault.Resolve(ctx, sibling) }
+		}
 	}
 	knownEnvironments := make(map[string]bool, len(instance.Environments))
 	for _, env := range instance.Environments {
@@ -85,6 +123,10 @@ func loadV3AlertRuleEnableApplier(path string, instance v3Instance,
 			return nil, nil, errors.New("alert rule enable target has no exact trusted source binding")
 		}
 		enabledEnvironments[item.EnvironmentID] = true
+		load := item.Load
+		if load == "argo_cd" {
+			load = ""
+		}
 		bindings = append(bindings, v3alertrules.AlertRuleGitOpsBinding{
 			EnvironmentID: item.EnvironmentID, ApplicationID: item.ApplicationID,
 			Group: item.Group, ProviderFile: item.ProviderFile,
@@ -93,10 +135,12 @@ func loadV3AlertRuleEnableApplier(path string, instance v3Instance,
 			ArgoProject: item.ArgoProject, ArgoNamespace: item.ArgoNamespace,
 			ArgoSourcePath: item.ArgoSourcePath, DestinationServer: item.DestinationServer,
 			DestinationNamespace: item.DestinationNamespace,
+			Load:                 load, ReadbackTimeoutSeconds: item.ReadbackTimeout,
 		})
 	}
 	applier, err := v3alertrules.NewGitOpsAlertRuleApplier(v3alertrules.AlertRuleGitOpsConfig{
 		GitLabURL: config.GitLabURL, GitLabTokenFile: config.GitLabTokenFile,
+		GitLabToken: token, GitLabCA: ca, GitLabWebURL: config.GitLabWebURL,
 		ArgoURL: config.ArgoURL, ArgoTokenFile: config.ArgoTokenFile,
 		Bindings: bindings,
 	})

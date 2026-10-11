@@ -252,7 +252,7 @@ func newFilePullApplier(t *testing.T, repo *fakeRulesRepo) *GitOpsAlertRuleAppli
 	endpoint, _ := url.Parse(repo.server.URL)
 	web, _ := url.Parse("http://gitlab.lab.invalid")
 	binding := AlertRuleGitOpsBinding{EnvironmentID: "test", ApplicationID: "app", Group: "redstring-test-app", ProviderFile: testRuleFile,
-		ProjectID: 6, TargetBranch: "main", YAMLPath: filePullPath, Load: LoadFilePull}
+		ProjectID: 6, TargetBranch: "main", YAMLPath: filePullPath, Load: LoadFilePull, ReadbackTimeoutSeconds: 300}
 	return &GitOpsAlertRuleApplier{web: web,
 		gitlab: enableGitOpsHTTP{base: endpoint, client: repo.server.Client(), gitlab: true,
 			tokenSource: func(context.Context) (string, error) { return "write-token", nil }},
@@ -294,7 +294,9 @@ func TestFilePullExecutorMergesTheApprovedMR(t *testing.T) {
 	}
 	observation, err := a.Observe(ctx, in, merged)
 	if err != nil || observation.State != "synced" || observation.MergeRevision != merged.MergeRevision ||
-		strings.Join(observation.GroupRules, ",") != "CheckoutErrors,ExistingRule" {
+		len(observation.GroupRules) != 2 || observation.GroupRules[0].Name != "CheckoutErrors" || observation.GroupRules[0].ForSeconds != 300 ||
+		observation.GroupRules[1].Name != "ExistingRule" || observation.GroupRules[1].ForSeconds != 60 ||
+		observation.GroupRules[1].Labels["severity"] != "P2" {
 		t.Fatalf("observe: %+v %v", observation, err)
 	}
 	// Someone changes the file afterwards: the deployment no longer holds.

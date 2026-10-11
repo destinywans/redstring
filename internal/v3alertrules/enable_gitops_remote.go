@@ -682,7 +682,7 @@ func (a *GitOpsAlertRuleApplier) observeFilePull(ctx context.Context, b AlertRul
 	if hashGitOpsBytes(content) != in.Deployment.ContentDigest {
 		return zero, errors.New("GitOps target no longer holds the approved rule file")
 	}
-	rules, err := groupAlertNames(content, in.Spec.Group)
+	rules, err := groupRules(content, in.Spec.Group)
 	if err != nil {
 		return zero, err
 	}

@@ -158,7 +158,7 @@ export default function HomePage() {
   const trendLabels =
     trend?.start && trend.step_seconds
       ? trend.counts.map((_, i) => when.time(Date.parse(trend.start!) + i * trend.step_seconds! * 1000) ?? "")
-      : (trend?.labels ?? []);
+      : [];
   return (
     <Page
       title={
@@ -221,9 +221,7 @@ export default function HomePage() {
                     </Row>
                     <span>{a.symptom}</span>
                     <Muted>
-                      {a.meta
-                        ? when.withAt(a.meta, a.at)
-                        : a.at && (a.alert_state === "firing" ? tx("已入库告警 · {t}", "Stored alert · {t}", { t: when.at(a.at) }) : tx("已入库事件 · {t}", "Stored incident · {t}", { t: when.at(a.at) }))}
+                      {[a.meta, when.at(a.at)].filter(Boolean).join(" · ")}
                     </Muted>
                   </div>
                   <div className="v3-col" style={{ alignItems: "flex-end", gap: 6 }}>
@@ -363,7 +361,7 @@ export default function HomePage() {
                     <span className="ellipsis grow" style={{ fontWeight: 500 }}>
                       {r.title}
                     </span>
-                    <Muted>{when.withAt(r.meta, r.at)}</Muted>
+                    <Muted>{[r.environment_label, when.at(r.at)].filter(Boolean).join(" · ")}</Muted>
                   </a>
                 </li>
               ))}

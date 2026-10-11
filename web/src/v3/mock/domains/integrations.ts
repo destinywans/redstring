@@ -1,5 +1,5 @@
 import { mock, MockError } from "../router";
-import { at } from "../time";
+import { ago, at } from "../time";
 import { l } from "../../i18n";
 import { series } from "../../charts";
 
@@ -63,7 +63,7 @@ mock("GET", "/connectors/:id", ({ params }) => {
     scope: P("全局连接器", "Global connector"),
     address: `https://${c.id}.prod.example.internal`,
     auth: { brand: "vault", text: P("Vault 引用 · 不回显", "Vault reference · never shown") },
-    checked: P("2 分钟前 · 126 ms", "2 min ago · 126 ms"),
+    checked_at: ago(2),
     services: ["checkout-api", "payment-gateway", "order-service", "inventory-worker", "search-api"],
     queries: obs ? ["p99_latency", "error_rate", "qps", "cpu_usage", "db_connection_wait_p95"] : [],
     tools: c.tags.filter((t) => t.mono).map((t) => ({ name: t.label as string, desc: P("只读 · 每轮最多 8 次", "Read-only · max 8 per turn"), enabled: true })),
@@ -207,7 +207,7 @@ mock("GET", "/ingest/pull/:id", () => ({
   },
   sample: {
     status: 200,
-    meta: P("84 ms · 3.2 KB · 取自 14:31 的测试请求", "84 ms · 3.2 KB · test request at 14:31"),
+    meta: P("84 ms · 3.2 KB · 测试请求", "84 ms · 3.2 KB · test request"),
     captured_at: at("14:31"),
     body: '{\n  "data": [\n    {\n      "svc": "checkout-api",\n      "metric": "db_wait_p95",\n      "unit": "ms",\n      "tags": {"pod": "7f9c-4", "env": "prod"},\n      "points": [\n        [1790160180000, 12.4],\n        [1790160210000, 13.1],\n        [1790160240000, 418.0]\n      ]\n    }\n  ],\n  "next": null\n}',
     highlights: [
@@ -272,10 +272,10 @@ mock("GET", "/ingest/push", () => ({
     ],
   },
   deliveries: [
-    { time: "14:03:41", at: at("14:03:41"), source: "jenkins", key: "jenkins-812-deploy", code: "202", tone: "ok", result: P("已接收", "Accepted"), ms: "38 ms" },
-    { time: "14:03:41", at: at("14:03:41"), source: "jenkins", key: "jenkins-812-deploy", code: "409", tone: "neutral", result: P("重复", "Duplicate"), ms: "6 ms" },
-    { time: "13:12:05", at: at("13:12:05"), source: "gitlab", key: "gl-8811-pipeline", code: "202", tone: "ok", result: P("已接收", "Accepted"), ms: "41 ms" },
-    { time: "12:40:19", at: at("12:40:19"), source: "argo", key: "argo-sync-5521", code: "422", tone: "danger", result: P("env 缺失", "env missing"), ms: "12 ms" },
+    { at: at("14:03:41"), source: "jenkins", key: "jenkins-812-deploy", code: "202", tone: "ok", result: P("已接收", "Accepted"), ms: "38 ms" },
+    { at: at("14:03:41"), source: "jenkins", key: "jenkins-812-deploy", code: "409", tone: "neutral", result: P("重复", "Duplicate"), ms: "6 ms" },
+    { at: at("13:12:05"), source: "gitlab", key: "gl-8811-pipeline", code: "202", tone: "ok", result: P("已接收", "Accepted"), ms: "41 ms" },
+    { at: at("12:40:19"), source: "argo", key: "argo-sync-5521", code: "422", tone: "danger", result: P("env 缺失", "env missing"), ms: "12 ms" },
   ],
   stack: {
     enabled: false,
@@ -465,10 +465,10 @@ mock("GET", "/coverage", () => ({
 /* ---------------- webhooks & API ---------------- */
 mock("GET", "/webhooks", () => ({
   inbound: [
-    { id: "am-prod", brand: "prometheus", name: P("Alertmanager · 生产", "Alertmanager · prod"), url: "/hooks/alertmanager/prod", verify: "Bearer", count: "27", last: "200 · 14:30", last_at: at("14:30"), last_code: 200, status: "ok" },
-    { id: "gitlab", brand: "gitlab", name: P("GitLab 流水线事件", "GitLab pipeline events"), url: "/hooks/gitlab/platform", verify: P("签名令牌", "Secret token"), count: "64", last: "200 · 14:28", last_at: at("14:28"), last_code: 200, status: "ok" },
-    { id: "github", brand: "githubactions", name: "GitHub Actions", url: "/hooks/github/shop", verify: "HMAC SHA-256", count: "12", last: "200 · 13:12", last_at: at("13:12"), last_code: 200, status: "ok" },
-    { id: "argocd", brand: "argo", name: P("Argo CD 通知", "Argo CD notifications"), url: "/hooks/argocd", verify: "Bearer", count: "27", last: "200 · 14:04", last_at: at("14:04"), last_code: 200, status: "ok" },
+    { id: "am-prod", brand: "prometheus", name: P("Alertmanager · 生产", "Alertmanager · prod"), url: "/hooks/alertmanager/prod", verify: "Bearer", count: "27", last_at: at("14:30"), last_code: 200, status: "ok" },
+    { id: "gitlab", brand: "gitlab", name: P("GitLab 流水线事件", "GitLab pipeline events"), url: "/hooks/gitlab/platform", verify: P("签名令牌", "Secret token"), count: "64", last_at: at("14:28"), last_code: 200, status: "ok" },
+    { id: "github", brand: "githubactions", name: "GitHub Actions", url: "/hooks/github/shop", verify: "HMAC SHA-256", count: "12", last_at: at("13:12"), last_code: 200, status: "ok" },
+    { id: "argocd", brand: "argo", name: P("Argo CD 通知", "Argo CD notifications"), url: "/hooks/argocd", verify: "Bearer", count: "27", last_at: at("14:04"), last_code: 200, status: "ok" },
     { id: "grafana", brand: "grafana", name: P("Grafana 告警", "Grafana alerts"), url: "/hooks/grafana", verify: "Bearer", count: "0", last: P("401 · 昨天", "401 · yesterday"), status: "error" },
   ],
   deliveries: [

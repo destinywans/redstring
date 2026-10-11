@@ -1,9 +1,8 @@
 import { mock } from "../router";
 import { l } from "../../i18n";
 import { series } from "../../charts";
-import { at } from "../time";
+import { ago, at } from "../time";
 
-const hours = Array.from({ length: 24 }, (_, i) => `${String((15 + i) % 24).padStart(2, "0")}:00`);
 
 mock("GET", "/home", () => ({
   briefing: {
@@ -56,7 +55,8 @@ mock("GET", "/home", () => ({
     { id: "search-api", name: "search-api", tier: "T2", status: "ok", budget_pct: 55, p99: "88 ms", error_rate: "0.0%", series: [2.1, 2.2, 2, 2.3, 2.1, 2.2, 2.4, 2.1, 2.2, 2, 2.3, 2.2] },
   ],
   alert_trend: {
-    labels: hours,
+    start: at("15:00", -1),
+    step_seconds: 3600,
     counts: [[0,1,2,1],[0,0,2,1],[0,1,1,2],[0,0,1,1],[0,0,1,1],[0,1,1,0],[0,0,2,1],[0,1,2,2],[0,1,3,1],[0,2,2,1],[0,1,2,2],[0,1,1,1],[0,2,3,1],[0,1,2,2],[1,2,2,1],[2,3,3,2],[2,4,3,1],[1,3,2,2],[0,2,2,1],[0,1,2,1],[0,1,1,1],[0,1,2,2],[2,5,4,2],[2,5,5,1]],
     summary: l("今日 41 条 · 分组后 9 组 · 抑制 14 条", "41 today · 9 groups · 14 suppressed"),
   },
@@ -67,9 +67,9 @@ mock("GET", "/home", () => ({
     { id: "e4", time: at("13:10"), kind: "runbook", tone: "neutral", text: l("Runbook「下游超时与重试风暴」被 2 次调查引用", "Runbook “Retry storms” cited by 2 investigations"), href: "/runbooks/rb-retry-storm" },
   ],
   recent: [
-    { id: "r1", kind: "investigation", title: l("发布后 checkout-api 5xx 上升", "checkout-api 5xx after release"), meta: l("Canvas · 4 个分支 · 进行中", "Canvas · 4 branches · active"), href: "/canvas/INV-231" },
-    { id: "r2", kind: "conversation", title: l("checkout-api 大促扩容评估", "checkout-api capacity for the sale"), meta: l("对话 · 12 分钟前", "Chat · 12 min ago"), href: "/conversations/C-311" },
-    { id: "r3", kind: "conversation", title: l("Harbor 镜像保留策略", "Harbor image retention policy"), meta: l("对话 · 昨天", "Chat · yesterday"), href: "/conversations/C-298" },
-    { id: "r4", kind: "artifact", title: l("checkout-api 故障报告 v3", "checkout-api incident report v3"), meta: l("产物 · 14:26", "Artifact · 14:26"), at: at("14:26"), href: "/conversations/C-320?artifact=report" },
+    { id: "r1", kind: "investigation", title: l("发布后 checkout-api 5xx 上升", "checkout-api 5xx after release"), environment_id: "prod", environment_label: l("生产", "prod"), at: ago(5), href: "/canvas/INV-231" },
+    { id: "r2", kind: "conversation", title: l("checkout-api 大促扩容评估", "checkout-api capacity for the sale"), environment_id: "prod", environment_label: l("生产", "prod"), at: ago(12), href: "/conversations/C-311" },
+    { id: "r3", kind: "conversation", title: l("Harbor 镜像保留策略", "Harbor image retention policy"), environment_id: "prod", environment_label: l("生产", "prod"), at: at("16:20", -1), href: "/conversations/C-298" },
+    { id: "r4", kind: "artifact", title: l("checkout-api 故障报告 v3", "checkout-api incident report v3"), environment_id: "prod", environment_label: l("生产", "prod"), at: at("14:26"), href: "/conversations/C-320?artifact=report" },
   ],
 }));

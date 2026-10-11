@@ -25,6 +25,7 @@ const readSubmitted = (): SubmittedSilence[] => {
 import "./events.css";
 import { SampleOnly } from "../../ui/demo";
 import { Unavailable } from "../../ui/unknown";
+import { useWhen } from "../../ui/when";
 
 type Preview = { kind: "idle" } | { kind: "loading" } | { kind: "ok"; affects: number; sample: string[] } | { kind: "error"; text: string };
 const OPS = ["=", "!=", "=~", "!~"];
@@ -40,6 +41,15 @@ function previewError(e: unknown, tx: ReturnType<typeof useI18n>["tx"]) {
 
 export default function SilencesPage() {
   const { tx } = useI18n();
+  const when = useWhen();
+  // The window from starts_at / ends_at (RFC 3339), in the viewer's time zone and the app's language.
+  const windowOf = (s: Silence) => {
+    const a = Date.parse(s.starts_at);
+    const b = Date.parse(s.ends_at);
+    if (Number.isNaN(a) || Number.isNaN(b)) return null;
+    const text = when.date(a) === when.date(b) ? `${when.date(a)} ${when.time(a)} – ${when.time(b)}` : `${when.date(a)} ${when.time(a)} – ${when.date(b)} ${when.time(b)}`;
+    return { start: a, end: b, text };
+  };
   const qc = useQueryClient();
   const [state, setState] = useState<"active" | "planned" | "expired">("active");
   const [q, setQ] = useState("");
@@ -181,14 +191,14 @@ export default function SilencesPage() {
                 columns={[
                   { key: "m", header: tx("匹配条件", "Matchers"), width: "30%", render: (s) => <Row gap={4} wrap>{s.matchers.map((m) => <LabelChip key={m.k} k={m.k} v={m.v} />)}</Row> },
                   { key: "s", header: tx("状态", "State"), render: (s) => <State tone={STATE[s.state][0]}>{STATE[s.state][1]}</State> },
-                  { key: "w", header: tx("时间", "Window"), render: (s) => <Muted>{silenceWindow(s)?.text ?? s.window}</Muted> },
+                  { key: "w", header: tx("时间", "Window"), render: (s) => <Muted>{windowOf(s)?.text ?? "—"}</Muted> },
                   {
                     key: "r",
                     header: tx("剩余", "Remaining"),
                     render: (s) => {
-                      // remaining.pct is the remaining share; older servers sent 0, so fall back to the window's timestamps.
-                      const w = silenceWindow(s);
-                      const pct = s.starts_at ? s.remaining?.pct : w && s.state === "active" ? Math.max(0, Math.min(100, (100 * (w.end - Date.now())) / Math.max(1, w.end - w.start))) : s.remaining?.pct;
+                      // remaining.pct is the remaining share; without it, the window's timestamps give it.
+                      const w = windowOf(s);
+                      const pct = s.remaining?.pct ?? (w && s.state === "active" ? Math.max(0, Math.min(100, (100 * (w.end - Date.now())) / Math.max(1, w.end - w.start))) : 0);
                       return s.remaining ? <Row gap={6}><Bar pct={pct ?? 0} width={70} height={4} /><Muted size={11.5}>{s.remaining.text}</Muted></Row> : <Muted>—</Muted>;
                     },
                   },
@@ -308,36 +318,6 @@ export default function SilencesPage() {
       </div>
     </Page>
   );
-}
-
-/**
- * The server writes the window as "YYYY-MM-DD HH:MM ±HH:MM – YYYY-MM-DD HH:MM ±HH:MM" (in UTC on the acceptance
- * instances); show it in the viewer's time zone. Sample windows are free text and are left as they are.
- */
-/** The window from starts_at / ends_at (RFC 3339), falling back to parsing the older window text. */
-function silenceWindow(s: Silence) {
-  if (s.starts_at && s.ends_at) {
-    const a = Date.parse(s.starts_at);
-    const b = Date.parse(s.ends_at);
-    if (!Number.isNaN(a) && !Number.isNaN(b)) return { start: a, end: b, text: windowText(a, b) };
-  }
-  return localWindow(s.window);
-}
-function windowText(a: number, b: number) {
-  const day = (t: number) => new Date(t).toLocaleDateString([], { month: "2-digit", day: "2-digit" });
-  const time = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-  return day(a) === day(b) ? `${day(a)} ${time(a)} – ${time(b)}` : `${day(a)} ${time(a)} – ${day(b)} ${time(b)}`;
-}
-
-function localWindow(value: string) {
-  const parts = value.split(" – ").map((p) => p.trim().match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}) ([+-]\d{2}:\d{2})$/));
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-  const [a, b] = parts.map((m) => Date.parse(`${m![1]}T${m![2]}:00${m![3]}`));
-  if (Number.isNaN(a) || Number.isNaN(b)) return null;
-  const day = (t: number) => new Date(t).toLocaleDateString([], { month: "2-digit", day: "2-digit" });
-  const time = (t: number) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
-  const text = day(a) === day(b) ? `${day(a)} ${time(a)} – ${time(b)}` : `${day(a)} ${time(a)} – ${day(b)} ${time(b)}`;
-  return { start: a, end: b, text };
 }
 
 /** Maintenance windows have no endpoint yet: sample data in mock mode, "not connected" otherwise. */

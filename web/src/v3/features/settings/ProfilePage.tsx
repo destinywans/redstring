@@ -407,9 +407,8 @@ export function AccountSecurityPage() {
                           <Col gap={0} grow>
                             <Strong>{s.device ?? <UnknownValue reason={form.unavailable["security.sessions[].device"]} source={tx("身份来源", "identity source")} label={tx("设备未知", "Unknown device")} />}</Strong>
                             <Muted size={11.5}>
-                              {s.signed_in_at === undefined && s.expires_at === undefined
-                                ? s.sub
-                                : [s.signed_in_at && tx("登录于 {t}", "Signed in {t}", { t: when.at(s.signed_in_at) }), s.expires_at && tx("到期时间 {t}", "Expires {t}", { t: when.at(s.expires_at) })].filter(Boolean).join(" · ") || s.sub}
+                              {/* sub is the login method (empty when unknown); the times come structured (PA-83). */}
+                              {[s.sub, s.signed_in_at && tx("登录于 {t}", "Signed in {t}", { t: when.at(s.signed_in_at) }), s.expires_at && tx("到期时间 {t}", "Expires {t}", { t: when.at(s.expires_at) })].filter(Boolean).join(" · ") || "—"}
                             </Muted>
                           </Col>
                           {s.current ? (

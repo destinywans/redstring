@@ -187,7 +187,7 @@ export default function ChangesPage() {
               <div className="chg-lane axis">
                 <span className="name" />
                 <span className="track">
-                  <Axis labels={when.axis(data.axis_times, data.axis)} style={{ marginTop: 0 }} />
+                  <Axis labels={when.axis(data.axis_times)} style={{ marginTop: 0 }} />
                 </span>
               </div>
             )}
@@ -260,7 +260,7 @@ export default function ChangesPage() {
           </table>
         </Card>
       </div>
-      <Drawer open={!!open && !!d} onClose={() => setOpen(null)} width={560} icon={d && <Brand name={d.brand} size={22} />} title={d?.title} sub={when.withAt(d?.meta, d?.reviewed_at)}>
+      <Drawer open={!!open && !!d} onClose={() => setOpen(null)} width={560} icon={d && <Brand name={d.brand} size={22} />} title={d?.title} sub={d && [d.meta, when.at(d.reviewed_at)].filter(Boolean).join(" · ")}>
         {d && (
           <Col gap={14}>
             <div className="dag">

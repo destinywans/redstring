@@ -10,8 +10,8 @@ import { useWhen } from "../../ui/when";
 
 type Candidate = { id: string; title: string; severity: Severity; resolved: string; duration: string; evidence: number };
 type Draft = {
-  /** PA-83: started_at / closed_at carry the times inside `window`. */
-  incident: { id: string; title: string; severity: Severity; window: string; duration: string; started_at?: string | null; closed_at?: string | null };
+  /** started_at / closed_at bound the incident (RFC 3339; null with `missing`, PA-83). */
+  incident: { id: string; title: string; severity: Severity; duration: string | null; started_at: string | null; closed_at: string | null };
   sections: { key: string; title: string; text: string }[];
   timeline: { at: string; text: string; tone: Tone }[];
   actions: { text: string; owner: string; due: string }[];
@@ -90,8 +90,8 @@ export default function NewPostmortemPage() {
                 <Muted size={11.5}>{tx("{w} · 持续 {d}", "{w} · {d}", {
                     w: data.incident.started_at
                       ? `${when.at(data.incident.started_at)} – ${data.incident.closed_at ? (when.date(data.incident.closed_at) === when.date(data.incident.started_at) ? when.time(data.incident.closed_at) : when.at(data.incident.closed_at)) : "—"}`
-                      : data.incident.window,
-                    d: data.incident.duration,
+                      : "—",
+                    d: data.incident.duration ?? "—",
                   })}</Muted>
               </div>
             )}
@@ -145,7 +145,7 @@ export default function NewPostmortemPage() {
                   <b>{tx("影响指标", "Impact metrics")}</b>
                   <div className="pm-kpis">
                     <div><Muted size={11}>{tx("失败请求", "Failed requests")}</Muted><b style={{ color: "var(--danger)" }}>12k</b></div>
-                    <div><Muted size={11}>{tx("持续", "Duration")}</Muted><b>{data.incident.duration}</b></div>
+                    <div><Muted size={11}>{tx("持续", "Duration")}</Muted><b>{data.incident.duration ?? "—"}</b></div>
                     <div><Muted size={11}>{tx("错误预算消耗", "Error budget burned")}</Muted><b style={{ color: "var(--warn)" }}>23%</b></div>
                     <div><Muted size={11}>{tx("客户投诉", "Complaints")}</Muted><b className="muted">{tx("待补充", "To add")}</b></div>
                   </div>

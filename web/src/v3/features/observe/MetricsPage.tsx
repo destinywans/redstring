@@ -59,12 +59,12 @@ export default function MetricsPage() {
       </Page>
     );
   const w = d.window;
-  // PA-83: labels from their instants, in the viewer's time zone (the text forms are UTC "15:04").
-  const labels = when.axis(w.label_times, w.labels);
-  const ticks = when.axis(w.tick_times, w.ticks);
+  // Labels from their instants, in the viewer's time zone (PA-83).
+  const labels = when.axis(w.label_times);
+  const ticks = when.axis(w.tick_times);
   const incidentText = w.incident_start_at
     ? tx("事件 · {a}–{b}", "Incident · {a}–{b}", { a: when.time(w.incident_start_at), b: when.time(w.incident_end_at ?? w.incident_start_at) })
-    : w.incident_label;
+    : null;
   const u = d.unavailable ?? {};
   // Markers come from the platform's own release / rollback records (null when none fall in the window).
   // The sample data names its sample release; real mode only states what the record is.

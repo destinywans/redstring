@@ -1,5 +1,6 @@
 /** Traces v2: application traces (Tempo/Jaeger style) and agent traces (Langfuse/Phoenix style). */
 import { mock, MockError } from "../router";
+import { NOW, at } from "../time";
 
 /** The sample spans are written in seconds; the contract reports milliseconds. */
 const traceInMs = <T extends { total: number; spans: { start: number; dur: number }[] }>(t: T): T => ({ ...t, total: t.total * 1000, spans: t.spans.map((x) => ({ ...x, start: Math.round(x.start * 1000), dur: Math.round(x.dur * 1000) })) });
@@ -67,7 +68,7 @@ function recentList(service: string | undefined, range: string) {
     scope: "app", total: counts.reduce((a, [ok, er]) => a + ok + er, 0), took: "0.42 s",
     colors: { ...COLORS, "search-api": "var(--c7)", ...(service && !(service in COLORS) ? { [service]: "var(--c7)" } : {}) },
     unavailable: {}, facets: null, views: APP_VIEWS,
-    histogram: { counts, axis: [clock(start).slice(0, 5), clock(now).slice(0, 5)], axis_times: [new Date(start).toISOString(), new Date(now).toISOString()] },
+    histogram: { counts, axis_times: [new Date(start).toISOString(), new Date(now).toISOString()] },
     scatter: items.map((r) => ({ x: Math.round((440 * (r.t - start)) / winMs), y: Math.round(r.errors ? 12 + rnd() * 30 : 100 - Math.min(60, r.duration_ms / 12)), error: r.errors > 0, id: r.id })),
     items: items.map(({ t: _t, ...r }) => r),
     // With a service the budget list also left out two traces missing spans (PA-87, D30: still search_budget).
@@ -88,7 +89,7 @@ mock("GET", "/traces", ({ query }) => {
         { key: "guard", label: P("护栏", "Guardrail"), items: [{ value: P("通过", "Passed"), count: 309, tone: "ok" }, { value: P("拦截", "Blocked"), count: 3, tone: "danger" }] },
       ],
       views: [{ id: "all", label: P("全部", "All"), query: "" }, { id: "slow", label: P("慢于 30 s", "Slower than 30 s"), query: "duration > 30s" }, { id: "cost", label: P("成本最高", "Most expensive"), query: "sort: cost desc" }, { id: "neg", label: P("负反馈", "Negative feedback"), count: 4, query: "feedback = down" }],
-      histogram: { counts: [9, 8, 7, 6, 5, 6, 9, 14, 18, 16, 15, 17, 16, 15, 22, 28, 19, 14, 12, 11, 9, 8, 7, 6].map((n, i) => [n, [7, 13, 15].includes(i) ? 1 : 0]), axis: ["00:00", "06:00", "12:00", P("现在", "Now")] },
+      histogram: { counts: [9, 8, 7, 6, 5, 6, 9, 14, 18, 16, 15, 17, 16, 15, 22, 28, 19, 14, 12, 11, 9, 8, 7, 6].map((n, i) => [n, [7, 13, 15].includes(i) ? 1 : 0]), axis_times: [at("00:00"), at("06:00"), at("12:00"), new Date(NOW).toISOString()] },
       scatter: AGENT_ROWS.map((r, i) => ({ x: 40 + i * 80, y: 110 - r.duration_ms / 450, error: r.errors > 0, id: r.id })),
       items: AGENT_ROWS.map((r) => ({ ...r, href: `/agents/runs/${r.id}` })),
     };
@@ -123,7 +124,7 @@ mock("GET", "/traces", ({ query }) => {
       { key: "version", label: P("版本", "Version"), items: [{ value: "v2.8.1", count: 214 }, { value: "v2.8.0", count: 0 }] },
     ],
     views: APP_VIEWS,
-    histogram: { counts, axis: ["13:35", P("14:03 发布", "14:03 release"), "14:35"] },
+    histogram: { counts, axis_times: [at("13:35"), at("14:03"), at("14:35")] },
     scatter,
     items: APP_ROWS.filter((r) => !errorsOnly || r.errors).map((r) => ({ ...r, href: `/traces/${r.id}` })),
   };

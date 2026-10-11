@@ -14,7 +14,7 @@ import "./events.css";
 import { openExternal, copyText } from "../../ui/demo";
 import { useWhen, parseStamp } from "../../ui/when";
 
-type Day = InboxItem["day"] | "earlier";
+type Day = "today" | "yesterday" | "earlier";
 const KIND_ICON: Record<InboxItem["kind"], IconName> = { alert: "alert", approval: "shield", mention: "message", runbook: "book", report: "file", access: "user", agent: "cpu", assignment: "pin" };
 
 export function AlertDetailView({ id }: { id: string }) {
@@ -235,10 +235,9 @@ export default function InboxPage() {
         : it.assignment_kind === "proposal"
           ? tx("分配给你的提案", "Proposal assigned to you")
           : it.sub;
-  // The server's today/yesterday is its own time zone; `at` (PA-83) lets the viewer's day decide.
+  // Today / yesterday / earlier in the viewer's time zone, from `at` (PA-83).
   const dayOf = (it: InboxItem): Day => {
-    const t = parseStamp(it.at);
-    if (t === null) return it.day;
+    const t = parseStamp(it.at) ?? 0;
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     return t >= start.getTime() ? "today" : t >= start.getTime() - 86400_000 ? "yesterday" : "earlier";
@@ -300,7 +299,7 @@ export default function InboxPage() {
                             </span>
                           </Col>
                           <Col gap={6} align="flex-end">
-                            <Muted size={11.5}>{it.at ? (d === "earlier" ? when.at(it.at) : when.time(it.at)) : it.time}</Muted>
+                            <Muted size={11.5}>{d === "earlier" ? when.at(it.at) : when.time(it.at)}</Muted>
                             {unread && <Dot tone="accent" size={7} />}
                           </Col>
                         </button>

@@ -121,9 +121,10 @@ def activate(instance):
 def confirm(instance):
     cid, env = connector(instance), ENV[instance]
     checked('test connection', *call(instance, 'POST', f'/connectors/{cid}/test', {}, env=env))
-    found = checked('discover', *call(instance, 'POST', '/service-mappings/discover', {}, env=env))
-    sid = service(instance)
-    picks = [c for c in found.get('candidates') or [] if c.get('service_id') == sid]
+    found = checked('discover', *call(instance, 'POST', '/service-mappings/discover', None, env=env))  # takes no body
+    # Candidates carry the application ID as service_id (not the encoded service ID of the routes).
+    app = application(instance)
+    picks = [c for c in found.get('candidates') or [] if c.get('service_id') == app or c.get('service') == SERVICE]
     if not picks:
         sys.exit(f'no candidate for {SERVICE}; source_state={found.get("source_state")}')
     keys = ('id', 'version', 'service_id', 'environment_id', 'system_id', 'binding_revision')
@@ -151,8 +152,10 @@ def verify(instance):
         rows = body.get(kind)
         print(f'  {kind}: {None if rows is None else len(rows)}')
         for r in (rows or [])[:8]:
-            print('    ', json.dumps({k: r.get(k) for k in ('id', 'iid', 'status', 'state', 'ref', 'sha', 'finished_at', 'merged_at',
-                                                            'cluster_revision', 'pipeline_id')}, ensure_ascii=False)[:200])
+            print('    ', json.dumps({k: r.get(k) for k in ('id', 'iid', 'status', 'state', 'ref', 'short_sha', 'finished_at', 'merged_at',
+                                                            'kubernetes_revision', 'pipeline_id')}, ensure_ascii=False)[:200])
+    for r in body.get('kubernetes_revisions') or []:
+        print('  revision', json.dumps(r, ensure_ascii=False)[:200])
 
 
 STEPS = {'register': register, 'bind': bind, 'target': target, 'activate': activate, 'confirm': confirm,

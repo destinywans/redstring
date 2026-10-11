@@ -87,6 +87,8 @@ def main():
                                                        '--json', str(LOCAL / f'e2e/permissions-{instance}.json')], parse=mismatches))
     # The trace page opens on the Errors view, so the crawl never loads All; read every view directly (PA-87).
     results.append(run('trace views', ['python3', 'tools/acceptance/trace_views.py'], parse=passed_line))
+    # Lab credentials expire on their own (the K8s reader did on 2026-10-11 and nothing noticed for hours).
+    results.append(run('credentials', ['python3', 'tools/acceptance/credentials.py'], parse=passed_line))
     for script in ('environments', 'inputs', 'auth'):
         results.append(run(script, ['python3', f'tools/acceptance/{script}.py'], parse=passed_line))
     if a.with_golden_api:

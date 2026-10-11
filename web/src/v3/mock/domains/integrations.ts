@@ -82,6 +82,28 @@ mock("GET", "/connectors/:id", ({ params }) => {
           capabilities: ["workload.read", "revisions.read", "rollback.propose"],
         }
       : {}),
+    // GitLab (D11 design): read token, the five read tools (diff bodies stay closed to AI) and the catalog's deploy environments.
+    ...(c.id === "gitlab"
+      ? {
+          name: P("GitLab · 实验", "GitLab · lab"),
+          scope: P("生产", "Production"),
+          address: "https://gitlab.lab.internal:18445",
+          auth: { brand: "vault", text: P("vault://aiops/lab/gitlab/read#token · 只读令牌（read_api），服务端批准", "vault://aiops/lab/gitlab/read#token · read-only token (read_api), server-approved") },
+          write_path: P("只有规则仓库的执行器有写令牌，界面里不显示", "Only the rule repository's executor holds a write token; it isn't shown here"),
+          services: ["checkout-api", "payment-gateway", "inventory-worker"],
+          tools: [
+            { name: "list_pipelines", desc: P("只读 · 列出项目的流水线", "Read-only · list a project's pipelines"), enabled: true },
+            { name: "get_pipeline", desc: P("只读 · 流水线的阶段和作业", "Read-only · a pipeline's stages and jobs"), enabled: true },
+            { name: "list_merge_requests", desc: P("只读 · 已合并的合并请求", "Read-only · merged merge requests"), enabled: true },
+            { name: "get_commit", desc: P("只读 · 提交信息和改动统计", "Read-only · commit details and stats"), enabled: true },
+            { name: "get_commit_diff", desc: P("差异正文不开放给 AI", "Diff bodies stay closed to AI"), enabled: false },
+          ],
+          deploy_environments: [
+            { service: "checkout-api", environment: P("生产", "Production"), project_id: "4", deploy_environment: "aiops-lab", refs: ["main"] },
+            { service: "checkout-api", environment: P("测试", "Test"), project_id: "4", deploy_environment: "aiops-lab", refs: ["main"] },
+          ],
+        }
+      : {}),
   };
 });
 mock("POST", "/connectors/:id/test", () => ({ ok: true, latency_ms: 118 }));
@@ -306,12 +328,19 @@ const MAP_SYSTEMS = [
     { id: "dash", brand: "grafana", label: P("看板", "Dashboards") },
     { id: "workload", brand: "kubernetes", label: P("工作负载", "Workload") },
 ];
-const MAP_ROWS: { service: string; cells: Record<string, { state: string; value?: string; brand?: string }> }[] = [
-    { service: "checkout-api", cells: { metrics: ok("job=checkout"), logs: ok("logs-checkout-*"), traces: ok("checkout-api"), code: ok("platform/checkout"), deploy: ok("checkout-prod"), dash: ok("svc-overview"), workload: ok("aiops-lab/checkout-api") } },
-    { service: "payment-gateway", cells: { metrics: ok("job=payment"), logs: ok("logs-payment-*"), traces: sug("payment-gw"), code: ok("platform/payment"), deploy: ok("payment-prod"), dash: ok("svc-overview"), workload: ok("pay/payment-gateway") } },
-    { service: "order-service", cells: { metrics: ok("job=order"), logs: ok("logs-order-*"), traces: ok("order-service"), code: ok("shop/order-service", "github"), deploy: ok("order-prod"), dash: ok("svc-overview"), workload: ok("trade/order-service") } },
-    { service: "inventory-worker", cells: { metrics: ok("job=inventory"), logs: miss, traces: ok("inventory-worker"), code: ok("platform/inventory"), deploy: ok("inventory-prod"), dash: sug("kafka-consumers"), workload: ok("trade/inventory-worker") } },
-    { service: "user-center", cells: { metrics: ok("job=user"), logs: ok("logs-user-*"), traces: miss, code: ok("user-center-release", "jenkins"), deploy: sug("user-center-prod"), dash: ok("svc-overview"), workload: ok("account/user-center") } },
+// D11 design (D20): code cells are confirmed GitLab projects (value = numeric project ID) with their candidates.
+const codeCand = (service: string, project: string, path: string, hint: unknown, recommended = false) => ({
+  id: `cand-${service}-${project}`, version: "v1", service_id: service, service, environment_id: "prod", system_id: "code" as const, connector_id: "gitlab",
+  target_id: `tgt-${service}-gitlab-${project}`, external_id: project, binding_revision: 3, expires_at: ago(-15), project_path: path, hint, recommended,
+});
+const codeOk = (service: string, project: string, path: string, by: string, when: string, candidates?: ReturnType<typeof codeCand>[]) => ({ ...ok(project), confirmed: { by, at: when, revision: 3, project_path: path }, candidates });
+const codeSug = (candidates: ReturnType<typeof codeCand>[]) => ({ state: "suggested", brand: "gitlab", candidate: candidates[0], candidates });
+const MAP_ROWS: { service: string; cells: Record<string, { state: string; value?: string; brand?: string; [k: string]: unknown }> }[] = [
+    { service: "checkout-api", cells: { metrics: ok("job=checkout"), logs: ok("logs-checkout-*"), traces: ok("checkout-api"), code: codeOk("checkout-api", "4", "platform/checkout", "王晨", at("14:20"), [codeCand("checkout-api", "4", "platform/checkout", P("源码 · 最近流水线 13:57 · AI 建议（来自候选）", "Source · last pipeline 13:57 · AI suggestion (from candidates)"), true), codeCand("checkout-api", "5", "platform/checkout-manifests", P("清单 · 最近流水线 昨天", "Manifests · last pipeline yesterday"))]), deploy: ok("checkout-prod"), dash: ok("svc-overview"), workload: ok("aiops-lab/checkout-api") } },
+    { service: "payment-gateway", cells: { metrics: ok("job=payment"), logs: ok("logs-payment-*"), traces: sug("payment-gw"), code: codeSug([codeCand("payment-gateway", "7", "platform/payment", P("源码 · 最近流水线 11:20 · AI 建议（来自候选）", "Source · last pipeline 11:20 · AI suggestion (from candidates)"), true), codeCand("payment-gateway", "8", "platform/payment-manifests", P("清单 · 最近流水线 3 天前", "Manifests · last pipeline 3 days ago"))]), deploy: ok("payment-prod"), dash: ok("svc-overview"), workload: ok("pay/payment-gateway") } },
+    { service: "order-service", cells: { metrics: ok("job=order"), logs: ok("logs-order-*"), traces: ok("order-service"), code: miss, deploy: ok("order-prod"), dash: ok("svc-overview"), workload: ok("trade/order-service") } },
+    { service: "inventory-worker", cells: { metrics: ok("job=inventory"), logs: miss, traces: ok("inventory-worker"), code: codeOk("inventory-worker", "9", "platform/inventory", "周航", at("10:05", -1)), deploy: ok("inventory-prod"), dash: sug("kafka-consumers"), workload: ok("trade/inventory-worker") } },
+    { service: "user-center", cells: { metrics: ok("job=user"), logs: ok("logs-user-*"), traces: miss, code: codeSug([codeCand("user-center", "12", "account/user-center", P("源码 · 最近流水线 昨天", "Source · last pipeline yesterday"))]), deploy: sug("user-center-prod"), dash: ok("svc-overview"), workload: ok("account/user-center") } },
     { service: "search-api", cells: { metrics: ok("job=search"), logs: ok("logs-search-*"), traces: miss, code: ok("platform/search"), deploy: ok("search-prod"), dash: ok("search-latency"), workload: ok("search/search-api") } },
     { service: "notification-svc", cells: { metrics: ok("job=notify"), logs: sug("logs-notify-*"), traces: miss, code: ok("platform/notify"), deploy: ok("notify-prod"), dash: miss, workload: ok("platform/notification-svc") } },
 ];

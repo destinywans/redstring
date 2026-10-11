@@ -857,6 +857,13 @@ export type ConnectorDetail = Connector & {
   capabilities?: string[];
   /** Registry stage 2 step 7: tools project the saved switches; false says they gate data reads only, not agent execution. */
   agent_execution_available?: boolean;
+  /** D11 design (GitLab): how writes reach the provider, if at all. Not in the contract yet; absent hides the row. */
+  write_path?: string;
+  /**
+   * D11 design (GitLab): the catalog's GitLab deploy environment and branch per service environment, reviewed by the
+   * deployer and read-only. Not in the contract yet; absent hides the section.
+   */
+  deploy_environments?: { service: string; environment: string; project_id: string; deploy_environment: string; refs: string[] }[];
 };
 export type ConnectorType = {
   brand: string;
@@ -916,8 +923,37 @@ export type PushView = {
 };
 
 /** A reviewed GitLab code candidate staged by POST /service-mappings/discover; accepting sends it back exactly. */
-export type MappingCandidate = { id: string; version: string; service_id: string; service: string; environment_id: string; system_id: "code"; connector_id: string; target_id: string; external_id: string; binding_revision: number; expires_at: string };
-export type MappingCell = { state: "ok" | "suggested" | "missing"; value?: string; brand?: string; candidate?: MappingCandidate };
+export type MappingCandidate = {
+  id: string;
+  version: string;
+  service_id: string;
+  service: string;
+  environment_id: string;
+  system_id: "code";
+  connector_id: string;
+  target_id: string;
+  /** The GitLab numeric project ID. */
+  external_id: string;
+  binding_revision: number;
+  expires_at: string;
+  /** D11 design extras the contract doesn't send yet (the sample fills them): project path, a one-line hint, the suggested one. */
+  project_path?: string;
+  hint?: string;
+  recommended?: boolean;
+};
+export type MappingCell = {
+  state: "ok" | "suggested" | "missing";
+  /** Code column (D20): the confirmed GitLab numeric project ID. */
+  value?: string;
+  brand?: string;
+  candidate?: MappingCandidate;
+  /**
+   * D11 design, code column: every candidate when a service has more than one GitLab project, and who confirmed the
+   * current one. Not in the contract yet (real candidates only exist for a single project); absent fields are hidden.
+   */
+  candidates?: MappingCandidate[];
+  confirmed?: { by: string; at: string; revision: number; project_path?: string };
+};
 /** Per-row save snapshot for PUT /service-mappings (see docs/examples/v3-service-mapping-save.md); absent rows aren't editable. */
 export type MappingSave = { service_id: string; service_environment_id: string; binding_revision: number; bindings: { system_id: string; kind: string; connector_id: string; resource: string }[]; editable: boolean; unavailable_reason?: string };
 /** One mapping system in GET /services/{id}/external-targets/options (PA-19 stage 2, docs/api/v3-contract.md). */

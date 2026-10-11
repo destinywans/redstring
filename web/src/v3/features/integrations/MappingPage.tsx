@@ -4,6 +4,7 @@ import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet, useSend } from "../../api/client";
 import type { MappingCandidate, MappingCell, MappingSave, ServiceMapping } from "../../api/types";
 import { MappingEditor } from "./MappingEditor";
+import { CodeProjectDrawer, codeCandidates, useCodeLabel } from "./CodeProjectDrawer";
 import { Badge, Brand, Btn, Card, Icon, Muted, Row, Skeleton, Tile, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
@@ -19,6 +20,10 @@ export default function MappingPage() {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<{ service: string; save: MappingSave } | null>(null);
   const [conflict, setConflict] = useState(false);
+  const [codeOpen, setCodeOpen] = useState<{ service: string; cell: MappingCell; picked?: string } | null>(null);
+  // The sample keeps the project chosen in the drawer locally; real cells show what the server answers after the refetch.
+  const [picked, setPicked] = useState<Record<string, string>>({});
+  const codeLabel = useCodeLabel();
   const discover = useSend<void, { suggestions: number; source_state?: "configured" | "not_configured" }>("POST", "/service-mappings/discover");
   const save = useSend<void>("PUT", "/service-mappings");
   // Real suggestions are reviewed GitLab candidates; only those can be accepted, and only the server's answer marks them accepted.
@@ -28,7 +33,8 @@ export default function MappingPage() {
   };
   const pending = data
     ? data.rows
-        .flatMap((r) => data.systems.filter((s) => r.cells[s.id]?.state === "suggested" && (demo || r.cells[s.id]?.candidate)).map((s) => `${r.service}:${s.id}`))
+        // A code cell with several candidates needs a choice in the drawer, so "Accept all" leaves it out.
+        .flatMap((r) => data.systems.filter((s) => r.cells[s.id]?.state === "suggested" && (demo || r.cells[s.id]?.candidate) && codeCandidates(r.cells[s.id]).length <= 1).map((s) => `${r.service}:${s.id}`))
         .filter((k) => !accepted.has(k) && !rejected.has(k))
     : [];
   const acceptKeys = async (keys: string[]) => {
@@ -55,8 +61,36 @@ export default function MappingPage() {
     }
   };
   const acceptAll = () => void acceptKeys(pending);
+  // D11 design (D20): the code column confirms one GitLab project per service environment in a drawer.
+  const codeCell = (service: string, c?: MappingCell) => {
+    const key = `${service}:code`;
+    if (!c || c.state === "missing" || rejected.has(key))
+      return (
+        <span className="muted ellipsis" style={{ display: "block", fontSize: 11.5 }}>
+          {tx("未登记 GitLab 项目", "No GitLab project")}
+        </span>
+      );
+    const open = () => setCodeOpen({ service, cell: c, picked: picked[key] });
+    if (c.state === "suggested" && !accepted.has(key)) {
+      const list = codeCandidates(c);
+      return (
+        <button type="button" className="map-pend" disabled={!demo && !c.candidate} onClick={open} title={tx("确认代码项目", "Confirm code project")}>
+          {list.length > 1 ? tx("待确认 · {n} 个候选", "Pick 1 of {n}", { n: list.length }) : tx("待确认 · {p}", "Confirm · {p}", { p: list[0]?.project_path ?? codeLabel(list[0]?.external_id ?? c.value) })}
+        </button>
+      );
+    }
+    const label = picked[key] ?? c.confirmed?.project_path ?? (c.state === "suggested" ? (codeCandidates(c)[0]?.project_path ?? codeLabel(c.candidate?.external_id ?? c.value)) : codeLabel(c.value));
+    // Always GitLab (the column header says so), so the cell skips the brand mark.
+    return (
+      <button type="button" className={cx("map-ok map-btn", accepted.has(key) && "anim-pop")} onClick={open} title={tx("查看代码项目", "View code project")}>
+        <Icon name="check" size={13} color="var(--ok)" />
+        <span className="ellipsis mono" style={{ fontSize: "var(--fs-sub)" }}>{label}</span>
+      </button>
+    );
+  };
   const cell = (service: string, sys: string, c?: MappingCell) => {
     const key = `${service}:${sys}`;
+    if (sys === "code") return codeCell(service, c);
     if (!c || c.state === "missing" || rejected.has(key))
       return (
         <button type="button" className="map-miss" onClick={() => nav("/integrations/new")}>
@@ -159,7 +193,8 @@ export default function MappingPage() {
                 <tr>
                   <th style={{ width: "15%" }}>{tx("服务", "Service")}</th>
                   {data.systems.map((s) => (
-                    <th key={s.id}>
+                    // The code column holds "To confirm · N candidates", a bit wider than the others.
+                    <th key={s.id} style={s.id === "code" ? { width: 150 } : undefined}>
                       <Row gap={5}>
                         <Brand name={s.brand} size={18} />
                         {s.label}
@@ -206,6 +241,17 @@ export default function MappingPage() {
           )}
         </Card>
       </div>
+      <CodeProjectDrawer
+        target={codeOpen}
+        onClose={() => setCodeOpen(null)}
+        refetch={refetch}
+        onConfirmed={(label) => {
+          if (!codeOpen) return;
+          const key = `${codeOpen.service}:code`;
+          setAccepted((s) => new Set(s).add(key));
+          if (demo) setPicked((p) => ({ ...p, [key]: label }));
+        }}
+      />
       {data && data.rows.some((r) => r.save) && (
         <MappingEditor
           row={editing}

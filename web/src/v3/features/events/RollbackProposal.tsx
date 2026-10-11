@@ -124,7 +124,8 @@ function RollbackProposalDrawer({ req, onClose }: { req: RollbackRequest; onClos
   const err = cands.error instanceof ApiError ? cands.error : null;
   const blocked = data?.blocked_reason ?? (err?.status === 503 && err.code === "workload_unavailable" ? "workload_unavailable" : null);
   const proposable = data && !data.blocked_reason ? data.candidates.filter((c) => !c.current) : [];
-  const invItems = investigations.filter((i) => !app || !i.application_id || i.application_id === app);
+  const sameApp = (i: { application_id?: string }) => !app || !i.application_id || i.application_id === app;
+  const invItems = investigations.filter(sameApp);
   const ready = !!body && !blocked && !busy;
   const footerNote = tx("需要两人通行密钥批准，你不能批准自己的提案。批准后由执行器写入，只改 Pod template。", "Two people approve with passkeys; you can't approve your own proposal. The executor then writes it, changing only the Pod template.");
 
@@ -181,7 +182,7 @@ function RollbackProposalDrawer({ req, onClose }: { req: RollbackRequest; onClos
               </span>
             </Row>
           ) : (
-            <InvestigationPicker value={invPick} onChange={setInvPick} items={invItems} more={moreInvestigations} />
+            <InvestigationPicker value={invPick} onChange={setInvPick} items={invItems} more={moreInvestigations} accept={sameApp} />
           )}
           <Muted size={11.5}>{req.investigationId ? tx("提案会挂在这个调查下。", "The proposal hangs off this investigation.") : tx("回滚必须挂在同一应用的开放调查下，方便事后追溯。", "A rollback hangs off an open investigation of the same application so it can be traced later.")}</Muted>
         </Section>

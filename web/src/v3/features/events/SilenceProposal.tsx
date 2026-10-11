@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { CanvasSummary, ServiceCatalog } from "../../api/types";
 import { Badge, Btn, Col, Icon, IconBtn, Input, Muted, Row, Section, Segmented, Spacer, Textarea, Tile } from "../../ui/core";
 import { Dialog, Drawer, toast } from "../../ui/overlays";
@@ -13,30 +13,43 @@ import { serviceApplicationId } from "../../api/ids";
 import "./events.css";
 
 
-/**
- * Open investigations with the application key the alert labels use (the service name). GET /investigations isn't
- * implemented in V3, so they come from the investigation canvases (GET /canvases?filter=investigation), whose
- * services are application IDs.
- */
-export function useOpenInvestigations(enabled: boolean) {
-  // The largest page the server serves; a longer list says so instead of silently dropping the older ones (PA-85).
-  const inv = useGet<{ items: CanvasSummary[]; total?: number }>(enabled ? "/canvases" : null, { filter: "investigation", page_size: 100 }, { staleTime: 15_000 });
+/** Open investigations: the largest page the server serves (PA-85), newest update first. */
+const OPEN_INVESTIGATIONS = { kind: "investigation", status: "active", page_size: 100 } as const;
+
+export type OpenInvestigation = { id: string; title: string; application_id: string | undefined; appKey: string | null; updated_at: string; creator: string | null };
+
+/** Investigation canvases as picker rows, with the application key the alert labels use (the service name). */
+function useInvestigationRows(list: CanvasSummary[] | undefined, enabled = true): OpenInvestigation[] {
   const svc = useGet<ServiceCatalog>(enabled ? "/services" : null, undefined, { staleTime: 5 * 60_000 });
-  const items = useMemo(() => {
+  return useMemo(() => {
     const appKey = new Map<string, string>();
     for (const s of svc.data?.items ?? []) {
       const app = serviceApplicationId(s.id);
       if (app) appKey.set(app, s.name);
     }
-    return (inv.data?.items ?? [])
+    return (list ?? [])
       .filter((c) => c.kind === "investigation" && !!c.investigation_id && !["done", "resolved", "closed"].includes(c.status))
       .map((c) => {
         const app = c.services[0];
-        return { id: c.investigation_id!, title: c.title, application_id: app, appKey: app ? appKey.get(app) ?? null : null };
-      });
-  }, [inv.data, svc.data]);
-  const more = typeof inv.data?.total === "number" && inv.data.total > inv.data.items.length;
-  return { items, more, loading: inv.isLoading, error: inv.error };
+        // participants holds the creator when one was recorded; older investigations have none.
+        // Demo canvases name the service itself; real ones carry an opaque application ID.
+        return { id: c.investigation_id!, title: c.title, application_id: app, appKey: app ? appKey.get(app) ?? (API_MODE === "mock" ? app : null) : null, updated_at: c.updated_at, creator: c.participants?.[0] ?? null };
+      })
+      .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+  }, [list, svc.data]);
+}
+
+/**
+ * Open investigations. GET /investigations isn't implemented in V3, so they come from the investigation canvases
+ * (GET /canvases?kind=investigation&status=active), whose services are application IDs. `more`: the server has more
+ * than one page, so the picker searches it.
+ */
+export function useOpenInvestigations(enabled: boolean) {
+  const inv = useGet<{ items: CanvasSummary[]; total?: number }>(enabled ? "/canvases" : null, OPEN_INVESTIGATIONS, { staleTime: 15_000 });
+  const items = useInvestigationRows(inv.data?.items, enabled);
+  const total = typeof inv.data?.total === "number" ? inv.data.total : items.length;
+  const more = !!inv.data && total > inv.data.items.length;
+  return { items, more, total, loading: inv.isLoading, error: inv.error };
 }
 
 export type SubmittedSilence = { proposal_id: string; matchers: { k: string; op: string; v: string }[]; duration: number; at: number };
@@ -44,10 +57,55 @@ export type SubmittedSilence = { proposal_id: string; matchers: { k: string; op:
 const OPS = ["=", "!=", "=~", "!~"];
 const DURATIONS = [1800, 3600, 14400, 43200, 86400];
 
-/** Investigation picker shared by create and expire: open investigations only, with a way to start one. */
-export function InvestigationPicker({ value, onChange, items, more }: { value: string; onChange: (id: string) => void; items: ReturnType<typeof useOpenInvestigations>["items"]; more?: boolean }) {
-  const { tx } = useI18n();
-  if (!items.length)
+/** `text` with the first case-insensitive match of `q` marked. */
+function hl(text: string, q: string) {
+  const i = q ? text.toLowerCase().indexOf(q) : -1;
+  if (i < 0) return text;
+  return (
+    <>
+      {text.slice(0, i)}
+      <mark>{text.slice(i, i + q.length)}</mark>
+      {text.slice(i + q.length)}
+    </>
+  );
+}
+
+/** More open investigations than this get a search box (approved design L2kEarHhdRadMRQuLYCGrP). */
+const SEARCH_FROM = 8;
+
+/**
+ * Investigation picker shared by create and expire, rollback and new rule: open investigations only, newest update
+ * first, each with "service · updated · creator". Past eight it searches by ID, title and service; when the server
+ * has more than one page, the typed text also searches all open investigations there (q matches titles).
+ */
+export function InvestigationPicker({ value, onChange, items, more, total, accept }: { value: string; onChange: (id: string) => void; items: OpenInvestigation[]; more?: boolean; total?: number; /** Narrows server search results the way `items` was narrowed (e.g. one application). */ accept?: (i: OpenInvestigation) => boolean }) {
+  const { tx, fmt } = useI18n();
+  const [q, setQ] = useState("");
+  const [dq, setDq] = useState("");
+  useEffect(() => {
+    const t = window.setTimeout(() => setDq(q.trim()), 250);
+    return () => window.clearTimeout(t);
+  }, [q]);
+  const remote = useGet<{ items: CanvasSummary[] }>(more && dq ? "/canvases" : null, { ...OPEN_INVESTIGATIONS, q: dq }, { staleTime: 15_000 });
+  const remoteRows = useInvestigationRows(remote.data?.items, !!(more && dq));
+  // A pick from the server search stays listed after the menu closes.
+  const [picked, setPicked] = useState<OpenInvestigation | null>(null);
+  const searchable = items.length > SEARCH_FROM || !!more;
+  const query = q.trim().toLowerCase();
+  const all = useMemo(() => {
+    const seen = new Set<string>();
+    const out: OpenInvestigation[] = [];
+    for (const i of [...items, ...(picked ? [picked] : [])]) if (!seen.has(i.id)) (seen.add(i.id), out.push(i));
+    return out;
+  }, [items, picked]);
+  const shown = useMemo(() => {
+    if (!query) return all;
+    const local = all.filter((i) => i.id.toLowerCase().includes(query) || i.title.toLowerCase().includes(query) || (i.appKey ?? "").toLowerCase().includes(query));
+    if (!more || !dq) return local;
+    const seen = new Set(local.map((i) => i.id));
+    return [...local, ...remoteRows.filter((i) => !seen.has(i.id) && (!accept || accept(i)))].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
+  }, [all, query, more, dq, remoteRows, accept]);
+  if (!items.length && !more)
     return (
       <Col gap={6} style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 8 }}>
         <Muted size={12.5}>{tx("这个环境里没有开放的调查。静默必须挂在调查下，方便事后追溯。", "There is no open investigation in this environment. Silences hang off an investigation so they can be traced later.")}</Muted>
@@ -56,6 +114,9 @@ export function InvestigationPicker({ value, onChange, items, more }: { value: s
         </Btn>
       </Col>
     );
+  const sub = (i: OpenInvestigation) => [i.appKey, tx("更新于 {t}", "updated {t}", { t: fmt.ago(i.updated_at) }), i.creator].filter(Boolean).join(" · ");
+  const searching = !!(more && query && (q.trim() !== dq || remote.isFetching));
+  const count = total ?? all.length;
   // Long investigation titles are ellipsized so the chip stays inside the drawer; the full text is in the tooltip.
   return (
     <div className="inv-picker">
@@ -63,22 +124,56 @@ export function InvestigationPicker({ value, onChange, items, more }: { value: s
         label={<span className="inv-label inv-placeholder">{tx("选择调查", "Choose an investigation")}</span>}
         ariaLabel={(() => {
           // Investigation IDs don't always carry an INV- prefix (e.g. ones started from an alert group).
-          const cur = items.find((i) => i.id === value);
+          const cur = all.find((i) => i.id === value);
           return cur ? tx("关联的调查：{t}", "Investigation: {t}", { t: `${cur.id} · ${cur.title ?? ""}` }) : tx("关联的调查：未选择", "Investigation: none chosen");
         })()}
         showLabel={false}
         value={value || undefined}
-        onChange={(v) => onChange(v as string)}
-        options={items.map((i) => ({
+        onChange={(v) => {
+          const id = v as string;
+          const row = shown.find((i) => i.id === id);
+          if (row && !items.some((i) => i.id === id)) setPicked(row);
+          onChange(id);
+        }}
+        options={shown.map((i) => ({
           value: i.id,
           label: (
             <span className="inv-label" title={`${i.id} · ${i.title ?? ""}`}>
-              {i.id} · {i.title ?? ""}
+              {hl(i.id, query)} · {hl(i.title ?? "", query)}
             </span>
           ),
-          hint: i.appKey ?? undefined,
+          hint: sub(i) || undefined,
         }))}
-        footer={more ? tx("只列出最近的 100 个调查，更早的没有列出。", "Only the latest 100 investigations are listed; older ones aren't.") : undefined}
+        search={
+          searchable
+            ? {
+                query: q,
+                onQuery: setQ,
+                placeholder: tx("搜索调查 ID、标题或服务", "Search ID, title or service"),
+                // Without a total for this (narrowed) list while the server has more, only the matches are counted.
+                count: searching
+                  ? tx("在全部调查中搜索…", "Searching all…")
+                  : !query
+                    ? undefined
+                    : more && total === undefined
+                      ? tx("匹配 {n} 个", "{n} matches", { n: shown.length })
+                      : tx("匹配 {n} 个，共 {t} 个", "{n} of {t}", { n: shown.length, t: count }),
+                empty: searching ? undefined : (
+                  <>
+                    <span>{tx("没有找到包含“{q}”的进行中调查。", "No open investigation matches “{q}”.", { q: q.trim() })}</span>
+                    <Btn h={26} to="/canvases?new=investigation">{tx("发起调查", "Start an investigation")}</Btn>
+                  </>
+                ),
+              }
+            : undefined
+        }
+        footer={
+          searchable
+            ? more
+              ? tx("进行中的调查超过 100 个：输入后会在全部调查里搜索。", "Over 100 open investigations: typing searches all of them.")
+              : tx("按最近更新排序 · 可输入调查 ID 前几位、标题或服务名", "Most recently updated first · type an ID prefix, a title or a service")
+            : undefined
+        }
       />
     </div>
   );
@@ -91,7 +186,7 @@ export function InvestigationPicker({ value, onChange, items, more }: { value: s
 export function SilenceProposalDrawer({ open, onClose, onSubmitted }: { open: boolean; onClose: () => void; onSubmitted: (s: SubmittedSilence) => void }) {
   const { tx } = useI18n();
   const qc = useQueryClient();
-  const { items, more } = useOpenInvestigations(open);
+  const { items, more, total } = useOpenInvestigations(open);
   const [invId, setInvId] = useState("");
   const [extra, setExtra] = useState<{ k: string; op: string; v: string }[]>([]);
   const [duration, setDuration] = useState(3600);
@@ -179,7 +274,7 @@ export function SilenceProposalDrawer({ open, onClose, onSubmitted }: { open: bo
       ) : (
         <Col gap={14} style={{ padding: 16 }}>
           <Section title={tx("关联的调查", "Investigation")}>
-            <InvestigationPicker value={invId} onChange={setInvId} items={items} more={more} />
+            <InvestigationPicker value={invId} onChange={setInvId} items={items} more={more} total={total} />
             {inv && (inv.appKey ? <Muted size={11.5}>{tx("提案会挂在这个调查下；应用 {a} 来自这个调查。", "The proposal hangs off this investigation; application {a} comes from it.", { a: inv.appKey })}</Muted> : <Muted size={11.5}>{tx("找不到这个调查所属应用的告警标签，暂时不能提议静默。", "This investigation's application has no alert label here, so it can't be silenced yet.")}</Muted>)}
           </Section>
           <Section title={tx("匹配条件", "Matchers")}>
@@ -231,7 +326,7 @@ export function SilenceProposalDrawer({ open, onClose, onSubmitted }: { open: bo
 /** Ending a silence early is a proposal too: investigation and reason are required. */
 export function ExpireSilenceDialog({ silenceId, onClose, onSubmitted }: { silenceId: string | null; onClose: () => void; onSubmitted: (proposalId: string) => void }) {
   const { tx } = useI18n();
-  const { items, more } = useOpenInvestigations(!!silenceId);
+  const { items, more, total } = useOpenInvestigations(!!silenceId);
   const [invId, setInvId] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -276,7 +371,7 @@ export function ExpireSilenceDialog({ silenceId, onClose, onSubmitted }: { silen
       <Col gap={12}>
         <Muted>{tx("结束也要两人批准。批准并执行前，这条静默继续生效。", "Ending also needs two approvers. Until it's approved and executed, the silence stays in effect.")}</Muted>
         <Section title={tx("关联的调查", "Investigation")}>
-          <InvestigationPicker value={invId} onChange={setInvId} items={items} more={more} />
+          <InvestigationPicker value={invId} onChange={setInvId} items={items} more={more} total={total} />
         </Section>
         <Section title={tx("原因", "Reason")}>
           <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={tx("例如：回滚已完成，恢复告警", "e.g. rollback done; resume alerts")} style={{ minHeight: 56 }} />

@@ -3,6 +3,12 @@
 .v3-menu.demo-menu button { display: flex; align-items: center; gap: 8px; height: auto; min-height: 30px; padding-block: 5px; text-align: left; line-height: 1.4; }
 .v3-menu.demo-menu button.on { background: var(--accent-soft); }
 .demo-menu small { display: block; font-size: var(--fs-cap); color: var(--muted); }
+.demo-menu-search { position: sticky; top: -4px; z-index: 1; display: flex; align-items: center; gap: 7px; margin: -4px -4px 4px; padding: 8px 10px; background: var(--overlay); border-bottom: 1px solid var(--border); color: var(--muted); }
+.demo-menu-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; color: var(--text); font-size: var(--fs-sm); }
+.demo-menu-count { font-size: var(--fs-cap); color: var(--faint); white-space: nowrap; }
+.v3-menu.demo-menu button.active { background: var(--hover); }
+.demo-menu mark { background: var(--warn-soft); color: inherit; border-radius: 3px; padding: 0 1px; }
+.demo-menu-empty { padding: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; color: var(--muted); font-size: var(--fs-sub); }
 .demo-menu-foot { padding: 6px 10px 4px; font-size: var(--fs-cap); color: var(--muted); border-top: 1px solid var(--border); margin-top: 4px; }
 .demo-req { color: var(--danger); }
 .demo-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }

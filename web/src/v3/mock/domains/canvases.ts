@@ -1,6 +1,6 @@
 import { mock, MockError, paginate } from "../router";
 import { l } from "../../i18n";
-import { at } from "../time";
+import { ago, at } from "../time";
 
 const P = l;
 type Thumb = { nodes: [number, number, number, number, string][]; edges: string[] };
@@ -22,11 +22,11 @@ const T_ANA: Thumb = {
 };
 
 const CANVASES = [
-  { id: "INV-231", title: P("发布后 checkout-api 5xx 上升", "checkout-api 5xx after release"), kind: "investigation", status: "active", meta: P("4 个分支 · 12 条证据 · INV-231", "4 branches · 12 evidence · INV-231"), participants: ["王晨", "李明", "AI"], updated_at: at("14:26"), href: "/canvas/INV-231", investigation_id: "INV-231", services: ["checkout-api"], thumb: T_INV },
+  { id: "INV-231", title: P("发布后 checkout-api 5xx 上升", "checkout-api 5xx after release"), kind: "investigation", status: "active", meta: P("4 个分支 · 12 条证据 · INV-231", "4 branches · 12 evidence · INV-231"), participants: ["王晨", "李明", "AI"], updated_at: ago(5), href: "/canvas/INV-231", investigation_id: "INV-231", services: ["checkout-api"], thumb: T_INV },
   // The lab bad-release drill (PA-08 rollback samples): revision 7 of aiops-lab/checkout-api answers 5xx.
-  { id: "INV-236", title: P("checkout-api 修订 7 上线后 5xx", "checkout-api 5xx after revision 7"), kind: "investigation", status: "active", meta: P("2 个分支 · 3 条证据 · INV-236", "2 branches · 3 evidence · INV-236"), participants: ["王晨", "AI"], updated_at: at("10:50"), href: "/canvas/INV-236", investigation_id: "INV-236", services: ["checkout-api"], thumb: T_INV },
+  { id: "INV-236", title: P("checkout-api 修订 7 上线后 5xx", "checkout-api 5xx after revision 7"), kind: "investigation", status: "active", meta: P("2 个分支 · 3 条证据 · INV-236", "2 branches · 3 evidence · INV-236"), participants: ["王晨", "AI"], updated_at: ago(221), href: "/canvas/INV-236", investigation_id: "INV-236", services: ["checkout-api"], thumb: T_INV },
   { id: "CV-318", title: P("双十一大促压测计划", "Singles' Day load-test plan"), kind: "plan", status: "waiting_approval", meta: P("6 个节点 · 执行步骤需审批", "6 nodes · execution needs approval"), participants: ["王晨", "AI"], updated_at: at("13:40"), href: "/canvas/CV-318", services: ["checkout-api", "payment-gateway", "order-service"], thumb: T_PLAN },
-  { id: "INV-229", title: P("payment-gateway 延迟排查", "payment-gateway latency"), kind: "investigation", status: "active", meta: P("2 个分支 · 5 条证据", "2 branches · 5 evidence"), participants: ["赵敏", "AI"], updated_at: at("13:52"), href: "/canvas/INV-231", investigation_id: "INV-229", services: ["payment-gateway"], thumb: T_INV },
+  { id: "INV-229", title: P("payment-gateway 延迟排查", "payment-gateway latency"), kind: "investigation", status: "active", meta: P("2 个分支 · 5 条证据", "2 branches · 5 evidence"), participants: ["赵敏", "AI"], updated_at: ago(39), href: "/canvas/INV-231", investigation_id: "INV-229", services: ["payment-gateway"], thumb: T_INV },
   { id: "CV-311", title: P("v3.0 发布评审：订单拆单", "v3.0 release review: order split"), kind: "review", status: "done", meta: P("4 项风险 · 全部关闭", "4 risks · all closed"), participants: ["李明", "周航"], updated_at: at("16:10", -1), href: "/canvas/CV-318", services: ["order-service"], thumb: T_REV },
   { id: "CV-305", title: P("Q4 容量评估：交易链路", "Q4 capacity: trade path"), kind: "analysis", status: "active", meta: P("4 个服务 · 预测到 12/31", "4 services · forecast to 12/31"), participants: ["张磊", "AI"], updated_at: at("11:20", -1), href: "/canvas/CV-318", services: ["checkout-api", "order-service"], thumb: T_ANA },
   { id: "CV-298", title: P("Harbor 镜像保留策略", "Harbor retention policy"), kind: "plan", status: "draft", meta: P("3 个节点 · 预计释放 1.2 TB", "3 nodes · frees ~1.2 TB"), participants: ["周航"], updated_at: at("10:00", -2), href: "/canvas/CV-318", services: ["harbor"], thumb: T_PLAN },
@@ -34,10 +34,39 @@ const CANVASES = [
   { id: "CV-290", title: P("数据库迁移风险评审", "DB migration risk review"), kind: "review", status: "active", meta: P("5 项风险 · 2 项待确认", "5 risks · 2 to confirm"), participants: ["周航", "李明"], updated_at: at("15:00", -4), href: "/canvas/CV-318", services: ["orders-db"], thumb: T_REV },
 ];
 
+// Open investigations left over from drills and acceptance runs, as prod has them (PA-85): near-identical titles.
+// Only the investigation pickers ask for them (kind=investigation&status=active), so the canvases page stays as is.
+const drill = (id: string, kind: "drill" | "accept" | "io", minutesAgo: number, who: string | null) => ({
+  id,
+  title: kind === "drill" ? P("回滚演练：checkout-api 5xx 升高", "Rollback drill: checkout-api 5xx rising") : kind === "accept" ? P("验收：画布分支与回写", "Acceptance: canvas branches and write-back") : P("inventory-03 磁盘 IO 等待升高", "inventory-03 disk IO wait rising"),
+  kind: "investigation",
+  status: "active",
+  meta: P("1 个分支", "1 branch"),
+  participants: who ? [who] : [],
+  updated_at: ago(minutesAgo),
+  href: `/canvas/${id}`,
+  investigation_id: id,
+  services: [kind === "io" ? "inventory-service" : "checkout-api"],
+  thumb: T_INV,
+});
+const DRILLS = [
+  drill("INV-df39a2", "drill", 6, "王晨"),
+  drill("INV-c81e07", "drill", 42, "李明"),
+  drill("INV-7a0b33", "accept", 60, "王晨"),
+  drill("INV-4be912", "drill", 183, "周航"),
+  drill("INV-91d4e0", "io", 1251, "周航"),
+  drill("INV-2c77f1", "accept", 1346, "李明"),
+  drill("INV-e05a6b", "drill", 1639, null),
+  drill("INV-38fd90", "accept", 1741, "王晨"),
+  drill("INV-b6c14e", "drill", 2651, "周航"),
+];
+
 mock("GET", "/canvases", ({ query }) => {
   const kind = query.kind;
   const q = String(query.q ?? "").toLowerCase();
-  const all = CANVASES.filter((c) => !q || JSON.stringify(c.title).toLowerCase().includes(q));
+  const status = query.status ? String(query.status) : "";
+  const pool = kind === "investigation" && status === "active" ? [...CANVASES, ...DRILLS] : CANVASES;
+  const all = pool.filter((c) => (!q || JSON.stringify(c.title).toLowerCase().includes(q)) && (!status || c.status === status));
   const counts = { all: all.length, investigation: 0, plan: 0, review: 0, analysis: 0, custom: 0 } as Record<string, number>;
   for (const c of all) counts[c.kind]++;
   return { ...paginate(all.filter((c) => !kind || c.kind === kind), query), counts };

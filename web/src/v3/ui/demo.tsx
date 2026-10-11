@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { API_MODE, useGet } from "../api/client";
 import type { MembersView, ServiceCatalog } from "../api/types";
@@ -97,6 +97,7 @@ export function ChipSelect({
   disabled,
   openNonce,
   footer,
+  search,
 }: {
   label: ReactNode;
   options: (ChipOption | string)[];
@@ -117,6 +118,11 @@ export function ChipSelect({
   openNonce?: number;
   /** A muted line under the options (e.g. that the list isn't complete). */
   footer?: ReactNode;
+  /**
+   * A search box at the top of the menu. The caller filters (and may highlight) `options` by `query`; the box
+   * moves through them with the arrow keys and picks with Enter. `empty` shows when nothing matches.
+   */
+  search?: { query: string; onQuery: (q: string) => void; placeholder: string; count?: ReactNode; empty?: ReactNode };
 }) {
   const [own, setOwn] = useState<string | string[]>(defaultValue ?? (multi ? [] : ""));
   const cur = value ?? own;
@@ -126,6 +132,18 @@ export function ChipSelect({
   }, [openNonce, disabled]);
   const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
   const opts = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
+  const [active, setActive] = useState(0);
+  const menu = useRef<HTMLDivElement | null>(null);
+  const query = search?.query ?? "";
+  // A new query starts from the first match; closing the menu clears the query.
+  useEffect(() => setActive(0), [query]);
+  useEffect(() => {
+    if (!open && query) search?.onQuery("");
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    menu.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [active]);
+  const enabled = opts.filter((o) => !o.disabled);
   const set = (v: string | string[]) => {
     if (value === undefined) setOwn(v);
     onChange?.(v);
@@ -156,7 +174,33 @@ export function ChipSelect({
       </Chip>
       {/* Long lists scroll inside the menu instead of running off the screen (PA-85); usual lists keep their full height. */}
       <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} style={{ minWidth: 200, padding: 4 }} fit={Math.max(420, Math.round(window.innerHeight * 0.6))}>
-        <div className="v3-menu demo-menu" role="listbox" aria-multiselectable={multi || undefined}>
+        {search && (
+          <div className="demo-menu-search">
+            <Icon name="search" size={13} />
+            <input
+              autoFocus
+              value={search.query}
+              placeholder={search.placeholder}
+              aria-label={search.placeholder}
+              onChange={(e) => search.onQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setActive((a) => Math.min(enabled.length - 1, a + 1));
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActive((a) => Math.max(0, a - 1));
+                } else if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (enabled[active]) pick(enabled[active].value);
+                }
+              }}
+            />
+            {search.count && <span className="demo-menu-count">{search.count}</span>}
+          </div>
+        )}
+        <div ref={menu} className="v3-menu demo-menu" role="listbox" aria-multiselectable={multi || undefined}>
+          {search && !opts.length && search.empty && <div className="demo-menu-empty">{search.empty}</div>}
           {allLabel && (
             <button type="button" role="option" aria-selected={selected.length === 0} className={cx(selected.length === 0 && "on")} onClick={() => { set(multi ? [] : ""); setOpen(false); }}>
               <span className="grow">{allLabel}</span>
@@ -165,8 +209,9 @@ export function ChipSelect({
           )}
           {opts.map((o) => {
             const on = selected.includes(o.value);
+            const isActive = !!search && enabled[active]?.value === o.value;
             return (
-              <button key={o.value} type="button" role="option" aria-selected={on} aria-disabled={o.disabled || undefined} disabled={o.disabled} className={cx(on && "on")} onClick={() => !o.disabled && pick(o.value)}>
+              <button key={o.value} type="button" role="option" aria-selected={on} aria-disabled={o.disabled || undefined} disabled={o.disabled} data-active={isActive || undefined} className={cx(on && "on", isActive && "active")} onClick={() => !o.disabled && pick(o.value)}>
                 <span className="grow">
                   {o.label}
                   {o.hint && <small>{o.hint}</small>}

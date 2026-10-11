@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -287,11 +288,12 @@ func (s *Service) get(ctx context.Context, t target, path string, query url.Valu
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	req.Header.Set("Accept", "application/json")
-	client := http.Client{Timeout: 5 * time.Second}
+	timeout := s.requestTimeout()
+	client := http.Client{Timeout: timeout}
 	if s.Client != nil {
 		client = *s.Client
-		if client.Timeout == 0 || client.Timeout > 5*time.Second {
-			client.Timeout = 5 * time.Second
+		if client.Timeout == 0 || client.Timeout > timeout {
+			client.Timeout = timeout
 		}
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -316,6 +318,17 @@ func (s *Service) get(ctx context.Context, t target, path string, query url.Valu
 		return nil, ErrUnavailable
 	}
 	return response.Header, nil
+}
+
+// requestTimeout bounds one GitLab request: the catalog's
+// limits.timeout_seconds, 10 s by default.
+func (s *Service) requestTimeout() time.Duration {
+	if s.Catalog != nil {
+		if seconds := s.Catalog().Limits.TimeoutSeconds; seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return 10 * time.Second
 }
 
 // list reads one bounded page; another page means the window is too large.
@@ -390,10 +403,11 @@ type gitLabDeployment struct {
 		Name string `json:"name"`
 	} `json:"environment"`
 	Deployable *struct {
-		ID       int64  `json:"id"`
-		Name     string `json:"name"`
-		WebURL   string `json:"web_url"`
-		Pipeline *struct {
+		ID         int64      `json:"id"`
+		Name       string     `json:"name"`
+		WebURL     string     `json:"web_url"`
+		FinishedAt *time.Time `json:"finished_at"`
+		Pipeline   *struct {
 			ID int64 `json:"id"`
 		} `json:"pipeline"`
 	} `json:"deployable"`
@@ -468,72 +482,52 @@ func (s *Service) ReadServiceChanges(ctx context.Context, user core.User, app, e
 		return url.Values{"updated_after": {since.UTC().Format(time.RFC3339)}, "updated_before": {until.UTC().Format(time.RFC3339)},
 			"order_by": {"updated_at"}, "sort": {"desc"}}
 	}
+	// The three lists are independent reads; GitLab answers each in seconds.
+	var deployments []gitLabDeployment
+	var pipelines []gitLabPipeline
+	mergeRequests := make([][]gitLabMergeRequest, len(src.scope.Refs))
+	var wg sync.WaitGroup
+	errs := make(chan error, 2+len(src.scope.Refs))
+	read := func(path string, query url.Values, into any) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.list(ctx, src.target, path, query, into); err != nil {
+				errs <- err
+			}
+		}()
+	}
 	if src.toolEnabled(ToolDeployments) {
-		var items []gitLabDeployment
 		query := window()
 		query.Set("environment", src.scope.DeployEnvironment)
-		if err = s.list(ctx, src.target, "/deployments", query, &items); err != nil {
-			return out, err
-		}
-		out.Deployments = make([]Deployment, 0, len(items))
-		for _, item := range items {
-			if item.ID <= 0 || item.IID <= 0 || !validDeploymentStatus(item.Status) || item.Environment.Name != src.scope.DeployEnvironment ||
-				!gitSHA.MatchString(item.SHA) || len(item.Ref) > 256 || !validTime(item.CreatedAt, now) || item.UpdatedAt.Before(item.CreatedAt) ||
-				!validTime(item.UpdatedAt, now) || (item.FinishedAt != nil && !validTime(*item.FinishedAt, now)) || !validUser(item.User) {
-				return out, ErrUnavailable
-			}
-			deployment := Deployment{ID: item.ID, IID: item.IID, Status: item.Status, Environment: item.Environment.Name,
-				Ref: item.Ref, SHA: item.SHA, User: item.User, CreatedAt: item.CreatedAt.UTC(), UpdatedAt: item.UpdatedAt.UTC(),
-				FinishedAt: utcPointer(item.FinishedAt)}
-			if d := item.Deployable; d != nil {
-				if d.ID <= 0 || len(d.Name) > 255 || !validWebURL(d.WebURL) || (d.Pipeline != nil && d.Pipeline.ID <= 0) {
-					return out, ErrUnavailable
-				}
-				id := d.ID
-				deployment.JobID, deployment.JobName, deployment.WebURL = &id, cleanText(d.Name, 255), d.WebURL
-				if d.Pipeline != nil {
-					pipelineID := d.Pipeline.ID
-					deployment.PipelineID = &pipelineID
-				}
-			}
-			out.Deployments = append(out.Deployments, deployment)
-		}
+		read("/deployments", query, &deployments)
 	} else {
 		out.Unavailable["deployments"] = "not_configured"
 	}
 	if src.toolEnabled(ToolPipelines) {
-		var items []gitLabPipeline
-		if err = s.list(ctx, src.target, "/pipelines", window(), &items); err != nil {
-			return out, err
-		}
-		out.Pipelines = make([]Pipeline, 0, len(items))
-		for _, item := range items {
-			if item.ID <= 0 || strconv.FormatInt(item.ProjectID, 10) != src.ProjectID || !validPipelineStatus(item.Status) ||
-				len(item.Ref) > 256 || !gitSHA.MatchString(item.SHA) || len(item.Source) > 64 || !validTime(item.CreatedAt, now) ||
-				item.UpdatedAt.Before(item.CreatedAt) || !validTime(item.UpdatedAt, now) || !validWebURL(item.WebURL) {
-				return out, ErrUnavailable
-			}
-			pipeline := Pipeline{ID: item.ID, Status: item.Status, Ref: item.Ref, SHA: item.SHA, Source: item.Source,
-				CreatedAt: item.CreatedAt.UTC(), UpdatedAt: item.UpdatedAt.UTC(), WebURL: item.WebURL}
-			// Only the reviewed branches and merge request pipelines.
-			if _, mr := pipeline.MergeRequestIID(); mr || containsString(src.scope.Refs, pipeline.Ref) {
-				out.Pipelines = append(out.Pipelines, pipeline)
-			}
-		}
+		read("/pipelines", window(), &pipelines)
 	} else {
 		out.Unavailable["pipelines"] = "not_configured"
 	}
 	if src.toolEnabled(ToolMergeRequests) {
-		out.MergeRequests = []MergeRequest{}
-		for _, ref := range src.scope.Refs {
-			var items []gitLabMergeRequest
+		for i, ref := range src.scope.Refs {
 			query := window()
 			query.Set("state", "all")
 			query.Set("target_branch", ref)
-			if err = s.list(ctx, src.target, "/merge_requests", query, &items); err != nil {
-				return out, err
-			}
-			for _, item := range items {
+			read("/merge_requests", query, &mergeRequests[i])
+		}
+	} else {
+		out.Unavailable["merge_requests"] = "not_configured"
+	}
+	wg.Wait()
+	close(errs)
+	if err := firstError(errs); err != nil {
+		return out, err
+	}
+	if src.toolEnabled(ToolMergeRequests) {
+		out.MergeRequests = []MergeRequest{}
+		for i, ref := range src.scope.Refs {
+			for _, item := range mergeRequests[i] {
 				merged := item.MergedBy
 				if merged == nil {
 					merged = item.MergeUser
@@ -556,8 +550,61 @@ func (s *Service) ReadServiceChanges(ctx context.Context, user core.User, app, e
 		if len(out.MergeRequests) > MaxChangeItems {
 			return out, ErrTooLarge
 		}
-	} else {
-		out.Unavailable["merge_requests"] = "not_configured"
+	}
+	if src.toolEnabled(ToolDeployments) {
+		out.Deployments = make([]Deployment, 0, len(deployments))
+		for _, item := range deployments {
+			if item.ID <= 0 || item.IID <= 0 || !validDeploymentStatus(item.Status) || item.Environment.Name != src.scope.DeployEnvironment ||
+				!gitSHA.MatchString(item.SHA) || len(item.Ref) > 256 || !validTime(item.CreatedAt, now) || item.UpdatedAt.Before(item.CreatedAt) ||
+				!validTime(item.UpdatedAt, now) || (item.FinishedAt != nil && !validTime(*item.FinishedAt, now)) || !validUser(item.User) {
+				return out, ErrUnavailable
+			}
+			deployment := Deployment{ID: item.ID, IID: item.IID, Status: item.Status, Environment: item.Environment.Name,
+				Ref: item.Ref, SHA: item.SHA, User: item.User, CreatedAt: item.CreatedAt.UTC(), UpdatedAt: item.UpdatedAt.UTC(),
+				FinishedAt: utcPointer(item.FinishedAt)}
+			if d := item.Deployable; d != nil {
+				if d.ID <= 0 || len(d.Name) > 255 || !validWebURL(d.WebURL) || (d.Pipeline != nil && d.Pipeline.ID <= 0) ||
+					(d.FinishedAt != nil && !validTime(*d.FinishedAt, now)) {
+					return out, ErrUnavailable
+				}
+				id := d.ID
+				deployment.JobID, deployment.JobName, deployment.WebURL = &id, cleanText(d.Name, 255), d.WebURL
+				if d.Pipeline != nil {
+					pipelineID := d.Pipeline.ID
+					deployment.PipelineID = &pipelineID
+				}
+				// GitLab 19 has no deployment finished_at; its job has.
+				if deployment.FinishedAt == nil && finishedDeployment(item.Status) {
+					deployment.FinishedAt = utcPointer(d.FinishedAt)
+				}
+			}
+			if deployment.FinishedAt == nil && finishedDeployment(item.Status) {
+				deployment.FinishedAt = utcPointer(&item.UpdatedAt)
+			}
+			out.Deployments = append(out.Deployments, deployment)
+		}
+	}
+	if src.toolEnabled(ToolPipelines) {
+		// The reviewed branches, merge request refs, and the source branches
+		// of the window's merge requests into a reviewed branch: projects
+		// without merge request pipelines run an MR's CI on its branch.
+		sources := map[string]bool{}
+		for _, mr := range out.MergeRequests {
+			sources[mr.SourceBranch] = true
+		}
+		out.Pipelines = make([]Pipeline, 0, len(pipelines))
+		for _, item := range pipelines {
+			if item.ID <= 0 || strconv.FormatInt(item.ProjectID, 10) != src.ProjectID || !validPipelineStatus(item.Status) ||
+				len(item.Ref) > 256 || !gitSHA.MatchString(item.SHA) || len(item.Source) > 64 || !validTime(item.CreatedAt, now) ||
+				item.UpdatedAt.Before(item.CreatedAt) || !validTime(item.UpdatedAt, now) || !validWebURL(item.WebURL) {
+				return out, ErrUnavailable
+			}
+			pipeline := Pipeline{ID: item.ID, Status: item.Status, Ref: item.Ref, SHA: item.SHA, Source: item.Source,
+				CreatedAt: item.CreatedAt.UTC(), UpdatedAt: item.UpdatedAt.UTC(), WebURL: item.WebURL}
+			if _, mr := pipeline.MergeRequestIID(); mr || containsString(src.scope.Refs, pipeline.Ref) || sources[pipeline.Ref] {
+				out.Pipelines = append(out.Pipelines, pipeline)
+			}
+		}
 	}
 	refreshed, err := s.loadSource(ctx, user, app, env, serviceID)
 	if err != nil {
@@ -568,6 +615,25 @@ func (s *Service) ReadServiceChanges(ctx context.Context, user core.User, app, e
 	}
 	out.CapturedAt = time.Now().UTC()
 	return out, nil
+}
+
+// finishedDeployment reports a deployment that has ended.
+func finishedDeployment(status string) bool {
+	switch status {
+	case "success", "failed", "canceled", "skipped":
+		return true
+	}
+	return false
+}
+
+func firstError(errs <-chan error) error {
+	var first error
+	for err := range errs {
+		if first == nil || errors.Is(first, ErrTooLarge) {
+			first = err
+		}
+	}
+	return first
 }
 
 func validMergeRequestState(state string) bool {
@@ -703,7 +769,13 @@ func (s *Service) ReadPipeline(ctx context.Context, user core.User, app, env, se
 	out.Pipeline = Pipeline{ID: item.ID, Status: item.Status, Ref: item.Ref, SHA: item.SHA, Source: item.Source,
 		CreatedAt: item.CreatedAt.UTC(), UpdatedAt: item.UpdatedAt.UTC(), WebURL: item.WebURL}
 	if _, mr := out.Pipeline.MergeRequestIID(); !mr && !containsString(src.scope.Refs, out.Pipeline.Ref) {
-		return PipelineDetail{}, ErrNotFound
+		inScope, err := s.mergeRequestSource(ctx, src, out.Pipeline.Ref)
+		if err != nil {
+			return out, err
+		}
+		if !inScope {
+			return PipelineDetail{}, ErrNotFound
+		}
 	}
 	out.ProjectID = src.ProjectID
 	out.User, out.StartedAt, out.FinishedAt, out.DurationSeconds = item.User, utcPointer(item.StartedAt), utcPointer(item.FinishedAt), item.Duration
@@ -786,6 +858,28 @@ func (s *Service) ReadPipeline(ctx context.Context, user core.User, app, env, se
 		return out, ErrSourceChanged
 	}
 	return out, nil
+}
+
+// mergeRequestSource reports whether branch is the source branch of a merge
+// request into a reviewed branch: its branch pipelines are that merge
+// request's CI.
+func (s *Service) mergeRequestSource(ctx context.Context, src source, branch string) (bool, error) {
+	if !src.toolEnabled(ToolMergeRequests) || branch == "" || len(branch) > 255 {
+		return false, nil
+	}
+	for _, ref := range src.scope.Refs {
+		var items []gitLabMergeRequest
+		query := url.Values{"source_branch": {branch}, "target_branch": {ref}, "state": {"all"}, "per_page": {"1"}, "page": {"1"}}
+		if _, err := s.get(ctx, src.target, "/merge_requests", query, &items); err != nil {
+			return false, err
+		}
+		for _, item := range items {
+			if strconv.FormatInt(item.ProjectID, 10) == src.ProjectID && item.SourceBranch == branch && item.TargetBranch == ref {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 // stageStatus summarizes the jobs of a stage: a failure or a running job

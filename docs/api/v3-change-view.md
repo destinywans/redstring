@@ -46,8 +46,9 @@
 
 - **找项目**：服务环境已确认的代码项目（`v3_service_code_projects`），其 GitLab 连接器须已启用；统一目录 `gitlab` 范围给出部署环境名和分支。缺任何一项都是“未配置”。
 - **授权**：服务的 `services.view` 与环境的 `connectors.view`，在一个只读快照里核对；读完 GitLab 后再读一次，授权或来源（连接器、项目、端点、凭据引用、工具开关、目录范围）有变化就不返回结果。
-- **读什么**：窗口内更新过的部署（只取目录指定的 environment）、流水线（只留目录分支和 MR 上的）、合并到目录分支的 MR（`state=all`）。每类各需连接器工具开关 `list_deployments`、`list_pipelines`、`list_merge_requests`；开关关闭时该类为 `null` 并注明 `not_configured`，不当作空列表。窗口最长 7 天，每类最多 100 条，超过即“窗口过大”，不返回截断的列表。
-- **流水线详情**：流水线（`get_pipeline`）、作业（按阶段分组，阶段顺序按流水线先后）、提交统计（`get_commit`）和至多 20 个变更路径（`get_commit_diff`）。只取提交标题，不取提交正文和差异正文；用户只取用户名。不在目录分支或其 MR 上的流水线视为不存在。
+- **读什么**：窗口内更新过的部署（只取目录指定的 environment）、流水线（只留目录分支、MR 引用 `refs/merge-requests/<iid>/…`，以及窗口内合并到目录分支的 MR 的源分支上的流水线——没开 MR 流水线的项目，MR 的 CI 跑在源分支上）、合并到目录分支的 MR（`state=all`）。三类并发读取；每个请求的超时取统一目录 `limits.timeout_seconds`，默认 10 秒。
+- **部署时间**：GitLab 19 的部署记录没有 `finished_at`，取其作业（`deployable`）的 `finished_at`；已结束的部署没有作业结束时间时取 `updated_at`。每类各需连接器工具开关 `list_deployments`、`list_pipelines`、`list_merge_requests`；开关关闭时该类为 `null` 并注明 `not_configured`，不当作空列表。窗口最长 7 天，每类最多 100 条，超过即“窗口过大”，不返回截断的列表。
+- **流水线详情**：流水线（`get_pipeline`）、作业（按阶段分组，阶段顺序按流水线先后）、提交统计（`get_commit`）和至多 20 个变更路径（`get_commit_diff`）。只取提交标题，不取提交正文和差异正文；用户只取用户名。不在目录分支、MR 引用或某个合并到目录分支的 MR 的源分支（按 `source_branch` 查 MR 确认）上的流水线视为不存在。
 - **失败**：GitLab 不可达或返回 5xx 为不可用，401/403 为凭据问题，上游对象不属于该项目或字段不合法为不可用；任何一步失败都不返回部分结果。MR 与提交标题按数据处理：控制字符换成空格，限 200 字符。
 
 ## GitLab 来源：`GET /changes?sources=gitlab`（D11 第 3 项）
@@ -58,7 +59,7 @@
 - **关联**：只按提交 SHA、流水线 ID、MR 编号精确匹配，匹配不上就是 `null` 或空数组：
   - 部署的 `merge_request_iid`：合并提交、压缩提交或 fast-forward 头提交等于部署提交的已合并 MR（恰好一个时）；
   - 部署的 `kubernetes_revision`：change cause 写着该部署流水线（`gitlab pipeline <id> <sha>`）的集群修订，只对成功部署给出；
-  - 流水线的 `merge_request_iid`：MR 流水线取自 `refs/merge-requests/<iid>/…`，主干流水线按合并后的提交匹配；`deployment_ids` 为该流水线产生的部署；
+  - 流水线的 `merge_request_iid`：MR 流水线取自 `refs/merge-requests/<iid>/…`；源分支流水线取窗口内唯一来自该分支的 MR；主干流水线按合并后的提交匹配；`deployment_ids` 为该流水线产生的部署；
   - MR 的 `pipeline_ids`、`deployment_ids` 为反向关联。
 - **告警**：`alerts` 是窗口内已覆盖来源的告警（覆盖声明沿用 `AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG`；没有覆盖时为 `null`，`coverage.alerts` 为 `unknown`）。部署的 `adjacent_alerts` 列出部署生效（结束；未结束取创建）前 15 分钟到后 60 分钟内开始的告警，`offset_seconds` 为告警开始减部署时间，`basis` 恒为 `time_adjacent`，文案写“时间相邻，不代表因果”。本轮不产生“已审阅”的关联（人工审阅界面不在 D11 范围）。
 - **集群修订**：`kubernetes_revisions` 为窗口内创建的 ReplicaSet 修订，经回滚服务的读凭据和 `resources.view` 读取；`coverage.kubernetes` 为 `history_limited`（只覆盖保留的历史）、`not_configured`、`no_authorized_target` 或 `unavailable`，后三种时为 `null`。
@@ -66,4 +67,6 @@
 - **错误**：未配置代码项目、目录范围或连接器为 503 `change_source_not_configured`；凭据问题 503 `credential_unavailable`；GitLab 不可用 503 `source_unavailable`；某类超过 100 条 413 `change_window_too_large`；读取期间来源变化 409 `source_changed`；告警超过 200 条 413 `change_view_limit`。不返回部分结果。
 
 流水线详情 `GET /changes/pipelines/{pipeline_id}?service_id=` 见 [后端辅助接口](v3-backend-aux.md)；相邻告警以流水线结束时间（未结束取最后更新）为准。设计稿 11.2 节的 `deployment_ids` 没有放进详情：详情不读部署列表，从列表行带过去即可。
+
+**实测（2026-10-11，只读）**：对实验 GitLab 19.3.2 的 `aiops-lab/checkout-api`（经验收 TLS 入口 `https://127.0.0.1:18446`，读令牌取自实验 Vault）读 7 天：3 次部署（#1、#2 失败，#3 成功，结束时间 01:09、01:16、01:18 UTC，与实验记录一致）、3 条流水线（含 MR !1 源分支上的 12）、1 个 MR；流水线 11 的三个阶段与提交统计正确。由此修正了部署结束时间和 MR 源分支流水线两处。可选的 `TestReadServiceChangesLiveLab`（`AIOPS_D11_LIVE_GITLAB_URL` 等变量开启）只发 GET。
 

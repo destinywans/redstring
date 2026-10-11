@@ -61,7 +61,8 @@ func (f *fakeChanges) ReadServiceChanges(_ context.Context, user core.User, app,
 				CreatedAt: at(62), UpdatedAt: failed, FinishedAt: &failed}},
 		Pipelines: []v3changes.Pipeline{
 			{ID: 11, Status: "success", Ref: "main", SHA: viewSHAMerged, Source: "push", CreatedAt: at(40), UpdatedAt: at(30)},
-			{ID: 12, Status: "failed", Ref: "refs/merge-requests/5/head", SHA: viewSHAOpen, Source: "merge_request_event", CreatedAt: at(20), UpdatedAt: at(19)}},
+			{ID: 12, Status: "failed", Ref: "refs/merge-requests/5/head", SHA: viewSHAOpen, Source: "merge_request_event", CreatedAt: at(20), UpdatedAt: at(19)},
+			{ID: 13, Status: "failed", Ref: "broken", SHA: viewSHAOpen, Source: "push", CreatedAt: at(21), UpdatedAt: at(19)}},
 		MergeRequests: []v3changes.MergeRequest{
 			{IID: 4, Title: "Use the pooled client", State: "merged", SourceBranch: "pool", TargetBranch: "main",
 				Author: &v3changes.User{Username: "dev-a"}, MergedBy: &v3changes.User{Username: "maintainer-a"},
@@ -227,7 +228,7 @@ func TestGitLabChangesViewHTTP(t *testing.T) {
 	for _, k := range view.KPIs {
 		kpis[k.ID] = k
 	}
-	if kpis["deployments"].Value != "1" || kpis["failed_deployments"].Value != "1" || kpis["pipelines"].Value != "2" ||
+	if kpis["deployments"].Value != "1" || kpis["failed_deployments"].Value != "1" || kpis["pipelines"].Value != "3" ||
 		kpis["merged_merge_requests"].Value != "1" || len(kpis["pipelines"].Series) != 24 || kpis["deployments"].Label != "成功部署" {
 		t.Fatalf("kpis: %+v", view.KPIs)
 	}
@@ -256,7 +257,11 @@ func TestGitLabChangesViewHTTP(t *testing.T) {
 	if mr := view.MergeRequests[0]; len(mr.PipelineIDs) != 1 || mr.PipelineIDs[0] != 11 || len(mr.DeploymentIDs) != 1 || mr.DeploymentIDs[0] != 503 {
 		t.Fatalf("merge request 4 links: %+v", mr)
 	}
-	if mr := view.MergeRequests[1]; len(mr.PipelineIDs) != 1 || mr.PipelineIDs[0] != 12 || len(mr.DeploymentIDs) != 0 {
+	// The MR's branch pipeline belongs to it as well as its MR pipeline.
+	if p := view.Pipelines[2]; p.MergeRequestIID == nil || *p.MergeRequestIID != 5 {
+		t.Fatalf("source branch pipeline links: %+v", p)
+	}
+	if mr := view.MergeRequests[1]; len(mr.PipelineIDs) != 2 || mr.PipelineIDs[0] != 12 || mr.PipelineIDs[1] != 13 || len(mr.DeploymentIDs) != 0 {
 		t.Fatalf("merge request 5 links: %+v", mr)
 	}
 	if len(view.Alerts) != 2 || len(view.KubernetesRevisions) != 2 || view.KubernetesRevisions[1].GitLabPipelineID != nil {

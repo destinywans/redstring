@@ -312,8 +312,17 @@ func (s *Service) gitLabView(w http.ResponseWriter, r *http.Request, f requestFi
 		return found
 	}
 	mrIndex := map[int64]int{}
+	// A branch pipeline of an MR's source branch is that MR's CI, when
+	// exactly one MR of the window comes from the branch.
+	bySource := map[string]*int64{}
+	ambiguousSource := map[string]bool{}
 	for i, mr := range out.MergeRequests {
 		mrIndex[mr.IID] = i
+		if _, seen := bySource[mr.SourceBranch]; seen {
+			ambiguousSource[mr.SourceBranch] = true
+		}
+		iid := mr.IID
+		bySource[mr.SourceBranch] = &iid
 	}
 	pipelineIndex := map[int64]int{}
 	if changes.Pipelines != nil {
@@ -324,6 +333,8 @@ func (s *Service) gitLabView(w http.ResponseWriter, r *http.Request, f requestFi
 				UpdatedAt: rfc(p.UpdatedAt), WebURL: optional(p.WebURL), DeploymentIDs: []int64{}}
 			if iid, ok := p.MergeRequestIID(); ok {
 				view.MergeRequestIID = &iid
+			} else if !containsRef(changes.Project.Refs, p.Ref) && !ambiguousSource[p.Ref] && bySource[p.Ref] != nil {
+				view.MergeRequestIID = bySource[p.Ref]
 			} else {
 				view.MergeRequestIID = landed(p.SHA)
 			}
@@ -375,6 +386,15 @@ func (s *Service) gitLabView(w http.ResponseWriter, r *http.Request, f requestFi
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, http.StatusOK, out)
+}
+
+func containsRef(refs []string, ref string) bool {
+	for _, item := range refs {
+		if item == ref {
+			return true
+		}
+	}
+	return false
 }
 
 func alertReason(state string) string {

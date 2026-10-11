@@ -616,6 +616,9 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | 2026-10-11 | D20（D11 第 1 项，迁移 174）：服务的代码映射改存 `v3_service_code_projects`（已确认的 GitLab 项目目标），候选接受写新表，`PUT /service-mappings` 只能保留或移除；接口形状不变。迁移只在已绑定 V3 的库上把已存 GitLab 代码绑定搬进新表并删掉代码类绑定，逐条审计；见 [统一来源登记](v3-telemetry-registry.md)“代码项目” |
 | 2026-10-11 | D11 第 2 项：GitLab 变更读取层（不落库、读时拉取）；GitLab 连接器新增工具开关 `list_deployments`；统一目录新增 `gitlab` 范围（部署环境名与分支）。尚无新路由；见 [变更视图](v3-change-view.md)“GitLab 变更读取” |
 | 2026-10-11 | D11 第 3 项：`GET /changes` 新增 `sources=gitlab`（按服务与时间范围，不带 `run_id`），返回 `GitLabChangesView`；新增辅助路由 `GET /changes/pipelines/{pipeline_id}`（流水线阶段、作业、提交统计与相邻告警）。原生来源行为不变 |
+| 2026-10-11 | D11 第 4 项：新增辅助路由 `GET /incidents/{id}/changes`（事件开始前后的 GitLab 部署与集群修订，只标时间相邻）；GitLab 读取层按实测修正部署结束时间（GitLab 19 取作业的 `finished_at`）并纳入 MR 源分支流水线 |
+| 2026-10-11 | D11 第 5 项：AI 只读取证工具 `read_service_changes`（普通对话与调查画布），`list_services` 新增 `changes` 列；见 [调查取证工具](v3-investigation-evidence-tools.md) |
+| 2026-10-11 | D11：GitLab 连接器的探测和变更读取支持私有 CA，CA 放在凭据同一 Vault 条目的 `ca` 字段（与 Kubernetes 相同） |
 | 2026-10-11 | PA-87：应用范围链路列表跳过 Tempo 返回的不完整 Trace（缺父 Span 等）并以 `excluded_incomplete` 计数，不再整页 503；声明搜索完整时改报 `partial_reason: incomplete_traces`；链路与日志读取失败在服务日志里记录错误类型、信息和上游状态 |
 | 2026-10-11 | D30：已声明搜索完整的链路列表同时达到预算上限并跳过了不完整 Trace 时，`partial_reason` 为 `search_budget`（窗口照常给出，跳过条数仍在 `excluded_incomplete`），只有覆盖了整个范围时才为 `incomplete_traces` |
 | 2026-10-09 | 生产验收 PA-05/PA-16：新增「未知」约定（`null` + `unavailable` 原因）。`/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard` 在可选证据缺失时返回 200，受影响字段可空；`ProfileView`、`SecurityView`、`LogSearch`、`TraceList`、`MetricsDashboard` 字段由必有改为可空，属于破坏性语义修改，`types.ts` 与页面由前端轮同步。OpenAPI 已重新生成。 |

@@ -85,21 +85,31 @@ func (f *fakeGitLab) serve(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"id":42,"path_with_namespace":"aiops-lab/checkout-api","web_url":"https://gitlab.example.invalid/aiops-lab/checkout-api"}`)
 	case "/api/v4/projects/42/deployments":
 		fmt.Fprintf(w, `[
- {"id":503,"iid":3,"ref":"main","sha":%q,"status":"success","created_at":%q,"updated_at":%q,"finished_at":%q,
+ {"id":503,"iid":3,"ref":"main","sha":%q,"status":"success","created_at":%q,"updated_at":%q,
   "user":{"username":"maintainer-a","name":"Maintainer A","email":"hidden@example.invalid"},
   "environment":{"id":7,"name":"aiops-lab"},
-  "deployable":{"id":91,"name":"deploy-aiops-lab","web_url":"https://gitlab.example.invalid/aiops-lab/checkout-api/-/jobs/91","pipeline":{"id":11}}},
- {"id":502,"iid":2,"ref":"main","sha":%q,"status":"failed","created_at":%q,"updated_at":%q,"finished_at":%q,
+  "deployable":{"id":91,"name":"deploy-aiops-lab","finished_at":%q,"web_url":"https://gitlab.example.invalid/aiops-lab/checkout-api/-/jobs/91","pipeline":{"id":11}}},
+ {"id":502,"iid":2,"ref":"main","sha":%q,"status":"failed","created_at":%q,"updated_at":%q,
   "user":{"username":"maintainer-a"},"environment":{"id":7,"name":"aiops-lab"},
   "deployable":{"id":81,"name":"deploy-aiops-lab","web_url":"https://gitlab.example.invalid/aiops-lab/checkout-api/-/jobs/81","pipeline":{"id":10}}}]`,
-			shaMerged, at(30), at(28), at(28), shaFailed, at(60), at(58), at(58))
+			shaMerged, at(30), at(27), at(29), shaFailed, at(60), at(58))
 	case "/api/v4/projects/42/pipelines":
 		fmt.Fprintf(w, `[
  {"id":11,"project_id":42,"status":"success","ref":"main","sha":%q,"source":"push","created_at":%q,"updated_at":%q,"web_url":"https://gitlab.example.invalid/p/11"},
  {"id":12,"project_id":42,"status":"failed","ref":"refs/merge-requests/5/head","sha":%q,"source":"merge_request_event","created_at":%q,"updated_at":%q,"web_url":"https://gitlab.example.invalid/p/12"},
- {"id":13,"project_id":42,"status":"success","ref":"feature/other","sha":%q,"source":"push","created_at":%q,"updated_at":%q,"web_url":"https://gitlab.example.invalid/p/13"}]`,
-			shaMerged, at(40), at(30), shaHead, at(20), at(19), shaHead, at(15), at(14))
+ {"id":13,"project_id":42,"status":"success","ref":"feature/other","sha":%q,"source":"push","created_at":%q,"updated_at":%q,"web_url":"https://gitlab.example.invalid/p/13"},
+ {"id":14,"project_id":42,"status":"failed","ref":"broken","sha":%q,"source":"push","created_at":%q,"updated_at":%q,"web_url":"https://gitlab.example.invalid/p/14"}]`,
+			shaMerged, at(40), at(30), shaHead, at(20), at(19), shaHead, at(15), at(14), shaHead, at(21), at(19))
 	case "/api/v4/projects/42/merge_requests":
+		if branch := r.URL.Query().Get("source_branch"); branch != "" {
+			if branch == "broken" {
+				fmt.Fprintf(w, `[{"iid":5,"project_id":42,"title":"Broken unit test","state":"opened","source_branch":"broken","target_branch":"main","created_at":%q,"updated_at":%q,"sha":%q}]`,
+					at(25), at(20), shaHead)
+			} else {
+				fmt.Fprint(w, `[]`)
+			}
+			return
+		}
 		fmt.Fprintf(w, `[
  {"iid":4,"project_id":42,"title":"Use the pooled client\u0007 for checkout","state":"merged","source_branch":"pool","target_branch":"main",
   "author":{"username":"dev-a"},"merged_by":null,"merge_user":{"username":"maintainer-a"},"created_at":%q,"updated_at":%q,"merged_at":%q,"closed_at":null,
@@ -117,6 +127,17 @@ func (f *fakeGitLab) serve(w http.ResponseWriter, r *http.Request) {
  {"id":91,"name":"deploy-aiops-lab","stage":"deploy","status":"success","duration":14,"web_url":"https://gitlab.example.invalid/j/91"},
  {"id":90,"name":"build-image","stage":"build","status":"success","duration":55,"web_url":"https://gitlab.example.invalid/j/90"},
  {"id":89,"name":"unit","stage":"test","status":"success","duration":91,"web_url":"https://gitlab.example.invalid/j/89"}]`)
+	case "/api/v4/projects/42/pipelines/14":
+		fmt.Fprintf(w, `{"id":14,"project_id":42,"status":"failed","ref":"broken","sha":%q,"source":"push","created_at":%q,"updated_at":%q,"web_url":"https://gitlab.example.invalid/p/14"}`,
+			shaHead, at(21), at(19))
+	case "/api/v4/projects/42/pipelines/14/jobs":
+		fmt.Fprint(w, `[{"id":95,"name":"unit","stage":"test","status":"failed","web_url":"https://gitlab.example.invalid/j/95"}]`)
+	case "/api/v4/projects/42/repository/commits/" + shaHead:
+		fmt.Fprintf(w, `{"id":%q,"title":"Broken unit test","authored_date":%q,"parent_ids":[%q],"stats":{"additions":1,"deletions":0}}`,
+			shaHead, at(22), shaMerged)
+	case "/api/v4/projects/42/repository/commits/" + shaHead + "/diff":
+		w.Header().Set("X-Total", "1")
+		fmt.Fprint(w, `[{"new_path":"apps/checkout/handler_test.go"}]`)
 	case "/api/v4/projects/42/pipelines/13":
 		fmt.Fprintf(w, `{"id":13,"project_id":42,"status":"success","ref":"feature/other","sha":%q,"source":"push","created_at":%q,"updated_at":%q,"web_url":"https://gitlab.example.invalid/p/13"}`,
 			shaHead, at(15), at(14))
@@ -262,8 +283,15 @@ func TestReadServiceChangesFromTheCodeProject(t *testing.T) {
 		got.Deployments[0].User == nil || got.Deployments[0].User.Username != "maintainer-a" || got.Deployments[0].FinishedAt == nil {
 		t.Fatalf("deployments: %+v", got.Deployments)
 	}
-	// Only main and merge request pipelines: feature/other is outside the scope.
-	if len(got.Pipelines) != 2 || got.Pipelines[0].ID != 11 || got.Pipelines[1].ID != 12 {
+	// GitLab 19 deployments carry no finished_at: the job's is used, or the
+	// update time of an ended deployment without one.
+	if !got.Deployments[0].FinishedAt.Equal(got.Deployments[0].UpdatedAt.Add(-2*time.Minute)) ||
+		got.Deployments[1].FinishedAt == nil || !got.Deployments[1].FinishedAt.Equal(got.Deployments[1].UpdatedAt) {
+		t.Fatalf("deployment ends: %+v", got.Deployments)
+	}
+	// main, merge request refs and the window's MR source branches; the
+	// feature/other pipeline is outside the scope.
+	if len(got.Pipelines) != 3 || got.Pipelines[0].ID != 11 || got.Pipelines[1].ID != 12 || got.Pipelines[2].ID != 14 {
 		t.Fatalf("pipelines: %+v", got.Pipelines)
 	}
 	if iid, ok := got.Pipelines[1].MergeRequestIID(); !ok || iid != 5 {
@@ -294,6 +322,11 @@ func TestReadServiceChangesFromTheCodeProject(t *testing.T) {
 	raw, _ = json.Marshal(detail)
 	if strings.Contains(string(raw), "secret") {
 		t.Fatalf("pipeline detail carries a commit body or diff text: %s", raw)
+	}
+	// A pipeline of an MR's source branch is in scope.
+	if branch, err := f.service.ReadPipeline(t.Context(), f.viewer, "app", "dev", f.serviceID, 14); err != nil ||
+		branch.Commit == nil || len(branch.Stages) != 1 || branch.Stages[0].Status != "failed" {
+		t.Fatalf("source branch pipeline: %+v %v", branch, err)
 	}
 	// A pipeline of another branch is not this service's change.
 	if _, err := f.service.ReadPipeline(t.Context(), f.viewer, "app", "dev", f.serviceID, 13); !errors.Is(err, ErrNotFound) {

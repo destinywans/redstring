@@ -30,6 +30,9 @@ type Service struct {
 	DB          *pgxpool.Pool
 	Authorize   Authorize
 	AuthorizeTx AuthorizeWithTx
+	// Changes reads the GitLab changes and cluster revisions around an
+	// incident (D11); nil leaves them not configured.
+	Changes IncidentChanges
 	// AuthorizeListTx is an optional view-only policy for the two held-lock list
 	// helpers. Missing configuration retains the ordinary authority path.
 	AuthorizeListTx AuthorizeWithTx
@@ -83,6 +86,8 @@ func (s *Service) RegisterV3Incidents(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("GET /api/v1/incidents", "events", "view")
 	api.Register("GET /api/v1/incidents/{id}", "viewer", s.Incident)
 	api.MarkV3ObjectRoute("GET /api/v1/incidents/{id}", "events", "view")
+	api.Register("GET /api/v1/incidents/{id}/changes", "viewer", s.IncidentChanges)
+	api.MarkV3ObjectRoute("GET /api/v1/incidents/{id}/changes", "events", "view")
 }
 
 type incidentRecord struct {

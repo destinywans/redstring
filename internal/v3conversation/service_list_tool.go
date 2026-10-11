@@ -27,6 +27,10 @@ type ServiceListToolOptions struct {
 	// its readiness and the catalog's query IDs. Expressions never leave it.
 	// Without it both columns are not_configured.
 	Registry *v3telemetry.Resolver
+	// ChangeState answers the changes column (D11): configured, not_ready
+	// or not_configured, without reading GitLab. Without it the column is
+	// not_configured.
+	ChangeState func(ctx context.Context, app, env string) (string, error)
 }
 
 const maxListedServices = 100
@@ -39,6 +43,7 @@ type serviceListItem struct {
 	Metrics       string   `json:"metrics"`
 	MetricQueries []string `json:"metric_queries"`
 	Logs          string   `json:"logs"`
+	Changes       string   `json:"changes"`
 }
 
 type serviceListEvidence struct {
@@ -57,7 +62,7 @@ func NewServiceListTool(opts ServiceListToolOptions) (inference.EvidenceTool, bo
 		return inference.EvidenceTool{}, false
 	}
 	description := "List the services you may read in this conversation's environment: exact service keys for the other tools, " +
-		"whether each has a metrics or log source, and the metric query IDs configured for it. Pass an empty string or {}. " +
+		"whether each has a metrics, log or change source, and the metric query IDs configured for it. Pass an empty string or {}. " +
 		"Call this first when the question does not name a service key. Only services you are allowed to view are listed. " +
 		"not_ready means a source is registered but cannot be read yet; the read tools explain why."
 	return inference.EvidenceTool{
@@ -94,9 +99,9 @@ func readServiceList(ctx context.Context, opts ServiceListToolOptions, input str
 			"not_configured means the platform has no source of that kind for the service."}
 	for _, service := range services {
 		item := serviceListItem{Key: service.Key, Name: service.Name, Tier: service.Tier, Team: service.Team,
-			Metrics: "not_configured", MetricQueries: []string{}, Logs: "not_configured"}
+			Metrics: "not_configured", MetricQueries: []string{}, Logs: "not_configured", Changes: "not_configured"}
 		if found, ok := registered[service.Key]; ok {
-			item.Metrics, item.MetricQueries, item.Logs = found.Metrics, found.MetricQueries, found.Logs
+			item.Metrics, item.MetricQueries, item.Logs, item.Changes = found.Metrics, found.MetricQueries, found.Logs, found.Changes
 		}
 		out.Services = append(out.Services, item)
 	}
@@ -113,7 +118,7 @@ func readServiceList(ctx context.Context, opts ServiceListToolOptions, input str
 // is left out (both columns stay not_configured).
 func registeredListSources(ctx context.Context, opts ServiceListToolOptions, keys []string) (map[string]serviceListItem, error) {
 	out := map[string]serviceListItem{}
-	if len(keys) == 0 || opts.Registry == nil {
+	if len(keys) == 0 || (opts.Registry == nil && opts.ChangeState == nil) {
 		return out, nil
 	}
 	rows, err := opts.DB.Query(ctx, `SELECT a.key,a.id
@@ -140,6 +145,9 @@ func registeredListSources(ctx context.Context, opts ServiceListToolOptions, key
 		return nil, err
 	}
 	state := func(app string, surface v3telemetry.Surface) (string, v3telemetry.Source, error) {
+		if opts.Registry == nil {
+			return "not_configured", v3telemetry.Source{}, nil
+		}
 		source, err := opts.Registry.Resolve(ctx, opts.DB, app, opts.EnvironmentID, surface)
 		switch {
 		case errors.Is(err, v3telemetry.ErrNotConfigured):
@@ -169,6 +177,12 @@ func registeredListSources(ctx context.Context, opts ServiceListToolOptions, key
 		}
 		if item.Logs, _, err = state(app, v3telemetry.Logs); err != nil {
 			return nil, err
+		}
+		item.Changes = "not_configured"
+		if opts.ChangeState != nil {
+			if item.Changes, err = opts.ChangeState(ctx, app, opts.EnvironmentID); err != nil {
+				return nil, err
+			}
 		}
 		out[key] = item
 	}

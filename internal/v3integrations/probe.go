@@ -97,9 +97,9 @@ func (p Prober) Check(ctx context.Context, provider, rawURL, authMethod, credent
 	if client == nil {
 		client = &http.Client{}
 	}
-	// A cluster API usually has a private CA, kept next to the token in the
-	// same approved secret (field "ca").
-	if provider == "kubernetes" && base.Scheme == "https" {
+	// A cluster API or a self-hosted GitLab (D11) usually has a private CA,
+	// kept next to the token in the same approved secret (field "ca").
+	if (provider == "kubernetes" || provider == "gitlab") && base.Scheme == "https" {
 		if siblings, ok := p.Resolver.(SiblingResolver); ok {
 			if pem, err := siblings.ResolveSibling(ctx, credentialRef, "ca"); err == nil && pem != "" {
 				pool := x509.NewCertPool()

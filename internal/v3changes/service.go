@@ -4,6 +4,7 @@ package v3changes
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -64,12 +65,33 @@ type target struct {
 	Tools                                                       []byte
 }
 
-func (s *Service) resolveTargetCredential(ctx context.Context, t target) (string, error) {
-	use := v3integrations.CredentialUse{
+func (s *Service) credentialContext(ctx context.Context, t target) context.Context {
+	return v3integrations.WithCredentialUse(ctx, v3integrations.CredentialUse{
 		Tier: s.Tier, EnvironmentID: t.EnvironmentID, ConnectorID: t.ConnectorID,
 		Provider: "gitlab", Endpoint: t.Endpoint,
+	})
+}
+
+func (s *Service) resolveTargetCredential(ctx context.Context, t target) (string, error) {
+	return s.Resolver.Resolve(s.credentialContext(ctx, t), t.CredentialRef)
+}
+
+// privateCA reads the optional "ca" field next to the connector credential:
+// a self-hosted GitLab often has a private CA (D11, like Kubernetes).
+func (s *Service) privateCA(ctx context.Context, t target) (*x509.CertPool, error) {
+	siblings, ok := s.Resolver.(v3integrations.SiblingResolver)
+	if !ok {
+		return nil, nil
 	}
-	return s.Resolver.Resolve(v3integrations.WithCredentialUse(ctx, use), t.CredentialRef)
+	pem, err := siblings.ResolveSibling(s.credentialContext(ctx, t), t.CredentialRef, "ca")
+	if err != nil || pem == "" {
+		return nil, nil
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM([]byte(pem)) {
+		return nil, ErrCredential
+	}
+	return pool, nil
 }
 
 type pipeline struct {

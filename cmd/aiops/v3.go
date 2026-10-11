@@ -697,7 +697,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	readTools := v3ReadTools{
 		DB: s.DB, Models: toolModels, CurrentUser: currentToolUser,
 		LookupService: catalog.LookupServiceEvidence, ListServices: catalog.ListServiceEvidence, Access: policy,
-		Workloads: rollouts, Registry: sourceResolver, Clients: sourceClients,
+		Workloads: rollouts, Changes: changes, Registry: sourceResolver, Clients: sourceClients,
 		KnowledgeTool: func(actorID, applicationID, environmentID string) (inference.EvidenceTool, bool) {
 			return v3knowledge.NewKnowledgeEvidenceTool(v3knowledge.KnowledgeEvidenceToolOptions{
 				Enabled: true, Service: knowledgeV3, ActorID: actorID, ApplicationID: applicationID,
@@ -856,6 +856,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	events.AuthorizeTeamTx = func(ctx context.Context, tx pgx.Tx, user core.User, team, env, action string) error {
 		return policy.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "events", Action: action, TeamID: team, EnvironmentID: env})
 	}
+	events.Changes = changes
 	events.GroupPolicySource = alertmanagerSource
 	events.GroupPolicyBindings = alertmanagerPolicyBindings
 	// PA-47: a silenced alert's resolved notification is never delivered, so

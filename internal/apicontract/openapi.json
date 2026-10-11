@@ -37480,6 +37480,127 @@
         ]
       }
     },
+    "/incidents/{id}/changes": {
+      "get": {
+        "summary": "Read the changes around an incident",
+        "operationId": "get_incidents_id_changes",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. D11: the GitLab deployments and Kubernetes revisions of the incident's service from before to after its start (an alert incident's alert start, a manual incident's creation), sorted by offset. before (1m-24h) and after (0m-24h) are whole-minute Go durations, together at most 24h; the window ends no later than now. Needs events.view on the incident; the GitLab part also needs services.view and connectors.view, the revisions resources.view. A source that is not configured, not visible or unavailable is reported in coverage and unavailable while the other answers. Every item is only time-adjacent: basis is time_adjacent and note says it is not causal. The incident, grant and session are checked again before answering; an unknown or invisible incident is 404.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3IncidentChanges"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "incidents"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "60m"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "15m"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/silences/{id}": {
       "delete": {
         "summary": "Propose cancellation of one owned silence",
@@ -78335,6 +78456,270 @@
           "stat",
           "active",
           "hits_7d"
+        ]
+      },
+      "V3IncidentGitLabDeployment": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "gitlab_deployment"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "offset_seconds": {
+            "type": "integer",
+            "description": "Change time minus the incident start; negative when the change came first"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "time_adjacent"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "created",
+              "running",
+              "success",
+              "failed",
+              "canceled",
+              "skipped",
+              "blocked"
+            ]
+          },
+          "sha": {
+            "type": "string"
+          },
+          "short_sha": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          },
+          "pipeline_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "merge_request": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "iid": {
+                    "type": "integer"
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 200
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "iid",
+                  "title"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kubernetes_revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "web_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id",
+          "at",
+          "offset_seconds",
+          "basis",
+          "status",
+          "sha",
+          "short_sha",
+          "ref",
+          "pipeline_id",
+          "merge_request",
+          "kubernetes_revision",
+          "web_url",
+          "href"
+        ]
+      },
+      "V3IncidentKubernetesRevision": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "kubernetes_revision"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "offset_seconds": {
+            "type": "integer",
+            "description": "Change time minus the incident start; negative when the change came first"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "time_adjacent"
+            ]
+          },
+          "revision": {
+            "type": "string"
+          },
+          "change_cause": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gitlab_deployment_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The GitLab deployment of the window whose pipeline the change cause names; null when none"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id",
+          "at",
+          "offset_seconds",
+          "basis",
+          "revision",
+          "change_cause",
+          "gitlab_deployment_id"
+        ]
+      },
+      "V3IncidentChanges": {
+        "type": "object",
+        "properties": {
+          "incident_id": {
+            "type": "string"
+          },
+          "service_id": {
+            "type": "string"
+          },
+          "environment_id": {
+            "type": "string"
+          },
+          "alert_started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "window": {
+            "type": "object",
+            "properties": {
+              "start_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "end_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "start_at",
+              "end_at"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/V3IncidentGitLabDeployment"
+                },
+                {
+                  "$ref": "#/components/schemas/V3IncidentKubernetesRevision"
+                }
+              ]
+            }
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "gitlab": {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "not_configured",
+                  "no_authorized_target",
+                  "unavailable"
+                ]
+              },
+              "kubernetes": {
+                "type": "string",
+                "enum": [
+                  "history_limited",
+                  "not_configured",
+                  "no_authorized_target",
+                  "unavailable"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "gitlab",
+              "kubernetes"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "enum": [
+              "time_adjacent_not_causal"
+            ]
+          },
+          "unavailable": {
+            "$ref": "#/components/schemas/V3Unavailable"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "incident_id",
+          "service_id",
+          "environment_id",
+          "alert_started_at",
+          "window",
+          "items",
+          "coverage",
+          "note",
+          "unavailable"
         ]
       },
       "V3SilenceProductMatcher": {

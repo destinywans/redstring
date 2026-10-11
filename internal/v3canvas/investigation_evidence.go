@@ -57,6 +57,8 @@ func investigationToolKind(name string) (kind, source string) {
 		return "knowledge", "knowledge://published-documents"
 	case workloadToolName:
 		return "workload", "kubernetes"
+	case changesToolName:
+		return "changes", "gitlab"
 	}
 	return "", ""
 }

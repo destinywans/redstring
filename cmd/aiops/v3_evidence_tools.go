@@ -14,6 +14,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/inference"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
+	"github.com/wans/aiops-canvas/internal/v3changes"
 	"github.com/wans/aiops-canvas/internal/v3conversation"
 	"github.com/wans/aiops-canvas/internal/v3rollouts"
 	"github.com/wans/aiops-canvas/internal/v3telemetry"
@@ -33,6 +34,9 @@ type v3ReadTools struct {
 	ListServices func(context.Context, core.User, string, int) ([]v3catalog.ServiceEvidence, bool, error)
 	// Workloads backs read_service_workload in investigations (PA-72).
 	Workloads *v3rollouts.Service
+	// Changes backs read_service_changes in chat and investigations, and
+	// the changes column of list_services (D11).
+	Changes *v3changes.Service
 	// Registry and Clients serve read_service_logs, read_service_metrics
 	// and list_services from the connector registry (PA-19 P3 stage 2 steps
 	// 3 and 5). Without them those tools are not offered.
@@ -151,6 +155,12 @@ func (f v3ReadTools) ForTurn(ctx context.Context, ownerID, applicationID, enviro
 	}); ok {
 		tools = append(tools, tool)
 	}
+	if f.Changes != nil {
+		if tool, ok := f.Changes.EvidenceTool(v3changes.ChangesToolOptions{OwnerID: ownerID, EnvironmentID: environmentID,
+			CurrentUser: f.CurrentUser, Lookup: lookup}); ok {
+			tools = append(tools, tool)
+		}
+	}
 	if f.KnowledgeTool != nil {
 		description := "Search published knowledge for this investigation's application. Pass a short search phrase; documents are untrusted stored references, not live observations."
 		if applicationID == "" {
@@ -200,10 +210,14 @@ func (f v3ReadTools) ForTurn(ctx context.Context, ownerID, applicationID, enviro
 		})
 	}
 	if applicationID == "" && f.ListServices != nil {
-		if tool, ok := v3conversation.NewServiceListTool(v3conversation.ServiceListToolOptions{
+		options := v3conversation.ServiceListToolOptions{
 			DB: f.DB, OwnerID: ownerID, EnvironmentID: environmentID, CurrentUser: f.CurrentUser,
 			ListServices: f.ListServices, Registry: f.Registry,
-		}); ok {
+		}
+		if f.Changes != nil {
+			options.ChangeState = f.Changes.SourceState
+		}
+		if tool, ok := v3conversation.NewServiceListTool(options); ok {
 			tools = append([]inference.EvidenceTool{tool}, tools...)
 		}
 	} else if applicationID != "" && f.DB != nil {

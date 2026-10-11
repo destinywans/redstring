@@ -22,6 +22,7 @@ import (
 
 const (
 	workloadToolName         = "read_service_workload"
+	changesToolName          = "read_service_changes"
 	maxSuggestionReasons     = 3
 	maxSuggestionReasonRunes = 200
 	suggestionTimeoutSeconds = 30

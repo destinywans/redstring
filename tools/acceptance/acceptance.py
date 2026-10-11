@@ -36,6 +36,9 @@ TLS = LOCAL / 'tls'
 # The lab Alertmanager speaks plain HTTP; a production tier only accepts HTTPS, so the proxy
 # also fronts it on 127.0.0.1 with its own IP-SAN cert (trusted via ca_file) and a bearer token.
 ALERTMANAGER = {'https': 18445, 'upstream': 'host.docker.internal:19093'}
+# The delivery lab GitLab is plain HTTP too (D11). Same 127.0.0.1 IP cert as Alertmanager; GitLab
+# authenticates its own tokens, so the proxy only forwards (no bearer check of its own).
+GITLAB = {'https': 18446, 'upstream': 'host.docker.internal:28080'}
 INSTANCES = {
     'prod': {
         'port': 18090, 'https': 18443, 'host': 'prod.redstring.test', 'db': 'redstring_prod',
@@ -260,12 +263,24 @@ def tls():
             proxy_connect_timeout 5s;
             proxy_read_timeout 30s;
         }}
+    }}
+    server {{
+        listen {GITLAB['https']} ssl;
+        ssl_certificate /tls/alertmanager.pem;
+        ssl_certificate_key /tls/alertmanager.key;
+        client_max_body_size 64m;
+        location / {{
+            proxy_pass http://{GITLAB['upstream']};
+            proxy_set_header Host 127.0.0.1:28080;
+            proxy_connect_timeout 5s;
+            proxy_read_timeout 60s;
+        }}
     }}"""
     conf = TLS / 'nginx.conf'
     conf.write_text('worker_processes 2;\nevents { worker_connections 4096; }\nhttp {' + upstreams + servers + '\n}\n')
     os.chmod(conf, 0o600)
     subprocess.run(['docker', 'rm', '-f', PROXY], capture_output=True)
-    ports = sum((['-p', f"127.0.0.1:{p}:{p}"] for p in [*(spec['https'] for spec in INSTANCES.values()), ALERTMANAGER['https']]), [])
+    ports = sum((['-p', f"127.0.0.1:{p}:{p}"] for p in [*(spec['https'] for spec in INSTANCES.values()), ALERTMANAGER['https'], GITLAB['https']]), [])
     subprocess.run(['docker', 'run', '-d', '--name', PROXY, '--label', 'aiops.acceptance=2026-10-09', *ports,
                     '-v', f'{TLS}:/tls:ro', '-v', f"{TLS / 'nginx.conf'}:/etc/nginx/nginx.conf:ro", 'nginx:latest'],
                    check=True, capture_output=True)

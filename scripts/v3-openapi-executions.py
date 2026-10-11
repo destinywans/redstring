@@ -73,11 +73,39 @@ v3_route('post','/executions/{id}/report/publish',
     role='human with scoped proposals.view and knowledge.manage',
     desc='Requires one selected environment, a current human Cookie session, active application and environment, current team or application grants, an approved exact plan digest, a succeeded execution with persisted verified recovery, and a closed report matching the execution and investigation events. The local publication record and audit commit together. A repeat with unchanged report digest returns the original publication; changed report content or missing prerequisites return conflict. This endpoint performs no infrastructure write, notification or external postmortem publication. The current mock POST response {ok:true} needs an adapter.')
 
+S['V3AlertRuleExecutionResult'] = obj({
+    'proposal_id':string(),
+    'execution_id':string(),
+    'status':string(enum=['pending_review','merged','awaiting_provider','enabled','failed','waiting_sync']),
+    'deployment':obj({'project_id':integer(),'mr_iid':integer(minimum=1),'url':string(),'source_branch':string(),
+        'target_branch':string(),'path':string(),'content_digest':string(),'state':string(enum=['opened','merged']),
+        'source_revision':string(),'merge_revision':string(),'merged_at':string(format='date-time')},
+        ['project_id','mr_iid','url','source_branch','target_branch','path','content_digest','state']),
+    'observed_rule_id':string(),
+}, ['proposal_id','execution_id','status'])
+v3_route('post','/executions/{id}/recheck',
+    'Read an alert rule execution back now',
+    response=ref('V3AlertRuleExecutionResult'),
+    role='alert_rules.change on the execution\'s application',
+    desc='D11 section 5.4. id is an alert rule enable execution ID. Requires one selected environment and alert_rules.change on the '
+         'proposal\'s application (or its owner team). Runs the same read-only observation the executor worker runs every 15 seconds, also '
+         'after the worker\'s 24-hour window: GitLab and Prometheus are only read, nothing is merged or written remotely, and only the local '
+         'ledger records the readback. A late Prometheus load becomes enabled and clears load_timeout; an evaluation error becomes failed. '
+         'Only pending_review, merged, awaiting_provider and enabled executions can be rechecked (409 execution_not_observable otherwise); '
+         'an enabled rule that no longer matches is 409 rule_content_changed. deployment and observed_rule_id are omitted until known. '
+         'An unknown execution or one in another environment is 404.')
+
 for _path, _method, _errors in [
     ('/executions/{id}','get', {
         '403':'Selected environment access was denied',
         '404':'Execution is unknown or its object-scoped proposals.view grant is missing',
         '503':'Execution source or policy is unavailable',
+    }),
+    ('/executions/{id}/recheck','post', {
+        '403':'alert_rules.change on the execution\'s application is required',
+        '404':'The execution is unknown or belongs to another environment',
+        '409':'The execution is not observable, or an enabled rule no longer matches its approval',
+        '503':'The executor, GitLab or Prometheus could not be read',
     }),
     ('/executions/{id}/report/publish','post', {
         '401':'The current Cookie session was revoked or expired',

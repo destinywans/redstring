@@ -3,11 +3,14 @@ package v3alertrules
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wans/aiops-canvas/internal/core"
 )
 
 const filePullGroupBase = `groups:
@@ -283,4 +286,75 @@ func TestFilePullRecoveryWithoutApproval(t *testing.T) {
 			t.Fatalf("row: %+v", row)
 		}
 	})
+}
+
+// D11 §5.4: a recheck reads a late load back even after the worker's
+// 24-hour window, and records it as enabled; it never writes remotely.
+func TestFilePullRecheckRecordsLateLoad(t *testing.T) {
+	ctx := t.Context()
+	f, repo, _ := filePullExecution(t, false, "")
+	result, err := f.s.ExecuteApproved(ctx, f.id)
+	if err != nil || result.Status != "merged" {
+		t.Fatalf("execute: %+v %v", result, err)
+	}
+	var actor core.User
+	if err := f.db.QueryRow(ctx, `SELECT creator_id FROM v3_proposal_actions WHERE proposal_id=$1`, f.id).Scan(&actor.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Merged 25 hours ago and never loaded: the worker no longer reads it.
+	if _, err := f.db.Exec(ctx, `UPDATE v3_alert_rule_enable_executions SET deployment=jsonb_set(deployment,'{merged_at}',
+ to_jsonb(to_char(clock_timestamp() AT TIME ZONE 'UTC' - interval '25 hours','YYYY-MM-DD"T"HH24:MI:SS"Z"'))) WHERE proposal_id=$1`, f.id); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := f.s.recheckExecution(ctx, "test", actor, f.execution); err != nil || got.Status != "awaiting_provider" {
+		t.Fatalf("recheck before load: %+v %v", got, err)
+	}
+	if row := readFilePullRow(t, f); row.Failure != "load_timeout" || row.Readback.State != "timeout" {
+		t.Fatalf("timeout row: %+v", row)
+	}
+	if _, err := f.db.Exec(ctx, `UPDATE v3_alert_rule_enable_executions SET updated_at=clock_timestamp()-interval '1 minute' WHERE proposal_id=$1`, f.id); err != nil {
+		t.Fatal(err)
+	}
+	f.s.Reader.Source = loadedGroup(f, "ok", time.Now())
+	if _, err := f.s.enableWorkerPass(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	if row := readFilePullRow(t, f); row.State != "awaiting_provider" {
+		t.Fatalf("the worker read back an execution older than 24 hours: %+v", row)
+	}
+	writes := repo.writes
+	got, err := f.s.recheckExecution(ctx, "test", actor, f.execution)
+	if err != nil || got.Status != "enabled" || got.ObservedRuleID == "" || repo.writes != writes {
+		t.Fatalf("recheck after load: %+v %v writes=%d->%d", got, err, writes, repo.writes)
+	}
+	if row := readFilePullRow(t, f); row.Failure != "" || row.Readback.State != "loaded" {
+		t.Fatalf("enabled row: %+v", row)
+	}
+	// Enabled stays enabled; scope, identity and permission are checked.
+	if got, err := f.s.recheckExecution(ctx, "test", actor, f.execution); err != nil || got.Status != "enabled" {
+		t.Fatalf("recheck enabled: %+v %v", got, err)
+	}
+	for name, tc := range map[string]struct {
+		env, id string
+		status  int
+	}{
+		"unknown": {"test", strings.Repeat("0", 32), 404}, "malformed": {"test", "x", 404}, "other_environment": {"prod", f.execution, 404},
+	} {
+		var p *writeProblem
+		if _, err := f.s.recheckExecution(ctx, tc.env, actor, tc.id); !errors.As(err, &p) || p.status != tc.status {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	f.access.denied = true
+	var p *writeProblem
+	if _, err := f.s.recheckExecution(ctx, "test", actor, f.execution); !errors.As(err, &p) || p.status != 403 {
+		t.Fatalf("without permission: %v", err)
+	}
+	f.access.denied = false
+	if _, err := f.db.Exec(ctx, `UPDATE v3_alert_rule_enable_executions SET state='stale_remote' WHERE proposal_id=$1`, f.id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.recheckExecution(ctx, "test", actor, f.execution); !errors.As(err, &p) || p.status != 409 {
+		t.Fatalf("needs attention: %v", err)
+	}
 }

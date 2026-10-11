@@ -51393,6 +51393,111 @@
         ]
       }
     },
+    "/executions/{id}/recheck": {
+      "post": {
+        "summary": "Read an alert rule execution back now",
+        "operationId": "post_executions_id_recheck",
+        "description": "Minimum role: alert_rules.change on the execution's application. V3 instance and environment scope apply. D11 section 5.4. id is an alert rule enable execution ID. Requires one selected environment and alert_rules.change on the proposal's application (or its owner team). Runs the same read-only observation the executor worker runs every 15 seconds, also after the worker's 24-hour window: GitLab and Prometheus are only read, nothing is merged or written remotely, and only the local ledger records the readback. A late Prometheus load becomes enabled and clears load_timeout; an evaluation error becomes failed. Only pending_review, merged, awaiting_provider and enabled executions can be rechecked (409 execution_not_observable otherwise); an enabled rule that no longer matches is 409 rule_content_changed. deployment and observed_rule_id are omitted until known. An unknown execution or one in another environment is 404.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AlertRuleExecutionResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "alert_rules.change on the execution's application is required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The execution is unknown or belongs to another environment",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The execution is not observable, or an enabled rule no longer matches its approval",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The executor, GitLab or Prometheus could not be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "executions"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/services": {
       "get": {
         "summary": "Read the authorized service catalog with explicit unknowns",
@@ -84559,6 +84664,92 @@
           "published_at",
           "published_by",
           "report_digest"
+        ]
+      },
+      "V3AlertRuleExecutionResult": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "type": "string"
+          },
+          "execution_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review",
+              "merged",
+              "awaiting_provider",
+              "enabled",
+              "failed",
+              "waiting_sync"
+            ]
+          },
+          "deployment": {
+            "type": "object",
+            "properties": {
+              "project_id": {
+                "type": "integer"
+              },
+              "mr_iid": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "url": {
+                "type": "string"
+              },
+              "source_branch": {
+                "type": "string"
+              },
+              "target_branch": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "content_digest": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "opened",
+                  "merged"
+                ]
+              },
+              "source_revision": {
+                "type": "string"
+              },
+              "merge_revision": {
+                "type": "string"
+              },
+              "merged_at": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "project_id",
+              "mr_iid",
+              "url",
+              "source_branch",
+              "target_branch",
+              "path",
+              "content_digest",
+              "state"
+            ]
+          },
+          "observed_rule_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "proposal_id",
+          "execution_id",
+          "status"
         ]
       },
       "V3UnknownReason": {

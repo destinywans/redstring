@@ -148,10 +148,10 @@ func seedEnableRecovery(t *testing.T, db *pgxpool.Pool, expired, revoked bool, s
 	return seedEnableRecoveryPlan(t, db, expired, revoked, state, nil)
 }
 
-// seedEnableRecoveryPlan lets plan replace the fixed deployment plan, e.g.
-// with a real adapter's plan for the seeded application (D11).
+// seedEnableRecoveryPlan lets prepare change the seeded intent, e.g. make it
+// a version 2 intent with a real adapter's plan (D11).
 func seedEnableRecoveryPlan(t *testing.T, db *pgxpool.Pool, expired, revoked bool, state string,
-	plan func(AlertRuleEnableIntent) AlertRuleDeploymentPlan) recoveryFixture {
+	prepare func(*AlertRuleEnableIntent)) recoveryFixture {
 	t.Helper()
 	ctx := t.Context()
 	exec := func(sql string, args ...any) {
@@ -196,8 +196,8 @@ func seedEnableRecoveryPlan(t *testing.T, db *pgxpool.Pool, expired, revoked boo
 		ManifestDigest: enableDigest("aiops.v3.alert_rule.manifest.v1", manifest), ProjectID: 42, MR: 1,
 		MRURL: "https://gitlab.example.invalid/draft/1", Branch: branch, Path: artifactPath, Spec: spec,
 		Deployment: AlertRuleDeploymentPlan{ProjectID: 42, TargetBranch: "main", Path: "rules/alerts.yml", BaseRevision: strings.Repeat("b", 40), ContentDigest: strings.Repeat("c", 64), ScopeFingerprint: strings.Repeat("d", 64)}}
-	if plan != nil {
-		intent.Deployment = plan(intent)
+	if prepare != nil {
+		prepare(&intent)
 	}
 	marshalCanonical := func(v any) []byte {
 		t.Helper()

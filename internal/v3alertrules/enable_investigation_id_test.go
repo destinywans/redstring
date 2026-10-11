@@ -3,12 +3,14 @@ package v3alertrules
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/rbac"
@@ -93,6 +95,11 @@ func newEnableIDFixture(t *testing.T) enableIDFixture {
 
 func (f enableIDFixture) request(t *testing.T, investigation, name string) *httptest.ResponseRecorder {
 	t.Helper()
+	return f.requestWithKey(t, investigation, name, store.ID())
+}
+
+func (f enableIDFixture) requestWithKey(t *testing.T, investigation, name, key string) *httptest.ResponseRecorder {
+	t.Helper()
 	in := createRequest{InvestigationID: investigation, DraftRuleSpec: DraftRuleSpec{
 		ApplicationID: "allowed", EnvironmentID: "test", Group: "g", Name: name,
 		Expr: "up == 0", For: "1m", Mode: "enabled",
@@ -102,7 +109,7 @@ func (f enableIDFixture) request(t *testing.T, investigation, name string) *http
 	w := httptest.NewRecorder()
 	// Exercise the enabled handler including its real transactional policy and
 	// immutable proposal persistence. Only provider/draft protocols are Mock.
-	f.writer.handleEnable(w, r, "test", f.actor, store.ID(), in)
+	f.writer.handleEnable(w, r, "test", f.actor, key, in)
 	return w
 }
 
@@ -157,8 +164,87 @@ func TestEnableInvestigationIDPreservesFormalAndLegacyIdentity(t *testing.T) {
 			}
 		})
 	}
-	if f.repository.exports != 2 || f.applier.prepareCalls.Load() != 0 || f.applier.lookups.Load() != 0 || f.applier.observeCalls.Load() != 0 {
-		t.Fatal("request must create exactly two review drafts and never execute or approve them")
+	if f.repository.exports != 0 || f.applier.planCalls.Load() != 2 || f.applier.prepareCalls.Load() != 0 ||
+		f.applier.lookups.Load() != 0 || f.applier.observeCalls.Load() != 0 {
+		t.Fatal("request must plan two proposals without a draft and never execute or approve them")
+	}
+}
+
+// D11 decision 6: the request proposes the rule and plan directly, without a
+// nondeployable draft MR, and a same-key retry returns the same proposal.
+func TestEnableRequestWithoutDraft(t *testing.T) {
+	f := newEnableIDFixture(t)
+	key := "enable-" + store.ID()
+	w := f.requestWithKey(t, f.prefixed, "DirectRule", key)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["draft_id"] != nil || body["version"] != nil || body["mr"] != nil || body["status"] != "pending_approval" || body["proposal_id"] == "" {
+		t.Fatalf("response: %s", w.Body.String())
+	}
+	var action json.RawMessage
+	var envelope int
+	if err := f.db.QueryRow(t.Context(), `SELECT action,schema_version FROM v3_proposal_actions WHERE proposal_id=$1`, body["proposal_id"]).
+		Scan(&action, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(action, &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"draft_operation_id", "draft_id", "draft_version", "manifest_digest", "project_id", "mr_iid", "mr_url", "branch", "path"} {
+		if _, ok := raw[field]; ok {
+			t.Errorf("version 2 intent carries %s", field)
+		}
+	}
+	if raw["schema_version"] != float64(2) || envelope != 1 || f.repository.exports != 0 {
+		t.Fatalf("intent %v envelope %d exports %d", raw["schema_version"], envelope, f.repository.exports)
+	}
+	tx, err := f.db.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent, err := LoadAlertRuleEnableIntentWithTx(t.Context(), tx, body["proposal_id"].(string))
+	_ = tx.Rollback(t.Context())
+	if err != nil || intent.SchemaVersion != 2 || intent.Spec.Name != "DirectRule" || intent.Deployment.ProjectID != 42 {
+		t.Fatalf("load: %+v %v", intent, err)
+	}
+	// Same key and body: the same proposal; another body: a conflict.
+	again := f.requestWithKey(t, f.prefixed, "DirectRule", key)
+	var replay map[string]any
+	if again.Code != http.StatusAccepted || json.Unmarshal(again.Body.Bytes(), &replay) != nil || replay["proposal_id"] != body["proposal_id"] {
+		t.Fatalf("replay: %d %s", again.Code, again.Body.String())
+	}
+	if other := f.requestWithKey(t, f.prefixed, "OtherRule", key); other.Code != http.StatusConflict {
+		t.Fatalf("same key, other body: %d %s", other.Code, other.Body.String())
+	}
+	var proposals int
+	if err := f.db.QueryRow(t.Context(), `SELECT count(*) FROM v3_proposals`).Scan(&proposals); err != nil || proposals != 1 {
+		t.Fatalf("proposals: %d %v", proposals, err)
+	}
+	// The schema keeps version 2 free of draft fields (migration 176).
+	tx, err = f.db.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(t.Context())
+	copyID := store.ID()
+	if _, err := tx.Exec(t.Context(), `INSERT INTO v3_proposals(id,investigation_id,application_id,environment_id,content,created_by,creator_kind)
+ SELECT $2,investigation_id,application_id,environment_id,content,created_by,creator_kind FROM v3_proposals WHERE id=$1`, body["proposal_id"], copyID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = tx.Exec(t.Context(), `INSERT INTO v3_proposal_actions(proposal_id,action_kind,schema_version,action,action_digest,review_content_digest,
+ request_hash,binding_fingerprint,creator_id,environment_id,application_id,investigation_id,investigation_updated_at,idempotency_key,source_kind)
+ SELECT $2,action_kind,schema_version,action||'{"draft_id":"x"}'::jsonb,action_digest,review_content_digest,request_hash,binding_fingerprint,
+ creator_id,environment_id,application_id,investigation_id,investigation_updated_at,'other-key',source_kind
+ FROM v3_proposal_actions WHERE proposal_id=$1`, body["proposal_id"], copyID)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "v3_alert_rule_enable_action_shape" {
+		t.Fatalf("a version 2 intent with a draft field: %v", err)
 	}
 }
 

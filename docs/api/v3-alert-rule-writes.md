@@ -6,7 +6,7 @@
 
 - `POST /api/v1/alert-rules` 的 `draft`：单环境、当前有效账号、有效应用及 `alert_rules.change`；校验完整规则，将**不可部署** JSON 修订写入专用 `aiops-alert-rule-drafts/` GitLab MR，返回 `201 pending_review`。`PUT /alert-rules/{id}` 和 `POST /alert-rules/import` 仍只接受 `draft`。
 - `mode=dry_run`：同一规则形状及授权，使用受信的按应用隔离查询源和运行中的持久 worker，返回 `202` 与 `trial_id`；不修改 Prometheus 规则、GitOps 部署文件或通知。`GET /alert-rules/dry-runs/{id}` 仅允许创建者在当前环境和应用授权下读取真实进度。每分钟一次、持续 24 小时；任何漏采、来源错误或截断都使结果 `inconclusive`，不会把缺口当零次触发。
-- `mode=enabled`：除上述条件外要求当前 `proposals.change`、同应用环境的开放调查，以及受信部署计划。先导出不可部署草稿 MR，再在一笔数据库事务中保存与完整动作、审查内容、目标 YAML 摘要绑定的不可变提案；返回 `202 pending_approval`。**POST 本身不启用规则。** 拒绝后同键重试返回原提案状态，批准后同键重试只返回 `approved_pending_execution`，不声称已启用。
+- `mode=enabled`：除上述条件外要求当前 `proposals.change`、同应用环境的开放调查，以及受信部署计划。在一笔数据库事务中保存与完整动作、审查内容、目标 YAML 摘要绑定的不可变提案；返回 `202 pending_approval`，`draft_id`、`version`、`mr` 为 `null`。D11（决定 6）起不再先导出不可部署草稿 MR，也不需要草稿仓库；之前带草稿的提案照常批准和执行，重放时仍返回其草稿字段。**POST 本身不启用规则。** 拒绝后同键重试返回原提案状态，批准后同键重试只返回 `approved_pending_execution`，不声称已启用。
 
 三个模式使用 `Idempotency-Key`。同一创建者、同一操作、同一键的请求身份绑定完整请求与环境；冲突返回 409。试运行容量由数据库唯一索引限制为全局一个活跃任务，超额返回 429。远端写入不确定时按固定操作 ID 对账，不另建 MR。草稿导出后如当前授权、来源或提案键变化，MR 标为 `stale_remote`，需人工检查。
 
@@ -36,7 +36,7 @@
 
 ## 启用、批准、执行与观察
 
-`AlertRuleEnableIntent` 是审查快照，不是执行授权。它包含完整规则、绑定文件身份、已观测规则身份、草稿 MR/修订摘要，以及 `AlertRuleDeploymentPlan` 的项目、目标 YAML 路径、基础提交、完整拟议 YAML 摘要和范围指纹。人类审查内容逐段显示完整动作 JSON，包括所有标签和注解；加载时校验动作和审查摘要及二者关系。
+`AlertRuleEnableIntent` 是审查快照，不是执行授权。它包含完整规则、绑定文件身份、已观测规则身份、草稿 MR/修订摘要（仅意图版本 1；D11 起新提案为版本 2，没有任何草稿字段，执行前改为复核规则组绑定和请求时的已观测规则身份，迁移 176 放宽动作形状约束；动作信封 `schema_version` 仍为 1），以及 `AlertRuleDeploymentPlan` 的项目、目标 YAML 路径、基础提交、完整拟议 YAML 摘要和范围指纹。人类审查内容逐段显示完整动作 JSON，包括所有标签和注解；加载时校验动作和审查摘要及二者关系。
 
 领域提供以下服务端接口与实现，不能由浏览器请求伪造执行：
 

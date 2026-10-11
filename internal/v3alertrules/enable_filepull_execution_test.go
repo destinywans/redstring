@@ -20,14 +20,17 @@ const filePullGroupBase = `groups:
       severity: P3
 `
 
-// filePullExecution seeds an approved enable whose plan comes from a real
-// file_pull applier against the fake rules repository (D11).
+// filePullExecution seeds an approved version 2 enable (no draft) whose plan
+// comes from a real file_pull applier against the fake rules repository (D11).
 func filePullExecution(t *testing.T, expired bool, state string) (recoveryFixture, *fakeRulesRepo, *GitOpsAlertRuleApplier) {
 	t.Helper()
 	db := enableRecoveryDB(t)
 	repo := newFakeRulesRepo(t, filePullGroupBase)
 	var applier *GitOpsAlertRuleApplier
-	f := seedEnableRecoveryPlan(t, db, expired, false, state, func(in AlertRuleEnableIntent) AlertRuleDeploymentPlan {
+	f := seedEnableRecoveryPlan(t, db, expired, false, state, func(in *AlertRuleEnableIntent) {
+		in.SchemaVersion = alertRuleEnableIntentDirect
+		in.DraftOperationID, in.DraftID, in.DraftVersion, in.ManifestDigest = "", "", 0, ""
+		in.ProjectID, in.MR, in.MRURL, in.Branch, in.Path = 0, 0, "", "", ""
 		endpoint, _ := url.Parse(repo.server.URL)
 		web, _ := url.Parse("http://gitlab.lab.invalid")
 		binding := AlertRuleGitOpsBinding{EnvironmentID: "test", ApplicationID: in.ApplicationID, Group: "g", ProviderFile: testRuleFile,
@@ -36,11 +39,11 @@ func filePullExecution(t *testing.T, expired bool, state string) (recoveryFixtur
 			gitlab: enableGitOpsHTTP{base: endpoint, client: repo.server.Client(), gitlab: true,
 				tokenSource: func(context.Context) (string, error) { return "write-token", nil }},
 			bindings: map[string]AlertRuleGitOpsBinding{gitOpsBindingKey("test", in.ApplicationID, "g"): binding}}
-		plan, err := applier.Plan(t.Context(), in)
+		plan, err := applier.Plan(t.Context(), *in)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return plan
+		in.Deployment = plan
 	})
 	f.s.EnableApplier = applier
 	return f, repo, applier

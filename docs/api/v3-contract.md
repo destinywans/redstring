@@ -269,7 +269,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | POST | `/incidents` | `Idempotency-Key` 头及 `{ title, severity, impact?, env, services: [id], alert_ids, commander?, war_room?, notify?, status_page?, open_canvas? }` | 持久人工事件、告警关联、审计及可选空白调查；外部动作标志请求返回 503，不发送或发布 | implemented |
 | POST | `/alert-rules/generate` | 单环境、`application_id`、`{ text }`、`Idempotency-Key`；需规则修改权 | 经受审目录与有界模型生成的 `review_required` 草稿；不保存为生效规则 | implemented |
 | POST | `/alert-rules/preview` | 单环境、`application_id`、`{ query, op, threshold, for_minutes, range }`；需规则查看权 | 真实 Prometheus 七天五分钟采样曲线与窗口；全量历史计数、路由和相似规则未知 | implemented |
-| POST | `/alert-rules` | 单环境、`Idempotency-Key`、完整应用/环境/组/规则/标签定义与 `mode: draft\|dry_run\|enabled` | `draft` 导出不可部署 JSON 草稿，返回 `201 pending_review`；`dry_run` 在隔离查询配置和 worker 就绪时返回 `202` 试运行 ID；`enabled` 仅在私有 GitOps 目标、提案 Passkey 与独立 worker 就绪时返回 `202 pending_approval`，本次请求不启用规则 | implemented |
+| POST | `/alert-rules` | 单环境、`Idempotency-Key`、完整应用/环境/组/规则/标签定义与 `mode: draft\|dry_run\|enabled` | `draft` 导出不可部署 JSON 草稿，返回 `201 pending_review`；`dry_run` 在隔离查询配置和 worker 就绪时返回 `202` 试运行 ID；`enabled` 仅在私有 GitOps 目标、提案 Passkey 与独立 worker 就绪时返回 `202 pending_approval`，本次请求不启用规则；D11 起不先导出草稿，`draft_id`、`version`、`mr` 为 `null` | implemented |
 | POST | `/alert-rules/import` | 单环境、至多 128 KiB 的 `{ yaml }`；`Idempotency-Key`、`application_id`、`mode: draft` 可选，缺应用 ID 时从全部规则精确标签推断唯一应用 | 有界解析、逐项核对当前来源；返回 `items` 与候选原因，新规则导出不可部署草稿并返回 `201 pending_review`，全部重复返回 `200 duplicates_only`，不启用规则 | implemented |
 | POST | `/notification-routes/test` | `{ labels }`：当前绑定应用与环境的精确样例告警 | 当前生效 Alertmanager 策略的节点路径、匿名接收方引用及分组时序；不发送通知或试算草稿 | implemented |
 | POST | `/notification-routes` | `Idempotency-Key`、GET ETag 的 `If-Match`；绑定应用、匹配条件、匿名接收方引用及分组时序 | `202 pending_review`、本地草稿 ID 与经核对的 GitLab MR；当前 MR/运行态为 `null`，不激活路由 | implemented |
@@ -620,6 +620,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | 2026-10-11 | D11 第 5 项：AI 只读取证工具 `read_service_changes`（普通对话与调查画布），`list_services` 新增 `changes` 列；见 [调查取证工具](v3-investigation-evidence-tools.md) |
 | 2026-10-11 | D11：GitLab 连接器的探测和变更读取支持私有 CA，CA 放在凭据同一 Vault 条目的 `ca` 字段（与 Kubernetes 相同） |
 | 2026-10-11 | D11 第 6 项（迁移 175）：告警规则启用的 `file_pull` 绑定由执行器在两人批准后合并 MR（fast-forward，带 `sha`），以整组读回与 `health` 确认生效；`GET /proposals/{id}` 的 `execution.status` 对告警规则新增 `merged`、`failed` 两个取值；接口形状不变；见 [告警规则写入](v3-alert-rule-writes.md)“D11：执行器合并与 file_pull 加载” |
+| 2026-10-11 | D11 第 7 项（迁移 176，决定 6）：`POST /alert-rules` 的 `mode: enabled` 不再先导出不可部署草稿 MR，也不需要草稿仓库；新提案的意图为版本 2（无草稿字段），响应 `V3AlertRuleEnabledIntentResult` 的 `draft_id`、`version`、`mr` 改为可空，新提案三者为 `null`（字段仍在，破坏性：前端不能再假定有草稿 MR）；之前带草稿的提案不受影响 |
 | 2026-10-11 | PA-87：应用范围链路列表跳过 Tempo 返回的不完整 Trace（缺父 Span 等）并以 `excluded_incomplete` 计数，不再整页 503；声明搜索完整时改报 `partial_reason: incomplete_traces`；链路与日志读取失败在服务日志里记录错误类型、信息和上游状态 |
 | 2026-10-11 | D30：已声明搜索完整的链路列表同时达到预算上限并跳过了不完整 Trace 时，`partial_reason` 为 `search_budget`（窗口照常给出，跳过条数仍在 `excluded_incomplete`），只有覆盖了整个范围时才为 `incomplete_traces` |
 | 2026-10-09 | 生产验收 PA-05/PA-16：新增「未知」约定（`null` + `unavailable` 原因）。`/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard` 在可选证据缺失时返回 200，受影响字段可空；`ProfileView`、`SecurityView`、`LogSearch`、`TraceList`、`MetricsDashboard` 字段由必有改为可空，属于破坏性语义修改，`types.ts` 与页面由前端轮同步。OpenAPI 已重新生成。 |

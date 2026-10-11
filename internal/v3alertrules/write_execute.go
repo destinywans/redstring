@@ -176,6 +176,9 @@ func (s *WriteService) approvedIntentTx(ctx context.Context, tx pgx.Tx, proposal
 	if !validApproval(approval, actionDigest, creator) {
 		return zero, AlertRuleApproval{}, "", problem(409, "approval_invalid", "Current independent human approval is unavailable")
 	}
+	if intent.SchemaVersion == alertRuleEnableIntentDirect {
+		return intent, approval, actionDigest, nil
+	}
 	// Recheck the exact immutable draft and its current version. A later draft
 	// edit invalidates the old action rather than silently changing its target.
 	var opState, branch, artifactPath, manifestDigest, specHash string
@@ -216,6 +219,19 @@ func (s *WriteService) approvedIntent(ctx context.Context, proposalID string) (A
 }
 
 func (s *WriteService) recheckApprovedSource(ctx context.Context, intent AlertRuleEnableIntent) error {
+	if intent.SchemaVersion == alertRuleEnableIntentDirect {
+		// Version 2 has no draft: the bound group and the observed rule
+		// identity must still be what the request was checked against.
+		groups, observed, err := s.inspectCandidates(ctx, intent.EnvironmentID, intent.ApplicationID, []DraftRuleSpec{intent.Spec})
+		if err != nil {
+			return err
+		}
+		if fileIdentityDigest(groups[0].file) != intent.ProviderFileIdentityDigest ||
+			observed[0].id != intent.ObservedRuleID || observed[0].digest != intent.ObservedDigest {
+			return problem(409, "source_changed", "Bound rule source changed since the request")
+		}
+		return nil
+	}
 	var op operationRecord
 	err := s.DB.QueryRow(ctx, `SELECT id,environment_id,application_id,payload FROM v3_alert_rule_draft_operations
  WHERE id=$1 AND state='pending_review'`, intent.DraftOperationID).

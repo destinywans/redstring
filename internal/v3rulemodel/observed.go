@@ -24,6 +24,10 @@ type ObservedRule struct {
 	Annotations        map[string]string
 	LastEvaluation     time.Time
 	EvaluationTime     float64
+	// Health and LastError are Prometheus's rule evaluation state: ok, err
+	// or unknown (D11 readback).
+	Health    string
+	LastError string
 }
 
 // RuleGroupBinding is reviewed process configuration. Provider labels may

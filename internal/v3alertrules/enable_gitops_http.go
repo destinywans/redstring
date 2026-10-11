@@ -3,6 +3,8 @@ package v3alertrules
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,18 +19,60 @@ import (
 
 const enableGitOpsMaxResponse = 512 << 10
 
+// errGitOpsCredential is a write credential that could not be read; nothing
+// was sent.
+var errGitOpsCredential = errors.New("GitOps credential unavailable")
+
 type enableGitOpsHTTP struct {
-	base   *url.URL
-	token  string
-	client *http.Client
-	gitlab bool
+	base  *url.URL
+	token string
+	// tokenSource, when set, supplies the token on every request: a Vault
+	// read through the deployer's write binding (D11). It is never cached.
+	tokenSource func(context.Context) (string, error)
+	client      *http.Client
+	gitlab      bool
 }
 
-func newEnableGitOpsHTTP(rawURL, tokenFile string, allowLoopbackHTTP, gitlab bool) (enableGitOpsHTTP, error) {
+func validGitOpsEndpoint(rawURL string, allowLoopbackHTTP bool) (*url.URL, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" && u.Path != "/" ||
 		(u.Scheme != "https" && !(allowLoopbackHTTP && u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "::1"))) {
-		return enableGitOpsHTTP{}, errors.New("invalid GitOps endpoint")
+		return nil, errors.New("invalid GitOps endpoint")
+	}
+	return u, nil
+}
+
+// newEnableGitOpsHTTPWithSource reads the token from source on every
+// request and trusts caPEM, when given, as the only root (a private CA kept
+// next to the token).
+func newEnableGitOpsHTTPWithSource(rawURL string, source func(context.Context) (string, error), caPEM string,
+	allowLoopbackHTTP, gitlab bool) (enableGitOpsHTTP, error) {
+	u, err := validGitOpsEndpoint(rawURL, allowLoopbackHTTP)
+	if err != nil {
+		return enableGitOpsHTTP{}, err
+	}
+	if source == nil {
+		return enableGitOpsHTTP{}, errors.New("GitOps token source missing")
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	if caPEM != "" {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM([]byte(caPEM)) {
+			return enableGitOpsHTTP{}, errors.New("invalid GitOps CA")
+		}
+		transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	}
+	return enableGitOpsHTTP{base: u, tokenSource: source, gitlab: gitlab, client: &http.Client{
+		Timeout: 10 * time.Second, Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}}, nil
+}
+
+func newEnableGitOpsHTTP(rawURL, tokenFile string, allowLoopbackHTTP, gitlab bool) (enableGitOpsHTTP, error) {
+	u, err := validGitOpsEndpoint(rawURL, allowLoopbackHTTP)
+	if err != nil {
+		return enableGitOpsHTTP{}, err
 	}
 	if tokenFile == "" || strings.ContainsAny(tokenFile, "\r\n") {
 		return enableGitOpsHTTP{}, errors.New("invalid GitOps token file")
@@ -87,10 +131,17 @@ func (c enableGitOpsHTTP) request(ctx context.Context, method, endpoint string, 
 	if err != nil {
 		return 0, nil, nil, err
 	}
+	token := c.token
+	if c.tokenSource != nil {
+		token, err = c.tokenSource(ctx)
+		if err != nil || token == "" || len(token) > 16384 || strings.ContainsAny(token, "\r\n\t \x00") {
+			return 0, nil, nil, errGitOpsCredential
+		}
+	}
 	if c.gitlab {
-		req.Header.Set("PRIVATE-TOKEN", c.token)
+		req.Header.Set("PRIVATE-TOKEN", token)
 	} else {
-		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")

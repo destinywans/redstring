@@ -129,6 +129,8 @@ func (s *PrometheusSource) List(ctx context.Context, environment string) ([]Obse
 					Annotations    map[string]string `json:"annotations"`
 					LastEvaluation time.Time         `json:"lastEvaluation"`
 					EvaluationTime float64           `json:"evaluationTime"`
+					Health         string            `json:"health"`
+					LastError      string            `json:"lastError"`
 				} `json:"rules"`
 			} `json:"groups"`
 		} `json:"data"`
@@ -173,7 +175,8 @@ func (s *PrometheusSource) List(ctx context.Context, environment string) ([]Obse
 			}
 			result = append(result, ObservedRule{GroupIdentity: group.File + "\x00" + group.Name, Group: group.Name, Name: rule.Name, Expression: rule.Query, EvaluationInterval: interval,
 				State: rule.State, Duration: rule.Duration, Labels: rule.Labels, Annotations: rule.Annotations,
-				LastEvaluation: rule.LastEvaluation, EvaluationTime: rule.EvaluationTime})
+				LastEvaluation: rule.LastEvaluation, EvaluationTime: rule.EvaluationTime,
+				Health: rule.Health, LastError: limitText(rule.LastError, 500)})
 		}
 	}
 	return result, nil
@@ -347,4 +350,13 @@ func noPrometheusMessages(raw json.RawMessage) error {
 		return errors.New("Prometheus range response contains warnings or infos")
 	}
 	return nil
+}
+
+// limitText keeps at most limit runes of provider text.
+func limitText(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) > limit {
+		return string(runes[:limit])
+	}
+	return value
 }

@@ -168,6 +168,11 @@ func (a *GitOpsAlertRuleApplier) LookupForReconciliation(ctx context.Context, in
 	if err != nil || !found {
 		return zero, found, err
 	}
+	// The executor's own merge (D11) is the result of this execution.
+	if m.State == "merged" && in.Deployment.ExecutorMerges() {
+		receipt, err := a.mergedReceipt(ctx, b, in, branch, m)
+		return receipt, err == nil, err
+	}
 	state := m.State
 	// Reuse the exact source-parent, one-file diff and complete-byte checks.
 	// This copy affects only receipt validation, never the remote MR state.

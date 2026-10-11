@@ -33,7 +33,18 @@ type AlertRuleDeploymentPlan struct {
 	BaseRevision     string `json:"base_revision"`
 	ContentDigest    string `json:"content_digest"`
 	ScopeFingerprint string `json:"scope_fingerprint"`
+	// Load and Merge are file_pull and executor for a D11 binding: the
+	// approval covers the executor merging the MR. Both are empty for the
+	// WAN-118 Argo CD flow, whose MR a person merges.
+	Load  string `json:"load,omitempty"`
+	Merge string `json:"merge,omitempty"`
 }
+
+// MergeByExecutor is the plan's Merge when the executor merges (D11).
+const MergeByExecutor = "executor"
+
+// ExecutorMerges reports a D11 plan.
+func (p AlertRuleDeploymentPlan) ExecutorMerges() bool { return p.Merge == MergeByExecutor }
 
 func validateDeploymentPlan(p AlertRuleDeploymentPlan) error {
 	if p.ProjectID <= 0 || !deploymentBranchRE.MatchString(p.TargetBranch) ||
@@ -42,7 +53,8 @@ func validateDeploymentPlan(p AlertRuleDeploymentPlan) error {
 		strings.HasPrefix(p.Path, "/") || strings.Contains(p.Path, "\\") || strings.Contains(p.Path, "//") ||
 		path.Clean(p.Path) != p.Path || strings.HasPrefix(p.Path, "../") || strings.Contains(p.Path, "/../") ||
 		strings.HasPrefix(p.Path, "ops-config/alert-rule-drafts/") ||
-		!(strings.HasSuffix(p.Path, ".yml") || strings.HasSuffix(p.Path, ".yaml")) {
+		!(strings.HasSuffix(p.Path, ".yml") || strings.HasSuffix(p.Path, ".yaml")) ||
+		!((p.Load == "" && p.Merge == "") || (p.Load == LoadFilePull && p.Merge == MergeByExecutor)) {
 		return problem(503, "rule_deployment_plan_invalid", "Trusted alert rule target plan is invalid")
 	}
 	return nil
@@ -87,6 +99,11 @@ type AlertRuleDeploymentReceipt struct {
 	Path          string `json:"path"`
 	ContentDigest string `json:"content_digest"`
 	State         string `json:"state"` // Prepare returns opened; read-only recovery may record merged.
+	// SourceRevision is the MR head; MergeRevision and MergedAt are the
+	// revision a merged MR put on the target branch (D11).
+	SourceRevision string     `json:"source_revision,omitempty"`
+	MergeRevision  string     `json:"merge_revision,omitempty"`
+	MergedAt       *time.Time `json:"merged_at,omitempty"`
 }
 
 type AlertRuleDeploymentObservation struct {
@@ -94,6 +111,9 @@ type AlertRuleDeploymentObservation struct {
 	MergeRevision  string `json:"merge_revision,omitempty"`
 	SyncedRevision string `json:"synced_revision,omitempty"`
 	ContentDigest  string `json:"content_digest,omitempty"`
+	// GroupRules are the alert names of the bound group in the merged file,
+	// for the whole-group readback of a file_pull deployment (D11).
+	GroupRules []string `json:"group_rules,omitempty"`
 }
 
 type AlertRuleExecutionResult struct {
@@ -213,10 +233,15 @@ func (s *WriteService) sameApprovedPlan(ctx context.Context, intent AlertRuleEna
 	return nil
 }
 
+// validDeploymentReceipt checks an opened MR receipt, or a merged one of an
+// executor-merged plan (D11). The MR web URL is GitLab's external URL, which
+// an operator's TLS entry may front, so the adapter checks its exact base.
 func validDeploymentReceipt(plan AlertRuleDeploymentPlan, executionID string, receipt AlertRuleDeploymentReceipt) bool {
 	u, err := url.Parse(receipt.URL)
-	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil && u.Fragment == "" &&
-		receipt.State == "opened" && receipt.ProjectID == plan.ProjectID && receipt.MR > 0 &&
+	merged := plan.ExecutorMerges() && receipt.State == "merged" && deploymentRevisionRE.MatchString(receipt.MergeRevision) &&
+		receipt.MergedAt != nil
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != "" && u.User == nil && u.Fragment == "" &&
+		(receipt.State == "opened" || merged) && receipt.ProjectID == plan.ProjectID && receipt.MR > 0 &&
 		receipt.TargetBranch == plan.TargetBranch && receipt.Path == plan.Path &&
 		receipt.ContentDigest == plan.ContentDigest &&
 		receipt.SourceBranch == "aiops-alert-rule-enable/"+executionID

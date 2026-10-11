@@ -152,11 +152,14 @@ func (f *pageRaceFixture) notificationIDs(w *httptest.ResponseRecorder) []string
 	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 		f.t.Fatal(err)
 	}
+	// PA-83: each item carries its instant only in RFC 3339; the server-zone
+	// "15:04" time and "today"/"yesterday" day are gone.
+	if raw := w.Body.String(); strings.Contains(raw, `"time":`) || strings.Contains(raw, `"day":`) {
+		f.t.Fatalf("inbox kept preformatted times: %s", raw)
+	}
 	ids := []string{}
 	for _, v := range body.Items {
-		// PA-83: each item carries its instant in RFC 3339 besides the
-		// server-zone "15:04" text.
-		if at, err := time.Parse(time.RFC3339, v.At); err != nil || at.Location() != time.UTC || v.Time == "" {
+		if at, err := time.Parse(time.RFC3339, v.At); err != nil || at.Location() != time.UTC {
 			f.t.Fatalf("inbox item time: %+v %v", v, err)
 		}
 		// PA-84: an assignment opens the assigned alert, says its kind and

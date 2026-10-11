@@ -18,10 +18,9 @@ S['V3PushEndpoint'] = obj({
     ['method','path','host','headers','example','responses'])
 S['V3PushDelivery'] = obj({
     **fieldnames('source key code result ms'),
-    'time':string(description='"2006-01-02 15:04 UTC" text, kept for older clients; use at (PA-83)'),
     'at':string(format='date-time',description='PA-83: the delivery time in RFC 3339'),
     'tone':string(enum=_push_tones)},
-    ['time','at','source','key','code','tone','result','ms'])
+    ['at','source','key','code','tone','result','ms'])
 S['V3PushStack'] = obj({
     'enabled':v3_bool(),
     'components':arr(obj(fieldnames('brand name role'),['brand','name','role'])),

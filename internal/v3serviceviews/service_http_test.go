@@ -296,10 +296,16 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	if err = json.Unmarshal(w.Body.Bytes(), &d); err != nil {
 		t.Fatal(err)
 	}
-	// PA-83: the times inside the change and AI text also come in RFC 3339.
-	if len(d.Changes) != 1 || d.Changes[0].Time == "" || !strings.HasPrefix(d.Changes[0].Meta, d.Changes[0].Time) ||
-		d.AI == nil || d.AI.At == "" || !strings.Contains(d.AI.Meta, d.AI.At) || !strings.Contains(d.AI.Text, d.AI.At) {
+	// PA-83: the change and AI times come only in RFC 3339; the texts no
+	// longer carry them.
+	if len(d.Changes) != 1 || d.Changes[0].Meta != "成功" || d.AI == nil || !strings.HasPrefix(d.AI.Meta, "模型 ") ||
+		strings.Contains(d.AI.Meta, d.AI.At) || strings.Contains(d.AI.Text, d.AI.At) {
 		t.Fatalf("structured times: %+v %+v", d.Changes, d.AI)
+	}
+	for _, at := range []string{d.Changes[0].Time, d.AI.At} {
+		if parsed, err := time.Parse(time.RFC3339, at); err != nil || parsed.Location() != time.UTC {
+			t.Fatalf("structured time %q: %v", at, err)
+		}
 	}
 	if d.AI == nil || d.AI.Investigation != "INV-checkout" || !strings.Contains(d.AI.Text, "Observed elevated") ||
 		d.Deps == nil || len(d.Deps.Downstream) != 1 || d.Deps.Downstream[0].Name != "Payments" || str(d.Deps.Downstream[0].Status) != "ok" ||
@@ -309,7 +315,7 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	}
 	// PA-24: labels and notes follow Accept-Language (Chinese unless "en").
 	if d.SLO.Note != "观测到的月度可用率与错误预算消耗" || d.Signals[0].Label != "请求量" || !strings.HasPrefix(d.Changes[0].Title, "部署 ") ||
-		!strings.HasPrefix(d.AI.Text, "调查记录（截至 ") || d.Deps.Downstream[0].Meta != "CMDB 依赖关系" {
+		!strings.HasPrefix(d.AI.Text, "调查记录：") || d.Deps.Downstream[0].Meta != "CMDB 依赖关系" {
 		t.Fatalf("detail is not in Chinese: note=%q signal=%q change=%q ai=%q dep=%q", d.SLO.Note, d.Signals[0].Label, d.Changes[0].Title, d.AI.Text, d.Deps.Downstream[0].Meta)
 	}
 	inEnglish := func(path string) *httptest.ResponseRecorder {
@@ -323,7 +329,8 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
 	}
 	en := getDetail(t, inEnglish, "checkout-app")
 	if en.SLO.Note != "Observed monthly availability and error-budget burn" || en.Signals[0].Label != "Requests" || en.Signals[0].Sub != "Observed request rate" ||
-		!strings.HasPrefix(en.Changes[0].Title, "Deployment ") || !strings.HasPrefix(en.AI.Text, "Investigation note as of ") ||
+		!strings.HasPrefix(en.Changes[0].Title, "Deployment ") || !strings.HasPrefix(en.AI.Text, "Investigation note: ") ||
+		en.Changes[0].Meta != "succeeded" || !strings.HasPrefix(en.AI.Meta, "Model ") ||
 		en.Changes[0].Title[len("Deployment "):] != d.Changes[0].Title[len("部署 "):] {
 		t.Fatalf("detail is not in English: %+v", en)
 	}

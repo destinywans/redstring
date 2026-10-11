@@ -589,14 +589,24 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	}
 	guards := request("GET", "/api/v1/guardrails", adminToken, "dev", "")
 	assert(guards, 200, `"id":"guard1"`)
-	// PA-83: each UTC trend day also comes as the instant it starts.
+	// PA-83: each UTC trend day comes only as the instant it starts; the
+	// "2006-01-02" trend_days are gone.
 	var trend struct {
-		Days   []string `json:"trend_days"`
 		Starts []string `json:"trend_starts_at"`
 	}
-	if json.Unmarshal(guards.Body.Bytes(), &trend) != nil || len(trend.Days) != 7 || len(trend.Starts) != 7 ||
-		trend.Starts[6] != trend.Days[6]+"T00:00:00Z" {
-		t.Fatalf("trend days: %+v", trend)
+	if json.Unmarshal(guards.Body.Bytes(), &trend) != nil || len(trend.Starts) != 7 || strings.Contains(guards.Body.String(), `"trend_days"`) {
+		t.Fatalf("trend days: %s", guards.Body.String())
+	}
+	for i, value := range trend.Starts {
+		at, err := time.Parse(time.RFC3339, value)
+		if err != nil || !strings.HasSuffix(value, "T00:00:00Z") {
+			t.Fatalf("trend day %d: %q %v", i, value, err)
+		}
+		if i > 0 {
+			if previous, _ := time.Parse(time.RFC3339, trend.Starts[i-1]); at.Sub(previous) != 24*time.Hour {
+				t.Fatalf("trend days are not consecutive: %v", trend.Starts)
+			}
+		}
 	}
 	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_guard_events
  (id,run_id,policy_id,action,target_kind,reason_code,created_at,observed_at,policy_revision)

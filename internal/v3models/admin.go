@@ -71,8 +71,8 @@ type adminMapping struct {
 	Param string `json:"param"`
 }
 
-// CheckedAt is the metadata check time inside Checks, in RFC 3339 (PA-83);
-// null when this process has no check.
+// CheckedAt is the metadata check time in RFC 3339, null when this process
+// has no check; Checks no longer repeat it (PA-83).
 type adminDetail struct {
 	Model     string         `json:"model"`
 	APIChain  []adminAPIStep `json:"api_chain"`
@@ -331,9 +331,9 @@ func adminModelDetail(model inference.Model, observation adminObservation, usage
 		checkedAt = &stamp
 		switch observation.Status {
 		case "verified":
-			checks = append(checks, "Local credential-free metadata lookup succeeded at "+stamp+".")
+			checks = append(checks, "Local credential-free metadata lookup succeeded.")
 		case "error", "unsupported":
-			checks = append(checks, "Metadata lookup "+observation.Status+" at "+stamp+" (code: "+observation.ErrorCode+").")
+			checks = append(checks, "Metadata lookup "+observation.Status+" (code: "+observation.ErrorCode+").")
 		}
 	}
 	mapping := make([]adminMapping, 0, len(model.ReasoningLevels))

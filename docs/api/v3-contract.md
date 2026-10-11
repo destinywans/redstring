@@ -60,7 +60,7 @@
 | GET | `/me/watched-services` | | 本人明确关注的当前有权服务；状态来源不足时 `status: null` 并标注 `availability` | implemented |
 | GET | `/search` | `q` | 六类持久且当前有权对象的有界搜索，含受治理 Runbook；无真实最近访问记录 | implemented |
 | GET | `/mentions` | `q`, `kind` | 服务、事件、调查、有效人员、本人对话及 Runbook 的有界候选 | implemented |
-| GET | `/home` | | 有界授权快照；无来源的 AI 简报、值班与服务健康可空，附 `availability`。`alert_trend` 另带 `start`（RFC 3339，整秒 UTC）和 `step_seconds`（可为小数），前端按本地时区自行生成横轴；`labels` 仍是 UTC `HH:MM`，仅为兼容保留（PA-25）。链接 `href` 都是前端已有的路由：`attention[].href` 为事件页 `/incidents/{id}`（告警事件也在事件页打开，前端没有 `/alerts/{id}` 页面，PA-86），`activity[].href` 为 `/incidents/{id}`（事件记录更新）或 `/review/{id}`（待复核提案），`recent[].href` 为 `/conversations/{id}`；ID 按路径段转义 | implemented |
+| GET | `/home` | | 有界授权快照；无来源的 AI 简报、值班与服务健康可空，附 `availability`。`alert_trend` 另带 `start`（RFC 3339，整秒 UTC）和 `step_seconds`（可为小数），前端按本地时区自行生成横轴；原来的 UTC `HH:MM` `labels` 已删除（PA-83）。`recent[]` 带 `environment_id` 和 `environment_label`（实例配置里该环境的名称，没有时为 ID），时间为 `at`（PA-83）。链接 `href` 都是前端已有的路由：`attention[].href` 为事件页 `/incidents/{id}`（告警事件也在事件页打开，前端没有 `/alerts/{id}` 页面，PA-86），`activity[].href` 为 `/incidents/{id}`（事件记录更新）或 `/review/{id}`（待复核提案），`recent[].href` 为 `/conversations/{id}`；ID 按路径段转义 | implemented |
 | GET | `/mentions/{kind}/{id}/preview` | | 当前有权六类对象的有证据预览；Runbook 缺失观测项明示，其他类别明确不可用 | implemented |
 | GET | `/commands` | | `{ items: CommandItem[] }`；仅经配置和授权的斜杠文字建议，不执行命令 | implemented |
 | GET | `/models` | | `ModelCatalog`：当前用户可用的模型、接口类型、推理强度档位与默认值 | implemented |
@@ -572,33 +572,31 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 ## 时间字段的显示（PA-83）
 
-后端返回给前端的时间一律应是结构化的 RFC 3339（UTC，`Z` 结尾），由前端按用户时区和应用语言显示（PA-82 的 `web/src/v3/ui/when.ts`）。下表是 2026-10-10 盘点出的、后端已经格式化成文字的时间字段，以及本次补上的结构化字段。旧字段在过渡期保留、内容不变，前端切换到新字段后再删除。
+后端返回给前端的时间一律是结构化的 RFC 3339（UTC，`Z` 结尾），由前端按用户时区和应用语言显示（PA-82 的 `web/src/v3/ui/when.ts`）。下表是 2026-10-10 盘点出的、后端曾格式化成文字的时间字段，补上的结构化字段，以及 2026-10-11 的清理结果（D24）：只有时间的旧字段已删除；文字里除时间外还有别的信息的，保留去掉时间后的文字。前端同步去掉对旧字段的兼容分支，两边一起部署。
 
-| 接口 | 原字段 | 原格式 | 时区 | 结构化字段 |
-| --- | --- | --- | --- | --- |
-| `GET /metrics/dashboard` | `window.labels`、`window.ticks` | `15:04` | UTC，未标注 | `window.label_times[]`、`window.tick_times[]`（与原数组一一对应） |
-| `GET /metrics/dashboard` | `window.incident_label` | `Incident · 15:04–15:04 UTC` | UTC | `window.incident_start_at`、`window.incident_end_at`（事件未结束时为窗口终点；没有事件时为 `null`） |
-| `GET /traces`（应用与 Agent 范围） | `histogram.axis` | `15:04` | UTC，未标注 | `histogram.axis_times[]`（各桶起点） |
-| `GET /changes` | `axis` | `Jan 02 15:04 UTC` | UTC | `axis_times[]` |
-| `GET /changes` | `detail.meta` | `Reviewed run … · audit #… · <RFC 3339>` | UTC | `detail.reviewed_at` |
-| `GET /inbox` | `items[].time` | `15:04` | 服务器时区（响应里的 `timezone`） | `items[].at` |
-| `GET /inbox` | `items[].day` | `today` / `yesterday` | 服务器时区 | 由 `items[].at` 在本地判断；列表范围仍是服务器时区的昨天零点至今 |
-| `GET /ingest/push` | `deliveries[].time` | `2006-01-02 15:04 UTC` | UTC | `deliveries[].at` |
-| `GET /webhooks` | `inbound[].last` | `202 · <RFC 3339>` 或 `unknown` | UTC | `inbound[].last_at`、`inbound[].last_code`（未知时为 `null`） |
-| `GET /home` | `attention[].meta` | `已入库告警 · <RFC 3339>` / `已入库事件 · <RFC 3339>` | UTC | `attention[].at`（告警中为开始时间，否则为最近更新） |
-| `GET /home` | `recent[].meta` | `<环境> · <RFC 3339>` | UTC | `recent[].at` |
-| `GET /home` | `alert_trend.labels` | `15:04` | UTC | 已有 `alert_trend.start`、`step_seconds`，不改 |
-| `GET /services/{id}` | `changes[].meta` | `<RFC 3339> · 成功` | UTC | `changes[].at` |
-| `GET /services/{id}` | `ai.text`、`ai.meta` | `调查记录（截至 <RFC 3339>）：…`、`模型 <id> · <RFC 3339>` | UTC | `ai.at` |
-| `GET /me/profile` | `security.sessions[].sub` | `登录于 <RFC 3339> · 到期时间 <RFC 3339>` | UTC | `sessions[].signed_in_at`（未记录时为 `null`）、`sessions[].expires_at`；`PUT` 回传时可带可不带 |
-| `GET /connectors`、`GET /connectors/{id}` | `meta`、详情的 `checked` | `已检查 <RFC 3339>`、`上次连接检查 <RFC 3339> · 已过期` 等；`checked` 为 RFC 3339 或“尚未检查” | UTC | `checked_at`（从未检查时为 `null`） |
-| `GET /ingest/pull/{id}` | `sample.meta` | `Normalized preview … at <RFC 3339>` | UTC | `sample.captured_at` |
-| `GET /models/admin` | `detail.checks[]` | `… succeeded at <RFC 3339>.` | UTC | `detail.checked_at`（本进程没有检查时为 `null`） |
-| `GET /postmortems/draft` | `incident.window` | `<RFC 3339> – <RFC 3339>` | UTC | `incident.started_at`、`incident.closed_at` |
-| `GET /guardrails` | `trend_days` | `2006-01-02` | UTC 日历日 | `trend_starts_at[]`（各日 UTC 零点）；分桶仍按 UTC 日 |
-| `GET /silences` | `window` | `2006-01-02 15:04 -07:00 – …` | Alertmanager 返回的偏移 | 已有 `starts_at`、`ends_at`，不改 |
-
-**旧字段的删除**：前端已改读上表的结构化字段（2026-10-11），旧的文字时间字段本轮不删，留到下一轮清理。删除前要先给首页 `recent[]` 补一个结构化的环境字段：`recent[].meta` 是“环境 · 时间”，去掉它后前端没有别的地方取环境。
+| 接口 | 原字段 | 原格式 | 时区 | 结构化字段 | 清理（2026-10-11） |
+| --- | --- | --- | --- | --- | --- |
+| `GET /metrics/dashboard` | `window.labels`、`window.ticks` | `15:04` | UTC，未标注 | `window.label_times[]`、`window.tick_times[]` | 删除 |
+| `GET /metrics/dashboard` | `window.incident_label` | `Incident · 15:04–15:04 UTC` | UTC | `window.incident_start_at`、`window.incident_end_at`（事件未结束时为窗口终点；没有事件时为 `null`） | 删除；`unavailable` 里随之不再有 `window.incident_label`，事件标记缺失只报 `window.incident` |
+| `GET /traces`（应用与 Agent 范围） | `histogram.axis` | `15:04` | UTC，未标注 | `histogram.axis_times[]`（各桶起点） | 删除 |
+| `GET /changes` | `axis` | `Jan 02 15:04 UTC` | UTC | `axis_times[]` | 删除 |
+| `GET /changes` | `detail.meta` | `Reviewed run … · audit #… · <RFC 3339>` | UTC | `detail.reviewed_at` | 去掉时间：`Reviewed run <ref> · audit #<id>` |
+| `GET /inbox` | `items[].time` | `15:04` | 服务器时区（响应里的 `timezone`） | `items[].at` | 删除 |
+| `GET /inbox` | `items[].day` | `today` / `yesterday` | 服务器时区 | 由 `items[].at` 在本地判断；列表范围仍是服务器时区的昨天零点至今 | 删除 |
+| `GET /ingest/push` | `deliveries[].time` | `2006-01-02 15:04 UTC` | UTC | `deliveries[].at` | 删除 |
+| `GET /webhooks` | `inbound[].last` | `202 · <RFC 3339>` 或 `unknown` | UTC | `inbound[].last_at`、`inbound[].last_code`（未知时为 `null`） | 删除 |
+| `GET /home` | `attention[].meta` | `已入库告警 · <RFC 3339>` / `已入库事件 · <RFC 3339>` | UTC | `attention[].at`（告警中为开始时间，否则为最近更新） | 去掉时间：`已入库告警` / `已入库事件`（英文 `Stored alert` / `Stored incident`） |
+| `GET /home` | `recent[].meta` | `<环境> · <RFC 3339>` | UTC | `recent[].at` | 删除；新增 `recent[].environment_id` 和 `recent[].environment_label`（实例配置里该环境的名称，没有时为 ID） |
+| `GET /home` | `alert_trend.labels` | `15:04` | UTC | `alert_trend.start`、`step_seconds`（PA-25 已有） | 删除 |
+| `GET /services/{id}` | `changes[].meta` | `<RFC 3339> · 成功` | UTC | `changes[].at` | 去掉时间：`成功`（英文 `succeeded`） |
+| `GET /services/{id}` | `ai.text`、`ai.meta` | `调查记录（截至 <RFC 3339>）：…`、`模型 <id> · <RFC 3339>` | UTC | `ai.at` | 去掉时间：`调查记录：…`、`模型 <id>`（英文 `Investigation note: …`、`Model <id>`） |
+| `GET /me/profile` | `security.sessions[].sub` | `登录于 <RFC 3339> · 到期时间 <RFC 3339>`（有身份证据时前面加登录方式） | UTC | `sessions[].signed_in_at`（未记录时为 `null`）、`sessions[].expires_at`；`PUT` 回传时可带可不带 | 去掉时间：只剩登录方式（如 `密码登录`），没有身份证据时为空字符串 |
+| `GET /connectors`、`GET /connectors/{id}` | `meta`、详情的 `checked` | `已检查 <RFC 3339>`、`连接检查失败 <RFC 3339>: <code>`、`上次连接检查 <RFC 3339> · 已过期`；`checked` 为 RFC 3339 或“尚未检查” | UTC | `checked_at`（从未检查时为 `null`） | `meta` 去掉时间：`连接检查通过`、`连接检查失败：<code>`、`上次连接检查已过期`（英文 `Connection test passed`、`Connection check failed: <code>`、`Last connection test expired`）；详情 `checked` 删除 |
+| `GET /ingest/pull/{id}` | `sample.meta` | `Normalized preview … at <RFC 3339>` | UTC | `sample.captured_at` | 去掉时间：`Normalized preview from a successful upstream read` |
+| `GET /models/admin` | `detail.checks[]` | `… succeeded at <RFC 3339>.` | UTC | `detail.checked_at`（本进程没有检查时为 `null`） | 去掉时间：`Local credential-free metadata lookup succeeded.`、`Metadata lookup <status> (code: <code>).` |
+| `GET /postmortems/draft` | `incident.window` | `<RFC 3339> – <RFC 3339>` | UTC | `incident.started_at`、`incident.closed_at` | 删除；没有起止时 `missing` 里的 `incident.window` 改为 `incident.started_at`、`incident.closed_at` |
+| `GET /guardrails` | `trend_days` | `2006-01-02` | UTC 日历日 | `trend_starts_at[]`（各日 UTC 零点）；分桶仍按 UTC 日 | 删除 |
+| `GET /silences` | `window` | `2006-01-02 15:04 -07:00 – …` | Alertmanager 返回的偏移 | `starts_at`、`ends_at`（PA-37 已有） | 删除 |
 
 不改的：韧性提案的 `requirement` 文字里的调查更新时间（随提案持久化，属于摘要内容）；邀请邮件正文的到期时间（邮件，不经前端）；审计 `volume`（按 UTC 日分桶，不带时间标签）。其余返回时间的字段本来就是 RFC 3339。
 
@@ -614,6 +612,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | 2026-10-11 | PA-84：收件箱分配条目的 `href` 指向被分配的对象（`/incidents/{id}` 或 `/review/{id}`），新增 `assignment_kind`，`sub` 按请求语言生成；OpenAPI `V3InboxItem.kind` 补上 `assignment` |
 | 2026-10-11 | PA-83：旧的文字时间字段本轮保留，下一轮清理；删除前先给首页 `recent[]` 补结构化的环境字段 |
 | 2026-10-11 | PA-86：首页 `attention[].href` 与事件动态的 `activity[].href` 由 `/alerts/{id}`（前端没有这个路由）改为 `/incidents/{id}`；全仓库没有其他后端生成的 `/alerts/{id}` 链接 |
+| 2026-10-11 | PA-83 清理（D24）：删除旧的文字时间字段（看板 `window.labels`/`ticks`/`incident_label`、Trace `histogram.axis`、变更 `axis`、收件箱 `time`/`day`、推送 `time`、Webhook `last`、首页 `recent[].meta` 与 `alert_trend.labels`、连接器详情 `checked`、复盘草稿 `incident.window`、护栏 `trend_days`、静默 `window`）；变更详情、首页 attention、服务详情、账号会话、连接器、Pull 样例、模型检查的文字去掉时间；首页 `recent[]` 新增 `environment_id`、`environment_label`。破坏性修改，前端须同时部署；明细见“时间字段的显示（PA-83）” |
 | 2026-10-11 | PA-87：应用范围链路列表跳过 Tempo 返回的不完整 Trace（缺父 Span 等）并以 `excluded_incomplete` 计数，不再整页 503；声明搜索完整时改报 `partial_reason: incomplete_traces`；链路与日志读取失败在服务日志里记录错误类型、信息和上游状态 |
 | 2026-10-11 | D30：已声明搜索完整的链路列表同时达到预算上限并跳过了不完整 Trace 时，`partial_reason` 为 `search_budget`（窗口照常给出，跳过条数仍在 `excluded_incomplete`），只有覆盖了整个范围时才为 `incomplete_traces` |
 | 2026-10-09 | 生产验收 PA-05/PA-16：新增「未知」约定（`null` + `unavailable` 原因）。`/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard` 在可选证据缺失时返回 200，受影响字段可空；`ProfileView`、`SecurityView`、`LogSearch`、`TraceList`、`MetricsDashboard` 字段由必有改为可空，属于破坏性语义修改，`types.ts` 与页面由前端轮同步。OpenAPI 已重新生成。 |

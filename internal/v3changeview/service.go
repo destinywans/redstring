@@ -97,7 +97,8 @@ type detail struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
 	Meta  string `json:"meta"`
-	// ReviewedAt is the review time inside Meta, in RFC 3339 (PA-83).
+	// ReviewedAt is the review time in RFC 3339; Meta no longer repeats it
+	// (PA-83).
 	ReviewedAt *string `json:"reviewed_at"`
 	Brand      string  `json:"brand"`
 	Stages     []stage `json:"stages"`
@@ -120,9 +121,8 @@ type viewResponse struct {
 	KPIs    []kpi         `json:"kpis"`
 	Sources []sourceCount `json:"sources"`
 	Lanes   []lane        `json:"lanes"`
-	Axis    []string      `json:"axis"`
-	// AxisTimes are the instants of Axis ("Jan 02 15:04 UTC" text kept for
-	// older clients) in RFC 3339 (PA-83).
+	// AxisTimes are the axis instants in RFC 3339 (PA-83; the
+	// "Jan 02 15:04 UTC" axis text was removed).
 	AxisTimes []string   `json:"axis_times"`
 	Pipelines []pipeline `json:"pipelines"`
 	Detail    detail     `json:"detail"`

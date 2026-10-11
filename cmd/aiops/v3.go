@@ -372,7 +372,12 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	discovery.Register(api)
 	coverage := v3coverage.New(s.DB, policy)
 	coverage.Register(api)
-	v3home.New(s.DB, policy).Register(api)
+	home := v3home.New(s.DB, policy)
+	home.EnvironmentLabels = make(map[string]string, len(info.Environments))
+	for _, env := range info.Environments {
+		home.EnvironmentLabels[env.ID] = env.Label
+	}
+	home.Register(api)
 	mcpService := v3mcp.New(s.DB, policy)
 	mcpService.AuthorizeRegistrationEndpoint, err = loadV3MCPRegistrationBindings(
 		os.Getenv("AIOPS_V3_MCP_REGISTRATION_BINDINGS"), *info)

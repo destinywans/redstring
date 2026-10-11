@@ -219,7 +219,6 @@ v3_route('get','/guardrails','Read persisted Agent guardrail policies and report
             'reported_events_7d':integer(minimum=0)},
             ['id','icon','name','desc','stat','enabled','forced','revision','reported_events_7d'])),
         'trend':arr({'type':'array','items':integer(minimum=0),'minItems':2,'maxItems':2}),
-        'trend_days':arr(string(format='date')),
         'trend_starts_at':{**arr(string(format='date-time')),'description':'PA-83: the instant each UTC trend day starts, in RFC 3339'},
         'events':arr(obj({**fieldnames('id time agent recorded_at time_source run rule action detail target_kind'),
             'policy_revision':{'type':['integer','null']}},
@@ -235,7 +234,7 @@ v3_route('get','/guardrails','Read persisted Agent guardrail policies and report
         'aggregation_basis':string(enum=['reported_events']),
         'coverage':string(enum=['unknown']),
         'partial':v3_bool(),'truncated':v3_bool(),'missing':arr(string())},
-        ['policies','trend','trend_days','trend_starts_at','events','counts','detail','aggregation_basis',
+        ['policies','trend','trend_starts_at','events','counts','detail','aggregation_basis',
          'coverage','partial','truncated','missing']),
     desc='Policies are persisted; at most 200 policies and 200 visible events are returned. Counts, each policy reported_events_7d, and seven UTC calendar-day trend pairs [blocked, masked] use the full authorized set of trusted reports with observed_at and policy_revision before the response page limit. Legacy reports lacking that decision evidence are excluded from aggregates. aggregation_basis is reported_events and coverage remains unknown: no live producer or enforcement coverage is attested. Detail is latest listed event metadata only, with unavailable source, snippet, masked payload and verdict null; it is null if no event is listed. partial is true and missing names the unconnected producer and unavailable coverage/payload fields. This partial response does not satisfy the current frontend GuardrailsView.')
 v3_route('patch','/guardrails/{id}','Change one persisted guardrail policy setting',

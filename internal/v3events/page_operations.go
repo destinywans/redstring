@@ -343,18 +343,8 @@ func (s *Service) readAssignmentNotifications(r *http.Request, tx pgx.Tx, since 
 		} else if err != nil {
 			return nil, err
 		}
-		loc := s.Location
-		if loc == nil {
-			loc = time.UTC
-		}
-		at := n.at.In(loc)
-		now := time.Now().In(loc)
-		day := "today"
-		if at.Year() != now.Year() || at.YearDay() != now.YearDay() {
-			day = "yesterday"
-		}
 		items = append(items, persistedInboxItem{ID: "assignment:" + n.id, Kind: "assignment", Tone: "neutral", Title: title,
-			Sub: t.assignedSub(n.kind), Time: at.Format("15:04"), At: at.UTC().Format(time.RFC3339), Day: day,
+			Sub: t.assignedSub(n.kind), At: n.at.UTC().Format(time.RFC3339),
 			Href: assignedHref(n.kind, n.item), AssignmentKind: n.kind})
 	}
 	return items, nil

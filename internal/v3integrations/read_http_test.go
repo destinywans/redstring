@@ -154,35 +154,39 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 	if err := json.Unmarshal(detail.Body.Bytes(), &rawDetail); err != nil {
 		t.Fatal(err)
 	}
-	for _, field := range []string{"id", "brand", "name", "kind", "category", "status", "tags", "meta", "scope", "address", "auth", "checked", "services", "queries", "tools"} {
+	for _, field := range []string{"id", "brand", "name", "kind", "category", "status", "tags", "meta", "scope", "address", "auth", "checked_at", "services", "queries", "tools"} {
 		if _, ok := rawDetail[field]; !ok {
 			t.Fatalf("detail missing %s: %s", field, detail.Body.String())
 		}
+	}
+	// PA-83: the "checked" text was replaced by checked_at.
+	if _, ok := rawDetail["checked"]; ok {
+		t.Fatalf("detail kept checked: %s", detail.Body.String())
 	}
 	var got struct {
 		Auth struct {
 			Brand string `json:"brand"`
 			Text  string `json:"text"`
 		} `json:"auth"`
-		Checked string   `json:"checked"`
-		Tools   []tool   `json:"tools"`
-		Tags    []any    `json:"tags"`
-		Queries []string `json:"queries"`
+		CheckedAt *string  `json:"checked_at"`
+		Tools     []tool   `json:"tools"`
+		Tags      []any    `json:"tags"`
+		Queries   []string `json:"queries"`
 	}
 	if err := json.Unmarshal(detail.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
 	// The saved tool switches are shown (PA-19 P3 stage 2 step 7); they grant
 	// no Agent execution, so no capability tag is derived from them.
-	if got.Auth.Brand != "" || got.Auth.Text != "无需认证" || got.Checked != "尚未检查" || len(got.Tools) != 1 || got.Tools[0].Name != "query_metrics" ||
+	if got.Auth.Brand != "" || got.Auth.Text != "无需认证" || got.CheckedAt != nil || len(got.Tools) != 1 || got.Tools[0].Name != "query_metrics" ||
 		got.Tags == nil || len(got.Tags) != 0 || got.Queries == nil || len(got.Queries) != 0 {
 		t.Fatalf("unexpected detail: %s", detail.Body.String())
 	}
 	for _, tc := range []struct {
-		id, language, brand, text, checked, meta string
+		id, language, brand, text, meta string
 	}{
-		{"credential-draft", "zh-CN", "", "个人访问令牌 · 凭据未配置", "尚未检查", "未启用 · 凭据未配置"},
-		{"credential-registered", "en-US", "", "Personal access token · server binding not configured", "Never checked", "Disabled · server credential binding not configured"},
+		{"credential-draft", "zh-CN", "", "个人访问令牌 · 凭据未配置", "未启用 · 凭据未配置"},
+		{"credential-registered", "en-US", "", "Personal access token · server binding not configured", "Disabled · server credential binding not configured"},
 	} {
 		w := request("/api/v1/connectors/"+tc.id, "dev", token, tc.language)
 		if w.Code != http.StatusOK {
@@ -195,18 +199,18 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 				Brand string `json:"brand"`
 				Text  string `json:"text"`
 			} `json:"auth"`
-			Checked string   `json:"checked"`
-			Tags    []any    `json:"tags"`
-			Queries []string `json:"queries"`
-			Tools   []tool   `json:"tools"`
-			Agent   *bool    `json:"agent_execution_available"`
+			CheckedAt *string  `json:"checked_at"`
+			Tags      []any    `json:"tags"`
+			Queries   []string `json:"queries"`
+			Tools     []tool   `json:"tools"`
+			Agent     *bool    `json:"agent_execution_available"`
 		}
 		if err := json.Unmarshal(w.Body.Bytes(), &item); err != nil {
 			t.Fatal(err)
 		}
 		// Saved tool switches are listed but grant nothing: no tag, query or
 		// Agent execution.
-		if item.Status != "unverified" || item.Meta != tc.meta || item.Auth.Brand != tc.brand || item.Auth.Text != tc.text || item.Checked != tc.checked || item.Tags == nil || len(item.Tags) != 0 || item.Queries == nil || len(item.Queries) != 0 || item.Tools == nil || item.Agent == nil || *item.Agent {
+		if item.Status != "unverified" || item.Meta != tc.meta || item.Auth.Brand != tc.brand || item.Auth.Text != tc.text || item.CheckedAt != nil || item.Tags == nil || len(item.Tags) != 0 || item.Queries == nil || len(item.Queries) != 0 || item.Tools == nil || item.Agent == nil || *item.Agent {
 			t.Fatalf("unverified connector %s advertised capability: %s", tc.id, w.Body.String())
 		}
 		if strings.Contains(w.Body.String(), "vault://") {
@@ -223,18 +227,14 @@ func TestConnectorReadsUsePersistedScopedRecords(t *testing.T) {
 	var state struct {
 		Status    string  `json:"status"`
 		Meta      string  `json:"meta"`
-		Checked   string  `json:"checked"`
 		CheckedAt *string `json:"checked_at"`
 	}
 	if err := json.Unmarshal(unusable.Body.Bytes(), &state); err != nil {
 		t.Fatal(err)
 	}
-	if state.Status != "unverified" || state.Meta != "未启用 · 凭据未配置" || state.Checked == "" || state.Checked == "尚未检查" {
+	// PA-83: the last test time comes only in RFC 3339 as checked_at.
+	if state.Status != "unverified" || state.Meta != "未启用 · 凭据未配置" || state.CheckedAt == nil {
 		t.Fatalf("missing credentials appeared healthy: %s", unusable.Body.String())
-	}
-	// PA-83: the last test time comes in RFC 3339 as checked_at.
-	if state.CheckedAt == nil || *state.CheckedAt != state.Checked {
-		t.Fatalf("checked_at: %s", unusable.Body.String())
 	}
 	if _, err := time.Parse(time.RFC3339, *state.CheckedAt); err != nil {
 		t.Fatal(err)

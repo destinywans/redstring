@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -134,14 +135,14 @@ func TestConnectorListCompleteScopedCountsAndPersistedProbeState(t *testing.T) {
 			t.Fatalf("connector detail: %d %s", w.Code, w.Body.String())
 		}
 		var result struct {
-			Status  string `json:"status"`
-			Meta    string `json:"meta"`
-			Checked string `json:"checked"`
+			Status    string  `json:"status"`
+			Meta      string  `json:"meta"`
+			CheckedAt *string `json:"checked_at"`
 		}
-		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
-			t.Fatal(err)
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || result.CheckedAt == nil {
+			t.Fatalf("connector detail: %s %v", w.Body.String(), err)
 		}
-		return result.Status, result.Meta, result.Checked
+		return result.Status, result.Meta, *result.CheckedAt
 	}
 	got := read(request("/api/v1/connectors", "all"))
 	if len(got.Items) != 204 || got.Counts["ok"] != 1 || got.Counts["error"] != 1 || got.Counts["unverified"] != 202 {
@@ -154,15 +155,16 @@ func TestConnectorListCompleteScopedCountsAndPersistedProbeState(t *testing.T) {
 		if item.ID == "hidden" {
 			t.Fatal("other environment leaked into list")
 		}
-		if item.ID == "ok" && (item.Status != "ok" || !strings.Contains(item.Meta, "已检查 ")) {
+		// PA-83: meta no longer carries the test time; checked_at does.
+		if item.ID == "ok" && (item.Status != "ok" || item.Meta != "连接检查通过") {
 			t.Fatalf("persisted successful probe was not projected: %+v", item)
 		}
-		if item.ID == "failed" && (item.Status != "error" || !strings.Contains(item.Meta, "连接检查失败 ")) {
+		if item.ID == "failed" && (item.Status != "error" || !strings.HasPrefix(item.Meta, "连接检查失败：")) {
 			t.Fatalf("persisted failed probe was not projected: %+v", item)
 		}
 	}
 	status, meta, checked := readDetail()
-	if status != "ok" || !strings.Contains(meta, "已检查 ") || checked == "" {
+	if _, err := time.Parse(time.RFC3339, checked); status != "ok" || meta != "连接检查通过" || err != nil {
 		t.Fatalf("fresh detail status=%q meta=%q checked=%q", status, meta, checked)
 	}
 	filtered := read(request("/api/v1/connectors?category=observe&q=unique", "dev"))
@@ -173,11 +175,11 @@ func TestConnectorListCompleteScopedCountsAndPersistedProbeState(t *testing.T) {
 		t.Fatal(err)
 	}
 	stale := read(request("/api/v1/connectors?category=observe&q=unique", "dev"))
-	if len(stale.Items) != 1 || stale.Items[0].Status != "unverified" || !strings.Contains(stale.Items[0].Meta, "已过期") || stale.Counts["ok"] != 0 || stale.Counts["unverified"] != 203 {
+	if len(stale.Items) != 1 || stale.Items[0].Status != "unverified" || stale.Items[0].Meta != "上次连接检查已过期" || stale.Counts["ok"] != 0 || stale.Counts["unverified"] != 203 {
 		t.Fatalf("stale probe was treated as current health: items=%v counts=%v", stale.Items, stale.Counts)
 	}
 	status, meta, staleChecked := readDetail()
-	if status != "unverified" || !strings.Contains(meta, "已过期") || staleChecked == "" || staleChecked == checked {
+	if status != "unverified" || meta != "上次连接检查已过期" || staleChecked == checked {
 		t.Fatalf("stale detail status=%q meta=%q checked=%q", status, meta, staleChecked)
 	}
 	if _, err := db.Exec(ctx, `UPDATE v3_connectors SET status='ok',last_checked_at=NULL WHERE id='ok'`); err != nil {

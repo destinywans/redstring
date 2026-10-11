@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -245,18 +246,31 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 		t.Fatalf("team scope: %d %s", teamCandidates.Code, teamCandidates.Body.String())
 	}
 	draft := call("GET", "/api/v1/postmortems/draft?incident=ready", "dev", teamToken, "")
-	// PA-83: the window's ends also come in RFC 3339, or null with it.
+	// PA-83: the incident bounds come only in RFC 3339, both or neither;
+	// the window text is gone.
 	var drafted struct {
-		Incident struct {
-			Window    *string `json:"window"`
-			StartedAt *string `json:"started_at"`
-			ClosedAt  *string `json:"closed_at"`
-		} `json:"incident"`
+		Incident map[string]json.RawMessage `json:"incident"`
+		Missing  []string                   `json:"missing"`
 	}
-	if json.Unmarshal(draft.Body.Bytes(), &drafted) != nil || (drafted.Incident.Window == nil) != (drafted.Incident.StartedAt == nil) ||
-		(drafted.Incident.Window != nil && (drafted.Incident.ClosedAt == nil ||
-			*drafted.Incident.Window != *drafted.Incident.StartedAt+" – "+*drafted.Incident.ClosedAt)) {
-		t.Fatalf("draft window: %s", draft.Body.String())
+	if json.Unmarshal(draft.Body.Bytes(), &drafted) != nil {
+		t.Fatalf("draft: %s", draft.Body.String())
+	}
+	var startedAt, closedAt *string
+	_ = json.Unmarshal(drafted.Incident["started_at"], &startedAt)
+	_ = json.Unmarshal(drafted.Incident["closed_at"], &closedAt)
+	_, hasWindow := drafted.Incident["window"]
+	missingBounds := strings.Contains(strings.Join(drafted.Missing, ","), "incident.started_at,incident.closed_at")
+	if hasWindow || strings.Contains(strings.Join(drafted.Missing, ","), "incident.window") || (startedAt == nil) != (closedAt == nil) ||
+		(startedAt == nil) != missingBounds {
+		t.Fatalf("draft bounds: %s", draft.Body.String())
+	}
+	for _, at := range []*string{startedAt, closedAt} {
+		if at == nil {
+			continue
+		}
+		if _, err := time.Parse(time.RFC3339, *at); err != nil {
+			t.Fatalf("draft bound %q: %v", *at, err)
+		}
 	}
 	if draft.Code != 200 || !strings.Contains(draft.Body.String(), `"draft_mode":"evidence_only"`) ||
 		!strings.Contains(draft.Body.String(), `"text":"investigation.closed"`) ||

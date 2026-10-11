@@ -1136,7 +1136,7 @@ def verify_empty_memory(value):
 def verify_webhooks(value, source):
     matches = [x for x in value['inbound'] if x['id']==source+':change']
     check(len(matches)==1 and matches[0]['source_id']==source and matches[0]['count']=='1' and
-          matches[0]['status_basis']=='latest_receipt_in_window' and matches[0]['last'].startswith('409 · ') and
+          matches[0]['status_basis']=='latest_receipt_in_window' and matches[0]['last_code']==409 and isinstance(matches[0]['last_at'],str) and
           len(value['deliveries'])==2 and {x['code'] for x in value['deliveries']}=={'202','409'},
           'Webhook non-synthetic accepted count/latest duplicate receipt projection differs')
     check(value['availability']['api_tokens']=='not_connected' and value['availability']['outbound']=='not_connected',

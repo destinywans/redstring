@@ -29,18 +29,15 @@ const dashboardStep = v3metricpanels.Step
 
 var dashboardHeatBuckets = v3metricpanels.HeatBuckets
 
-// Labels, Ticks and IncidentLabel are UTC "15:04" text, kept for older
-// clients; LabelTimes, TickTimes and the incident bounds are the same
-// instants in RFC 3339, for the viewer's time zone (PA-83).
+// LabelTimes, TickTimes and the incident bounds are RFC 3339 instants, shown
+// in the viewer's time zone; the UTC "15:04" labels, ticks and incident label
+// they replaced were removed (PA-83).
 type dashboardWindow struct {
-	Labels          []string `json:"labels"`
-	Ticks           []string `json:"ticks"`
 	LabelTimes      []string `json:"label_times"`
 	TickTimes       []string `json:"tick_times"`
 	ReleaseAt       *int     `json:"release_at"`
 	RollbackAt      *int     `json:"rollback_at"`
 	Incident        *[2]int  `json:"incident"`
-	IncidentLabel   *string  `json:"incident_label"`
 	IncidentStartAt *string  `json:"incident_start_at"`
 	IncidentEndAt   *string  `json:"incident_end_at"`
 }
@@ -109,8 +106,6 @@ type metricsDashboard struct {
 	Endpoints   []dashboardRank     `json:"endpoints"`
 	Instances   []dashboardInstance `json:"instances"`
 	Unavailable map[string]string   `json:"unavailable"`
-	// The incident span relabels the incident in the request language.
-	incidentStart, incidentEnd *time.Time
 }
 
 // A nil marker means the platform has no record of that event in the window.
@@ -227,16 +222,13 @@ func newDashboard(window connectors.TimeWindow, marker dashboardMarkers, markerR
 		absent = markerReason[0]
 	}
 	out := metricsDashboard{Unavailable: map[string]string{}}
-	out.Window.Labels = make([]string, dashboardPoints)
 	out.Window.LabelTimes = make([]string, dashboardPoints)
 	visibleStart := window.Start.Add(dashboardStep * time.Second)
-	for i := range out.Window.Labels {
-		at := visibleStart.Add(time.Duration(i*dashboardStep) * time.Second).UTC()
-		out.Window.Labels[i], out.Window.LabelTimes[i] = at.Format("15:04"), at.Format(time.RFC3339)
+	for i := range out.Window.LabelTimes {
+		out.Window.LabelTimes[i] = visibleStart.Add(time.Duration(i*dashboardStep) * time.Second).UTC().Format(time.RFC3339)
 	}
-	out.Window.Ticks, out.Window.TickTimes = []string{}, []string{}
+	out.Window.TickTimes = []string{}
 	for _, i := range []int{0, 9, 18, 27, 35} {
-		out.Window.Ticks = append(out.Window.Ticks, out.Window.Labels[i])
 		out.Window.TickTimes = append(out.Window.TickTimes, out.Window.LabelTimes[i])
 	}
 	inWindow := func(at *time.Time) bool { return at != nil && !at.Before(window.Start) && !at.After(window.End) }
@@ -263,13 +255,11 @@ func newDashboard(window connectors.TimeWindow, marker dashboardMarkers, markerR
 				incident[1]++
 			}
 		}
-		label := dashboardText{en: true}.incident(*marker.incidentStart, *marker.incidentEnd)
 		startAt, endAt := marker.incidentStart.UTC().Format(time.RFC3339), marker.incidentEnd.UTC().Format(time.RFC3339)
-		out.Window.Incident, out.Window.IncidentLabel = &incident, &label
+		out.Window.Incident = &incident
 		out.Window.IncidentStartAt, out.Window.IncidentEndAt = &startAt, &endAt
-		out.incidentStart, out.incidentEnd = marker.incidentStart, marker.incidentEnd
 	} else {
-		out.Unavailable["window.incident"], out.Unavailable["window.incident_label"] = absent, absent
+		out.Unavailable["window.incident"] = absent
 	}
 	out.metricsUnavailable("unavailable")
 	return out

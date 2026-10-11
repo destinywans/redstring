@@ -45,9 +45,10 @@ func TestWebhookViewProjectsOnlyVisibleRealPushReceipts(t *testing.T) {
 			change = &view.Inbound[i]
 		}
 	}
-	// PA-83: the latest receipt in Last also comes as code and RFC 3339.
+	// PA-83: the latest receipt comes only as code and RFC 3339; the "last"
+	// text is gone.
 	if change == nil || change.LastAt == nil || change.LastCode == nil || *change.LastCode != 202 ||
-		change.Last != "202 · "+*change.LastAt || mustRFC3339(t, *change.LastAt).IsZero() {
+		strings.Contains(got.Body.String(), `"last":`) || mustRFC3339(t, *change.LastAt).IsZero() {
 		t.Fatalf("latest receipt: %s", got.Body.String())
 	}
 	if change.Status != "ok" || change.Count != "1" ||

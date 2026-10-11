@@ -10,7 +10,7 @@ S['V3PullRequestTemplate'] = obj({
 S['V3PullSampleHighlight'] = obj(fieldnames('text color'),['text','color'])
 S['V3PullSample'] = obj({
     'status':integer(), 'meta':string(), 'body':string(),
-    'captured_at':{**v3_nullable(string(format='date-time')),'description':'PA-83: the read time inside meta, in RFC 3339; null without a successful read'},
+    'captured_at':{**v3_nullable(string(format='date-time')),'description':'PA-83: the read time in RFC 3339, null without a successful read; meta no longer carries the time'},
     'highlights':arr(ref('V3PullSampleHighlight'))},
     ['status','meta','body','captured_at','highlights'])
 S['V3PullField'] = obj({

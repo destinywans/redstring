@@ -455,7 +455,7 @@ class ProjectionTests(unittest.TestCase):
         with self.assertRaises(AssertionError):projection.verify_push(dict(push,deliveries=[]),'s')
         bad=copy.deepcopy(push);bad['deliveries'][0]['result']='Test accepted'
         with self.assertRaises(AssertionError):projection.verify_push(bad,'s')
-        webhook=dict(inbound=[dict(id='s:change',source_id='s',count='1',status_basis='latest_receipt_in_window',last='409 · time')],
+        webhook=dict(inbound=[dict(id='s:change',source_id='s',count='1',status_basis='latest_receipt_in_window',last_code=409,last_at='2026-10-11T00:00:00Z')],
             deliveries=[{'code':'202'},{'code':'409'}],availability={'api_tokens':'not_connected','outbound':'not_connected'})
         projection.verify_webhooks(webhook,'s')
         with self.assertRaises(AssertionError):projection.verify_webhooks(webhook,'hidden')

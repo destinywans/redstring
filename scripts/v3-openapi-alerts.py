@@ -2,13 +2,12 @@
 # completion status remains tracked separately in the human contract.
 S['V3InboxItem'] = obj({**fieldnames('id title sub alert_id'),
     'href':string(description='An alert opens in the inbox (/inbox?item=…); an assignment opens the assigned object: /incidents/{id} for an alert or incident, /review/{id} for a proposal (PA-84)'),
-    'time':string(description='"15:04" in the server time zone (timezone), kept for older clients; use at (PA-83)'),
-    'at':string(format='date-time',description='PA-83: the item time in RFC 3339, for display in the viewer time zone'),
+    'at':string(format='date-time',description='PA-83: the item time in RFC 3339; the viewer time zone formats it and groups items by day'),
     'kind':string(enum=['alert','assignment']),
     'assignment_kind':string(enum=['alert','incident','proposal'],description='PA-84: kind of the assigned object; present on assignment items only'),
     'tone':string(enum=['neutral','warn','danger']),
-    'unread':{'type':'null'},'day':string(enum=['today','yesterday'],description='Calendar day in the server time zone (timezone)')},
-    ['id','kind','tone','title','sub','time','at','unread','day','href','alert_id'])
+    'unread':{'type':'null'}},
+    ['id','kind','tone','title','sub','at','unread','href','alert_id'])
 S['V3InboxPartial'] = obj({'items':arr(ref('V3InboxItem')),
     'counts':obj({'all':integer(minimum=0),'mine':integer(minimum=0),
         'mentions':{'type':'null'},'subscribed':{'type':'null'}},
@@ -390,12 +389,12 @@ S['V3SilenceMatcher'] = obj(fieldnames('k v'), ['k','v'])
 S['V3SilencePreviewMatcher'] = obj({'k':string(pattern='^[a-zA-Z_][a-zA-Z0-9_]*$'),'op':string(enum=['=','!=','=~','!~']),
     'v':string(minLength=1,maxLength=256,description='The server enforces a 256 UTF-8 byte maximum.')}, ['k','op','v'])
 S['V3SilenceRemaining'] = obj({'pct':integer(minimum=0,maximum=100,description='Share of the window still remaining (PA-37).'),'text':string()},['pct','text'])
-S['V3SilenceRead'] = obj({**fieldnames('id window creator reason'),
+S['V3SilenceRead'] = obj({**fieldnames('id creator reason'),
     'starts_at':string(format='date-time'),'ends_at':string(format='date-time'),
     'matchers':arr(ref('V3SilenceMatcher')),
     'state':string(enum=['active','planned','expired']),
     'remaining':ref('V3SilenceRemaining'),'affects':integer(minimum=0)},
-    ['id','matchers','state','window','starts_at','ends_at','affects','creator','reason'])
+    ['id','matchers','state','starts_at','ends_at','affects','creator','reason'])
 S['V3InhibitionRead'] = obj({'id':string(),'source':arr(ref('V3SilenceMatcher')),
     'target':arr(ref('V3SilenceMatcher')),'equal':arr(string()),'stat':string()},
     ['id','source','target','equal','stat'])

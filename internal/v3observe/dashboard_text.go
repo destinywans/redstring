@@ -1,9 +1,6 @@
 package v3observe
 
-import (
-	"strings"
-	"time"
-)
+import "strings"
 
 // dashboardText localizes the metrics dashboard's user-facing strings (PA-24):
 // English when Accept-Language starts with "en", Chinese otherwise. IDs,
@@ -42,10 +39,6 @@ func (t dashboardText) sloNote() string {
 	return t.pick("观测到的错误预算消耗速率", "Observed error budget burn rates")
 }
 
-func (t dashboardText) incident(start, end time.Time) string {
-	return t.pick("事件 · ", "Incident · ") + start.UTC().Format("15:04") + "–" + end.UTC().Format("15:04") + " UTC"
-}
-
 // localize relabels a built dashboard in the request language.
 func (out *metricsDashboard) localize(t dashboardText) {
 	for i := range out.KPIs {
@@ -53,9 +46,5 @@ func (out *metricsDashboard) localize(t dashboardText) {
 	}
 	if out.SLO != nil {
 		out.SLO.Note = t.sloNote()
-	}
-	if out.Window.IncidentLabel != nil && out.incidentStart != nil && out.incidentEnd != nil {
-		label := t.incident(*out.incidentStart, *out.incidentEnd)
-		out.Window.IncidentLabel = &label
 	}
 }

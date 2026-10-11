@@ -185,7 +185,6 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	var list TraceList
 	if err := json.Unmarshal(w.Body.Bytes(), &list); err != nil || list.Total != 1 || len(list.Items) != 1 || len(list.Histogram.Counts) != 12 ||
 		len(list.Histogram.AxisTimes) != 12 || !strings.HasSuffix(list.Histogram.AxisTimes[0], "Z") || // PA-83
-		list.Histogram.AxisTimes[0][11:16] != list.Histogram.Axis[0] ||
 		list.Unavailable == nil || len(list.Unavailable) != 0 {
 		t.Fatalf("incomplete list contract: %s error=%v", w.Body.String(), err)
 	}

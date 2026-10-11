@@ -41,8 +41,8 @@ type draft struct {
 		Rate   string      `json:"rate"`
 		Paging string      `json:"paging"`
 	} `json:"request"`
-	// Sample.CapturedAt is the read time inside Meta, in RFC 3339 (PA-83);
-	// null without a successful read.
+	// Sample.CapturedAt is the read time in RFC 3339, null without a
+	// successful read; Meta no longer repeats it (PA-83).
 	Sample struct {
 		Status     int        `json:"status"`
 		Meta       string     `json:"meta"`
@@ -83,7 +83,7 @@ func pullDraft(source SourceConfig, initial snapshot, mapping mapping, observed 
 	view.Request.Paging = "None; one bounded query_range request. Partial or truncated results fail."
 	view.Sample.Status = 200
 	capturedAt := observed.Captured.UTC().Format(time.RFC3339)
-	view.Sample.Meta = "Normalized preview from a successful upstream read at " + capturedAt
+	view.Sample.Meta = "Normalized preview from a successful upstream read"
 	view.Sample.CapturedAt = &capturedAt
 	sample := observed.Rows
 	if len(sample) > 5 {

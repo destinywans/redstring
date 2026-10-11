@@ -434,18 +434,14 @@ func observedSummary(c connector, lang string, now time.Time) map[string]any {
 	if c.Status == "unverified" {
 		return summary(c, lang)
 	}
+	// The meta texts carry no time: checked_at gives it (PA-83).
 	age := now.Sub(*c.Checked)
 	if age >= 0 && age <= listProbeFreshness {
-		result := summary(c, lang)
-		if c.Status == "error" {
-			result["meta"] = localized(lang, "连接检查失败 ", "Connection test failed ") + c.Checked.UTC().Format(time.RFC3339) + ": " + c.ErrorCode
-		}
-		return result
+		return summary(c, lang)
 	}
-	last := c.Checked.UTC().Format(time.RFC3339)
 	c.Status = "unverified"
 	result := summary(c, lang)
-	result["meta"] = localized(lang, "上次连接检查 ", "Last connection test ") + last + localized(lang, " · 已过期", " · expired")
+	result["meta"] = localized(lang, "上次连接检查已过期", "Last connection test expired")
 	return result
 }
 
@@ -455,7 +451,7 @@ func summary(c connector, lang string) map[string]any {
 	tags := []map[string]string{}
 	meta := localized(lang, "尚未检查连接", "Connection not tested")
 	if c.Status == "ok" && c.Checked != nil {
-		meta = localized(lang, "已检查 ", "Checked ") + c.Checked.UTC().Format(time.RFC3339)
+		meta = localized(lang, "连接检查通过", "Connection test passed")
 	}
 	if c.Status == "error" {
 		meta = localized(lang, "连接检查失败：", "Connection check failed: ") + c.ErrorCode
@@ -464,8 +460,9 @@ func summary(c connector, lang string) map[string]any {
 	if kind == "" {
 		kind = c.Provider
 	}
-	// checked_at is the last connection test (the time in meta and in the
-	// detail's checked) in RFC 3339, null when never tested (PA-83).
+	// checked_at is the last connection test in RFC 3339, null when never
+	// tested. It replaced the times in meta and the detail's checked text
+	// (PA-83).
 	var checkedAt *string
 	if c.Checked != nil {
 		at := c.Checked.UTC().Format(time.RFC3339)
@@ -620,10 +617,6 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) detailProjection(c connector, services []string, lang string) map[string]any {
 	result := s.connectorSummary(c, lang, time.Now())
-	checked := localized(lang, "尚未检查", "Never checked")
-	if c.Checked != nil {
-		checked = c.Checked.UTC().Format(time.RFC3339)
-	}
 	result["revision"] = c.Revision
 	result["enabled"] = s.effectiveConnector(c).Enabled
 	result["scope"] = c.EnvironmentID
@@ -640,7 +633,6 @@ func (s *Service) detailProjection(c connector, services []string, lang string) 
 		label, _ := authMethodCopy(c.AuthMethod, lang)
 		result["auth"] = map[string]string{"brand": "vault", "text": label + localized(lang, " · Vault 引用已登记", " · Vault reference registered")}
 	}
-	result["checked"] = checked
 	result["services"] = services
 	// Query IDs are not yet bound to a V3 connector instance. Tool settings
 	// only describe desired configuration and do not grant execution.

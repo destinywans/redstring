@@ -3,7 +3,6 @@ package v3ingestpush
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -35,9 +34,8 @@ type webhookInbound struct {
 	URL       string `json:"url"`
 	Verify    string `json:"verify"`
 	Count     string `json:"count"`
-	Last      string `json:"last"`
-	// LastAt and LastCode are the latest receipt inside Last ("202 ·
-	// <RFC 3339>" or "unknown"), null when unknown (PA-83).
+	// LastAt and LastCode are the latest receipt, null when unknown (PA-83;
+	// the "202 · <RFC 3339>"/"unknown" last text was removed).
 	LastAt      *string `json:"last_at"`
 	LastCode    *int    `json:"last_code"`
 	Status      string  `json:"status"` // latest accepted/invalid receipt or unverified
@@ -157,10 +155,10 @@ func (s *Service) webhooks(w http.ResponseWriter, r *http.Request) {
 			item := webhookInbound{ID: key, SourceID: entry.sourceID, EventType: entry.eventType,
 				Brand: "generic", Name: entry.sourceID + " · " + entry.eventType,
 				URL: "/api/v1/events/" + entry.eventType, Verify: "Bearer + HMAC-SHA256",
-				Count: strconv.FormatInt(stat.count, 10), Last: "unknown", Status: "unverified", StatusBasis: "no_receipt_in_window"}
+				Count: strconv.FormatInt(stat.count, 10), Status: "unverified", StatusBasis: "no_receipt_in_window"}
 			if !stat.at.IsZero() {
 				lastAt, lastCode := stat.at.UTC().Format(time.RFC3339), stat.code
-				item.Last, item.LastAt, item.LastCode = fmt.Sprintf("%d · %s", lastCode, lastAt), &lastAt, &lastCode
+				item.LastAt, item.LastCode = &lastAt, &lastCode
 				item.StatusBasis = "latest_receipt_in_window"
 				if stat.code == http.StatusAccepted {
 					item.Status = "ok"

@@ -260,7 +260,8 @@ mock("GET", "/alert-rules/:id", ({ params }) => {
     preview: { values: [0.2, 0.3, 0.2, 0.3, 0.2, 0.2, 0.3, 0.2, 0.3, 0.2, 0.3, 0.2, 0.3, 0.2, 0.9, 2.4, 5.1, 7.8, 8.4, 8.2, 8.6, 8.3, 8.4, 8.5], threshold: 1 },
     condition: { op: ">", value: 1, unit: "%", for_minutes: 5, recover_minutes: 2 },
     evaluation: { mode: r.schedule ? "cron" : "continuous", interval: "30s", cron: "0 9 * * *", no_data: P("视为正常", "Treat as OK") },
-    labels: [{ k: "severity", v: "P1" }, { k: "team", v: "trade" }, { k: "service", v: "checkout-api" }],
+    // D32: product-managed rules carry the application key and environment.
+    labels: [{ k: "severity", v: "P1" }, { k: "team", v: "trade" }, { k: "service", v: "checkout-api" }, ...(r.id.startsWith("r-gl-") ? [{ k: "application", v: "checkout-api" }, { k: "environment", v: "prod" }] : [])],
     annotation: P("5xx 比例 {value}，阈值 1%", "5xx ratio {value}, threshold 1%"),
     runbook: P("发布回滚规范 v5", "Release rollback v5"),
     route_path: [P("生产", "prod"), P("交易平台", "trading"), "P1"],

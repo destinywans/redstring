@@ -63,15 +63,15 @@ export default function ReviewPage() {
         return (p.status as string) === "expired" ? ["neutral", tx("已过期", "Expired")] : ["neutral", p.status];
     }
   })();
-  // Executor ledger states (silence and rollback) in words; terminal ones get their own tone.
-  const execStatus = (s: string): [Tone, string] =>
-    ["succeeded", "confirmed", "verified"].includes(s)
-      ? ["ok", p.rollback ? tx("已恢复", "Recovered") : tx("已完成", "Completed")]
-      : s === "failed"
-        ? ["danger", tx("失败", "Failed")]
-        : s === "needs_attention"
-          ? ["warn", tx("需要人工处理", "Needs attention")]
-          : ["accent", tx("执行中", "Executing")];
+  // Executor ledger states (silence, rollback, alert rule) in words; terminal ones get their own tone.
+  const execStatus = (s: string): [Tone, string] => {
+    if (s === "enabled") return ["ok", tx("已生效", "In effect")];
+    if (s === "disabled") return ["ok", tx("已停用", "Disabled")];
+    if (["succeeded", "confirmed", "verified"].includes(s)) return ["ok", p.rollback ? tx("已恢复", "Recovered") : tx("已完成", "Completed")];
+    if (s === "failed") return ["danger", tx("失败", "Failed")];
+    if (s === "needs_attention") return ["warn", tx("需要人工处理", "Needs attention")];
+    return ["accent", tx("执行中", "Executing")];
+  };
   return (
     <Page
       crumbs={[tx("事件收件箱", "Inbox"), p.title]}

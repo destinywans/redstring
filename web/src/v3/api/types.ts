@@ -483,6 +483,8 @@ export type ExecutionAlertRule = {
     reload: { last_successful: boolean | null; last_success_at: string | null } | null;
   };
   failure: { code: AlertRuleFailureCode | (string & {}); message: string } | null;
+  /** The rule list ID once Prometheus reports the rule (the executor's ledger keeps it); assumed, not in §11.5 yet. */
+  observed_rule_id?: string | null;
 };
 /**
  * GET /executions/{id} for an alert rule. §11.5 only adds `alert_rule`; the approvers and approval time are assumed

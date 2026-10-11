@@ -8,6 +8,7 @@ import { toast } from "../../ui/overlays";
 import { Gate } from "../../ui/permission";
 import { useI18n } from "../../i18n";
 import { useWhen } from "../../ui/when";
+import { DisableRuleDialog } from "./DisableRuleDialog";
 
 const TERMINAL: AlertRuleExecState[] = ["enabled", "disabled", "failed", "needs_attention"];
 const short = (sha: string | null) => (sha ? sha.slice(0, 7) : null);
@@ -30,6 +31,8 @@ export function AlertRuleExecutionPage({ id }: { id: string }) {
   // The projection has no rule name; the proposal has the whole rule.
   const { data: p } = useGet<Proposal>(ar ? `/proposals/${ar.proposal_id}` : null);
   const [rechecking, setRechecking] = useState(false);
+  const [observed, setObserved] = useState<string | null>(null);
+  const [disabling, setDisabling] = useState(false);
   if (!e || !ar) return null;
   const enable = ar.operation === "enable";
   const rule = p?.alert_rule?.rule;
@@ -89,19 +92,31 @@ export function AlertRuleExecutionPage({ id }: { id: string }) {
     }
     nav("/alert-rules/new");
   };
-  const proposeDisable = () => {
-    toast(tx("已提议停用 {r}，等待两人批准", "Proposed disabling {r}; awaiting two approvals", { r: rule?.name ?? "" }));
-    nav("/review/PRP-114");
-  };
+  // Disabling needs the rule list ID: the observed rule, else find it on the rule list by name.
+  const ruleId = ar.observed_rule_id ?? observed;
+  const proposeDisable = () => (ruleId ? setDisabling(true) : nav(`/alert-rules?q=${encodeURIComponent(rule?.name ?? "")}`));
   const recheck = async () => {
     setRechecking(true);
     try {
-      // Provisional route (D11 §5.4 "重新核对"): read-only, may record a late load as enabled.
-      await api("POST", `/executions/${e.id}/recheck`, { body: {} });
+      // D11 §5.4: one read-only observation; a late load is recorded as enabled. The page rereads the execution.
+      const r = await api<{ proposal_id: string; execution_id: string; status: string; observed_rule_id?: string }>("POST", `/executions/${e.id}/recheck`, { body: {} });
+      if (r.observed_rule_id) setObserved(r.observed_rule_id);
       await refetch();
-      toast(tx("已重新核对", "Rechecked"));
+      toast(r.status === "enabled" ? tx("重新核对：已生效", "Rechecked: in effect") : r.status === "disabled" ? tx("重新核对：已停用", "Rechecked: disabled") : tx("已重新核对", "Rechecked"));
     } catch (err) {
-      toast(err instanceof ApiError && (err.status === 404 || err.status === 405) ? tx("服务端还不支持重新核对", "The server doesn't support rechecking yet") : err instanceof ApiError ? err.message : tx("重新核对失败，请稍后再试", "Couldn't recheck; try again later"), { tone: "danger" });
+      const code = err instanceof ApiError ? err.code : "";
+      toast(
+        code === "execution_not_observable"
+          ? tx("这次执行现在不能重新核对。", "This execution can't be rechecked now.")
+          : code === "rule_content_changed"
+            ? tx("已生效的规则和合并的文件不再一致。", "The rule in effect no longer matches the merged file.")
+            : err instanceof ApiError && err.status === 503
+              ? tx("GitLab 或 Prometheus 现在读不到，稍后再试。", "GitLab or Prometheus can't be read right now; try again later.")
+              : err instanceof ApiError
+                ? err.message
+                : tx("重新核对失败，请稍后再试", "Couldn't recheck; try again later"),
+        { tone: "danger" },
+      );
     } finally {
       setRechecking(false);
     }
@@ -137,7 +152,7 @@ export function AlertRuleExecutionPage({ id }: { id: string }) {
         tone: "danger",
         title: code === "rule_health_error" ? tx("已加载但求值出错", "Loaded, but evaluation fails") : tx("执行失败", "Execution failed"),
         text: code === "rule_health_error" ? tx("规则已经在 Prometheus 里运行但求值出错，不会自动回退。可以提议停用，经两人批准后从文件里删掉。", "The rule is running in Prometheus but fails to evaluate, and nothing rolls it back on its own. Propose disabling it; after two approvals it's removed from the file.") : failureText(),
-        action: (demo && enable && code === "rule_health_error" && (
+        action: (enable && code === "rule_health_error" && (
           <Gate need={["alert_rules", "change"]}>
             <Btn h={28} kind="primary" icon="x" onClick={proposeDisable}>
               {tx("提议停用", "Propose disabling")}
@@ -184,6 +199,7 @@ export function AlertRuleExecutionPage({ id }: { id: string }) {
             {banner.action}
           </div>
         )}
+        {rule && ruleId && <DisableRuleDialog open={disabling} onClose={() => setDisabling(false)} ruleId={ruleId} ruleName={rule.name} app={rule.labels.application} />}
         <div className="ar-cols">
           <Card>
             <CardHead title={tx("执行时间线", "Execution timeline")} icon="activity" />

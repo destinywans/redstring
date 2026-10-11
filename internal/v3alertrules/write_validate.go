@@ -69,6 +69,33 @@ func (s *WriteService) withScopeLabels(spec DraftRuleSpec, env string) DraftRule
 	return spec
 }
 
+// validateIntentSpec checks an intent's rule: a full rule spec to enable, or
+// the identity and scope of an observed rule to disable.
+func validateIntentSpec(in AlertRuleEnableIntent, label string) error {
+	if in.Kind == alertRuleDisableKind {
+		return validateDisableSpec(in.Spec, in.EnvironmentID, in.ApplicationID, label)
+	}
+	return validateDraftSpec(in.Spec, in.EnvironmentID, in.ApplicationID, label)
+}
+
+// validateDisableSpec checks the rule a disable removes. It is the observed
+// rule as Prometheus reports it, so the enable-only limits (severity values,
+// a for of at most an hour) do not apply; its identity and scope labels do.
+func validateDisableSpec(spec DraftRuleSpec, env, app, label string) error {
+	if spec.Mode != "draft" || env == "" || app == "" || label == "" || spec.EnvironmentID != env || spec.ApplicationID != app ||
+		len(spec.Group) == 0 || len(spec.Group) > 128 || strings.TrimSpace(spec.Group) != spec.Group || strings.ContainsAny(spec.Group, "\x00\r\n") ||
+		len(spec.Name) == 0 || len(spec.Name) > 128 || !alertRuleNamePattern.MatchString(spec.Name) ||
+		len(spec.Expr) == 0 || len(spec.Expr) > 8192 || len(spec.For) == 0 || len(spec.For) > 32 ||
+		len(spec.Labels) > 64 || len(spec.Annotations) > 64 ||
+		spec.Labels["application"] != label || spec.Labels["environment"] != env {
+		return errors.New("invalid alert rule to disable")
+	}
+	if _, err := time.ParseDuration(spec.For); err != nil {
+		return errors.New("invalid alert rule to disable")
+	}
+	return nil
+}
+
 // validateDraftSpec checks a rule of application app in env whose rules carry
 // application label value label (D32).
 func validateDraftSpec(spec DraftRuleSpec, env, app, label string) error {

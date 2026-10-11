@@ -176,7 +176,7 @@ func (s *Service) approvalWorkflowReady(ctx context.Context, kind, environmentID
 			return v3alertmanager.ErrNotConfigured
 		}
 		return s.ApprovalWorkflow.CancelReady(ctx, environmentID)
-	case alertRuleEnableActionKind:
+	case alertRuleEnableActionKind, alertRuleDisableActionKind:
 		if s.AlertRuleEnableIntent == nil || s.AlertRuleEnableReady == nil {
 			return v3alertmanager.ErrNotConfigured
 		}

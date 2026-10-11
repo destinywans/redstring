@@ -68,7 +68,7 @@ func (a *AlertRuleApprovalAuthority) VerifyWithTx(ctx context.Context, tx pgx.Tx
 	canonicalAction, actionErr := canonicalEnableJSON(actionRaw)
 	canonicalReview, reviewErr := canonicalEnableJSON(reviewRaw)
 	if status != "approved" || creatorKind != "user" || source != "human_request" ||
-		kind != alertRuleEnableKind || creator == "" || actionCreator != creator ||
+		!alertRuleActionKind(kind) || creator == "" || actionCreator != creator ||
 		env == "" || env == "all" || app == "" ||
 		!trialFingerprintRE.MatchString(storedAction) || storedAction != actionDigest ||
 		!trialFingerprintRE.MatchString(reviewDigest) || actionErr != nil || reviewErr != nil ||

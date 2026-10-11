@@ -83,7 +83,7 @@ func (s *WriteService) enableWorkerPass(ctx context.Context, after string) (stri
  JOIN v3_proposals p ON p.id=a.proposal_id
  JOIN v3_proposal_approval_decisions d ON d.proposal_id=a.proposal_id
  LEFT JOIN v3_alert_rule_enable_executions x ON x.proposal_id=a.proposal_id
- WHERE a.action_kind=$1 AND p.status='approved' AND a.proposal_id>$2
+ WHERE a.action_kind=ANY($1) AND p.status='approved' AND a.proposal_id>$2
  AND ((x.state IN ('pending_review','merged','awaiting_provider','reserved','uncertain','exporting')
        AND x.updated_at<clock_timestamp()-interval '15 seconds'
        AND NOT (x.state='awaiting_provider' AND x.deployment ? 'merged_at'
@@ -92,7 +92,7 @@ func (s *WriteService) enableWorkerPass(ctx context.Context, after string) (stri
        AND d.expires_at>clock_timestamp()
        AND NOT EXISTS(SELECT 1 FROM v3_proposal_approval_revocations r
                       WHERE r.proposal_id=a.proposal_id)))
- ORDER BY a.proposal_id LIMIT 32`, alertRuleEnableKind, after)
+ ORDER BY a.proposal_id LIMIT 32`, alertRuleActionKinds, after)
 	if err != nil {
 		return after, err
 	}

@@ -37742,6 +37742,121 @@
         }
       }
     },
+    "/alert-rules/{id}/disable": {
+      "post": {
+        "summary": "Propose disabling an active alert rule",
+        "operationId": "post_alert_rules_id_disable",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. D11 decision 7. id is the rule ID from GET /alert-rules (an observed, bound, correctly scoped Prometheus rule). Requires one selected environment, alert_rules.change and proposals.change on the rule's application, a current human, an open investigation in the same application and environment, an Idempotency-Key of at least eight characters, a configured executor and a running worker. The rule is taken exactly as Prometheus reports it; the plan is its bound file at the current protected-branch head without that rule. Only a file_pull binding (executor merge) can be disabled here (422 disable_unavailable otherwise). The proposal needs two independent passkey approvals; the same executor then commits, merges fast-forward and reads Prometheus back until the rule is gone (execution state disabled). This request changes nothing remotely. Same key and body replays the proposal; another body or kind with the key is 409. An unknown rule is 404; a rule that changes while checked is 409 source_changed.",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3AlertRuleDisableResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "alert-rules"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/V3AlertRuleDisableRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/alert-rules/import": {
       "post": {
         "summary": "Import bounded rule YAML as review drafts",
@@ -38497,7 +38612,7 @@
       "get": {
         "summary": "Read a scoped V3 proposal review record",
         "operationId": "get_proposals_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only records created by a trusted V3 producer can appear; existing rollback action_plans are not relabeled. execution is null until the second approval; then it carries the decision execution_id and approved_at, and status/upstream_id from the independent executor record (silence: reserved, dispatching, unknown, confirmed, expired, manual_review; alert rule: the enable execution state, one of reserved, exporting, uncertain, pending_review, merged, awaiting_provider, enabled, failed, stale_remote), null with not_generated until the executor has recorded them (PA-36).",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only records created by a trusted V3 producer can appear; existing rollback action_plans are not relabeled. execution is null until the second approval; then it carries the decision execution_id and approved_at, and status/upstream_id from the independent executor record (silence: reserved, dispatching, unknown, confirmed, expired, manual_review; alert rule enable or disable: the execution state, one of reserved, exporting, uncertain, pending_review, merged, awaiting_provider, enabled, disabled, failed, stale_remote), null with not_generated until the executor has recorded them (PA-36).",
         "responses": {
           "200": {
             "description": "Success",
@@ -51402,7 +51517,7 @@
       "post": {
         "summary": "Read an alert rule execution back now",
         "operationId": "post_executions_id_recheck",
-        "description": "Minimum role: alert_rules.change on the execution's application. V3 instance and environment scope apply. D11 section 5.4. id is an alert rule enable execution ID. Requires one selected environment and alert_rules.change on the proposal's application (or its owner team). Runs the same read-only observation the executor worker runs every 15 seconds, also after the worker's 24-hour window: GitLab and Prometheus are only read, nothing is merged or written remotely, and only the local ledger records the readback. A late Prometheus load becomes enabled and clears load_timeout; an evaluation error becomes failed. Only pending_review, merged, awaiting_provider and enabled executions can be rechecked (409 execution_not_observable otherwise); an enabled rule that no longer matches is 409 rule_content_changed. deployment and observed_rule_id are omitted until known. An unknown execution or one in another environment is 404.",
+        "description": "Minimum role: alert_rules.change on the execution's application. V3 instance and environment scope apply. D11 section 5.4. id is an alert rule enable execution ID. Requires one selected environment and alert_rules.change on the proposal's application (or its owner team). Runs the same read-only observation the executor worker runs every 15 seconds, also after the worker's 24-hour window: GitLab and Prometheus are only read, nothing is merged or written remotely, and only the local ledger records the readback. A late Prometheus load becomes enabled and clears load_timeout; an evaluation error becomes failed. Only pending_review, merged, awaiting_provider, enabled and disabled executions can be rechecked (409 execution_not_observable otherwise); an enabled rule that no longer matches is 409 rule_content_changed. deployment and observed_rule_id are omitted until known. An unknown execution or one in another environment is 404.",
         "responses": {
           "200": {
             "description": "Success",
@@ -79492,6 +79607,41 @@
           "candidates"
         ]
       },
+      "V3AlertRuleDisableRequest": {
+        "type": "object",
+        "properties": {
+          "investigation_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "investigation_id"
+        ]
+      },
+      "V3AlertRuleDisableResult": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_approval",
+              "approved_pending_execution",
+              "rejected"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "proposal_id",
+          "status"
+        ]
+      },
       "V3AlertGroupBulkRequest": {
         "type": "object",
         "properties": {
@@ -84687,6 +84837,7 @@
               "merged",
               "awaiting_provider",
               "enabled",
+              "disabled",
               "failed",
               "waiting_sync"
             ]

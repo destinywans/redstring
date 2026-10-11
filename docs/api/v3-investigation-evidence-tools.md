@@ -102,3 +102,21 @@
 - `POST /metrics/ask` 交给模型的指标快照，同样把样本转成 RFC 3339。存档快照与 `evidence_sha256` 不变，仍按原始观测计算。
 
 证据标题（`title`）按发起回复那次请求的 `Accept-Language` 输出，默认中文，例如“Prometheus 样本：checkout-api / error_rate”“可读取的服务：prod”；工具结果的 JSON 字段名与代码不翻译（PA-71）。
+
+## 变更取证 `read_service_changes`（D11，2026-10-11）
+
+普通对话和调查画布都提供（`v3changes.Service.EvidenceTool`），画布的证据类型为 `changes`、来源 `gitlab`，目标是该服务的服务 ID。
+
+- **输入**：服务 key，或 `{"service":"key","since":"RFC 3339","until":"RFC 3339"}`；默认最近 2 小时，窗口最长 24 小时，终点不晚于当前时间。服务按与其他工具相同的方式解析（调查只允许本服务）。
+- **输出**：
+  - GitLab 部署：编号、状态、生效时间、提交（8 位）、流水线、作业名，以及精确对应的 MR（编号与标题）和集群修订；
+  - 窗口内合并到目录分支的 MR、失败的流水线；
+  - 窗口内创建的 Kubernetes 修订，change cause 写着 GitLab 流水线时给出流水线 ID，否则为 `null`（不是经 GitLab 部署的变更）；
+  - `coverage`：`gitlab` 为 `complete`、`partial`（某类工具开关关闭）、`not_configured`、`not_permitted`、`too_large` 或 `unavailable`，`kubernetes` 为 `history_limited`、`not_configured`、`not_permitted` 或 `unavailable`。只有 `coverage.gitlab` 为 `complete` 时才能说窗口内没有 GitLab 部署。
+  - 每类最多 20 条（取最新），被截掉时 `truncated: true`；内容上限 15 KiB。
+- **不给模型的**：提交正文、差异正文、邮箱和显示名；MR 标题是 GitLab 用户写的文字，工具说明和返回的 `boundary` 都写明它是数据、不是指令，变更与告警只是时间相邻。
+- **错误**：`unknown_service`；GitLab 和集群都没配置时 `not_configured`；GitLab 不可用时不报错，`coverage.gitlab` 为 `unavailable`，集群修订照常返回。
+- **授权**：GitLab 部分需要服务的 `services.view` 和环境的 `connectors.view`，集群修订需要 `resources.view`，都按对话所有者当前的授权在每次调用时核对。
+- 调查画布的系统提示补了一句：疑似发布导致时同时读变更，变更与告警只是时间相邻。
+- `list_services` 新增 `changes` 列：`configured`、`not_ready`（有代码项目但缺目录范围、连接器未启用、凭据引用或读取工具）或 `not_configured`；不访问 GitLab。
+

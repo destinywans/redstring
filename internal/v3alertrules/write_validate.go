@@ -47,11 +47,35 @@ type DraftRuleSpec struct {
 	ObservedRuleID string            `json:"observed_rule_id,omitempty" yaml:"observed_rule_id,omitempty"`
 }
 
-func validateDraftSpec(spec DraftRuleSpec, env, app string) error {
+// withScopeLabels fills the scope labels a rule must carry when the request
+// omits them (D32): environment is the environment ID, and application is the
+// bound application label value (the key the alert source mappings use).
+// A value the request does set is kept, and validation rejects a mismatch.
+func (s *WriteService) withScopeLabels(spec DraftRuleSpec, env string) DraftRuleSpec {
+	if spec.ApplicationID == "" || s.Reader == nil {
+		return spec
+	}
+	labels := make(map[string]string, len(spec.Labels)+2)
+	for k, v := range spec.Labels {
+		labels[k] = v
+	}
+	if _, ok := labels["application"]; !ok {
+		labels["application"] = s.Reader.ApplicationLabel(env, spec.ApplicationID)
+	}
+	if _, ok := labels["environment"]; !ok {
+		labels["environment"] = env
+	}
+	spec.Labels = labels
+	return spec
+}
+
+// validateDraftSpec checks a rule of application app in env whose rules carry
+// application label value label (D32).
+func validateDraftSpec(spec DraftRuleSpec, env, app, label string) error {
 	if spec.Mode != "" && spec.Mode != "draft" {
 		return ErrUnsupportedDraftMode
 	}
-	if env == "" || app == "" || spec.EnvironmentID != env || spec.ApplicationID != app ||
+	if env == "" || app == "" || label == "" || spec.EnvironmentID != env || spec.ApplicationID != app ||
 		len(spec.Group) == 0 || len(spec.Group) > 128 || strings.TrimSpace(spec.Group) != spec.Group || strings.ContainsAny(spec.Group, "\x00\r\n") ||
 		len(spec.Name) == 0 || len(spec.Name) > 128 || !alertRuleNamePattern.MatchString(spec.Name) ||
 		len(spec.Expr) == 0 || len(spec.Expr) > 8192 || strings.TrimSpace(spec.Expr) == "" ||
@@ -63,7 +87,7 @@ func validateDraftSpec(spec DraftRuleSpec, env, app string) error {
 		return errors.New("invalid alert rule for duration")
 	}
 	if len(spec.Labels) > 32 || len(spec.Annotations) > 32 ||
-		spec.Labels["application"] != app || spec.Labels["environment"] != env {
+		spec.Labels["application"] != label || spec.Labels["environment"] != env {
 		return errors.New("invalid alert rule labels")
 	}
 	severity := spec.Labels["severity"]
@@ -98,15 +122,22 @@ func isSuppressionConfigKey(key string) bool {
 
 // parseRuleImportYAML accepts only the alerting-rule subset that maps without
 // loss to DraftRuleSpec. It does not apply or evaluate imported rules.
-func parseRuleImportYAML(raw, env, app string) ([]DraftRuleSpec, error) {
-	_, rules, err := parseRuleImportYAMLWithApp(raw, env, app)
+func parseRuleImportYAML(raw, env, app string, labels applicationLabels) ([]DraftRuleSpec, error) {
+	_, rules, err := parseRuleImportYAMLWithApp(raw, env, app, labels)
 	return rules, err
+}
+
+// applicationLabels maps between applications and their rules' application
+// label value in one environment (D32).
+type applicationLabels interface {
+	ApplicationLabel(env, app string) string
+	applicationOfLabel(env, label string) (string, bool)
 }
 
 // parseRuleImportYAMLWithApp also accepts the Prometheus Operator PrometheusRule
 // envelope. Metadata identifies the imported source, never its deployment
 // target; application and environment binding comes from rule labels.
-func parseRuleImportYAMLWithApp(raw, env, app string) (string, []DraftRuleSpec, error) {
+func parseRuleImportYAMLWithApp(raw, env, app string, bound applicationLabels) (string, []DraftRuleSpec, error) {
 	if len(raw) == 0 || len(raw) > maxRuleImportBytes {
 		return "", nil, errors.New("invalid alert rule import size")
 	}
@@ -175,8 +206,8 @@ func parseRuleImportYAMLWithApp(raw, env, app string) (string, []DraftRuleSpec, 
 			if err != nil {
 				return "", nil, err
 			}
-			ruleApp := labels["application"]
-			if ruleApp == "" || (app != "" && ruleApp != app) {
+			ruleApp, ok := bound.applicationOfLabel(env, labels["application"])
+			if !ok || (app != "" && ruleApp != app) {
 				return "", nil, errors.New("alert rule application label does not match requested application")
 			}
 			if app == "" {
@@ -184,7 +215,7 @@ func parseRuleImportYAMLWithApp(raw, env, app string) (string, []DraftRuleSpec, 
 			}
 			spec := DraftRuleSpec{ApplicationID: app, EnvironmentID: env, Group: name, Name: alert,
 				Expr: expr, For: forText, Labels: labels, Annotations: annotations, Mode: "draft"}
-			if err := validateDraftSpec(spec, env, app); err != nil {
+			if err := validateDraftSpec(spec, env, app, bound.ApplicationLabel(env, app)); err != nil {
 				return "", nil, err
 			}
 			result = append(result, spec)

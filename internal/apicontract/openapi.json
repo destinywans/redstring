@@ -10455,7 +10455,7 @@
       "post": {
         "summary": "Accept authenticated Alertmanager envelope",
         "operationId": "post_webhooks_alertmanager_source",
-        "description": "V3 source Bearer token required. Each alert must uniquely match a configured application/environment mapping that is still active in this instance. The receiver atomically persists incidents and deduplicated occurrences; unmapped or cross-instance events are rejected. External notification delivery remains disconnected until a V3-authorized worker is available.",
+        "description": "V3 source Bearer token required. Each alert must uniquely match a configured application/environment mapping that is still active in this instance. The receiver atomically persists incidents and deduplicated occurrences; unmapped or cross-instance events are rejected. An alert whose own environment label names another environment than its mapping is not stored (D32): it is logged and counted in ignored, and the rest of the envelope is stored. External notification delivery remains disconnected until a V3-authorized worker is available.",
         "responses": {
           "202": {
             "description": "Success",
@@ -10466,6 +10466,10 @@
                   "properties": {
                     "accepted": {
                       "type": "integer"
+                    },
+                    "ignored": {
+                      "type": "integer",
+                      "description": "Alerts not stored because their environment label differs from their mapping (D32)"
                     },
                     "notification_delivery": {
                       "type": "string",
@@ -10478,6 +10482,7 @@
                   "additionalProperties": false,
                   "required": [
                     "accepted",
+                    "ignored",
                     "notification_delivery"
                   ]
                 }

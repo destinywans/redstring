@@ -104,7 +104,7 @@ func realWebhook(t *testing.T) pgWebhook {
 func TestWebhookInsertBindingRealPG(t *testing.T) {
 	h := realWebhook(t)
 	source := h.service.sources["prom"]
-	err := h.service.persistAlerts(t.Context(), source, []mappedAlert{{alert: h.alert("sql-binding", "checkout", "firing"), mapping: source.Mappings[0]}})
+	_, err := h.service.persistAlerts(t.Context(), source, []mappedAlert{{alert: h.alert("sql-binding", "checkout", "firing"), mapping: source.Mappings[0]}})
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {

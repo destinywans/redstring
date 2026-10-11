@@ -35,6 +35,10 @@ type AlertRuleGitOpsBinding struct {
 	ArgoApplication, ArgoProject, ArgoNamespace             string
 	ArgoSourcePath, DestinationServer, DestinationNamespace string
 	Load                                                    string
+	// ApplicationLabel is the trusted rule binding's application label
+	// value (D32); empty means ApplicationID. It is not part of the scope:
+	// the approved rule's labels already carry it.
+	ApplicationLabel string
 	// ReadbackTimeoutSeconds bounds how long a file_pull deployment waits
 	// for Prometheus to load the merged file before it needs attention
 	// (default 300). The approval covers it.
@@ -168,10 +172,17 @@ func (a *GitOpsAlertRuleApplier) binding(in AlertRuleEnableIntent) (AlertRuleGit
 	}
 	b, ok := a.bindings[gitOpsBindingKey(in.EnvironmentID, in.ApplicationID, in.Spec.Group)]
 	if !ok || fileIdentityDigest(b.ProviderFile) != in.ProviderFileIdentityDigest ||
-		validateDraftSpec(in.Spec, in.EnvironmentID, in.ApplicationID) != nil {
+		validateDraftSpec(in.Spec, in.EnvironmentID, in.ApplicationID, b.applicationLabel()) != nil {
 		return AlertRuleGitOpsBinding{}, errors.New("alert rule GitOps binding changed")
 	}
 	return b, nil
+}
+
+func (b AlertRuleGitOpsBinding) applicationLabel() string {
+	if b.ApplicationLabel != "" {
+		return b.ApplicationLabel
+	}
+	return b.ApplicationID
 }
 
 func deploymentScope(b AlertRuleGitOpsBinding) string {

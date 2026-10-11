@@ -939,7 +939,7 @@ func approvedRuleMatches(found ObservedRule, intent AlertRuleEnableIntent) error
 	}
 	if found.Expression != intent.Spec.Expr || found.Duration != forDuration.Seconds() ||
 		!maps.Equal(found.Labels, intent.Spec.Labels) || !maps.Equal(found.Annotations, intent.Spec.Annotations) ||
-		found.Labels["application"] != intent.ApplicationID || found.Labels["environment"] != intent.EnvironmentID {
+		found.Labels["environment"] != intent.EnvironmentID {
 		return problem(409, "rule_content_changed", "Observed rule differs from approved bytes")
 	}
 	return nil

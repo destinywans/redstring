@@ -71,7 +71,8 @@ func TestV3AlertRuleEnableConfigFilePull(t *testing.T) {
 		t.Fatal(err)
 	}
 	ruleFile := "/etc/prometheus-gitops/current/rules/test/app.yml"
-	ruleBindings := []v3alertrules.RuleGroupBinding{{EnvironmentID: "test", ApplicationID: "app", File: ruleFile, Group: "g"}}
+	// D32: the executor takes the application label from the rule source.
+	ruleBindings := []v3alertrules.RuleGroupBinding{{EnvironmentID: "test", ApplicationID: "app", File: ruleFile, Group: "g", ApplicationLabel: "checkout-api"}}
 	write := func(config map[string]any) string {
 		t.Helper()
 		raw, _ := json.Marshal(config)
@@ -95,7 +96,7 @@ func TestV3AlertRuleEnableConfigFilePull(t *testing.T) {
 	intent := v3alertrules.AlertRuleEnableIntent{EnvironmentID: "test", ApplicationID: "app",
 		ProviderFileIdentityDigest: fmt.Sprintf("%x", sha256.Sum256([]byte(ruleFile))),
 		Spec: v3alertrules.DraftRuleSpec{ApplicationID: "app", EnvironmentID: "test", Group: "g", Name: "New", Expr: "up == 1", For: "5m",
-			Mode: "draft", Labels: map[string]string{"application": "app", "environment": "test", "severity": "P2"}}}
+			Mode: "draft", Labels: map[string]string{"application": "checkout-api", "environment": "test", "severity": "P2"}}}
 	plan, err := applier.Plan(t.Context(), intent)
 	if err != nil || plan.Load != "file_pull" || !plan.ExecutorMerges() || plan.ReadbackTimeoutSeconds != 300 || plan.BaseRevision != head {
 		t.Fatalf("plan through the Vault token and CA: %+v %v", plan, err)

@@ -53,6 +53,17 @@ GitOps `LookupForReconciliation` 仅 GET 原确定分支，验证项目/目标/�
 
 正式入口只在设置 `AIOPS_V3_ALERT_RULE_ENABLE_CONFIG` 时读取受保护的绝对路径 0600 JSON 文件；配置必须把 `environment_id`、`application_id`、`group`、`provider_file` 精确对应当前受信规则来源，并固定上述 GitOps 目标。顶层字段为 `gitlab_url`、`gitlab_token_file`、`argo_url`、`argo_token_file`、`bindings`；每项绑定还需 `project_id`、`target_branch`、`yaml_path`、`repo_url`、`argo_application`、`argo_project`、`argo_namespace`、`argo_source_path`、`destination_server`、`destination_namespace`。令牌文件绝对路径、0600，端点 HTTPS；配置不含令牌明文。启动仅校验本地配置并装配适配器，不访问 GitLab、Argo CD 或 Prometheus。`mode=enabled` 创建前检查确切环境的 worker 正在运行且批准与执行表可读；缺配置、Passkey、worker 或表时返回不可用，不导出远端草稿。
 
+### D32：规则的作用域标签
+
+产品写的每条规则都带两个作用域标签，告警摄取靠它们把告警对到服务、留在自己的环境：
+
+- `application`：应用 key，即告警来源映射（`AIOPS_OPERATIONS_CONFIG` 的 `mappings[].labels`）用的值，如 `checkout-api`。值来自规则来源绑定的 `application_label`；没配置时是应用 ID（旧约定）。规则列表、写入校验、启用时的同名规则检查、YAML 导入和执行器都按这个值判断，导入时按它反查应用。
+- `environment`：环境 ID（`test`、`prod` 等）。
+
+请求没写这两个标签时由服务端补齐；写了但不一致返回 422。启用提案的审查内容另有一行 `Scope labels: environment=… application=…`。
+
+告警摄取：一条告警在映射选中后，若自带 `environment` 标签且与映射的环境 key 不同，不入库，记一条日志并计入响应的 `ignored`；同一批其余告警照常入库，Alertmanager 不会重发。没有 `environment` 标签的旧告警不受影响。路由上建议 prod 实例只收 `environment=~"prod|"`（Alertmanager 中不存在的标签按空串匹配，所以这条同时收下不带该标签的现有实验告警），`environment=~"dev|test|staging"` 另走 nonprod 或丢弃。
+
 ### D11：执行器合并与 `file_pull` 加载
 
 绑定可设 `load: "file_pull"`（默认 `argo_cd` 即上文 WAN-118 流程）。这种绑定不要 Argo CD 和仓库 URL 字段：两人通行密钥批准覆盖“执行器合并这个 MR”，Prometheus 自己拉取目标分支并自动重载。计划（`AlertRuleDeploymentPlan`）多出 `load: "file_pull"`、`merge: "executor"` 和 `readback_timeout_seconds`（绑定配置，默认 300，60–3600），都计入动作摘要。

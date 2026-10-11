@@ -92,7 +92,7 @@ func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env 
 	// The stored spec keeps the draft rule format; enabling is the proposal
 	// action, never a mode of the rule itself.
 	spec.Mode = "draft"
-	if err := validateDraftSpec(spec, env, spec.ApplicationID); err != nil {
+	if err := validateDraftSpec(spec, env, spec.ApplicationID, s.Reader.ApplicationLabel(env, spec.ApplicationID)); err != nil {
 		writeError(w, validationProblem(err))
 		return
 	}
@@ -249,8 +249,11 @@ func enableReviewContent(in AlertRuleEnableIntent, actorID string) v3proposals.C
 // the exact target file and its base revision, and the proposed bytes digest.
 // The text must stay a pure function of the intent, which the loader rechecks.
 func directEnableReviewContent(in AlertRuleEnableIntent, actorID string) v3proposals.Content {
+	// D32: the scope labels decide which instance and service the rule's
+	// alerts reach, so the summary names them.
 	lines := []string{fmt.Sprintf("Rule: %s / %s", in.Spec.Group, in.Spec.Name),
-		"For: " + in.Spec.For, "Severity: " + in.Spec.Labels["severity"]}
+		"For: " + in.Spec.For, "Severity: " + in.Spec.Labels["severity"],
+		fmt.Sprintf("Scope labels: environment=%s application=%s", in.Spec.Labels["environment"], in.Spec.Labels["application"])}
 	fullAction, _ := json.Marshal(in)
 	runes := []rune(string(fullAction))
 	for start := 0; start < len(runes); start += 1200 {

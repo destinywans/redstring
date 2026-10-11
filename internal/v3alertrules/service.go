@@ -104,6 +104,10 @@ type Service struct {
 	// D32: environment + application ID -> application label value, and
 	// environment + label value -> application ID.
 	appLabels, labelApps map[string]string
+	// Lifecycle adds the listed rules' GitOps lifecycle and the enables and
+	// disables not in effect yet to the main list (D11 §11.6); nil leaves
+	// both out.
+	Lifecycle func(ctx context.Context, user core.User, envs []string, ruleIDs []string) (map[string]RuleLifecycle, []PendingRuleChange, error)
 }
 
 type RuleGroupBinding = v3rulemodel.RuleGroupBinding
@@ -211,10 +215,11 @@ func (s *Service) MainList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type mainSummary struct {
-		ID     string `json:"id"`
-		Folder string `json:"folder"`
-		Name   string `json:"name"`
-		State  string `json:"state"`
+		ID        string         `json:"id"`
+		Folder    string         `json:"folder"`
+		Name      string         `json:"name"`
+		State     string         `json:"state"`
+		Lifecycle *RuleLifecycle `json:"lifecycle,omitempty"`
 	}
 	summaries := make([]mainSummary, 0, len(items))
 	counts := map[string]int{"all": 0, "firing": 0, "scheduled": 0}
@@ -231,7 +236,31 @@ func (s *Service) MainList(w http.ResponseWriter, r *http.Request) {
 			counts["firing"]++
 		}
 	}
-	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"items": summaries, "counts": counts, "empty_reason": nil, "unavailable": map[string]string{}})
+	body := map[string]any{"items": summaries, "counts": counts, "empty_reason": nil, "unavailable": map[string]string{}}
+	if s.Lifecycle != nil {
+		scope, _ := httpapi.V3ScopeFromContext(r.Context())
+		ids := make([]string, len(summaries))
+		for i := range summaries {
+			ids[i] = summaries[i].ID
+		}
+		lifecycle, pending, err := s.Lifecycle(r.Context(), httpapi.CurrentUser(r), scope.EnvironmentIDs, ids)
+		if err != nil {
+			// The rules are still the provider's; only the GitOps view is
+			// unknown.
+			body["pending"] = nil
+			body["unavailable"] = map[string]string{"pending": "unavailable", "items[].lifecycle": "unavailable"}
+		} else {
+			for i := range summaries {
+				life, ok := lifecycle[summaries[i].ID]
+				if !ok {
+					life = RuleLifecycle{State: "active"}
+				}
+				summaries[i].Lifecycle = &life
+			}
+			body["pending"] = pending
+		}
+	}
+	httpapi.WriteJSON(w, http.StatusOK, body)
 }
 
 var (

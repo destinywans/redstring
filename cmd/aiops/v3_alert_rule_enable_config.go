@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"github.com/wans/aiops-canvas/internal/v3alertrules"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
@@ -59,6 +61,10 @@ func loadV3AlertRuleEnableApplier(path string, instance v3Instance,
 			DestinationNamespace string `json:"destination_namespace"`
 			Load                 string `json:"load"`
 			ReadbackTimeout      int    `json:"readback_timeout_seconds"`
+			// Display only (D11 §11.4): shown in the proposal and execution
+			// views, not part of the approved scope.
+			ProjectPath string `json:"project_path"`
+			ConnectorID string `json:"connector_id"`
 		} `json:"bindings"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(content))
@@ -124,6 +130,9 @@ func loadV3AlertRuleEnableApplier(path string, instance v3Instance,
 			item.ProviderFile == "" {
 			return nil, nil, errors.New("alert rule enable target has no exact trusted source binding")
 		}
+		if !v3AlertRuleProjectPath.MatchString(item.ProjectPath) || len(item.ConnectorID) > 128 || strings.ContainsAny(item.ConnectorID, "\x00\r\n/") {
+			return nil, nil, errors.New("alert rule enable project_path or connector_id is invalid")
+		}
 		enabledEnvironments[item.EnvironmentID] = true
 		load := item.Load
 		if load == "argo_cd" {
@@ -139,6 +148,7 @@ func loadV3AlertRuleEnableApplier(path string, instance v3Instance,
 			DestinationNamespace: item.DestinationNamespace,
 			Load:                 load, ReadbackTimeoutSeconds: item.ReadbackTimeout,
 			ApplicationLabel: labels[v3AlertRuleEnableKey(item.EnvironmentID, item.ApplicationID, item.Group)],
+			ProjectPath:      item.ProjectPath, ConnectorID: item.ConnectorID,
 		})
 	}
 	applier, err := v3alertrules.NewGitOpsAlertRuleApplier(v3alertrules.AlertRuleGitOpsConfig{
@@ -149,6 +159,9 @@ func loadV3AlertRuleEnableApplier(path string, instance v3Instance,
 	})
 	return applier, enabledEnvironments, err
 }
+
+// v3AlertRuleProjectPath is a GitLab namespace/project path, or empty.
+var v3AlertRuleProjectPath = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9._-]{0,99}(/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){1,8})?$`)
 
 func v3AlertRuleEnableKey(env, app, group string) string {
 	return env + "\x00" + app + "\x00" + group

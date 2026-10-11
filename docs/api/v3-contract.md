@@ -163,7 +163,7 @@
 | GET | `/incidents` | `status: active\|resolved\|all` | `{ items, counts }` | implemented |
 | GET | `/incidents/{id}` | | 当前授权的持久事件及人工时间线；手工事件另给状态修订与真实解决事件/时间，时长、指标与系统/AI 时间线未知 | implemented |
 | POST | `/incidents/{id}/timeline` | `{ text }` | 时间线条目 | implemented |
-| GET | `/alert-rules` | | `AlertRuleSummary[]` 与完整可见范围的 `all/firing/scheduled` 计数；仅展示服务端按 Prometheus 规则文件和组明确绑定到应用、标签和环境均匹配，且当前应用或其负责团队有 `alert_rules.view` 的规则；上游读取后复核负责人和授权，范围变化不返回旧列表。来源失败或超限明确报错，不返回部分计数；无可信周期来源时 `scheduled=0`。当前用户没有可见应用时返回空列表和 `empty_reason: "no_authorized_target"`，不再 403（PA-09）；未配置规则来源时 `items`、`counts` 为 `null`，`unavailable` 为 `not_configured`，不再 503 | implemented |
+| GET | `/alert-rules` | | `AlertRuleSummary[]` 与完整可见范围的 `all/firing/scheduled` 计数；仅展示服务端按 Prometheus 规则文件和组明确绑定到应用、标签和环境均匹配，且当前应用或其负责团队有 `alert_rules.view` 的规则；上游读取后复核负责人和授权，范围变化不返回旧列表。来源失败或超限明确报错，不返回部分计数；无可信周期来源时 `scheduled=0`。当前用户没有可见应用时返回空列表和 `empty_reason: "no_authorized_target"`，不再 403（PA-09）；未配置规则来源时 `items`、`counts` 为 `null`，`unavailable` 为 `not_configured`，不再 503；D11 §11.6：接通执行器时每项另带 `lifecycle`（`active`，或带停用提案与执行 ID 的 `disable_pending_approval`/`disabling`/`needs_attention`），顶层另带 `pending[]`（未生效的启用与停用，只含有 `proposals.view` 的提案，按更新时间倒序最多 50 条）；读不到时 `pending` 为 `null` 并在 `unavailable` 注明 | implemented |
 | GET | `/alert-rules/{id}` | | 当前受权 Prometheus 规则详情；编辑、通知和 AI 字段未知时可空 | implemented |
 | POST | `/alert-rules/{id}/dry-run` | `{ expr, for }` | `{ would_fire, windows }` | implemented |
 | PUT | `/alert-rules/{id}` | 单环境、`Idempotency-Key`、`{ expected_version, observed_rule?, rule: { application_id, environment_id, group, name, expr, for, labels, annotations, mode: draft } }` | 当前受权且来源未漂移时导出新版本的不可部署 JSON 草稿，返回 `pending_review` 与经核对的 GitLab MR；不启用规则 | implemented |
@@ -173,11 +173,11 @@
 | POST | `/silences/preview` | `{ matchers: [{ k, op, v }] }`；单一环境 | `{ affects, sample }` | implemented |
 | POST | `/silences` | 单环境、开放调查、`Idempotency-Key`、`{ investigation_id, matchers: [{ name, op, value }], duration_seconds, comment }` | 严格私有来源、持久审批与独立 worker 就绪时 `202 pending_review` 提案回执、`effect=no_upstream_write`；默认关闭时 `501 not_connected` | implemented |
 | DELETE | `/silences/{id}` | 已由本系统确认创建的上游 UUID；`Idempotency-Key`、`{ investigation_id, reason }` | 精确归属及上游读回、审批与独立 worker 就绪时 `202 pending_review` 取消提案；默认关闭时 `501 not_connected` | implemented |
-| GET | `/proposals/{id}` | | `Proposal`；另带 `proposed_by_name`：发起人的显示名，按读取时的账号取，智能体发起或账号没有名字时为 `null`，不属于评审内容、不影响摘要（PA-74）；另带 `execution`：第二次批准前为 `null`，之后为 `{ execution_id, approved_at, action_kind, status, upstream_id, unavailable }`，`status`/`upstream_id` 取自独立执行器记录，未记录时为 `null`（`not_generated`）（PA-36） | implemented |
+| GET | `/proposals/{id}` | | `Proposal`；另带 `proposed_by_name`：发起人的显示名，按读取时的账号取，智能体发起或账号没有名字时为 `null`，不属于评审内容、不影响摘要（PA-74）；另带 `execution`：第二次批准前为 `null`，之后为 `{ execution_id, approved_at, action_kind, status, upstream_id, unavailable }`，`status`/`upstream_id` 取自独立执行器记录，未记录时为 `null`（`not_generated`）（PA-36）；另带 `alert_rule`（D11 §11.4）：告警规则启用/停用提案的完整规则、仓库目标、整文件差异、Prometheus 组与读回超时、合并方式，其他提案为 `null` | implemented |
 | POST | `/proposals/{id}/approve` | 单环境、当前真人会话；先调用辅助 `POST /proposals/{id}/approve/options` 传 `{ confirm: true }` 获取提案绑定的五分钟挑战，再传 `{ challenge_id, credential, comment? }` | 首位独立批准人 `202 { status: pending_review, received_approvals: 1 }`，不含执行 ID；第二位独立批准人 `200 { status: approved, received_approvals: 2, execution_id, approval_digest }`；`200` 是持久历史决定与交接标识，不证明当前可执行、已领取或已执行 | implemented |
 | POST | `/proposals/{id}/reject` | `{ comment? }`；仅待审提案，由人类身份执行；需要 `proposals.manage`，或覆盖该提案环境/应用/所属团队的 `proposals.approve`（PA-57） | 更新后的提案 | implemented |
 | POST | `/proposals/{id}/comments` | `{ text }`；可选 `Idempotency-Key` 请求头 | 评论 | implemented |
-| GET | `/executions/{id}` | 当前有权的持久执行 ID | 旧动作执行、审批、事件、可得恢复观察及结案报告的来源投影；V3 提案关联与图表未知 | implemented |
+| GET | `/executions/{id}` | 当前有权的持久执行 ID | 旧动作执行、审批、事件、可得恢复观察及结案报告的来源投影；V3 提案关联与图表未知；告警规则启用/停用的执行 ID 返回 `AlertRuleExecutionDetail`（D11 §11.5：状态、时间线、提交/MR/合并、读回、失败原因） | implemented |
 | POST | `/executions/{id}/report/publish` | 单一环境、当前真人会话，无请求体 | 审批摘要、恢复验证、结案报告均匹配时写本地发布台账与审计；不外发报告或再次执行 | implemented |
 
 两条悬浮卡 GET 从当前有权的持久服务/真人目录读取 ID、名称、环境及可得档案；服务 key 或应用 ID 在当前可见环境中不唯一、同名人员不唯一时返回 409，不任取一条。服务健康、KPI、当前值班、变更及人员负载尚无完整授权来源，显式可空或空数组；资料职务不是 RBAC 角色。冻结悬浮卡会把未知状态显示为正常或非值班，页面需单独适配；字段证据与差异见[悬浮卡来源](v3-peeks.md)。
@@ -625,6 +625,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | 2026-10-11 | D11：新增辅助路由 `POST /executions/{id}/recheck`（告警规则执行的只读重新核对，晚到的加载记为 `enabled`），路径与前端示意路由一致；见 [后端辅助接口](v3-backend-aux.md) |
 | 2026-10-11 | D32：规则的 `application` 标签统一用告警来源映射用的应用 key，规则来源绑定新增 `application_label`（不配置时仍为应用 ID）；服务端补齐缺省的 `application`、`environment` 标签，启用提案审查内容新增作用域标签一行（此前用旧构建创建的版本 2 提案需重新提出）；Alertmanager 接收器不再入库 `environment` 标签与映射环境不一致的告警，响应新增 `ignored`；见 [告警规则写入](v3-alert-rule-writes.md)“D32” |
 | 2026-10-11 | D11 第 8 项（迁移 177，决定 7）：新增辅助路由 `POST /alert-rules/{id}/disable`（提出停用一条已生效的规则，动作 `prometheus.alert_rule.disable`，同一审批与执行器）；执行状态新增 `disabled`，`GET /proposals/{id}` 的 `execution.status` 与 `POST /executions/{id}/recheck` 随之增加该取值；见 [后端辅助接口](v3-backend-aux.md)、[告警规则写入](v3-alert-rule-writes.md)“D11：停用” |
+| 2026-10-11 | D11 §11.4–11.6（迁移 178）：`GET /proposals/{id}` 新增 `alert_rule`；`GET /executions/{id}` 新增告警规则执行变体 `AlertRuleExecutionDetail`；`GET /alert-rules` 的 `items[]` 新增 `lifecycle`、顶层新增 `pending[]`。整文件差异在提案创建时按基础提交渲染并存入 `v3_alert_rule_proposal_changes`（审查证据，不参与批准摘要），之前的提案 `change` 为 `null`。规则文件改按 2 空格缩进写出，常见格式的文件只在规则处变化（此前已批准未执行的提案会因计划变化失效） |
 | 2026-10-11 | PA-87：应用范围链路列表跳过 Tempo 返回的不完整 Trace（缺父 Span 等）并以 `excluded_incomplete` 计数，不再整页 503；声明搜索完整时改报 `partial_reason: incomplete_traces`；链路与日志读取失败在服务日志里记录错误类型、信息和上游状态 |
 | 2026-10-11 | D30：已声明搜索完整的链路列表同时达到预算上限并跳过了不完整 Trace 时，`partial_reason` 为 `search_budget`（窗口照常给出，跳过条数仍在 `excluded_incomplete`），只有覆盖了整个范围时才为 `incomplete_traces` |
 | 2026-10-09 | 生产验收 PA-05/PA-16：新增「未知」约定（`null` + `unavailable` 原因）。`/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard` 在可选证据缺失时返回 200，受影响字段可空；`ProfileView`、`SecurityView`、`LogSearch`、`TraceList`、`MetricsDashboard` 字段由必有改为可空，属于破坏性语义修改，`types.ts` 与页面由前端轮同步。OpenAPI 已重新生成。 |

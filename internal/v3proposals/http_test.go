@@ -174,6 +174,45 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	}
 	assert(request(api, "GET", mainID, "", "dev", "", "", ""), 401, "")
 	assert(request(api, "GET", otherAppID, "", "dev", reviewerToken, "", ""), 403, "forbidden")
+	t.Run("alert-rule-view", func(t *testing.T) {
+		// D11 §11.4: an alert rule proposal carries the domain's view; a
+		// failed view leaves the review readable.
+		alertID := create("inv-1", "app-1", "dev")
+		digest := strings.Repeat("a", 64)
+		if _, err := db.Exec(ctx, `INSERT INTO v3_proposal_actions(proposal_id,action_kind,schema_version,action,action_digest,review_content_digest,
+ request_hash,binding_fingerprint,creator_id,environment_id,application_id,investigation_id,investigation_updated_at,idempotency_key,source_kind)
+ VALUES($1,'prometheus.alert_rule.disable',1,'{"kind":"prometheus.alert_rule.disable","schema_version":2,"observed_rule_id":"prom-x","observed_digest":"d"}',
+ $2,$2,$2,$2,$3,'dev','app-1','inv-1',now(),$1,'human_request')`, alertID, digest, reviewer.ID); err != nil {
+			t.Fatal(err)
+		}
+		views := New(db, policy)
+		failing := true
+		views.AlertRuleView = func(ctx context.Context, tx pgx.Tx, id string) (*ProposalAlertRule, error) {
+			if failing {
+				_, err := tx.Exec(ctx, `SELECT * FROM missing_table`)
+				return nil, err
+			}
+			return &ProposalAlertRule{Operation: "disable", Repository: ProposalAlertRuleRepository{ProjectID: "6"}}, nil
+		}
+		viewAPI := httpapi.New(st, nil, true)
+		views.Register(viewAPI)
+		if err := viewAPI.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}},
+			policy, st.Session, nil); err != nil {
+			t.Fatal(err)
+		}
+		w := request(viewAPI, "GET", alertID, "", "dev", reviewerToken, "", "")
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `"alert_rule":null`) || !strings.Contains(w.Body.String(), `"action_kind":"prometheus.alert_rule.disable"`) {
+			t.Fatalf("failed view: %d %s", w.Code, w.Body.String())
+		}
+		failing = false
+		if w := request(viewAPI, "GET", alertID, "", "dev", reviewerToken, "", ""); w.Code != 200 ||
+			!strings.Contains(w.Body.String(), `"alert_rule":{"operation":"disable"`) {
+			t.Fatalf("view: %d %s", w.Code, w.Body.String())
+		}
+		if w := request(viewAPI, "GET", mainID, "", "dev", reviewerToken, "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"alert_rule":null`) {
+			t.Fatalf("other proposal: %d %s", w.Code, w.Body.String())
+		}
+	})
 	t.Run("unauthorized-review-skips-discussion-read", func(t *testing.T) {
 		blocker, err := db.Begin(ctx)
 		if err != nil {

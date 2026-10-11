@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -50,6 +52,8 @@ type Service struct {
 	ApprovalPasskeys      ProposalPasskeys
 	ApprovalEvidence      ApprovalEvidence
 	AlertRuleEnableIntent func(context.Context, pgx.Tx, string) (AlertRuleEnableReview, error)
+	// AlertRuleView builds a proposal's alert_rule (D11 §11.4).
+	AlertRuleView AlertRuleProjection
 	// The callback must prove the independent enable worker is running for the
 	// exact environment, as well as the reviewed GitOps target being configured.
 	AlertRuleEnableReady func(context.Context, string) error
@@ -129,6 +133,8 @@ type Proposal struct {
 	// proposals. Rollback is set for a Kubernetes rollback (PA-08).
 	ActionKind *string          `json:"action_kind"`
 	Rollback   *RollbackSummary `json:"rollback"`
+	// AlertRule is set for an alert rule enable or disable (D11 §11.4).
+	AlertRule *ProposalAlertRule `json:"alert_rule"`
 	// Execution is null until a second approval allocates an execution
 	// (PA-36); its status and upstream ID come from the executor's records.
 	Execution *ProposalExecution `json:"execution"`
@@ -509,7 +515,7 @@ func (s *Service) authorizeTx(ctx context.Context, tx pgx.Tx, user core.User, v 
 	return s.Access.AuthorizeWithTx(ctx, tx, user, decision)
 }
 
-func detailTx(ctx context.Context, tx pgx.Tx, v record) (Proposal, error) {
+func (s *Service) detailTx(ctx context.Context, tx pgx.Tx, v record) (Proposal, error) {
 	out := Proposal{ID: v.ID, Status: v.Status, ProposedAt: v.CreatedAt.UTC().Format(time.RFC3339), Content: v.Content, Discussion: []CommentItem{}}
 	rows, err := tx.Query(ctx, `SELECT COALESCE(NULLIF(u.name,''),c.author_id),c.created_at,c.body
  FROM v3_proposal_comments c JOIN users u ON u.id=c.author_id
@@ -542,6 +548,24 @@ func detailTx(ctx context.Context, tx pgx.Tx, v record) (Proposal, error) {
 	}
 	if out.ActionKind, out.Rollback, err = actionSummaryTx(ctx, tx, v.ID); err != nil {
 		return out, err
+	}
+	if out.ActionKind != nil && alertRuleActionKind(*out.ActionKind) && s.AlertRuleView != nil {
+		// The structured view is derived; without it the reviewed content
+		// still shows the whole action. A savepoint keeps a failed read from
+		// aborting the review transaction.
+		view, err := tx.Begin(ctx)
+		if err != nil {
+			return out, err
+		}
+		if out.AlertRule, err = s.AlertRuleView(ctx, view, v.ID); err != nil {
+			slog.Warn("V3 alert rule proposal view unavailable", "proposal_id", v.ID, "error_type", fmt.Sprintf("%T", err))
+			out.AlertRule = nil
+			if err := view.Rollback(ctx); err != nil {
+				return out, err
+			}
+		} else if err := view.Commit(ctx); err != nil {
+			return out, err
+		}
 	}
 	out.Execution, err = executionTx(ctx, tx, v.ID)
 	return out, err
@@ -582,7 +606,7 @@ func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
 	var out Proposal
 	_, ok = s.scopedTx(w, r, tx, "view", func(v record) error {
 		var err error
-		out, err = detailTx(r.Context(), tx, v)
+		out, err = s.detailTx(r.Context(), tx, v)
 		return err
 	})
 	if !ok {
@@ -703,7 +727,7 @@ func (s *Service) Reject(w http.ResponseWriter, r *http.Request) {
 	var out Proposal
 	v, ok := s.scopedTx(w, r, tx, actionReject, func(v record) error {
 		var err error
-		out, err = detailTx(r.Context(), tx, v)
+		out, err = s.detailTx(r.Context(), tx, v)
 		return err
 	})
 	if !ok {

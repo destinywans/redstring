@@ -1,4 +1,5 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { ApiError } from "../../api/client";
 import type { TraceList } from "../../api/types";
 import { Card, Icon, Row } from "../../ui/core";
@@ -169,5 +170,41 @@ export function LookbackCard({ seconds, maxRange, action }: { seconds: number | 
         {action && <Row gap={6} wrap>{action}</Row>}
       </div>
     </Card>
+  );
+}
+
+/**
+ * PA-87: traces left out for missing spans, beside the list count (approved design L2kEarHhdRadMRQuLYCGrP, option B).
+ * Hover or focus says why and that opening one directly fails too.
+ */
+export function IncompleteMarker({ n }: { n: number }) {
+  const { tx } = useI18n();
+  const [rect, setRect] = useState<DOMRect | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const show = (el: HTMLElement) => {
+    window.clearTimeout(timer.current);
+    setRect(el.getBoundingClientRect());
+  };
+  const hide = () => {
+    timer.current = window.setTimeout(() => setRect(null), 120);
+  };
+  const title = tx("{n} 条不完整未列出", "{n} incomplete not listed", { n });
+  const desc = tx(
+    "这些链路缺少部分 Span（比如经过 Kafka 时有 Span 没送到 Tempo），没法完整展示，所以没有列出；单独打开也会失败。这个数字只计本次搜索到的。",
+    "These traces are missing spans (e.g. a span lost on the way through Kafka), so they can't be shown whole and aren't listed; opening one directly fails too. Counts only what this search found.",
+  );
+  return (
+    <span className="tr-inc" tabIndex={0} role="note" aria-label={`${title}. ${desc}`} onMouseEnter={(e) => show(e.currentTarget)} onMouseLeave={hide} onFocus={(e) => show(e.currentTarget)} onBlur={hide}>
+      <Icon name="alert" size={12} />
+      {title}
+      {rect &&
+        createPortal(
+          <span className="unk-card" style={{ left: Math.max(8, Math.min(rect.right - 280, window.innerWidth - 288)), top: rect.bottom + 6, width: 280 }} onMouseEnter={() => window.clearTimeout(timer.current)} onMouseLeave={hide}>
+            <b>{title}</b>
+            <span>{desc}</span>
+          </span>,
+          document.body,
+        )}
+    </span>
   );
 }

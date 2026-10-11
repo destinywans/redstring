@@ -10,7 +10,7 @@ import { useI18n } from "../../i18n";
 import "./trace.css";
 import { ChipSelect, openForm, usePickLists, useRanges } from "../../ui/demo";
 import { toast } from "../../ui/overlays";
-import { BudgetNotice, DenseCard, LookbackCard, coveredWindow, isScopeLimit, lookbackOf, rangeSeconds, useAxisNote, useWindowText, withErrors } from "./TraceLimit";
+import { BudgetNotice, DenseCard, IncompleteMarker, LookbackCard, coveredWindow, isScopeLimit, lookbackOf, rangeSeconds, useAxisNote, useWindowText, withErrors } from "./TraceLimit";
 import { useWhen, thinLabels } from "../../ui/when";
 
 export const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 1 : 2)} s` : `${Math.round(ms)} ms`);
@@ -83,7 +83,11 @@ export default function TracesPage() {
   // PA-81: with a connected source, not_configured on the charts, total and facets means search completeness isn't
   // declared — say so instead of "not connected / configure". No source at all keeps the original text.
   const unattested = !!data && data.items !== null && data.partial_reason !== "not_configured";
-  const u = Object.fromEntries(Object.entries(raw).map(([k, r]) => [k, unattested && r === "not_configured" ? "search_unattested" : r])) as typeof raw;
+  // PA-87: declared complete, but incomplete traces were skipped, so the totals and charts are withdrawn for that reason.
+  const skipped = data?.partial_reason === "incomplete_traces";
+  const u = Object.fromEntries(Object.entries(raw).map(([k, r]) => [k, unattested && r === "not_configured" ? (skipped ? "incomplete_traces" : "search_unattested") : r])) as Record<string, string | undefined>;
+  const excluded = data?.excluded_incomplete ?? 0;
+  const skippedChart = tx("跳过了不完整的链路，这次不给出分布。", "Incomplete traces were skipped, so no distribution this time.");
   // items is null only when no trace source is bound at all.
   const noSource = !!data && data.items === null;
   // PA-78: the search stopped at its budget (covered window), or even one second is too dense to list (413).
@@ -247,7 +251,11 @@ export default function TracesPage() {
           {covered && data && !noSource && !blocked && <BudgetNotice count={data.items?.length ?? 0} w={covered} range={range} actions={shortcuts(["svc", "err"])} />}
           {data?.partial && !covered && !noSource && !blocked && (
             <PartialBanner fields={[]}>
-              {tx("这里只列出这次有界搜索找到并确认已结束的链路，不是完整结果：总数、分面、数量分布和耗时分布暂缺。", "Only the finished traces this bounded search found are listed — not a complete result: totals, facets and the count and duration charts are missing.")}
+              {skipped
+                ? excluded > 0
+                  ? tx("有 {n} 条链路缺少部分 Span，已跳过；为了不给出错的数字，这次不显示总数、分面和分布。", "{n} traces are missing spans and were skipped; so as not to show wrong numbers, totals, facets and charts are left out this time.", { n: excluded })
+                  : tx("有链路缺少部分 Span，已跳过；为了不给出错的数字，这次不显示总数、分面和分布。", "Some traces are missing spans and were skipped; so as not to show wrong numbers, totals, facets and charts are left out this time.")
+                : tx("这里只列出这次有界搜索找到并确认已结束的链路，不是完整结果：总数、分面、数量分布和耗时分布暂缺。", "Only the finished traces this bounded search found are listed — not a complete result: totals, facets and the count and duration charts are missing.")}
             </PartialBanner>
           )}
           <Row gap={6} wrap>
@@ -303,6 +311,12 @@ export default function TracesPage() {
                 {tx("列出 {n} 条 · 总数", "{n} listed · total", { n: data.items.length })} <UnknownValue reason={u.total} source="Tempo" /> · {data.took}
               </Muted>
             )}
+            {data && !blocked && excluded > 0 && (
+              <>
+                <Muted size={11.5}>·</Muted>
+                <IncompleteMarker n={excluded} />
+              </>
+            )}
           </Row>
           {dense && <DenseCard serviceExample={service ? null : (lists.services[0]?.label ?? "checkout-api")} actions={shortcuts(["err", "svc"])} />}
           {lookback && (
@@ -322,7 +336,7 @@ export default function TracesPage() {
           <div className="tr-charts">
             <Panel title={tx("数量 · 按状态", "Count · by status")} right={<Legend items={[[tx("正常", "OK"), "var(--c1s)"], [tx("错误", "Error"), "var(--danger)"]]} />} bodyStyle={{ padding: "10px 14px" }}>
               {data && !data.histogram ? (
-                <Unavailable reason={u.histogram} source="Tempo" title={tx("数量分布", "Count by status")} icon="activity" />
+                <Unavailable reason={u.histogram} source="Tempo" title={tx("数量分布", "Count by status")} icon="activity" desc={u.histogram === "incomplete_traces" ? skippedChart : undefined} />
               ) : data?.histogram ? (
                 <div className="v3-col" style={{ gap: 6 }}>
                   <StackedBars data={data.histogram.counts} colors={["var(--c1s)", "var(--danger)"]} height={96} names={[tx("正常", "OK"), tx("错误", "Error")]} />
@@ -341,7 +355,7 @@ export default function TracesPage() {
             </Panel>
             <Panel title={tx("耗时分布", "Duration")} right={<Legend items={[[tx("正常", "OK"), "var(--c1)"], [tx("错误", "Error"), "var(--danger)"]]} />} bodyStyle={{ padding: "10px 14px" }}>
               {data && !data.scatter ? (
-                <Unavailable reason={u.scatter} source="Tempo" title={tx("耗时分布", "Duration")} icon="activity" />
+                <Unavailable reason={u.scatter} source="Tempo" title={tx("耗时分布", "Duration")} icon="activity" desc={u.scatter === "incomplete_traces" ? skippedChart : undefined} />
               ) : data?.scatter ? (
                 <div className="v3-col" style={{ gap: 6 }}>
                   <svg width="100%" height="105" viewBox="0 0 440 110" preserveAspectRatio="none" role="img" aria-label={tx("耗时散点图", "Duration scatter")}>

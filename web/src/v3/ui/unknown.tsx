@@ -33,6 +33,8 @@ export function useReasonText() {
         return { label: tx("暂时不可用", "Temporarily unavailable"), desc: tx("来源连接失败或超时，稍后会自动重试。", "The source failed or timed out; it is retried automatically."), configurable: false };
       case "search_unattested":
         return { label: tx("未声明搜索完整", "Search not declared complete"), desc: tx("这个部署没有声明 Tempo 搜索完整，无法给出分布和总数。", "This deployment doesn't declare Tempo search as complete, so no distributions or totals can be given."), configurable: false };
+      case "incomplete_traces":
+        return { label: tx("跳过了不完整的链路", "Incomplete traces skipped"), desc: tx("有链路缺少部分 Span 被跳过，这次不给出总数、分面和分布。", "Traces missing spans were skipped, so no totals, facets or charts this time."), configurable: false };
       case "stale":
         return { label: tx("数据已过期", "Out of date"), desc: tx("最近一次成功采集已过期。", "The last successful collection is out of date."), configurable: false };
       default:

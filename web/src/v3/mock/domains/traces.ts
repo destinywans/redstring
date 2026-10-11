@@ -70,7 +70,8 @@ function recentList(service: string | undefined, range: string) {
     histogram: { counts, axis: [clock(start).slice(0, 5), clock(now).slice(0, 5)], axis_times: [new Date(start).toISOString(), new Date(now).toISOString()] },
     scatter: items.map((r) => ({ x: Math.round((440 * (r.t - start)) / winMs), y: Math.round(r.errors ? 12 + rnd() * 30 : 100 - Math.min(60, r.duration_ms / 12)), error: r.errors > 0, id: r.id })),
     items: items.map(({ t: _t, ...r }) => r),
-    ...(partial ? { partial: true, partial_reason: "search_budget", window_start_at: new Date(start).toISOString(), window_end_at: new Date(now).toISOString() } : {}),
+    // With a service the budget list also left out two traces missing spans (PA-87, D30: still search_budget).
+    ...(partial ? { partial: true, partial_reason: "search_budget", window_start_at: new Date(start).toISOString(), window_end_at: new Date(now).toISOString(), ...(service ? { excluded_incomplete: 2 } : {}) } : {}),
   };
 }
 
@@ -99,7 +100,10 @@ mock("GET", "/traces", ({ query }) => {
   if (query.range === "30d") throw new MockError(422, "range_exceeds_lookback", "Choose a range within the configured trace lookback", { max_lookback_seconds: 604800, max_range: "7d" });
   // PA-81 demo: search-api's Tempo is connected but the deployment doesn't declare search complete (no counts or
   // charts); notification-svc has no trace source at all.
-  if (service === "search-api") return { ...recentList(service, "15m"), total: null, facets: null, histogram: null, scatter: null, partial: true, partial_reason: "search_unattested", unavailable: { total: "not_configured", facets: "not_configured", histogram: "not_configured", scatter: "not_configured" } };
+  if (service === "search-api") return { ...recentList(service, "15m"), total: null, facets: null, histogram: null, scatter: null, partial: true, partial_reason: "search_unattested", excluded_incomplete: 3, unavailable: { total: "not_configured", facets: "not_configured", histogram: "not_configured", scatter: "not_configured" } };
+  // PA-87 demo: order-service's deployment declares search complete, but three traces were missing spans, so the totals
+  // and charts are withdrawn (incomplete_traces).
+  if (service === "order-service") return { ...recentList(service, "15m"), total: null, facets: null, histogram: null, scatter: null, partial: true, partial_reason: "incomplete_traces", excluded_incomplete: 3, unavailable: { total: "not_configured", facets: "not_configured", histogram: "not_configured", scatter: "not_configured" } };
   if (service === "notification-svc") return { scope: "app", total: null, took: "0 ms", colors: {}, facets: null, views: APP_VIEWS, histogram: null, scatter: null, items: null, partial: true, partial_reason: "not_configured", unavailable: { items: "not_configured", total: "not_configured", facets: "not_configured", histogram: "not_configured", scatter: "not_configured" } };
   if (broad && service === "api-gateway") throw new MockError(413, "trace_scope_limit", "Trace population exceeds the bounded search limit");
   if (broad) return recentList(service, String(query.range ?? "1h"));

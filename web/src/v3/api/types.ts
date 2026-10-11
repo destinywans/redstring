@@ -1247,7 +1247,9 @@ export type TraceList = {
    * only [window_start_at, window_end_at) of the range is covered; "search_unattested": the deployment doesn't
    * attest search completeness (no counts or charts); "not_configured": no Tempo source.
    */
-  partial_reason?: "search_budget" | "search_unattested" | "not_configured" | (string & {}) | null;
+  partial_reason?: "search_budget" | "search_unattested" | "incomplete_traces" | "not_configured" | (string & {}) | null;
+  /** PA-87: traces left out for missing spans (no parent, several roots or a cycle); incomplete_traces when search is declared complete. */
+  excluded_incomplete?: number;
   window_start_at?: string | null;
   window_end_at?: string | null;
   unavailable: Unavailable;

@@ -164,6 +164,7 @@
 | D30 | 10-11 01:21 | （用户离开期间自行决定）声明了搜索完整、同时触顶又跳过不完整 Trace 时，`partial_reason` 仍为 `search_budget`，跳过数照放 `excluded_incomplete`；只有未触顶时才用 `incomplete_traces` | 前端出设计图时发现只返回 `incomplete_traces` 会让页面不知道只覆盖了最近几分钟；接口细节按用户“照后端改”的授权由后端定，只影响声明了搜索完整的部署。已实现并部署（caca4e5，隔离测试覆盖“声明完整 + 触顶 + 有跳过”等组合；验收实例未声明完整，部署后 `trace_views.py` 16/16 无回归） |
 | D31 | 10-11 22:00 | Kubernetes 读令牌改为 7 天有效并补凭据检查：新增 `tools/acceptance/credentials.py`（Vault 中 Kubernetes 读/回滚、GitLab 读/规则写四项凭据的到期时间，48 小时内到期提醒、过期失败；两实例回滚候选不得被凭据拦住），接入 `regress.py`；回滚写令牌（到期 10-12 10:18Z）在 D11 完整演练前用 `vault.py rotate-rollback` 轮换，不提前延长 | 48 小时读令牌在没有任何检查的情况下过期，回滚能力静默失效约 5 小时；7 天覆盖 D11 这一轮，写令牌保持短期是有意的安全设计 |
 | D32 | 10-11 22:15 | 产品建的告警规则：`application` 标签与告警摄取实际使用的标识一致（后端核对，预期为应用 key，经实例应用绑定换算，规则列表照此显示），并补“启用的规则 → 告警摄取 → 对上服务”的端到端测试；规则一律带环境标签，实验 Alertmanager 按它分流，test 规则的告警不进 prod 实例 | 后端发现产品要求规则标应用 ID，而实验告警与摄取用 key，按 ID 建的规则触发后可能对不上服务；且 test 组规则带集群标签会被送进 prod 实例，破坏环境隔离 |
+| D33 | 10-11 22:40 | 实验 Prometheus 告警重标记新增一条：`cluster="aiops-vm-cluster"` 且 `environment="lab"` 时改写为 `environment="prod"`（用户此前约定不动的告警重标记，这次只加这一条）；Alertmanager 送 prod 实例的路由加 `redstring_env="prod"`、`environment=~"prod\|"`，`dev/test/staging` 送丢弃接收器 | D32 部署后才发现实验 VM 告警继承了指标的 `environment="lab"`，prod 实例的环境一致性检查会把它们全部拒收，告警闭环与回滚演练会断；在告警层把实验集群标准化为 prod 与“实验集群扮演生产”的设定一致，产品不必为 lab 开例外，test 规则的告警仍被丢弃。实验会话给出的 A（产品接受 lab）、C（实验告警不再送 prod）未采用 |
 | D5 | 10-10 00:53 | 节点压力重跑时问题里故意不写服务名 | 验证 PA-50 的服务发现，真实值班提问常常只给告警名 |
 
 ### 进展

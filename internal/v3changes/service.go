@@ -22,6 +22,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 const pipelinesPerPage = 20
@@ -36,6 +37,9 @@ type Service struct {
 	Access   Access
 	Resolver v3integrations.CredentialResolver
 	Client   *http.Client
+	// Catalog returns the reviewed source catalog; its GitLab scopes say
+	// which deployments and branches are a service's changes (D11).
+	Catalog func() v3telemetry.Catalog
 }
 
 func New(db *pgxpool.Pool, tier string, access Access, resolver v3integrations.CredentialResolver) *Service {

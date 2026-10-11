@@ -25,6 +25,7 @@
 - `limits`（P4，可选）：所有登记读取方客户端的时间与大小上限，字段名与遥测文件相同：`timeout_seconds`（默认 15，1–60）、`max_window_seconds`（单次请求窗口，默认 3600，最长 86400）、`max_lookback_seconds`（最远回看，默认 604800 即 7 天，不小于窗口、最长 366 天）、`min_step_seconds`（默认 5）、`max_samples_per_series`（默认 1000，2–11000）、`max_log_entries`（默认 1000，1–5000）。不写或写 0 取默认值；越界或未知字段时目录加载失败、服务拒绝启动。
 - `tempo_search_fail_closed`（P4，可选）：Tempo 连接器 ID 列表，声明这些 Tempo 部署已确认在 live-store 滞后时让搜索失败而不是返回不完整的 200（见 [Trace 来源](v3-traces-source.md)）。只有列出的连接器的搜索算完整集合；多连接器的列表要全部列出才给总数、分面和直方图。不能为了让列表显示总数而列出未确认的连接器。最多 100 个，不能重复。
 - `limits` 和 `tempo_search_fail_closed` 原在遥测文件里（P4 之前对所有登记的 Tempo 连接器统一生效）；V3 实例从 P4 起不再读遥测文件，它们只从目录取。把它们放进目录而不是连接器的 `options`，是因为 `options` 目前只能由 `import-legacy` 写入、没有写接口，而目录本来就是运维审查过的私有配置（与 Tempo 选择器同处）。`aiops connectors import-legacy` 生成的目录会带上遥测文件的上限（目录里已有 `limits` 时保留目录的），文件声明了搜索完整时列出导入的 Tempo 连接器。
+- `gitlab`（D11，可选）：GitLab 变更范围，每条为 `{"connector_id", "application_id", "environment_id", "project_id", "deploy_environment", "refs"}`。`project_id` 必须是该服务环境已确认的代码项目（见“代码项目”），否则读取时当作未配置；`deploy_environment` 是 GitLab environment 名，只统计它的部署；`refs` 是 1–5 个分支名（不能带修订语法），只列合并到这些分支的 MR，以及这些分支和 MR 上的流水线。最多 200 条，同一连接器、服务环境和项目不能重复。变更读取的说明见 [变更视图](v3-change-view.md)。
 - 两个变量只能设一个，同时设置会启动失败。旧文件（只有 `queries`）可以直接改用新变量名。
 - 目录决定数据范围，只放在服务端；集成中心看不到也不能编辑。
 

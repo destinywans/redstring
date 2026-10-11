@@ -571,7 +571,8 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	if err := registerV3Pull(api, s, cfg, credentialResolver, pullCfg); err != nil {
 		return err
 	}
-	v3changes.New(s.DB, cfg.Tier, policy, connector.Prober.Resolver).Register(api)
+	changes := v3changes.New(s.DB, cfg.Tier, policy, connector.Prober.Resolver)
+	changes.Register(api)
 	uploads := v3uploads.New(s.DB)
 	uploads.ReadAuthorizer = func(ctx context.Context, user core.User, environmentID string) error {
 		return policy.Authorize(ctx, user, rbac.V3Decision{Module: "conversation", Action: "view", EnvironmentID: environmentID})
@@ -591,6 +592,9 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		return fmt.Errorf("load V3 source catalog: %w", err)
 	}
 	metricCatalog := sourceCatalog.Queries
+	// D11: the reviewed GitLab scopes say which deployments and branches are
+	// a service's changes.
+	changes.Catalog = func() v3telemetry.Catalog { return sourceCatalog }
 	// PA-19: every reader reads the connector registry. P4 removed the
 	// legacy and compare modes and the per-reader switch.
 	for _, name := range []string{"AIOPS_V3_SOURCE_REGISTRY", "AIOPS_V3_UNIFIED_READERS"} {

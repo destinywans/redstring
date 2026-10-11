@@ -39,3 +39,14 @@
 - 503：已选范围内缺少或改变必需的运行、部署、告警覆盖、审阅证据，或读取来源失败；响应不包含部分 `ChangesView`。
 
 当前前端 `GET /changes` 不传 `service_id` 和 `run_id`，且点击流水线后不按选中项重新取 `detail`。因此本切片的主接口在现有前端上尚无成功路径；前端集成须先补全请求参数和选中运行刷新，再进行页面验收。辅助 `GET /changes/records` 的 GitLab CI 元数据不提供上述部署与审阅证据，不能代替主接口。
+
+## GitLab 变更读取（D11 第 2 项，2026-10-11）
+
+`internal/v3changes` 的 `ReadServiceChanges` 和 `ReadPipeline` 是 `GET /changes` 的 GitLab 来源、`GET /incidents/{id}/changes` 和 AI 工具 `read_service_changes` 共用的读取层，不落库，每次读都直接问 GitLab：
+
+- **找项目**：服务环境已确认的代码项目（`v3_service_code_projects`），其 GitLab 连接器须已启用；统一目录 `gitlab` 范围给出部署环境名和分支。缺任何一项都是“未配置”。
+- **授权**：服务的 `services.view` 与环境的 `connectors.view`，在一个只读快照里核对；读完 GitLab 后再读一次，授权或来源（连接器、项目、端点、凭据引用、工具开关、目录范围）有变化就不返回结果。
+- **读什么**：窗口内更新过的部署（只取目录指定的 environment）、流水线（只留目录分支和 MR 上的）、合并到目录分支的 MR（`state=all`）。每类各需连接器工具开关 `list_deployments`、`list_pipelines`、`list_merge_requests`；开关关闭时该类为 `null` 并注明 `not_configured`，不当作空列表。窗口最长 7 天，每类最多 100 条，超过即“窗口过大”，不返回截断的列表。
+- **流水线详情**：流水线（`get_pipeline`）、作业（按阶段分组，阶段顺序按流水线先后）、提交统计（`get_commit`）和至多 20 个变更路径（`get_commit_diff`）。只取提交标题，不取提交正文和差异正文；用户只取用户名。不在目录分支或其 MR 上的流水线视为不存在。
+- **失败**：GitLab 不可达或返回 5xx 为不可用，401/403 为凭据问题，上游对象不属于该项目或字段不合法为不可用；任何一步失败都不返回部分结果。MR 与提交标题按数据处理：控制字符换成空格，限 200 字符。
+

@@ -15,7 +15,7 @@ type descriptor struct {
 }
 
 var descriptors = map[string]descriptor{
-	"gitlab":          {"gitlab", "delivery", "GitLab", "Code and pipelines", "/api/v4/user", []string{"oauth", "pat"}, []string{"list_pipelines", "get_pipeline", "get_commit", "get_commit_diff", "list_merge_requests"}},
+	"gitlab":          {"gitlab", "delivery", "GitLab", "Code and pipelines", "/api/v4/user", []string{"oauth", "pat"}, []string{"list_pipelines", "get_pipeline", "get_commit", "get_commit_diff", "list_merge_requests", "list_deployments"}},
 	"prometheus":      {"prometheus", "observe", "Prometheus", "Metrics", "/-/ready", []string{"none", "bearer"}, []string{"query_metrics"}},
 	"victoriametrics": {"victoriametrics", "observe", "VictoriaMetrics", "Metrics", "/health", []string{"none", "bearer"}, []string{"query_metrics"}},
 	"loki":            {"loki", "observe", "Loki", "Logs", "/ready", []string{"none", "bearer"}, []string{"search_logs"}},
@@ -92,6 +92,8 @@ func toolCopy(name, lang string) string {
 		return localized(lang, "读取提交差异", "Read commit differences")
 	case "list_merge_requests":
 		return localized(lang, "读取合并请求列表", "Read merge request list")
+	case "list_deployments":
+		return localized(lang, "读取部署记录", "Read deployments")
 	case "query_metrics":
 		return localized(lang, "查询指标", "Query metrics")
 	case "search_logs":

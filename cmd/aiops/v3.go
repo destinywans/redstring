@@ -856,6 +856,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	events.AuthorizeTeamTx = func(ctx context.Context, tx pgx.Tx, user core.User, team, env, action string) error {
 		return policy.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "events", Action: action, TeamID: team, EnvironmentID: env})
 	}
+	events.Changes = changes
 	events.GroupPolicySource = alertmanagerSource
 	events.GroupPolicyBindings = alertmanagerPolicyBindings
 	// PA-47: a silenced alert's resolved notification is never delivered, so

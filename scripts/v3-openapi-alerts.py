@@ -421,3 +421,34 @@ v3_route('get','/inhibitions','Read authorized Alertmanager inhibition configura
 P['/inhibitions']['get']['responses']['503'] = {
     'description':'Authorized inhibition source, scope, or application catalog is unavailable',
     'content':{'application/json':{'schema':ref('Error')}}}
+# D11: the changes of an incident's service around its start, time-adjacent only.
+_ic_common = {'kind':string(),'id':string(),'at':string(format='date-time'),
+    'offset_seconds':integer(description='Change time minus the incident start; negative when the change came first'),
+    'basis':string(enum=['time_adjacent'])}
+S['V3IncidentGitLabDeployment'] = obj({**_ic_common,'kind':string(enum=['gitlab_deployment']),
+    'status':string(enum=['created','running','success','failed','canceled','skipped','blocked']),
+    **fieldnames('sha short_sha ref href'),'pipeline_id':{'type':['integer','null']},
+    'merge_request':v3_nullable(obj({'iid':integer(),'title':string(maxLength=200)},['iid','title'])),
+    'kubernetes_revision':{'type':['string','null']},'web_url':{'type':['string','null']}},
+    ['kind','id','at','offset_seconds','basis','status','sha','short_sha','ref','pipeline_id','merge_request','kubernetes_revision','web_url','href'])
+S['V3IncidentKubernetesRevision'] = obj({**_ic_common,'kind':string(enum=['kubernetes_revision']),'revision':string(),
+    'change_cause':{'type':['string','null']},
+    'gitlab_deployment_id':{'type':['integer','null'],'description':'The GitLab deployment of the window whose pipeline the change cause names; null when none'}},
+    ['kind','id','at','offset_seconds','basis','revision','change_cause','gitlab_deployment_id'])
+S['V3IncidentChanges'] = obj({**fieldnames('incident_id service_id environment_id'),
+    'alert_started_at':string(format='date-time'),
+    'window':obj({'start_at':string(format='date-time'),'end_at':string(format='date-time')},['start_at','end_at']),
+    'items':arr({'oneOf':[ref('V3IncidentGitLabDeployment'),ref('V3IncidentKubernetesRevision')]}),
+    'coverage':obj({'gitlab':string(enum=['complete','not_configured','no_authorized_target','unavailable']),
+        'kubernetes':string(enum=['history_limited','not_configured','no_authorized_target','unavailable'])},['gitlab','kubernetes']),
+    'note':string(enum=['time_adjacent_not_causal']),'unavailable':ref('V3Unavailable')},
+    ['incident_id','service_id','environment_id','alert_started_at','window','items','coverage','note','unavailable'])
+v3_route('get','/incidents/{id}/changes','Read the changes around an incident',
+    query=[v3_query('before',string(default='60m')),v3_query('after',string(default='15m'))],
+    response=ref('V3IncidentChanges'),
+    desc='D11: the GitLab deployments and Kubernetes revisions of the incident\'s service from before to after its start '
+         '(an alert incident\'s alert start, a manual incident\'s creation), sorted by offset. before (1m-24h) and after (0m-24h) are whole-minute '
+         'Go durations, together at most 24h; the window ends no later than now. Needs events.view on the incident; the GitLab part also needs '
+         'services.view and connectors.view, the revisions resources.view. A source that is not configured, not visible or unavailable is reported '
+         'in coverage and unavailable while the other answers. Every item is only time-adjacent: basis is time_adjacent and note says it is not causal. '
+         'The incident, grant and session are checked again before answering; an unknown or invisible incident is 404.')

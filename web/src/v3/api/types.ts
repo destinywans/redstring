@@ -348,13 +348,37 @@ export type Incident = {
 };
 
 /* ---------------- alert rules, routing, silences ---------------- */
-export type AlertRuleSummary = { id: string; folder: string; name: string; state: "firing" | "pending" | "ok"; schedule?: string };
+export type AlertRuleSummary = {
+  id: string;
+  folder: string;
+  name: string;
+  state: "firing" | "pending" | "ok";
+  schedule?: string;
+  /** D11 §11.6: where the rule is in its GitOps lifecycle (separate from whether it fires); ids are null without a disable in progress. */
+  lifecycle?: AlertRuleLifecycle;
+};
+export type AlertRuleLifecycle = { state: "active" | "disable_pending_approval" | "disabling" | "needs_attention"; proposal_id: string | null; execution_id: string | null };
+/** D11 §11.6: an enable or disable not in effect yet (only proposals the viewer may see; newest first, at most 50). */
+export type AlertRulePending = {
+  proposal_id: string;
+  execution_id: string | null;
+  operation: "enable" | "disable";
+  rule_name: string;
+  group: string;
+  application_id: string;
+  environment_id: string;
+  /** failed and rejected only within 7 days. */
+  state: "pending_approval" | "executing" | "needs_attention" | "failed" | "rejected";
+  updated_at: string;
+  /** The review page while pending approval, the execution page once it runs. */
+  href: string;
+};
 /**
  * List-endpoint emptiness (PA-09): items null = source not configured (see unavailable); [] with
  * empty_reason "no_authorized_target" = nothing visible to this user; [] with null = genuinely none.
  */
 export type EmptyReason = "no_authorized_target" | null;
-export type AlertRuleList = { items: AlertRuleSummary[] | null; counts: { all: number; firing: number; scheduled: number } | null; empty_reason: EmptyReason; unavailable: Unavailable };
+export type AlertRuleList = { items: AlertRuleSummary[] | null; counts: { all: number; firing: number; scheduled: number } | null; empty_reason: EmptyReason; unavailable: Unavailable; pending?: AlertRulePending[] };
 export type AlertRule = AlertRuleSummary & {
   datasource: string;
   query_ref: string;
@@ -425,7 +449,46 @@ export type Proposal = {
   /** e.g. kubernetes.deployment.rollback; null for display-only proposals (docs/api/v3-rollback.md §3). */
   action_kind?: string | null;
   rollback?: ProposalRollback | null;
+  /** D11 §11.4: set for prometheus.alert_rule.enable / .disable, null otherwise. */
+  alert_rule?: ProposalAlertRule | null;
 };
+
+/* ---------------- Alert rule enable / disable through GitOps (D11 §11.4–11.5) ---------------- */
+export const ALERT_RULE_KINDS = ["prometheus.alert_rule.enable", "prometheus.alert_rule.disable"];
+export type ProposalAlertRule = {
+  operation: "enable" | "disable";
+  rule: { name: string; group: string; expr: string; for: string; severity: string; labels: Record<string, string>; annotations: Record<string, string> };
+  repository: { connector_id: string; project_id: string; project_path: string; web_url: string; target_branch: string; path: string; base_sha: string };
+  /** The whole file's difference; op " " is an unchanged line. */
+  change: { lines: { op: "+" | "-" | " "; text: string }[]; content_sha256: string };
+  prometheus: { group: string; file: string; readback_timeout_seconds: number };
+  merge: { method: "fast_forward"; by: "executor" };
+};
+export type AlertRuleExecState = "reserved" | "committing" | "merging" | "merged" | "loading" | "enabled" | "disabled" | "failed" | "needs_attention" | "uncertain";
+export type AlertRuleFailureCode = "stale_base" | "branch_conflict" | "mr_closed" | "protection_changed" | "load_timeout" | "rule_health_error" | "credential_rejected" | "approval_invalid";
+/** Fields of steps not reached yet are null. */
+export type ExecutionAlertRule = {
+  proposal_id: string;
+  operation: "enable" | "disable";
+  state: AlertRuleExecState;
+  steps: { state: AlertRuleExecState; at: string }[];
+  repository: { project_id: string; project_path: string; source_branch: string; target_branch: string; path: string; commit_sha: string | null; mr_iid: number | null; mr_url: string | null; merged_sha: string | null; merged_at: string | null };
+  readback: {
+    state: "pending" | "loaded" | "absent" | "mismatch" | "error" | "timeout";
+    checked_at: string | null;
+    first_seen_at: string | null;
+    health: string | null;
+    last_evaluation_at: string | null;
+    last_error: string | null;
+    reload: { last_successful: boolean | null; last_success_at: string | null } | null;
+  };
+  failure: { code: AlertRuleFailureCode | (string & {}); message: string } | null;
+};
+/**
+ * GET /executions/{id} for an alert rule. §11.5 only adds `alert_rule`; the approvers and approval time are assumed
+ * like the rollback execution's and hidden when absent. The rule's name comes from the proposal.
+ */
+export type AlertRuleExecutionDetail = { id: string; kind?: string; investigation_id?: string | null; approved_at?: string; approvers?: { name: string; verified_at: string }[]; alert_rule: ExecutionAlertRule };
 
 /* ---------------- Kubernetes rollback (docs/api/v3-rollback.md, PA-08) ---------------- */
 /**
@@ -747,28 +810,134 @@ export type LogPattern = { template: string; level: LogLine["level"]; count: str
  * null too when no log source is bound at all (every key not_configured).
  */
 export type LogSearch = { total: string | null; errors: string | null; histogram: number[][] | null; items: LogLine[] | null; patterns: LogPattern[] | null; unavailable: Unavailable };
-export type Pipeline = { id: string; brand: string; ref: string; service: string; title: string; trigger: string; status: "success" | "failed" | "running" | "canceled"; stages: ("ok" | "danger" | "accent" | "neutral")[]; duration: string; time: string };
-/** GET /delivery/runs item (native delivery run), used to pick a run for the changes view. */
-export type DeliveryRunSummary = { id: string; pipeline_id?: string; application_id?: string; environment_id?: string; provider?: string; status?: string; version?: number; created_at?: string; updated_at?: string; snapshot?: { name?: string }; projection?: { status?: string; commit_sha?: string; message?: string } };
-export type ChangesView = {
+/** GitLab user as the change reads give it. */
+export type GitLabUser = { username: string } | null;
+/** An alert whose start fell near a change: only time adjacency, never a cause (basis is always time_adjacent). */
+export type ChangeAdjacentAlert = { incident_id: string; offset_seconds: number; basis: "time_adjacent" };
+export type GitLabDeployment = {
+  id: string;
+  deployment_id: number;
+  iid: number;
+  status: "created" | "running" | "success" | "failed" | "canceled" | "skipped" | "blocked";
+  environment: string;
+  ref: string;
+  sha: string;
+  short_sha: string;
+  pipeline_id: number | null;
+  job: { id: number; name: string } | null;
+  user: GitLabUser;
+  created_at: string;
+  finished_at: string | null;
+  web_url: string | null;
+  merge_request_iid: number | null;
+  /** The cluster revision whose change-cause names this pipeline; display only, not proof. */
+  kubernetes_revision: string | null;
+  adjacent_alerts: ChangeAdjacentAlert[] | null;
+};
+export type GitLabPipeline = { id: string; pipeline_id: number; status: string; ref: string; sha: string; short_sha: string; source: string; created_at: string; updated_at: string; web_url: string | null; merge_request_iid: number | null; deployment_ids: number[] };
+export type GitLabMergeRequest = {
+  id: string;
+  iid: number;
+  title: string;
+  state: "opened" | "closed" | "merged" | "locked";
+  source_branch: string;
+  target_branch: string;
+  author: GitLabUser;
+  merged_by: GitLabUser;
+  created_at: string;
+  merged_at: string | null;
+  closed_at: string | null;
+  sha: string | null;
+  merge_commit_sha: string | null;
+  squash_commit_sha: string | null;
+  web_url: string | null;
+  pipeline_ids: number[];
+  deployment_ids: number[];
+};
+/**
+ * GET /changes?service_id=&range=24h|7d&sources=gitlab (D11 §11.1, V3GitLabChangesView). A list is null when its
+ * connector tool is off (its KPIs are then missing and `unavailable["kpis.<id>"]` says not_configured).
+ */
+/** D11 §11.3: GET /incidents/{id}/changes — GitLab deployments and cluster revisions around an incident's start. */
+export type IncidentGitLabDeployment = {
+  kind: "gitlab_deployment";
+  /** gitlab:deployment:<project>:<deployment id> */
+  id: string;
+  at: string;
+  /** Change time minus the incident start; negative when the change came first. */
+  offset_seconds: number;
+  basis: "time_adjacent";
+  status: "created" | "running" | "success" | "failed" | "canceled" | "skipped" | "blocked";
+  sha: string;
+  short_sha: string;
+  ref: string;
+  /** /changes?service_id=…&range=24h&focus=<id> */
+  href: string;
+  pipeline_id: number | null;
+  merge_request: { iid: number; title: string } | null;
+  kubernetes_revision: string | null;
+  web_url: string | null;
+};
+export type IncidentKubernetesRevision = {
+  kind: "kubernetes_revision";
+  id: string;
+  at: string;
+  offset_seconds: number;
+  basis: "time_adjacent";
+  revision: string;
+  change_cause: string | null;
+  /** The window's GitLab deployment whose pipeline the change cause names; null = not deployed through GitLab (or unknown when GitLab isn't readable). */
+  gitlab_deployment_id: number | null;
+};
+export type IncidentChanges = {
+  incident_id: string;
+  service_id: string;
+  environment_id: string;
+  alert_started_at: string;
+  window: { start_at: string; end_at: string };
+  items: (IncidentGitLabDeployment | IncidentKubernetesRevision)[];
+  coverage: { gitlab: "complete" | "not_configured" | "no_authorized_target" | "unavailable"; kubernetes: "history_limited" | "not_configured" | "no_authorized_target" | "unavailable" };
+  note: "time_adjacent_not_causal";
+  unavailable: Unavailable;
+};
+export type GitLabChangesView = {
+  service_id: string;
+  environment_id: string;
+  source: "gitlab";
+  window: { start_at: string; end_at: string };
+  project: { connector_id: string; project_id: string; path: string; web_url: string; deploy_environment: string; refs: string[] };
   kpis: Kpi[];
-  sources: { brand: string; name: string; count: number; on: boolean }[];
-  lanes: { service: string; marks: { at: number; tone: "ok" | "danger"; label?: string }[]; alerts: [number, number][] }[];
-  /** The timeline's axis instants (RFC 3339; PA-83). */
-  axis_times: string[];
-  pipelines: Pipeline[];
-  detail: {
-    id: string;
-    title: string;
-    meta: string;
-    /** The review time (RFC 3339; PA-83); meta carries no time. */
-    reviewed_at?: string | null;
-    brand: string;
-    stages: { name: string; jobs: { name: string; state: "ok" | "running"; brand?: string }[] }[];
-    diff: { path: string; minus: string; plus: string };
-    risk: { title: string; meta: string; text: string };
-    alert: { text: string; incident: string };
-  };
+  series_start_at: string;
+  series_step_seconds: number;
+  deployments: GitLabDeployment[] | null;
+  pipelines: GitLabPipeline[] | null;
+  merge_requests: GitLabMergeRequest[] | null;
+  /** null without an alert coverage statement (coverage.alerts unknown) or permission (not_authorized). */
+  alerts: { incident_id: string; title: string; href: string; started_at: string; ended_at: string | null }[] | null;
+  kubernetes_revisions: { revision: string; created_at: string; change_cause: string | null; gitlab_pipeline_id: number | null }[] | null;
+  coverage: { gitlab: "complete"; alerts: "complete" | "unknown" | "not_authorized"; kubernetes: "history_limited" | "not_configured" | "no_authorized_target" | "unavailable" };
+  captured_at: string;
+  unavailable: Unavailable;
+};
+/** GET /changes/pipelines/{pipeline_id}?service_id= (D11 §11.2, V3GitLabPipelineDetail); deployments come from the list row. */
+export type GitLabPipelineDetail = {
+  id: string;
+  pipeline_id: number;
+  status: string;
+  ref: string;
+  sha: string;
+  source: string;
+  user: GitLabUser;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_seconds: number | null;
+  web_url: string | null;
+  stages: { name: string; status: string; jobs: { id: number; name: string; status: string; manual: boolean; started_at: string | null; finished_at: string | null; duration_seconds: number | null; web_url: string | null }[] }[];
+  commit: { sha: string; title: string; authored_at: string; parent_ids: string[]; stats: { files: number | null; additions: number; deletions: number }; paths: string[] | null } | null;
+  merge_request_iid: number | null;
+  adjacent_alerts: ChangeAdjacentAlert[] | null;
+  unavailable: Unavailable;
 };
 
 /* ---------------- integrations ---------------- */
@@ -793,6 +962,13 @@ export type ConnectorDetail = Connector & {
   capabilities?: string[];
   /** Registry stage 2 step 7: tools project the saved switches; false says they gate data reads only, not agent execution. */
   agent_execution_available?: boolean;
+  /** D11 design (GitLab): how writes reach the provider, if at all. Not in the contract yet; absent hides the row. */
+  write_path?: string;
+  /**
+   * D11 design (GitLab): the catalog's GitLab deploy environment and branch per service environment, reviewed by the
+   * deployer and read-only. Not in the contract yet; absent hides the section.
+   */
+  deploy_environments?: { service: string; environment: string; project_id: string; deploy_environment: string; refs: string[] }[];
 };
 export type ConnectorType = {
   brand: string;
@@ -852,8 +1028,37 @@ export type PushView = {
 };
 
 /** A reviewed GitLab code candidate staged by POST /service-mappings/discover; accepting sends it back exactly. */
-export type MappingCandidate = { id: string; version: string; service_id: string; service: string; environment_id: string; system_id: "code"; connector_id: string; target_id: string; external_id: string; binding_revision: number; expires_at: string };
-export type MappingCell = { state: "ok" | "suggested" | "missing"; value?: string; brand?: string; candidate?: MappingCandidate };
+export type MappingCandidate = {
+  id: string;
+  version: string;
+  service_id: string;
+  service: string;
+  environment_id: string;
+  system_id: "code";
+  connector_id: string;
+  target_id: string;
+  /** The GitLab numeric project ID. */
+  external_id: string;
+  binding_revision: number;
+  expires_at: string;
+  /** D11 design extras the contract doesn't send yet (the sample fills them): project path, a one-line hint, the suggested one. */
+  project_path?: string;
+  hint?: string;
+  recommended?: boolean;
+};
+export type MappingCell = {
+  state: "ok" | "suggested" | "missing";
+  /** Code column (D20): the confirmed GitLab numeric project ID. */
+  value?: string;
+  brand?: string;
+  candidate?: MappingCandidate;
+  /**
+   * D11 design, code column: every candidate when a service has more than one GitLab project, and who confirmed the
+   * current one. Not in the contract yet (real candidates only exist for a single project); absent fields are hidden.
+   */
+  candidates?: MappingCandidate[];
+  confirmed?: { by: string; at: string; revision: number; project_path?: string };
+};
 /** Per-row save snapshot for PUT /service-mappings (see docs/examples/v3-service-mapping-save.md); absent rows aren't editable. */
 export type MappingSave = { service_id: string; service_environment_id: string; binding_revision: number; bindings: { system_id: string; kind: string; connector_id: string; resource: string }[]; editable: boolean; unavailable_reason?: string };
 /** One mapping system in GET /services/{id}/external-targets/options (PA-19 stage 2, docs/api/v3-contract.md). */

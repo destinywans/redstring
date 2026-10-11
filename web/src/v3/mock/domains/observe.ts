@@ -1,4 +1,4 @@
-import { mock } from "../router";
+import { mock, MockError } from "../router";
 import { NOW, at } from "../time";
 import { l } from "../../i18n";
 import { series } from "../../charts";
@@ -278,44 +278,105 @@ mock("GET", "/logs", ({ query }) => {
 });
 
 /* ---------------- changes ---------------- */
-mock("GET", "/changes", () => ({
-  kpis: [
-    { id: "deploys", label: P("本周部署", "Deploys this week"), value: "86", sub: P("日均 12 次 · 5 个来源", "12/day · 5 sources"), series: [9, 12, 10, 14, 13, 16, 12] },
-    { id: "cfr", label: P("变更失败率", "Change failure rate"), value: "4.7%", tone: "warn", sub: P("4 次引发告警或回滚", "4 caused alerts or rollbacks"), series: [3, 5, 4, 6, 5, 4, 5] },
-    { id: "lead", label: P("前置时间 P50", "Lead time P50"), value: "2.4", unit: P("小时", "h"), sub: P("从提交到生产", "Commit to production"), series: [3.1, 2.8, 2.9, 2.6, 2.5, 2.4, 2.4] },
-    { id: "mttr", label: P("变更恢复时间", "Time to restore"), value: "38", unit: P("分钟", "min"), tone: "ok", sub: P("回滚或修复 · 本周", "Rollback or fix · this week"), series: [52, 49, 47, 44, 41, 40, 38] },
-  ],
-  sources: [{ brand: "gitlab", name: "GitLab CI", count: 38, on: true }, { brand: "githubactions", name: "GitHub Actions", count: 12, on: true }, { brand: "jenkins", name: "Jenkins", count: 5, on: true }, { brand: "argo", name: "Argo CD", count: 27, on: true }, { brand: "harbor", name: P("Harbor 镜像", "Harbor images"), count: 64, on: false }],
-  lanes: [
-    { service: "checkout-api", marks: [{ at: 14, tone: "ok" }, { at: 63, tone: "danger", label: P("#8805 失败", "#8805 failed") }, { at: 91, tone: "ok", label: "v2.8.1 · 14:03" }], alerts: [[92, 100]] },
-    { service: "payment-gateway", marks: [{ at: 35, tone: "ok", label: "v1.14.0" }], alerts: [[81, 100]] },
-    { service: "order-service", marks: [{ at: 48, tone: "ok" }, { at: 76, tone: "ok", label: "v3.2.4" }], alerts: [] },
-    { service: "search-api", marks: [{ at: 10, tone: "ok" }], alerts: [] },
-  ],
-  axis_times: [at("14:00", -1), at("20:00", -1), at("02:00"), at("08:00"), new Date(NOW).toISOString()],
-  pipelines: [
-    { id: "8812", brand: "gitlab", ref: "#8812", service: "checkout-api", title: "feat: invoice title on checkout", trigger: "李明", status: "success", stages: ["ok", "ok", "ok", "ok", "ok", "ok", "ok"], duration: P("14 分", "14 m"), time: "14:03" },
-    { id: "sync", brand: "argo", ref: "sync", service: "checkout-api", title: P("同步到生产 · v2.8.1", "Sync to prod · v2.8.1"), trigger: P("自动", "auto"), status: "success", stages: ["ok"], duration: P("52 秒", "52 s"), time: "14:04" },
-    { id: "5521", brand: "githubactions", ref: "#5521", service: "order-service", title: "fix: retry on 409", trigger: "周航", status: "success", stages: ["ok", "ok", "ok", "ok", "ok"], duration: P("9 分", "9 m"), time: "13:12" },
-    { id: "8805", brand: "gitlab", ref: "#8805", service: "checkout-api", title: "feat: coupon stacking v2", trigger: "李明", status: "failed", stages: ["ok", "ok", "danger"], duration: P("6 分", "6 m"), time: "11:40" },
-    { id: "231", brand: "jenkins", ref: "#231", service: "user-center", title: "release 2.1.1", trigger: "陈雨", status: "running", stages: ["ok", "ok", "accent", "neutral"], duration: P("4 分", "4 m"), time: "14:28" },
-    { id: "8798", brand: "gitlab", ref: "#8798", service: "payment-gateway", title: "chore: bump sdk", trigger: "赵凯", status: "success", stages: ["ok", "ok", "ok", "ok", "ok", "ok", "ok"], duration: P("15 分", "15 m"), time: P("昨天", "Yesterday") },
-  ],
-  detail: {
-    id: "8812",
-    title: "#8812 · checkout-api v2.8.1",
-    meta: P("platform/checkout · main · a3f9c21 · 李明 · 13:49 触发", "platform/checkout · main · a3f9c21 · Li Ming · triggered 13:49"),
-    brand: "gitlab",
-    stages: [
-      { name: P("构建", "Build"), jobs: [{ name: "build", state: "ok" }, { name: "lint", state: "ok" }] },
-      { name: P("测试", "Test"), jobs: [{ name: "unit", state: "ok" }, { name: "integration", state: "ok" }] },
-      { name: P("扫描", "Scan"), jobs: [{ name: "SonarQube", state: "ok" }, { name: P("镜像扫描", "Image scan"), state: "ok", brand: "harbor" }] },
-      { name: P("预发", "Staging"), jobs: [{ name: P("部署", "Deploy"), state: "ok", brand: "argo" }] },
-      { name: P("审批", "Approval"), jobs: [{ name: "李明", state: "ok" }] },
-      { name: P("生产", "Production"), jobs: [{ name: P("部署 14:03", "Deploy 14:03"), state: "ok", brand: "argo" }] },
+// Changes & releases, GitLab mode (D11 §11.1), example data. checkout-api: two failed deploys, then #3 at 14:03 two
+// minutes before INC-1042; cluster revision 8 came from the lab's bad-release drill, not GitLab. Other services show
+// the states: payment-gateway GitLab down, user-center credential rejected, order-service no confirmed code project,
+// inventory-service without alert coverage, workload or the pipelines tool; checkout-api over 7 days is too many.
+const SHA = (s: string) => s.padEnd(40, "0");
+const GL_USERS = { li: { username: "li.ming" }, zhou: { username: "zhou.hang" }, wang: { username: "wang.chen" } };
+const glDeploy = (iid: number, status: "success" | "failed", sha: string, pipeline: number, mr: number | null, user: { username: string }, created: string, finished: string, rev: string | null, adjacent: { incident_id: string; offset_seconds: number; basis: "time_adjacent" }[] = []) => ({
+  id: `gitlab:deployment:4:${100 + iid}`, deployment_id: 100 + iid, iid, status, environment: "aiops-lab", ref: "main", sha: SHA(sha), short_sha: sha,
+  pipeline_id: pipeline, job: { id: 9000 + iid, name: "deploy:aiops-lab" }, user, created_at: created, finished_at: finished,
+  web_url: `https://gitlab.lab.internal/aiops-lab/checkout-api/-/environments/1/deployments/${iid}`, merge_request_iid: mr, kubernetes_revision: rev, adjacent_alerts: adjacent,
+});
+const glPipeline = (id: number, status: string, sha: string, mr: number | null, deployIds: number[], created: string, updated: string, source = "push") => ({
+  id: `gitlab:pipeline:4:${id}`, pipeline_id: id, status, ref: "main", sha: SHA(sha), short_sha: sha, source, created_at: created, updated_at: updated,
+  web_url: `https://gitlab.lab.internal/aiops-lab/checkout-api/-/pipelines/${id}`, merge_request_iid: mr, deployment_ids: deployIds,
+});
+const glMr = (iid: number, title: ReturnType<typeof P>, sha: string, author: { username: string }, merged: string, pipelines: number[], deploys: number[]) => ({
+  id: `gitlab:mr:4:${iid}`, iid, title, state: "merged", source_branch: `feature/mr-${iid}`, target_branch: "main", author, merged_by: GL_USERS.wang,
+  created_at: merged, merged_at: merged, closed_at: null, sha: SHA(sha), merge_commit_sha: SHA(sha), squash_commit_sha: null,
+  web_url: `https://gitlab.lab.internal/aiops-lab/checkout-api/-/merge_requests/${iid}`, pipeline_ids: pipelines, deployment_ids: deploys,
+});
+const GL_KPI = (id: string, zh: string, en: string, value: number, series: number[]) => ({ id, label: P(zh, en), value: String(value), series });
+const GL_PROJECT = { connector_id: "gitlab-lab", project_id: "4", path: "aiops-lab/checkout-api", web_url: "https://gitlab.lab.internal/aiops-lab/checkout-api", deploy_environment: "aiops-lab", refs: ["main"] };
+mock("GET", "/changes", ({ query }) => {
+  const service = String(query.service_id ?? "");
+  if (service === "payment-gateway") throw new MockError(503, "source_unavailable", "GitLab is unavailable");
+  if (service === "user-center") throw new MockError(503, "credential_unavailable", "The GitLab credential is unavailable or was rejected");
+  if (service === "order-service") throw new MockError(503, "change_source_not_configured", "No GitLab change source is configured for this service");
+  if (service === "checkout-api" && query.range === "7d") throw new MockError(413, "change_window_too_large", "More changes than one bounded read; choose a shorter range");
+  const end = NOW;
+  const start = end - 24 * 3600_000;
+  const base = {
+    service_id: service, environment_id: "prod", source: "gitlab", window: { start_at: new Date(start).toISOString(), end_at: new Date(end).toISOString() },
+    project: { ...GL_PROJECT, path: `aiops-lab/${service}` }, series_start_at: new Date(start).toISOString(), series_step_seconds: 3600, captured_at: new Date(end).toISOString(), unavailable: {},
+  };
+  if (service !== "checkout-api" && service !== "inventory-service")
+    return { ...base, kpis: [GL_KPI("deployments", "成功部署", "Successful deploys", 0, []), GL_KPI("failed_deployments", "失败部署", "Failed deploys", 0, []), GL_KPI("pipelines", "流水线", "Pipelines", 0, []), GL_KPI("merged_merge_requests", "已合并 MR", "Merged MRs", 0, [])], deployments: [], pipelines: [], merge_requests: [], alerts: [], kubernetes_revisions: [], coverage: { gitlab: "complete", alerts: "complete", kubernetes: "history_limited" } };
+  const deployments = [
+    glDeploy(3, "success", "a3f9c21b", 8812, 41, GL_USERS.li, at("13:57"), at("14:03"), "7", [{ incident_id: "INC-1042", offset_seconds: 120, basis: "time_adjacent" }]),
+    glDeploy(2, "failed", "9b1e0d47", 8805, 40, GL_USERS.li, at("11:36"), at("11:40"), null),
+    glDeploy(1, "failed", "9b1e0d47", 8801, 40, GL_USERS.zhou, at("08:52"), at("08:58"), null),
+  ];
+  const pipelines = [
+    glPipeline(8812, "success", "a3f9c21b", 41, [103], at("13:51"), at("14:03")),
+    glPipeline(8810, "success", "a3f9c21b", 41, [], at("13:40"), at("13:47"), "merge_request_event"),
+    glPipeline(8809, "success", "77c0a1e5", 39, [], at("12:24"), at("12:31")),
+    glPipeline(8805, "failed", "9b1e0d47", 40, [102], at("11:31"), at("11:40")),
+    glPipeline(8801, "failed", "9b1e0d47", 40, [101], at("08:47"), at("08:58")),
+    glPipeline(8798, "success", "5e2c88f0", 38, [], at("18:02", -1), at("18:10", -1)),
+  ];
+  const mergeRequests = [
+    glMr(41, P("库存调用只重试 1 次，并打开熔断", "Retry inventory once and enable the breaker"), "a3f9c21b", GL_USERS.li, at("13:50"), [8810, 8812], [103]),
+    glMr(40, P("优惠券叠加 v2", "Coupon stacking v2"), "9b1e0d47", GL_USERS.li, at("08:46"), [8801, 8805], [101, 102]),
+    glMr(39, P("补充下单埋点", "Add checkout metrics"), "77c0a1e5", GL_USERS.wang, at("12:22"), [8809], []),
+    glMr(38, P("升级支付 SDK", "Bump the payment SDK"), "5e2c88f0", GL_USERS.zhou, at("18:00", -1), [8798], []),
+  ];
+  if (service === "inventory-service")
+    return {
+      ...base,
+      kpis: [GL_KPI("deployments", "成功部署", "Successful deploys", 1, [0, 1]), GL_KPI("failed_deployments", "失败部署", "Failed deploys", 0, [0, 0]), GL_KPI("merged_merge_requests", "已合并 MR", "Merged MRs", 1, [0, 1])],
+      deployments: [glDeploy(7, "success", "c0ffee12", 7311, 12, GL_USERS.zhou, at("09:10"), at("09:16"), null)],
+      pipelines: null,
+      merge_requests: [glMr(12, P("库存预占超时改为 300 ms", "Reserve timeout to 300 ms"), "c0ffee12", GL_USERS.zhou, at("09:02"), [7311], [107])],
+      alerts: null, kubernetes_revisions: null,
+      coverage: { gitlab: "complete", alerts: "unknown", kubernetes: "not_configured" },
+      unavailable: { pipelines: "not_configured", "kpis.pipelines": "not_configured", alerts: "not_configured", kubernetes_revisions: "not_configured" },
+    };
+  return {
+    ...base,
+    kpis: [GL_KPI("deployments", "成功部署", "Successful deploys", 1, [0, 0, 1]), GL_KPI("failed_deployments", "失败部署", "Failed deploys", 2, [0, 2, 0]), GL_KPI("pipelines", "流水线", "Pipelines", 6, [1, 2, 3]), GL_KPI("merged_merge_requests", "已合并 MR", "Merged MRs", 4, [1, 1, 2])],
+    deployments, pipelines, merge_requests: mergeRequests,
+    alerts: [{ incident_id: "INC-1042", title: P("checkout-api 5xx 升高", "checkout-api 5xx rising"), href: "/incidents/INC-1042", started_at: at("14:05"), ended_at: at("14:22") }],
+    kubernetes_revisions: [
+      { revision: "8", created_at: at("14:20"), change_cause: "lab drill bad-release", gitlab_pipeline_id: null },
+      { revision: "7", created_at: at("14:03"), change_cause: "gitlab pipeline 8812 a3f9c21b", gitlab_pipeline_id: 8812 },
     ],
-    diff: { path: P("src/checkout/invoice/ · 3 个文件 · +86 −12", "src/checkout/invoice/ · 3 files · +86 −12"), minus: "-  invoice.title: optional", plus: "+  invoice.title: required_for_business" },
-    risk: { title: P("发布前风险评估 · 低风险", "Pre-release risk · low"), meta: P("变更风险评估 v2 · 13:58 · 自动通过", "Change risk v2 · 13:58 · passed automatically"), text: P("只改动发票抬头字段和校验，不涉及库存、支付调用与重试配置；按常规流程发布。", "Only the invoice title field and its validation change; no inventory or payment calls and no retry settings are touched. Released the usual way.") },
-    alert: { text: P("发布后 2 分钟触发告警 checkout-api / HighErrorRate", "2 min after release: checkout-api / HighErrorRate fired"), incident: "INC-1042" },
-  },
-}));
+    coverage: { gitlab: "complete", alerts: "complete", kubernetes: "history_limited" },
+  };
+});
+mock("GET", "/changes/pipelines/:id", ({ params }) => {
+  const id = Number(params.id);
+  const failed = id === 8805 || id === 8801;
+  const job = (jid: number, name: string, status: string, manual = false) => ({ id: jid, name, status, manual, started_at: at("13:52"), finished_at: at("13:55"), duration_seconds: 140, web_url: `https://gitlab.lab.internal/aiops-lab/checkout-api/-/jobs/${jid}` });
+  const commit: Record<number, [ReturnType<typeof P>, string, number, number, number, string[]]> = {
+    8812: [P("库存调用只重试 1 次，并打开熔断", "Retry inventory once and enable the breaker"), "a3f9c21b", 3, 86, 12, ["src/checkout/inventory/retry.go", "src/checkout/inventory/breaker.go", "config/retry.yaml"]],
+    8805: [P("优惠券叠加 v2", "Coupon stacking v2"), "9b1e0d47", 5, 210, 34, ["src/checkout/coupon/stack.go", "src/checkout/coupon/stack_test.go"]],
+    8801: [P("优惠券叠加 v2", "Coupon stacking v2"), "9b1e0d47", 5, 210, 34, ["src/checkout/coupon/stack.go", "src/checkout/coupon/stack_test.go"]],
+  };
+  const c = commit[id] ?? [P("补充下单埋点", "Add checkout metrics"), "77c0a1e5", 2, 18, 0, ["src/checkout/metrics.go"]];
+  return {
+    id: `gitlab:pipeline:4:${id}`, pipeline_id: id, status: failed ? "failed" : "success", ref: "main", sha: SHA(c[1]), source: "push", user: GL_USERS.li,
+    created_at: at("13:51"), started_at: at("13:51"), finished_at: at("13:57"), duration_seconds: 372, web_url: `https://gitlab.lab.internal/aiops-lab/checkout-api/-/pipelines/${id}`,
+    stages: [
+      { name: P("构建", "build"), status: "success", jobs: [job(id * 10 + 1, "build", "success"), job(id * 10 + 2, "lint", "success")] },
+      { name: P("测试", "test"), status: failed ? "failed" : "success", jobs: [job(id * 10 + 3, "unit", "success"), job(id * 10 + 4, "integration", failed ? "failed" : "success")] },
+      { name: P("部署", "deploy"), status: failed ? "skipped" : "success", jobs: [job(id * 10 + 5, "deploy:aiops-lab", failed ? "skipped" : "success", true)] },
+    ],
+    commit: { sha: SHA(c[1]), title: c[0], authored_at: at("13:40"), parent_ids: [SHA("5e2c88f0")], stats: { files: c[2], additions: c[3], deletions: c[4] }, paths: c[5] },
+    merge_request_iid: id === 8812 || id === 8810 ? 41 : id === 8809 ? 39 : id === 8798 ? 38 : 40,
+    adjacent_alerts: id === 8812 ? [{ incident_id: "INC-1042", offset_seconds: 120, basis: "time_adjacent" }] : [],
+    unavailable: {},
+  };
+});

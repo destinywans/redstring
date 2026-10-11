@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { API_MODE, useGet, useSend } from "../../api/client";
+import { API_MODE, ApiError, api, useGet, useSend } from "../../api/client";
 import type { ConnectorDetail, ConnectorList, ConnectorStatus } from "../../api/types";
 import { Badge, Brand, Btn, Code, Col, Dot, Icon, IconBtn, KV, Mono, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, TextLink, Toggle, cx, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -11,6 +11,7 @@ import type { LowerSource } from "../../api/types";
 import "./integrations.css";
 import { openForm, confirmAction } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
+import { Gated, useNeed } from "../../ui/permission";
 
 export const STATUS_TONE: Record<ConnectorStatus, Tone> = { ok: "ok", unverified: "warn", error: "danger" };
 
@@ -92,9 +93,35 @@ export default function ConnectorsPage() {
 function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
   const { tx } = useI18n();
   const when = useWhen();
-  const { data: c } = useGet<ConnectorDetail>(`/connectors/${id}`);
+  const { data: c, refetch } = useGet<ConnectorDetail>(`/connectors/${id}`);
   const test = useSend<void, { ok: boolean; latency_ms: number }>("POST", `/connectors/${id}/test`);
   const [off, setOff] = useState<Set<string>>(new Set());
+  // Real switches (D11): PATCH /connectors/{id} merges one tool's preference; the switch shows the pending value until
+  // the server answers, then the refetched detail.
+  const [saving, setSaving] = useState<{ name: string; enabled: boolean } | null>(null);
+  const manage = useNeed(["connectors", "manage"]);
+  const setTool = async (name: string, enabled: boolean) => {
+    setSaving({ name, enabled });
+    try {
+      await api("PATCH", `/connectors/${id}`, { body: { tools: [{ name, enabled }] } });
+      await refetch();
+      toast(enabled ? tx("已开放 {t}", "{t} enabled", { t: name }) : tx("已关闭 {t}", "{t} disabled", { t: name }));
+    } catch (e) {
+      void refetch();
+      toast(
+        e instanceof ApiError && e.status === 403
+          ? tx("你没有管理连接器的权限", "You don't have permission to manage connectors")
+          : e instanceof ApiError && e.status === 409
+            ? tx("工具目录已经变化，开关没有保存；已重新读取", "The tool catalog changed and the switch wasn't saved; reloaded")
+            : e instanceof ApiError
+              ? e.message
+              : tx("开关没有保存，请稍后重试", "The switch wasn't saved; try again later"),
+        { tone: "danger" },
+      );
+    } finally {
+      setSaving(null);
+    }
+  };
   return (
     <aside className="aside anim-slide" style={{ width: 360 }} key={id}>
       {!c ? (
@@ -128,6 +155,11 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
                     <span>{c.auth.text}</span>
                   </Row>
                 </KV>
+                {c.write_path && (
+                  <KV k={tx("写入", "Writes")} kw={52}>
+                    {c.write_path}
+                  </KV>
+                )}
                 <KV k={tx("检查", "Checked")} kw={52}>
                   {when.at(c.checked_at) ?? tx("尚未检查", "Never checked")}
                 </KV>
@@ -206,14 +238,10 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
             {c.tools.length > 0 && (
               <Section title={tx("Agent 工具", "Agent tools")} right={<TextLink to="/agents/tools">{tx("工具与权限", "Tools & permissions")}</TextLink>}>
                 <Col gap={6}>
-                  {API_MODE !== "mock" && (
+                  {API_MODE !== "mock" && c.agent_execution_available === false && (
                     <Row gap={6} align="flex-start">
                       <Icon name="info" size={12} color="var(--muted)" style={{ marginTop: 2 }} />
-                      <Muted size={11.5}>
-                        {c.agent_execution_available === false
-                          ? tx("这些开关只控制是否读取这类数据，不授权 Agent 执行任何操作。这里只读显示。", "These switches only control whether this data is read; they don't let agents run anything. Shown read-only.")
-                          : tx("开关状态只读显示。", "Switches are shown read-only.")}
-                      </Muted>
+                      <Muted size={11.5}>{tx("这些开关只控制是否读取这类数据，不授权 Agent 执行任何操作。", "These switches only control whether this data is read; they don't let agents run anything.")}</Muted>
                     </Row>
                   )}
                   {c.tools.map((t) => (
@@ -223,24 +251,66 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
                         <Mono color="var(--text)">{t.name}</Mono>
                         <Muted size={11.5}>{t.desc}</Muted>
                       </Col>
-                      <Toggle
-                        // Real mode shows the saved switch (read-only); the sample keeps its local toggle.
-                        on={API_MODE === "mock" ? !off.has(t.name) : t.enabled}
-                        // Real toggles need PATCH /connectors/{id}/tool-settings; until then the switch is read-only.
-                        disabled={API_MODE !== "mock"}
-                        label={t.name}
-                        onChange={(v) => {
-                          setOff((s) => {
-                            const n = new Set(s);
-                            if (v) n.delete(t.name);
-                            else n.add(t.name);
-                            return n;
-                          });
-                          toast(v ? tx("已对 Agent 开放 {t}", "{t} enabled for agents", { t: t.name }) : tx("已对 Agent 关闭 {t}", "{t} disabled for agents", { t: t.name }), { undo: () => undefined });
-                        }}
-                      />
+                      {API_MODE !== "mock" ? (
+                        <Gated reason={manage}>
+                          <Toggle on={saving?.name === t.name ? saving.enabled : t.enabled} disabled={!!saving} label={t.name} onChange={(v) => void setTool(t.name, v)} />
+                        </Gated>
+                      ) : (
+                        <Toggle
+                          // The sample keeps its local toggle; `off` holds the switches flipped from the sample's value.
+                          on={t.enabled !== off.has(t.name)}
+                          label={t.name}
+                          onChange={(v) => {
+                            setOff((s) => {
+                              const n = new Set(s);
+                              if (n.has(t.name)) n.delete(t.name);
+                              else n.add(t.name);
+                              return n;
+                            });
+                            toast(v ? tx("已对 Agent 开放 {t}", "{t} enabled for agents", { t: t.name }) : tx("已对 Agent 关闭 {t}", "{t} disabled for agents", { t: t.name }), { undo: () => undefined });
+                          }}
+                        />
+                      )}
                     </Row>
                   ))}
+                </Col>
+              </Section>
+            )}
+            {c.deploy_environments && (
+              <Section title={tx("部署环境", "Deploy environments")}>
+                <Col gap={8}>
+                  {c.deploy_environments.length === 0 ? (
+                    <Muted size={11.5}>{tx("目录里还没有这个连接器的部署环境。", "The catalog has no deploy environments for this connector yet.")}</Muted>
+                  ) : (
+                    <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflowX: "auto" }}>
+                      <table className="deploy-env">
+                        <thead>
+                          <tr>
+                            <th>{tx("服务", "Service")}</th>
+                            <th>{tx("环境", "Env")}</th>
+                            <th>{tx("项目", "Project")}</th>
+                            <th>{tx("部署环境", "Deploy env")}</th>
+                            <th>{tx("分支", "Branch")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {c.deploy_environments.map((d) => (
+                            <tr key={`${d.service}|${d.environment}|${d.project_id}`}>
+                              <td>{d.service}</td>
+                              <td>{d.environment}</td>
+                              <td className="mono">{d.project_id}</td>
+                              <td className="mono">{d.deploy_environment}</td>
+                              <td className="mono">{d.refs.join(", ")}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <Row gap={6} align="flex-start">
+                    <Icon name="lock" size={12} color="var(--faint)" style={{ marginTop: 2 }} />
+                    <Muted size={11.5}>{tx("来自目录，由部署方审查；变更页按这里读取部署记录。这里只显示，不能改。", "From the catalog, reviewed by the deployer; the changes page reads deployments by it. Shown here read-only.")}</Muted>
+                  </Row>
                 </Col>
               </Section>
             )}

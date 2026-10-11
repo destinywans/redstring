@@ -10,6 +10,7 @@ import { Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
 import { PasskeyApproval } from "./PasskeyApproval";
 import { RollbackReviewCards } from "./RollbackReview";
+import { AlertRuleReviewCards } from "./AlertRuleReview";
 import { usePermission, Gated } from "../../ui/permission";
 import "./events.css";
 
@@ -94,13 +95,15 @@ export default function ReviewPage() {
                 {proposer} · {when(p.proposed_at)}
               </Muted>
               <Badge tone={risk[p.risk][0]}>{risk[p.risk][1]}</Badge>
-              {/* A rollback's impact is a sentence; it gets its own card below. */}
-              {!p.rollback && <Badge>{p.impact}</Badge>}
+              {/* A rollback's or alert rule's impact is a sentence; it gets its own card below. */}
+              {!p.rollback && !p.alert_rule && <Badge>{p.impact}</Badge>}
               {p.reversible && <Badge tone="ok">{tx("可回退", "Reversible")}</Badge>}
             </Row>
           </Col>
           {p.rollback ? (
             <RollbackReviewCards p={p} rb={p.rollback} />
+          ) : p.alert_rule ? (
+            <AlertRuleReviewCards p={p} ar={p.alert_rule} />
           ) : (
           <Card>
             <CardHead title={tx("变更内容", "Change")} icon="terminal" />
@@ -134,7 +137,7 @@ export default function ReviewPage() {
               ))}
             </ul>
           </Card>
-          {!p.rollback && (
+          {!p.rollback && !p.alert_rule && (
           <Card>
             <CardHead title={tx("恢复验证 · 执行后自动观测 180 秒", "Verification · 180 s automatic watch")} icon="clock" />
             <ul style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 9 }}>
@@ -218,7 +221,7 @@ export default function ReviewPage() {
                 </Row>
                 <KV k={tx("批准于", "Approved")} kw={64}>{when(p.execution.approved_at)}</KV>
                 <KV k={tx("执行 ID", "Execution")} kw={64}><span className="mono">{p.execution.execution_id}</span></KV>
-                {p.rollback && (
+                {(p.rollback || p.alert_rule) && (
                   <Btn h={26} icon="play" style={{ alignSelf: "flex-start" }} to={`/executions/${p.execution.execution_id}`}>
                     {tx("查看执行", "View execution")}
                   </Btn>

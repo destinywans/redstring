@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { api, useGet } from "../../api/client";
-import type { AlertRule, AlertRuleList, AlertRuleSummary } from "../../api/types";
+import type { AlertRule, AlertRuleLifecycle, AlertRuleList, AlertRulePending, AlertRuleSummary, Tone } from "../../api/types";
 import { Unavailable } from "../../ui/unknown";
 import { Badge, Brand, Btn, Card, Chip, Code, Col, Dot, Env, Icon, Input, LabelChip, Legend, Muted, Pills, Radio, Row, SearchBox, Sev, Skeleton, Spacer, State, Tabs, TextLink, Toggle, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -48,6 +49,27 @@ export default function RulesPage() {
     return [...m.entries()];
   }, [list.data, filter, q]);
   const STATE = { firing: ["danger", tx("触发中", "Firing")], pending: ["warn", tx("待定", "Pending")], ok: ["ok", tx("正常", "OK")] } as const;
+  const nav = useNavigate();
+  // D11 §11.6: the lifecycle (where the rule is in enable/disable) is told apart from the trigger state (the dot).
+  const LIFE: Record<AlertRuleLifecycle["state"], [Tone, string]> = {
+    active: ["ok", tx("已生效", "In effect")],
+    disable_pending_approval: ["warn", tx("停用待批准", "Disable pending")],
+    disabling: ["accent", tx("停用中", "Disabling")],
+    needs_attention: ["warn", tx("需要处理", "Needs attention")],
+  };
+  const pendingLabel = (x: AlertRulePending): [Tone, string] => {
+    const enable = x.operation === "enable";
+    const map: Record<AlertRulePending["state"], [Tone, string]> = {
+      pending_approval: enable ? ["accent", tx("启用待批准", "Enable pending")] : ["warn", tx("停用待批准", "Disable pending")],
+      executing: ["accent", enable ? tx("启用中", "Enabling") : tx("停用中", "Disabling")],
+      needs_attention: ["warn", tx("需要处理", "Needs attention")],
+      failed: ["danger", tx("失败", "Failed")],
+      rejected: ["neutral", tx("已驳回", "Rejected")],
+    };
+    return map[x.state];
+  };
+  const pending = list.data?.pending ?? [];
+  const life = list.data?.items?.find((x) => x.id === sel)?.lifecycle;
   return (
     <Page
       flush
@@ -73,6 +95,30 @@ export default function RulesPage() {
         <div className="side" style={{ width: 320, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
           <SearchBox placeholder={tx("搜索规则", "Search rules")} value={q} onChange={setQ} width="100%" />
           <Pills value={filter} onChange={setFilter} options={[{ value: "all", label: tx("全部", "All"), count: list.data?.counts?.all }, { value: "firing", label: tx("触发中", "Firing"), count: list.data?.counts?.firing }, { value: "scheduled", label: tx("周期规则", "Scheduled"), count: list.data?.counts?.scheduled }]} />
+          {(pending.length > 0 || list.data?.items?.some((x) => x.lifecycle && x.lifecycle.state !== "active")) && (
+            <Muted size={11}>{tx("圆点是触发状态；右侧标签是生命周期，点开看提案或执行。", "The dot is the trigger state; the tag on the right is the lifecycle — open it for the proposal or execution.")}</Muted>
+          )}
+          {pending.length > 0 && (
+            <div>
+              <div className="rule-folder">
+                <Icon name="clock" size={13} />
+                <span className="grow">{tx("待生效的启用和停用", "Enables and disables not in effect yet")}</span>
+                <Muted size={11}>{pending.length}</Muted>
+              </div>
+              {pending.map((x) => {
+                const [tone, label] = pendingLabel(x);
+                return (
+                  <button key={x.proposal_id} type="button" className="rule-item" onClick={() => nav(x.href)} title={x.group}>
+                    <Icon name="merge" size={12} color="var(--faint)" />
+                    <span className="ellipsis grow mono" style={{ fontSize: "var(--fs-sub)" }}>
+                      {x.rule_name}
+                    </span>
+                    <Badge tone={tone}>{label}</Badge>
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {folders.map(([folder, rules]) => (
             <div key={folder}>
               <div className="rule-folder">
@@ -86,6 +132,7 @@ export default function RulesPage() {
                   <Dot tone={x.state === "firing" ? "danger" : x.state === "pending" ? "warn" : "ok"} size={7} pulse={x.state === "firing"} />
                   <span className="ellipsis grow">{x.name}</span>
                   {x.schedule && <Muted size={11}>{x.schedule}</Muted>}
+                  {x.lifecycle && x.lifecycle.state !== "active" && <Badge tone={LIFE[x.lifecycle.state][0]}>{LIFE[x.lifecycle.state][1]}</Badge>}
                 </button>
               ))}
             </div>
@@ -127,6 +174,17 @@ export default function RulesPage() {
                   {tx("保存", "Save")}
                 </Btn>
               </Row>
+              {life && (
+                <Row gap={6} style={{ marginTop: -8 }}>
+                  <Muted size={11.5}>{tx("生命周期", "Lifecycle")}</Muted>
+                  <Badge tone={LIFE[life.state][0]}>{LIFE[life.state][1]}</Badge>
+                  {(life.execution_id || life.proposal_id) && (
+                    <TextLink to={life.execution_id ? `/executions/${life.execution_id}` : `/review/${life.proposal_id}`}>
+                      <span className="mono">{life.execution_id ?? life.proposal_id}</span>
+                    </TextLink>
+                  )}
+                </Row>
+              )}
               {dry && (
                 <div className="dry-run anim-rise">
                   <Icon name="play" size={14} />

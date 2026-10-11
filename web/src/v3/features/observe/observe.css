@@ -735,3 +735,22 @@
   cursor: grab;
   touch-action: none;
 }
+
+/* ---------- changes, GitLab mode (D11) ---------- */
+.chg-src { font-size: var(--fs-sub); }
+.chg-src .mono { font-size: var(--fs-mono); color: var(--text); }
+.lg-item .mk.rev { background: transparent; box-shadow: inset 0 0 0 2px var(--muted); }
+.chg-lane .mark.neutral { color: var(--muted); }
+.chg-lane .mark.rev { color: var(--muted); }
+.chg-lane .mark.rev i { background: var(--panel); }
+.chg-notes { display: flex; gap: 8px; align-items: flex-start; margin: 0 16px 14px; padding: 8px 10px; border-radius: 8px; background: var(--sunken); color: var(--muted); font-size: var(--fs-sub); }
+.chg-notes > svg { flex: none; margin-top: 2px; }
+.chg-table { overflow-x: auto; }
+.chg-table tr.focus td { background: var(--accent-soft); }
+.chg-table tr.chg-ext td { background: var(--sunken); color: var(--muted); }
+.chg-kv { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px 12px; font-size: var(--fs-sm); align-items: baseline; }
+.chg-paths { display: block; margin-top: 4px; font-size: var(--fs-cap); overflow-wrap: anywhere; }
+.dag-job.danger { color: var(--danger); }
+.dag-job.pending { color: var(--muted); }
+.dag-job.manual { border-style: dashed; }
+.chg-table tbody td { height: 38px; }

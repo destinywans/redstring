@@ -795,6 +795,48 @@ export type GitLabMergeRequest = {
  * GET /changes?service_id=&range=24h|7d&sources=gitlab (D11 §11.1, V3GitLabChangesView). A list is null when its
  * connector tool is off (its KPIs are then missing and `unavailable["kpis.<id>"]` says not_configured).
  */
+/** D11 §11.3: GET /incidents/{id}/changes — GitLab deployments and cluster revisions around an incident's start. */
+export type IncidentGitLabDeployment = {
+  kind: "gitlab_deployment";
+  /** gitlab:deployment:<project>:<deployment id> */
+  id: string;
+  at: string;
+  /** Change time minus the incident start; negative when the change came first. */
+  offset_seconds: number;
+  basis: "time_adjacent";
+  status: "created" | "running" | "success" | "failed" | "canceled" | "skipped" | "blocked";
+  sha: string;
+  short_sha: string;
+  ref: string;
+  /** /changes?service_id=…&range=24h&focus=<id> */
+  href: string;
+  pipeline_id: number | null;
+  merge_request: { iid: number; title: string } | null;
+  kubernetes_revision: string | null;
+  web_url: string | null;
+};
+export type IncidentKubernetesRevision = {
+  kind: "kubernetes_revision";
+  id: string;
+  at: string;
+  offset_seconds: number;
+  basis: "time_adjacent";
+  revision: string;
+  change_cause: string | null;
+  /** The window's GitLab deployment whose pipeline the change cause names; null = not deployed through GitLab (or unknown when GitLab isn't readable). */
+  gitlab_deployment_id: number | null;
+};
+export type IncidentChanges = {
+  incident_id: string;
+  service_id: string;
+  environment_id: string;
+  alert_started_at: string;
+  window: { start_at: string; end_at: string };
+  items: (IncidentGitLabDeployment | IncidentKubernetesRevision)[];
+  coverage: { gitlab: "complete" | "not_configured" | "no_authorized_target" | "unavailable"; kubernetes: "history_limited" | "not_configured" | "no_authorized_target" | "unavailable" };
+  note: "time_adjacent_not_causal";
+  unavailable: Unavailable;
+};
 export type GitLabChangesView = {
   service_id: string;
   environment_id: string;

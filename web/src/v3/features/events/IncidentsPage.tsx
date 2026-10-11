@@ -11,6 +11,7 @@ import { useI18n } from "../../i18n";
 import { Gate } from "../../ui/permission";
 import { useCreateParam } from "../../ui/forms";
 import { NewIncidentDrawer } from "./CreateDrawers";
+import { IncidentChanges } from "./IncidentChanges";
 import "./events.css";
 import { useWhen } from "../../ui/when";
 
@@ -158,6 +159,7 @@ export default function IncidentsPage() {
               <Card style={{ padding: "12px 16px" }}>
                 <Stepper steps={stages} active={cur} />
               </Card>
+              <IncidentChanges incidentId={inc.id} />
               <div className="inc-grid">
                 <Panel title={tx("时间线", "Timeline")}>
                   <ol className="inc-timeline">

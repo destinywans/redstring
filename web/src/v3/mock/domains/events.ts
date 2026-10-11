@@ -183,6 +183,54 @@ mock("GET", "/incidents/:id", ({ params }) => {
   };
 });
 mock("POST", "/incidents/:id/timeline", ({ body }) => ({ ok: true, ...(body as object) }));
+// D11 §11.3: changes around an incident's start. One incident per coverage case (sample data).
+const SHA = (short: string) => `${short}${"0".repeat(40 - short.length)}`;
+const INCIDENT_CHANGES: Record<string, { service: string; start: string; gitlab: string; kubernetes: string; items: (min: number) => Record<string, unknown>[] }> = {
+  "INC-1042": {
+    service: "checkout-api", start: at("14:05"), gitlab: "complete", kubernetes: "history_limited",
+    items: () => [
+      { kind: "gitlab_deployment", id: "gitlab:deployment:4:103", offset_seconds: -120, status: "success", sha: SHA("a3f9c21"), short_sha: "a3f9c21", ref: "main", pipeline_id: 8812, merge_request: { iid: 41, title: P("库存调用只重试 1 次", "Retry inventory calls once") }, kubernetes_revision: "7", web_url: "https://gitlab.lab.internal/aiops-lab/checkout-api/-/environments/1/deployments/3", href: "/changes?service_id=checkout-api&range=24h&focus=gitlab:deployment:4:103" },
+      { kind: "kubernetes_revision", id: "kubernetes:aiops-lab/checkout-api:7", offset_seconds: -90, revision: "7", change_cause: "gitlab pipeline 8812", gitlab_deployment_id: 103 },
+      { kind: "kubernetes_revision", id: "kubernetes:aiops-lab/checkout-api:8", offset_seconds: 540, revision: "8", change_cause: "lab drill bad-release", gitlab_deployment_id: null },
+    ],
+  },
+  "INC-1041": {
+    service: "payment-gateway", start: at("12:50"), gitlab: "unavailable", kubernetes: "history_limited",
+    items: () => [{ kind: "kubernetes_revision", id: "kubernetes:pay/payment-gateway:14", offset_seconds: -360, revision: "14", change_cause: null, gitlab_deployment_id: null }],
+  },
+  "INC-1037": { service: "order-service", start: at("16:20", -1), gitlab: "not_configured", kubernetes: "history_limited", items: () => [] },
+  "INC-1033": { service: "search-api", start: at("10:30", -23), gitlab: "complete", kubernetes: "history_limited", items: () => [] },
+  "INC-1030": {
+    service: "notification-svc", start: at("09:10", -25), gitlab: "complete", kubernetes: "not_configured",
+    // Only the 2-hour window reaches the earlier failed deployment.
+    items: (min) => [
+      ...(min > 60 ? [{ kind: "gitlab_deployment", id: "gitlab:deployment:9:61", offset_seconds: -5280, status: "failed", sha: SHA("77c0e4b"), short_sha: "77c0e4b", ref: "main", pipeline_id: 4410, merge_request: { iid: 18, title: P("短信通道切到备用供应商", "Switch SMS to the backup provider") }, kubernetes_revision: null, web_url: null, href: "/changes?service_id=notification-svc&range=24h&focus=gitlab:deployment:9:61" }] : []),
+      { kind: "gitlab_deployment", id: "gitlab:deployment:9:62", offset_seconds: -1500, status: "success", sha: SHA("9b1d3aa"), short_sha: "9b1d3aa", ref: "main", pipeline_id: 4412, merge_request: { iid: 19, title: P("短信模板加签名", "Sign SMS templates") }, kubernetes_revision: null, web_url: null, href: "/changes?service_id=notification-svc&range=24h&focus=gitlab:deployment:9:62" },
+    ],
+  },
+  "INC-1028": {
+    service: "user-center", start: at("15:40", -26), gitlab: "no_authorized_target", kubernetes: "history_limited",
+    items: () => [{ kind: "kubernetes_revision", id: "kubernetes:account/user-center:31", offset_seconds: -720, revision: "31", change_cause: "rollout restart", gitlab_deployment_id: null }],
+  },
+};
+mock("GET", "/incidents/:id/changes", ({ params, query }) => {
+  const c = INCIDENT_CHANGES[params.id];
+  if (!c) throw new MockError(404, "not_found", "incident not found");
+  const min = String(query.before ?? "60m") === "120m" ? 120 : 60;
+  const start = Date.parse(c.start);
+  const end = Math.min(start + 15 * 60_000, NOW);
+  const iso = (t: number) => new Date(t).toISOString();
+  const items = c.items(min).map((i) => ({ ...i, at: iso(start + (i.offset_seconds as number) * 1000), basis: "time_adjacent" }));
+  return {
+    incident_id: params.id, service_id: c.service, environment_id: "prod", alert_started_at: c.start,
+    window: { start_at: iso(start - min * 60_000), end_at: iso(end) },
+    items: items.filter((i) => Date.parse(i.at) >= start - min * 60_000 && Date.parse(i.at) <= end),
+    coverage: { gitlab: c.gitlab, kubernetes: c.kubernetes },
+    note: "time_adjacent_not_causal",
+    unavailable: c.gitlab === "unavailable" ? { "coverage.gitlab": "unavailable" } : {},
+  };
+});
+
 
 /* ---------------- alert rules ---------------- */
 const RULES = [

@@ -66,6 +66,7 @@ func (s *WriteService) Register(api *httpapi.Server) {
 		{"POST /api/v1/alert-rules", s.Create},
 		{"PUT /api/v1/alert-rules/{id}", s.Update},
 		{"POST /api/v1/alert-rules/import", s.Import},
+		{"POST /api/v1/executions/{id}/recheck", s.Recheck},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
 		api.MarkV3ObjectRoute(route.pattern, "alert_rules", "change")

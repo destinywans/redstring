@@ -45,6 +45,7 @@
 `internal/v3changes` 的 `ReadServiceChanges` 和 `ReadPipeline` 是 `GET /changes` 的 GitLab 来源、`GET /incidents/{id}/changes` 和 AI 工具 `read_service_changes` 共用的读取层，不落库，每次读都直接问 GitLab：
 
 - **找项目**：服务环境已确认的代码项目（`v3_service_code_projects`），其 GitLab 连接器须已启用；统一目录 `gitlab` 范围给出部署环境名和分支。缺任何一项都是“未配置”。
+- **证书**：自建 GitLab 用私有 CA 时，CA（PEM）放在读令牌同一 Vault 条目的 `ca` 字段（如令牌 `vault://aiops/lab/gitlab/read#token`，CA 即 `#ca`），读取和连接器探测都只信任它；条目里没有 `ca` 时用系统根证书。CA 格式不对按凭据问题处理。
 - **授权**：服务的 `services.view` 与环境的 `connectors.view`，在一个只读快照里核对；读完 GitLab 后再读一次，授权或来源（连接器、项目、端点、凭据引用、工具开关、目录范围）有变化就不返回结果。
 - **读什么**：窗口内更新过的部署（只取目录指定的 environment）、流水线（只留目录分支、MR 引用 `refs/merge-requests/<iid>/…`，以及窗口内合并到目录分支的 MR 的源分支上的流水线——没开 MR 流水线的项目，MR 的 CI 跑在源分支上）、合并到目录分支的 MR（`state=all`）。三类并发读取；每个请求的超时取统一目录 `limits.timeout_seconds`，默认 10 秒。
 - **部署时间**：GitLab 19 的部署记录没有 `finished_at`，取其作业（`deployable`）的 `finished_at`；已结束的部署没有作业结束时间时取 `updated_at`。每类各需连接器工具开关 `list_deployments`、`list_pipelines`、`list_merge_requests`；开关关闭时该类为 `null` 并注明 `not_configured`，不当作空列表。窗口最长 7 天，每类最多 100 条，超过即“窗口过大”，不返回截断的列表。

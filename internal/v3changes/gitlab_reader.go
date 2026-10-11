@@ -2,6 +2,7 @@ package v3changes
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
@@ -294,6 +295,17 @@ func (s *Service) get(ctx context.Context, t target, path string, query url.Valu
 		client = *s.Client
 		if client.Timeout == 0 || client.Timeout > timeout {
 			client.Timeout = timeout
+		}
+	}
+	if base.Scheme == "https" {
+		pool, err := s.privateCA(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		if pool != nil {
+			transport := http.DefaultTransport.(*http.Transport).Clone()
+			transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+			client.Transport = transport
 		}
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }

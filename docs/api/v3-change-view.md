@@ -50,3 +50,20 @@
 - **流水线详情**：流水线（`get_pipeline`）、作业（按阶段分组，阶段顺序按流水线先后）、提交统计（`get_commit`）和至多 20 个变更路径（`get_commit_diff`）。只取提交标题，不取提交正文和差异正文；用户只取用户名。不在目录分支或其 MR 上的流水线视为不存在。
 - **失败**：GitLab 不可达或返回 5xx 为不可用，401/403 为凭据问题，上游对象不属于该项目或字段不合法为不可用；任何一步失败都不返回部分结果。MR 与提交标题按数据处理：控制字符换成空格，限 200 字符。
 
+## GitLab 来源：`GET /changes?sources=gitlab`（D11 第 3 项）
+
+请求为 `GET /changes?service_id=…&range=24h|7d&sources=gitlab`，**不带** `run_id`（带了 422）。主对象是“服务 + 时间范围”：一次返回窗口内的全部部署、流水线和 MR，以及同期告警和集群修订。字段见 OpenAPI `V3GitLabChangesView`，设计见 `docs/plans/2026-10-11-d11-delivery-chain.md` 第 11.1 节。
+
+- **授权**：服务的 `services.view`（没有时 404）、环境的 `connectors.view`（没有时 403）。告警另需 `events.view`；没有时 `alerts` 为 `null`、`coverage.alerts` 为 `not_authorized`，`unavailable.alerts` 为 `no_authorized_target`。返回前复核会话、服务和 `services.view`。
+- **关联**：只按提交 SHA、流水线 ID、MR 编号精确匹配，匹配不上就是 `null` 或空数组：
+  - 部署的 `merge_request_iid`：合并提交、压缩提交或 fast-forward 头提交等于部署提交的已合并 MR（恰好一个时）；
+  - 部署的 `kubernetes_revision`：change cause 写着该部署流水线（`gitlab pipeline <id> <sha>`）的集群修订，只对成功部署给出；
+  - 流水线的 `merge_request_iid`：MR 流水线取自 `refs/merge-requests/<iid>/…`，主干流水线按合并后的提交匹配；`deployment_ids` 为该流水线产生的部署；
+  - MR 的 `pipeline_ids`、`deployment_ids` 为反向关联。
+- **告警**：`alerts` 是窗口内已覆盖来源的告警（覆盖声明沿用 `AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG`；没有覆盖时为 `null`，`coverage.alerts` 为 `unknown`）。部署的 `adjacent_alerts` 列出部署生效（结束；未结束取创建）前 15 分钟到后 60 分钟内开始的告警，`offset_seconds` 为告警开始减部署时间，`basis` 恒为 `time_adjacent`，文案写“时间相邻，不代表因果”。本轮不产生“已审阅”的关联（人工审阅界面不在 D11 范围）。
+- **集群修订**：`kubernetes_revisions` 为窗口内创建的 ReplicaSet 修订，经回滚服务的读凭据和 `resources.view` 读取；`coverage.kubernetes` 为 `history_limited`（只覆盖保留的历史）、`not_configured`、`no_authorized_target` 或 `unavailable`，后三种时为 `null`。
+- **KPI**：`deployments`（成功部署）、`failed_deployments`（GitLab 部署层面的失败，不是 DORA 变更失败率）、`pipelines`、`merged_merge_requests`；`series` 按 `series_step_seconds`（24h 为 3600，7d 为 86400）从 `series_start_at` 分桶。某类连接器工具关闭时该类列表为 `null`，没有对应 KPI，`unavailable` 写 `kpis.<id>: not_configured`。
+- **错误**：未配置代码项目、目录范围或连接器为 503 `change_source_not_configured`；凭据问题 503 `credential_unavailable`；GitLab 不可用 503 `source_unavailable`；某类超过 100 条 413 `change_window_too_large`；读取期间来源变化 409 `source_changed`；告警超过 200 条 413 `change_view_limit`。不返回部分结果。
+
+流水线详情 `GET /changes/pipelines/{pipeline_id}?service_id=` 见 [后端辅助接口](v3-backend-aux.md)；相邻告警以流水线结束时间（未结束取最后更新）为准。设计稿 11.2 节的 `deployment_ids` 没有放进详情：详情不读部署列表，从列表行带过去即可。
+

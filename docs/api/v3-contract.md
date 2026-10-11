@@ -241,7 +241,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/services/discover` | 单个可选 `cluster`；重复参数返回 422 | 只读发现经授权的新鲜 Kubernetes 工作负载快照；返回稳定资源 ID、采集来源与时间、未知字段清单；同名歧义候选不返回 | implemented |
 | POST | `/services` | `{ items: [{ id, namespace, resource_id?, tier, owner, slo, p99 }] }`；`resource_id` 为发现接口返回的稳定 CMDB 标识，提供时必须有 namespace | `{ created }` | implemented |
 | GET | `/logs` | `q`, `levels`, `service?`, `provider?` | `LogSearch` + `unavailable`；返回可证明的限量日志行；全部来源证明了全窗计数才给 `total`/`errors`/`histogram`，模式计数与趋势守恒才给 `patterns`，否则为 `null` 并注明原因；未绑定日志来源时全部为 `null`（`not_configured`）；目标来自统一登记的 `log_stream`/`log_index`（PA-19 第二阶段第 3 步；P4 起不再读旧绑定，没有登记目标即 `not_configured`），按各自连接器和 Vault 凭据读取，同一服务两条日志目标无论所选供应商都是 409 `ambiguous_binding`，来源未就绪为 503 `source_not_ready`（`message` 列出原因码），凭据读不到为 503 `source_unavailable` | implemented |
-| GET | `/changes` | `service_id`, `run_id`, `range?=24h\|7d`, `sources?=native` | 单一有证据的原生交付运行及所选窗口的 `ChangesView` | implemented |
+| GET | `/changes` | `service_id`, `run_id`, `range?=24h\|7d`, `sources?=native\|gitlab`；`gitlab` 不带 `run_id` | `native`：单一有证据的原生交付运行及所选窗口的 `ChangesView`；`gitlab`（D11）：服务与时间范围内的 GitLab 部署、流水线、MR 及其精确关联、同期告警与集群修订（`GitLabChangesView`），告警只标“时间相邻”；见 [变更视图](v3-change-view.md) | implemented |
 
 韧性提案 POST 只接受当前真人会话、单一环境、精确服务与同服务开放调查，并在事务内复核 `services.view`、`proposals.change`、`canvas.view` 后保存不可变审阅正文和审计；六种 `kind` 均要求对应的有界 `desired` 字段，重复提交会建立新记录。正文中的目标源状态、风险、可逆性和执行路径仍未核实；此操作不创建执行动作、批准、外部变更或 GitLab 合并请求。`GET /services/{id}/resilience` 可由固定 HTTPS 聚合来源提供五类完整观测，服务端核对范围、修订、采集时间、项目数及完整 DTO；未配置或证据不全返回 `503 resilience_source_unavailable`，不能以空数组或零冒充真实状态。实际聚合器尚未部署或核验；详见[韧性视图与提案](v3-resilience.md)。冻结前端按钮只显示本地提示，整页仍待对接；本批只做源码接线和最小编译，未跑测试或真实来源联调。
 
@@ -615,6 +615,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | 2026-10-11 | PA-83 清理（D24）：删除旧的文字时间字段（看板 `window.labels`/`ticks`/`incident_label`、Trace `histogram.axis`、变更 `axis`、收件箱 `time`/`day`、推送 `time`、Webhook `last`、首页 `recent[].meta` 与 `alert_trend.labels`、连接器详情 `checked`、复盘草稿 `incident.window`、护栏 `trend_days`、静默 `window`）；变更详情、首页 attention、服务详情、账号会话、连接器、Pull 样例、模型检查的文字去掉时间；首页 `recent[]` 新增 `environment_id`、`environment_label`。破坏性修改，前端须同时部署；明细见“时间字段的显示（PA-83）” |
 | 2026-10-11 | D20（D11 第 1 项，迁移 174）：服务的代码映射改存 `v3_service_code_projects`（已确认的 GitLab 项目目标），候选接受写新表，`PUT /service-mappings` 只能保留或移除；接口形状不变。迁移只在已绑定 V3 的库上把已存 GitLab 代码绑定搬进新表并删掉代码类绑定，逐条审计；见 [统一来源登记](v3-telemetry-registry.md)“代码项目” |
 | 2026-10-11 | D11 第 2 项：GitLab 变更读取层（不落库、读时拉取）；GitLab 连接器新增工具开关 `list_deployments`；统一目录新增 `gitlab` 范围（部署环境名与分支）。尚无新路由；见 [变更视图](v3-change-view.md)“GitLab 变更读取” |
+| 2026-10-11 | D11 第 3 项：`GET /changes` 新增 `sources=gitlab`（按服务与时间范围，不带 `run_id`），返回 `GitLabChangesView`；新增辅助路由 `GET /changes/pipelines/{pipeline_id}`（流水线阶段、作业、提交统计与相邻告警）。原生来源行为不变 |
 | 2026-10-11 | PA-87：应用范围链路列表跳过 Tempo 返回的不完整 Trace（缺父 Span 等）并以 `excluded_incomplete` 计数，不再整页 503；声明搜索完整时改报 `partial_reason: incomplete_traces`；链路与日志读取失败在服务日志里记录错误类型、信息和上游状态 |
 | 2026-10-11 | D30：已声明搜索完整的链路列表同时达到预算上限并跳过了不完整 Trace 时，`partial_reason` 为 `search_budget`（窗口照常给出，跳过条数仍在 `excluded_incomplete`），只有覆盖了整个范围时才为 `incomplete_traces` |
 | 2026-10-09 | 生产验收 PA-05/PA-16：新增「未知」约定（`null` + `unavailable` 原因）。`/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard` 在可选证据缺失时返回 200，受影响字段可空；`ProfileView`、`SecurityView`、`LogSearch`、`TraceList`、`MetricsDashboard` 字段由必有改为可空，属于破坏性语义修改，`types.ts` 与页面由前端轮同步。OpenAPI 已重新生成。 |

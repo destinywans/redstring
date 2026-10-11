@@ -638,6 +638,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		WriteBindings: rollbackWriteBindings, Proposals: proposalService, Metrics: metricReader}
 	rollouts.Register(api)
 	connector.Workloads = rollouts.ConnectorWorkloads
+	changes.Revisions = changeRevisions(rollouts)
 	executions.Rollout = rollouts.Execution
 	proposalService.RollbackReady = rollouts.Ready
 	if len(rollbackWriteBindings) > 0 {
@@ -816,7 +817,9 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	if err != nil {
 		return fmt.Errorf("configure V3 change alert coverage: %w", err)
 	}
-	v3changeview.New(s, policy, v3changeview.AuditReviewSource{DB: s.DB}, v3changeview.AlertCovered(changeAlertCoverage)).Register(api)
+	changeView := v3changeview.New(s, policy, v3changeview.AuditReviewSource{DB: s.DB}, v3changeview.AlertCovered(changeAlertCoverage))
+	changeView.GitLab = changes
+	changeView.Register(api)
 	if silenceExecutionEnabled {
 		groupIdentityBindings, err := loadV3BulkGroupSilenceBindings(
 			os.Getenv("AIOPS_V3_BULK_GROUP_SILENCE_CONFIG"), *info, alertmanagerSource,

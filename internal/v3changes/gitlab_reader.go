@@ -630,6 +630,7 @@ type Commit struct {
 // PipelineDetail is one pipeline with its stages and commit.
 type PipelineDetail struct {
 	Pipeline
+	ProjectID       string
 	User            *User
 	StartedAt       *time.Time
 	FinishedAt      *time.Time
@@ -704,6 +705,7 @@ func (s *Service) ReadPipeline(ctx context.Context, user core.User, app, env, se
 	if _, mr := out.Pipeline.MergeRequestIID(); !mr && !containsString(src.scope.Refs, out.Pipeline.Ref) {
 		return PipelineDetail{}, ErrNotFound
 	}
+	out.ProjectID = src.ProjectID
 	out.User, out.StartedAt, out.FinishedAt, out.DurationSeconds = item.User, utcPointer(item.StartedAt), utcPointer(item.FinishedAt), item.Duration
 	var jobs []gitLabJob
 	if err = s.list(ctx, src.target, "/pipelines/"+id+"/jobs", url.Values{}, &jobs); err != nil {

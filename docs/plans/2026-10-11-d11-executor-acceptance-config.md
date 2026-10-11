@@ -149,6 +149,22 @@ prod 现有的 `AIOPS_OPERATIONS_CONFIG`（`.local/acceptance/prod/operations.js
 - 同一批里的其他告警照常入库，Alertmanager 不会重发这一批。
 - 不带 `environment` 标签的现有实验告警不受影响。
 
+**前提（D33）：实验告警必须经过这条重标记。** 实验 VM 集群的告警从应用和节点指标继承了 `environment="lab"`（如 LabHigh5xxRate、LabAPIDown）。按上面的规则，prod 实例会拒收它们。实验 Prometheus 的 `alert_relabel_configs` 因此要有这两条（2026-10-11 已在实验侧生效）：
+
+```yaml
+alert_relabel_configs:
+  - source_labels: [cluster]
+    regex: aiops-vm-cluster
+    target_label: redstring_env
+    replacement: prod
+  - source_labels: [cluster, environment]
+    regex: aiops-vm-cluster;lab
+    target_label: environment
+    replacement: prod
+```
+
+第二条只改写 `environment="lab"`，产品规则带的 `environment="test"`、`environment="prod"` 原样保留。所以 test 规则的告警仍不会被 prod 收下，prod 规则和实验告警都能对上服务。测试用的是 LabHigh5xxRate 的真实标签集：未经重标记时被拒收，重标记后入库，并对到 checkout-api。
+
 **建议的路由**（实验侧修改）：
 - 实验的重标记会给所有 `cluster="aiops-vm-cluster"` 的告警加 `redstring_env="prod"`，包括 test 组规则的告警。
 - 所以在现有送 prod 实例的路由上加一个匹配器：

@@ -132,6 +132,47 @@ func TestProductRuleAlertMapsToItsServiceAndStaysInItsEnvironment(t *testing.T) 
 	if n, _ := incidents(); n != 2 {
 		t.Fatalf("incidents: %d", n)
 	}
+	// D33: the lab's own alerts inherit environment="lab" from their
+	// metrics (the real label set of LabHigh5xxRate below). Without the
+	// lab's alert relabeling prod does not store them; with it they map to
+	// checkout-api.
+	lab := map[string]string{"application": "checkout-api", "cluster": "aiops-vm-cluster", "environment": "lab",
+		"namespace": "aiops-lab", "severity": "warning"}
+	if out := fire(GroupRule{Name: "LabHigh5xxRate", Labels: lab}, nil); out["accepted"] != float64(0) || out["ignored"] != float64(1) {
+		t.Fatalf("lab alert without relabeling: %v", out)
+	}
+	if out := fire(GroupRule{Name: "LabHigh5xxRate", Labels: labAlertRelabel(lab)}, nil); out["accepted"] != float64(1) || out["ignored"] != float64(0) {
+		t.Fatalf("relabeled lab alert: %v", out)
+	}
+	if n, _ := incidents(); n != 3 {
+		t.Fatalf("incidents: %d", n)
+	}
+	var relabeled string
+	if err := db.QueryRow(ctx, `SELECT application_id FROM ops_incidents WHERE title='LabHigh5xxRate'`).Scan(&relabeled); err != nil || relabeled != appID {
+		t.Fatalf("relabeled lab alert: %s %v", relabeled, err)
+	}
+	// A product test rule's alert keeps environment="test" through the
+	// relabeling, so prod still does not store it.
+	if out := fire(product("test", "CheckoutErrorsTestRelabeled")[0], labAlertRelabel(map[string]string{"cluster": "aiops-vm-cluster"})); out["ignored"] != float64(1) {
+		t.Fatalf("test rule through the relabeling: %v", out)
+	}
+}
+
+// labAlertRelabel applies the lab Prometheus alert_relabel_configs (D33):
+// every alert of the VM cluster gets redstring_env="prod", and its
+// environment="lab" becomes environment="prod".
+func labAlertRelabel(labels map[string]string) map[string]string {
+	out := make(map[string]string, len(labels)+1)
+	for k, v := range labels {
+		out[k] = v
+	}
+	if out["cluster"] == "aiops-vm-cluster" {
+		out["redstring_env"] = "prod"
+		if out["environment"] == "lab" {
+			out["environment"] = "prod"
+		}
+	}
+	return out
 }
 
 // D32: the rule list shows rules labelled with the bound key (the lab's

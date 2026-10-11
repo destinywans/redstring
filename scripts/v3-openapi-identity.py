@@ -51,9 +51,10 @@ S['V3ProfileView'] = v3_object('name display_name department title timezone', {
     'security': obj({'password_changed': string(), 'mfa_enabled': v3_nullable(v3_bool()), 'org_rule': v3_nullable(string()),
         'factors': v3_nullable(arr(obj({'kind':string(enum=['passkey','totp','recovery']), **fieldnames('name sub')},
                             ['kind','name','sub']))),
-        # PA-69: current is on every item; the current session comes first, then newest sign-in. sub carries the sign-in
-        # time; requests do not record a last-active time.
-        # PA-83: signed_in_at and expires_at are the times inside sub in RFC 3339; a PUT may echo or omit them.
+        # PA-69: current is on every item; the current session comes first, then newest sign-in. The sign-in time is the
+        # closest recorded activity; requests do not record a last-active time.
+        # PA-83: signed_in_at and expires_at are the session times in RFC 3339; a PUT may echo or omit them. sub is only
+        # the localized login method (empty without identity evidence) and no longer carries the times.
         'sessions': arr(obj({'id': string(), 'device': v3_nullable(string()), 'sub': string(), 'current': v3_bool(),
             'signed_in_at': v3_nullable(string(format='date-time')), 'expires_at': string(format='date-time')},
             ['id','device','sub','current','signed_in_at','expires_at'])),

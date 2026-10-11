@@ -444,8 +444,9 @@ func (v *profileView) withoutEvidence(r *http.Request, a profileAccount, session
 	v.Security.OrgRule, v.Security.Factors = nil, nil
 	v.Security.Sessions = make([]profileSession, 0, len(sessions))
 	for _, row := range sessions {
+		// Without evidence the login method is unknown, so sub is empty; the
+		// times are in signed_in_at and expires_at (PA-83).
 		v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: row.ID,
-			Sub:        sessionSignedIn(r, row) + localize(r, "到期时间 ", "Expires ") + row.ExpiresAt.UTC().Format(time.RFC3339),
 			SignedInAt: sessionSignedInAt(row), ExpiresAt: row.ExpiresAt.UTC().Format(time.RFC3339),
 			Current: row.ID == currentID})
 	}
@@ -537,9 +538,7 @@ func profileViewFromRows(ctx context.Context, r *http.Request, tx pgx.Tx, reques
 					method = localize(r, "通行密钥登录", "Passkey login")
 				}
 				device := evidence.Device
-				v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: row.ID, Device: &device,
-					Sub: method + " · " + sessionSignedIn(r, row) + localize(r, "到期时间 ", "Expires ") +
-						row.ExpiresAt.UTC().Format(time.RFC3339),
+				v.Security.Sessions = append(v.Security.Sessions, profileSession{ID: row.ID, Device: &device, Sub: method,
 					SignedInAt: sessionSignedInAt(row), ExpiresAt: row.ExpiresAt.UTC().Format(time.RFC3339),
 					Current: row.ID == request.CurrentSessionID})
 				break
@@ -553,16 +552,9 @@ func profileViewFromRows(ctx context.Context, r *http.Request, tx pgx.Tx, reques
 	return v, nil
 }
 
-// sessionSignedIn is the sign-in time of a session, the closest recorded
-// activity: requests do not record a last-active time (PA-69).
-func sessionSignedIn(r *http.Request, row profileSessionRow) string {
-	if row.IssuedAt == nil {
-		return ""
-	}
-	return localize(r, "登录于 ", "Signed in ") + row.IssuedAt.UTC().Format(time.RFC3339) + " · "
-}
-
 // sessionSignedInAt is the sign-in time in RFC 3339, null when not recorded.
+// It is the closest recorded activity: requests do not record a last-active
+// time (PA-69).
 func sessionSignedInAt(row profileSessionRow) *string {
 	if row.IssuedAt == nil {
 		return nil

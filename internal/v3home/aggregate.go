@@ -182,11 +182,7 @@ func loadTrend(ctx context.Context, tx pgx.Tx, incidents []incident, now time.Ti
 	step := duration / 24
 	// Whole seconds keep Start exact in RFC 3339 for every client parser.
 	start := now.Add(-duration).Truncate(time.Second)
-	out := AlertTrend{Labels: make([]string, 24), Counts: make([][4]int, 24),
-		Start: start.UTC().Format(time.RFC3339), StepSeconds: step.Seconds()}
-	for i := range out.Labels {
-		out.Labels[i] = start.Add(time.Duration(i) * step).UTC().Format("15:04")
-	}
+	out := AlertTrend{Counts: make([][4]int, 24), Start: start.UTC().Format(time.RFC3339), StepSeconds: step.Seconds()}
 	ids := make([]string, 0, len(incidents))
 	severity := make(map[string]int, len(incidents))
 	for _, v := range incidents {
@@ -378,9 +374,12 @@ func (s *Service) recentConversations(ctx context.Context, tx pgx.Tx, user core.
 		if len(out.Recent) == 8 {
 			continue
 		}
-		at := updated.UTC().Format(time.RFC3339)
+		label := s.EnvironmentLabels[env]
+		if label == "" {
+			label = env
+		}
 		out.Recent = append(out.Recent, Recent{ID: id, Kind: "conversation", Title: title,
-			Meta: env + " · " + at, At: at, Href: "/conversations/" + id})
+			EnvironmentID: env, EnvironmentLabel: label, At: updated.UTC().Format(time.RFC3339), Href: "/conversations/" + id})
 	}
 	if err == nil {
 		err = rows.Err()

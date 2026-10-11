@@ -1,9 +1,6 @@
 package v3serviceviews
 
-import (
-	"strings"
-	"time"
-)
+import "strings"
 
 // text holds the user-facing strings of the service list and detail in the
 // request language (PA-24), as internal/v3home does: English when
@@ -79,17 +76,14 @@ func (t text) signal(id string) (label, sub string) {
 
 func (t text) deployment(revision string) string { return t.pick("部署 ", "Deployment ") + revision }
 
-func (t text) deploymentMeta(at time.Time) string {
-	return at.UTC().Format(time.RFC3339) + t.pick(" · 成功", " · succeeded")
+// The deployment and narrative texts carry no time: changes[].at and ai.at
+// give it in RFC 3339 (PA-83).
+func (t text) deploymentMeta() string { return t.pick("成功", "succeeded") }
+
+func (t text) narrative(content string) string {
+	return t.pick("调查记录：", "Investigation note: ") + content
 }
 
-func (t text) narrative(at time.Time, content string) string {
-	stamp := at.UTC().Format(time.RFC3339)
-	return t.pick("调查记录（截至 "+stamp+"）：", "Investigation note as of "+stamp+": ") + content
-}
-
-func (t text) narrativeMeta(model string, at time.Time) string {
-	return t.pick("模型 ", "Model ") + model + " · " + at.UTC().Format(time.RFC3339)
-}
+func (t text) narrativeMeta(model string) string { return t.pick("模型 ", "Model ") + model }
 
 func (t text) dependencyMeta() string { return t.pick("CMDB 依赖关系", "CMDB depends_on") }

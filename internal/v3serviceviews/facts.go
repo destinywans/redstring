@@ -57,7 +57,7 @@ func (s *Service) changes(ctx context.Context, row serviceRow, t text) ([]change
 		if len(revision) > 16 {
 			revision = revision[:16]
 		}
-		out = append(out, change{Brand: kind, Title: t.deployment(revision), Meta: t.deploymentMeta(at), Time: at.UTC().Format(time.RFC3339),
+		out = append(out, change{Brand: kind, Title: t.deployment(revision), Meta: t.deploymentMeta(), Time: at.UTC().Format(time.RFC3339),
 			At: at, revision: revision})
 	}
 	return out, rows.Err()

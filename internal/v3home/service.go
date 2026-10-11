@@ -27,6 +27,9 @@ type Service struct {
 	DB     *pgxpool.Pool
 	Access Access
 	Now    func() time.Time
+	// EnvironmentLabels maps an instance environment ID to its display name
+	// (the instance configuration's label); recent[] falls back to the ID.
+	EnvironmentLabels map[string]string
 }
 
 func New(db *pgxpool.Pool, access Access) *Service {
@@ -57,9 +60,10 @@ type Attention struct {
 	Service  string  `json:"service"`
 	Env      string  `json:"env"`
 	Symptom  string  `json:"symptom"`
-	Meta     string  `json:"meta"`
-	// At is the time inside Meta (the alert start while firing, otherwise
-	// the last update) in RFC 3339 (PA-83).
+	// Meta says whether the incident is a firing alert; At is its time (the
+	// alert start while firing, otherwise the last update) in RFC 3339. Meta
+	// no longer repeats the time (PA-83).
+	Meta  string  `json:"meta"`
 	At    string  `json:"at"`
 	AI    *string `json:"ai"`
 	Owner string  `json:"owner,omitempty"`
@@ -91,21 +95,23 @@ type Activity struct {
 	Href string `json:"href"`
 }
 
-// At is the update time inside Meta in RFC 3339 (PA-83).
+// At is the update time in RFC 3339. EnvironmentLabel is the environment's
+// display name, or its ID when the instance has no label for it. They replace
+// the "<environment> · <time>" meta text (PA-83).
 type Recent struct {
-	ID    string `json:"id"`
-	Kind  string `json:"kind"`
-	Title string `json:"title"`
-	Meta  string `json:"meta"`
-	At    string `json:"at"`
-	Href  string `json:"href"`
+	ID               string `json:"id"`
+	Kind             string `json:"kind"`
+	Title            string `json:"title"`
+	EnvironmentID    string `json:"environment_id"`
+	EnvironmentLabel string `json:"environment_label"`
+	At               string `json:"at"`
+	Href             string `json:"href"`
 }
 
-// AlertTrend buckets: bucket i covers [start+i*step, start+(i+1)*step). Labels
-// are UTC "15:04" and kept for compatibility; clients should label buckets
-// from Start and StepSeconds in the viewer's time zone (PA-25).
+// AlertTrend buckets: bucket i covers [start+i*step, start+(i+1)*step).
+// Clients label buckets from Start and StepSeconds in the viewer's time zone
+// (PA-25; the UTC "15:04" labels were removed in PA-83).
 type AlertTrend struct {
-	Labels      []string `json:"labels"`
 	Start       string   `json:"start"`
 	StepSeconds float64  `json:"step_seconds"`
 	Counts      [][4]int `json:"counts"`

@@ -2,7 +2,9 @@ package v3home
 
 import (
 	"context"
+	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,9 +74,10 @@ func TestTrendRangeUsesExactWindowAndTwentyFourBuckets(t *testing.T) {
 			t.Fatalf("%s incorrect boundary buckets: %+v", duration, trend.Counts)
 		}
 		// Clients label buckets from start + i*step in their own time zone.
-		if trend.Start != start.UTC().Format(time.RFC3339) || trend.StepSeconds != step.Seconds() ||
-			trend.Labels[1] != start.Add(step).UTC().Format("15:04") {
-			t.Fatalf("%s trend axis: start=%s step=%v labels=%v", duration, trend.Start, trend.StepSeconds, trend.Labels[:2])
+		// The UTC "15:04" labels were removed (PA-83).
+		if raw, _ := json.Marshal(trend); trend.Start != start.UTC().Format(time.RFC3339) || trend.StepSeconds != step.Seconds() ||
+			strings.Contains(string(raw), `"labels"`) {
+			t.Fatalf("%s trend axis: %s", duration, raw)
 		}
 		total := 0
 		for _, bucket := range trend.Counts {

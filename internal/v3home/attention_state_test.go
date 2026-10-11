@@ -2,6 +2,7 @@ package v3home
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"regexp"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/operations"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -82,9 +84,13 @@ func TestAttentionCarriesAlertStateAndFiringServices(t *testing.T) {
 	}
 	got := map[string]string{}
 	for _, item := range out.Attention {
-		// PA-83: the time inside meta also comes in RFC 3339 (the start while
-		// firing, otherwise the last update).
-		if at, err := time.Parse(time.RFC3339, item.At); err != nil || !strings.HasSuffix(item.Meta, item.At) ||
+		// PA-83: the time comes only in RFC 3339 (the start while firing,
+		// otherwise the last update); meta no longer repeats it.
+		wantMeta := "已入库事件"
+		if item.AlertState != nil && *item.AlertState == "firing" {
+			wantMeta = "已入库告警"
+		}
+		if at, err := time.Parse(time.RFC3339, item.At); err != nil || item.Meta != wantMeta ||
 			(item.ID == "firing" && time.Since(at) < 50*time.Minute) || (item.ID == "resolved" && time.Since(at) > 10*time.Minute) {
 			t.Fatalf("attention time: %+v %v", item, err)
 		}
@@ -118,6 +124,39 @@ func TestAttentionCarriesAlertStateAndFiringServices(t *testing.T) {
 	if none.FiringServices != nil {
 		t.Fatalf("firing_services without events grant=%v", *none.FiringServices)
 	}
+
+	// PA-83: a recent conversation carries its environment as ID and display
+	// name (the ID when the instance has no label) and its time in RFC 3339,
+	// instead of the "<environment> · <time>" meta text.
+	if _, err = tx.Exec(ctx, `INSERT INTO users(id,email,name,role,password_hash) VALUES('u','u@example.test','U','viewer','x');
+ INSERT INTO v3_conversations(id,owner_id,environment_id,title,updated_at) VALUES
+ ('c-dev','u','dev','Dev question',now()-interval '1 minute'),('c-stg','u','stg','Stage question',now()-interval '2 minute')`); err != nil {
+		t.Fatal(err)
+	}
+	recent := Summary{Availability: map[string]string{}}
+	home := &Service{DB: db, Access: allowAll{}, EnvironmentLabels: map[string]string{"dev": "Development"}}
+	if err = home.recentConversations(ctx, tx, core.User{ID: "u"}, []string{"dev", "stg"}, &recent); err != nil {
+		t.Fatal(err)
+	}
+	if len(recent.Recent) != 2 || recent.Recent[0].ID != "c-dev" || recent.Recent[0].EnvironmentID != "dev" ||
+		recent.Recent[0].EnvironmentLabel != "Development" || recent.Recent[1].EnvironmentID != "stg" ||
+		recent.Recent[1].EnvironmentLabel != "stg" || recent.Recent[0].Href != "/conversations/c-dev" {
+		t.Fatalf("recent: %+v", recent.Recent)
+	}
+	for _, item := range recent.Recent {
+		if at, err := time.Parse(time.RFC3339, item.At); err != nil || at.Location() != time.UTC {
+			t.Fatalf("recent time: %+v %v", item, err)
+		}
+	}
+	if raw, err := json.Marshal(recent.Recent); err != nil || strings.Contains(string(raw), `"meta"`) {
+		t.Fatalf("recent kept meta: %s %v", raw, err)
+	}
+}
+
+type allowAll struct{}
+
+func (allowAll) AuthorizeWithTx(context.Context, pgx.Tx, core.User, rbac.V3Decision) error {
+	return nil
 }
 
 // frontendHomeRoute matches the frontend routes the home page links to:

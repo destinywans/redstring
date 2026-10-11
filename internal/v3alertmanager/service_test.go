@@ -475,6 +475,10 @@ func TestSilenceProjectionRemainingShareAndRFC3339Window(t *testing.T) {
 		view.StartsAt != "2026-10-09T08:00:00Z" || view.EndsAt != "2026-10-09T08:30:00Z" {
 		t.Fatalf("projection: %+v %+v", view, view.Remaining)
 	}
+	// PA-83: the window text in the silence's offset is gone.
+	if raw, err := json.Marshal(view); err != nil || strings.Contains(string(raw), `"window"`) {
+		t.Fatalf("projection kept window: %s %v", raw, err)
+	}
 	if done := projectSilence(s, 0, s.EndsAt.Add(time.Minute), "en-US"); done.Remaining == nil || done.Remaining.Pct != 0 {
 		t.Fatalf("ended window: %+v", done.Remaining)
 	}

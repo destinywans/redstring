@@ -68,9 +68,9 @@ type silenceView struct {
 	ID       string              `json:"id"`
 	Matchers []map[string]string `json:"matchers"`
 	State    string              `json:"state"`
-	// Window is display text in the silence's own offset; StartsAt/EndsAt
-	// are RFC 3339 so clients can show the viewer's time zone (PA-37).
-	Window    string         `json:"window"`
+	// StartsAt/EndsAt are RFC 3339 so clients can show the viewer's time
+	// zone (PA-37; the window text in the silence's own offset was removed
+	// in PA-83).
 	StartsAt  string         `json:"starts_at"`
 	EndsAt    string         `json:"ends_at"`
 	Remaining *remainingView `json:"remaining,omitempty"`
@@ -450,7 +450,6 @@ func projectSilence(s Silence, affects int, now time.Time, language string) sile
 		matchers = append(matchers, map[string]string{"k": matcher.Name, "v": value})
 	}
 	view := silenceView{ID: s.ID, Matchers: matchers, State: state,
-		Window:   s.StartsAt.Format("2006-01-02 15:04 -07:00") + " – " + s.EndsAt.Format("2006-01-02 15:04 -07:00"),
 		StartsAt: s.StartsAt.UTC().Format(time.RFC3339), EndsAt: s.EndsAt.UTC().Format(time.RFC3339),
 		Creator: s.CreatedBy, Reason: s.Comment}
 	if state != "active" {

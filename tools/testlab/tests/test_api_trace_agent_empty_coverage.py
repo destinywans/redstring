@@ -10,7 +10,7 @@ class TraceAgentEmptyTests(unittest.TestCase):
     def chain(self):
         x=c.Chain.__new__(c.Chain);x.work=self.work;x.nonce='a'*32;x.users={'reader':'b'*32};x.roles={'reader':'own-role'};x.marker='owned';x.admin_email='own-admin@testlab.invalid';x.database='db-own';x.db_user='role-own';x.owner_tag='owner:uuid';x.raw_number=0;x.frozen=Mock();x.owner=Mock();x.sql=Mock();return x
     def dto(self,end='2026-10-06T10:30:00.123456789Z',start='2026-10-05T10:30:00.123456789Z'):
-        v=copy.deepcopy(c.STATIC);origin=datetime.datetime.fromisoformat(start.replace('Z','+00:00'));v.update(took='0 ms',window_start_at=start,window_end_at=end,histogram={'counts':[[0,0] for _ in range(12)],'axis':[(origin+datetime.timedelta(hours=2*i)).strftime('%H:%M') for i in range(12)]});return v
+        v=copy.deepcopy(c.STATIC);origin=datetime.datetime.fromisoformat(start.replace('Z','+00:00'));v.update(took='0 ms',window_start_at=start,window_end_at=end,histogram={'counts':[[0,0] for _ in range(12)],'axis_times':[(origin+datetime.timedelta(hours=2*i)).strftime('%Y-%m-%dT%H:%M:%SZ') for i in range(12)]});return v
     def verify(self,value):return c.verify_empty(value,'2026-10-06T10:30:00Z','2026-10-06T10:30:01Z')
     def ledger(self):return dict({t:[] for t in c.TABLES},business={'sessions':'unchanged','runs':'empty','templates':'definitions'})
     def test_exact_empty_partial_real_consumer_shape(self):self.verify(self.dto())
@@ -50,12 +50,12 @@ class TraceAgentEmptyTests(unittest.TestCase):
         with self.assertRaises(AssertionError):c.verify_empty(self.dto(),'2026-10-06T10:30:02Z','2026-10-06T10:30:01Z')
         with self.assertRaises(AssertionError):c.verify_empty(self.dto(),'2026-10-06T10:30:00Z','2026-10-06T10:30:01Z',tolerance=60)
     def test12_buckets_axis_derived_not_copied_or_non_numeric(self):
-        for key,value in [('axis',['00:00']*12),('counts',[[0,0]]*11),('counts',[[0,0.0]]*12)]:
+        for key,value in [('axis_times',['2026-10-05T00:00:00Z']*12),('counts',[[0,0]]*11),('counts',[[0,0.0]]*12)]:
             bad=self.dto();bad['histogram'][key]=value
             with self.assertRaises(AssertionError):self.verify(bad)
     def test_twoAPI_window_took_axis_differences_can_be_legitimate(self):
         left=self.verify(self.dto());v=self.dto(end='2026-10-06T10:31:00.123456789Z',start='2026-10-05T10:31:00.123456789Z');v['took']='5 ms';right=c.verify_empty(v,'2026-10-06T10:31:00Z','2026-10-06T10:31:01Z');self.assertEqual(left,right)
-        self.assertNotEqual(self.dto()['histogram']['axis'],v['histogram']['axis'])
+        self.assertNotEqual(self.dto()['histogram']['axis_times'],v['histogram']['axis_times'])
     def test_full_run_span_feedback_audit_and_public_residue_guard(self):
         before=self.ledger();c.same(before,copy.deepcopy(before))
         for key in before:

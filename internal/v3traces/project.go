@@ -48,11 +48,10 @@ type TraceList struct {
 	Colors map[string]string `json:"colors"`
 	Facets []TraceFacet      `json:"facets"`
 	Views  []TraceViewOption `json:"views"`
-	// Axis is UTC "15:04" text kept for older clients; AxisTimes are the
-	// same bucket starts in RFC 3339 (PA-83).
+	// AxisTimes are the bucket starts in RFC 3339 (PA-83; the UTC "15:04"
+	// axis text was removed).
 	Histogram struct {
 		Counts    [][2]int `json:"counts"`
-		Axis      []string `json:"axis"`
 		AxisTimes []string `json:"axis_times"`
 	} `json:"histogram"`
 	Scatter          []TraceScatter `json:"scatter"`
@@ -106,7 +105,6 @@ type ObservedTraceList struct {
 
 type TraceHistogram struct {
 	Counts    [][2]int `json:"counts"`
-	Axis      []string `json:"axis"`
 	AxisTimes []string `json:"axis_times"`
 }
 
@@ -376,15 +374,14 @@ func BuildList(traces []connectors.CompleteTrace, window connectors.TimeWindow, 
 	result.Total = len(result.Items)
 	services, statuses, operations, versions := map[string]int{}, map[string]int{}, map[string]int{}, map[string]int{}
 	result.Histogram.Counts = make([][2]int, 12)
-	result.Histogram.Axis, result.Histogram.AxisTimes = make([]string, 12), make([]string, 12)
+	result.Histogram.AxisTimes = make([]string, 12)
 	start, end := window.Start.UTC(), window.End.UTC()
 	width := end.Sub(start)
 	if width <= 0 {
 		width = time.Hour
 	}
-	for i := range result.Histogram.Axis {
-		at := start.Add(time.Duration(i) * width / 12)
-		result.Histogram.Axis[i], result.Histogram.AxisTimes[i] = at.Format("15:04"), at.Format(time.RFC3339)
+	for i := range result.Histogram.AxisTimes {
+		result.Histogram.AxisTimes[i] = start.Add(time.Duration(i) * width / 12).Format(time.RFC3339)
 	}
 	maxDuration := 1.0
 	for _, row := range result.Items {

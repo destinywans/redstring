@@ -106,11 +106,11 @@ func (s *Service) nativeWebhookView(ctx context.Context, tx pgx.Tx, user core.Us
 		}
 		item := webhookInbound{ID: "alertmanager:" + source.ID, SourceID: source.ID, EventType: "alert",
 			Brand: "prometheus", Name: source.ID, URL: "/api/v1/webhooks/alertmanager/" + nativeWebhookPathID(source.ID),
-			Verify: "Bearer", Count: strconv.FormatInt(count, 10), Last: "unknown",
+			Verify: "Bearer", Count: strconv.FormatInt(count, 10),
 			Status: "unverified", StatusBasis: "health_unverified"}
 		if last != nil {
 			lastAt, lastCode := last.UTC().Format(time.RFC3339), 202
-			item.Last, item.LastAt, item.LastCode = "202 · "+lastAt, &lastAt, &lastCode
+			item.LastAt, item.LastCode = &lastAt, &lastCode
 		}
 		items = append(items, item)
 	}
@@ -138,7 +138,7 @@ func (s *Service) nativeWebhookView(ctx context.Context, tx pgx.Tx, user core.Us
 		// historical counts cannot safely be attributed to this current scope.
 		items = append(items, webhookInbound{ID: "gitlab:" + source.ID, SourceID: source.ID, EventType: "pipeline",
 			Brand: "gitlab", Name: name, URL: "/api/v1/webhooks/gitlab/" + nativeWebhookPathID(source.ID),
-			Verify: "X-Gitlab-Token", Count: "unknown", Last: "unknown",
+			Verify: "X-Gitlab-Token", Count: "unknown",
 			Status: "unverified", StatusBasis: "historical_receipt_scope_unavailable"})
 	}
 	return items, nil

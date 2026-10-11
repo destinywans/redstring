@@ -247,7 +247,7 @@ func TestPullActualReadMappingBudgetAndAudit(t *testing.T) {
 	}
 	if err := json.Unmarshal(get.Body.Bytes(), &draft); err != nil || len(draft.Preview.Rows) != 2 ||
 		!strings.Contains(draft.Sample.Body, "checkout_requests") || len(draft.Fields) < 2 || draft.Fields[1].State != "warn" ||
-		draft.Sample.CapturedAt == nil || !strings.HasSuffix(draft.Sample.Meta, *draft.Sample.CapturedAt) { // PA-83
+		draft.Sample.CapturedAt == nil || draft.Sample.Meta != "Normalized preview from a successful upstream read" { // PA-83
 		t.Fatalf("unexpected normalized draft: %v %s", err, get.Body.String())
 	}
 	if w := f.call("POST", path+"/test", `{}`, f.viewerSID, "dev"); w.Code != 403 {

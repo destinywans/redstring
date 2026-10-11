@@ -262,9 +262,9 @@ func TestPushAllScopeFiltersUnpermittedApplication(t *testing.T) {
 	if view.Types[1].Today != "1" || len(view.Deliveries) != 1 || view.Deliveries[0].Source != "source-a" || strings.Contains(w.Body.String(), "source-b") {
 		t.Fatalf("scoped view leaked source-b: %+v", view)
 	}
-	// PA-83: the delivery time also comes in RFC 3339.
-	if at := mustRFC3339(t, view.Deliveries[0].At); at.Format("2006-01-02 15:04 UTC") != view.Deliveries[0].Time {
-		t.Fatalf("delivery time: %+v", view.Deliveries[0])
+	// PA-83: the delivery time comes only in RFC 3339.
+	if mustRFC3339(t, view.Deliveries[0].At).IsZero() || strings.Contains(w.Body.String(), `"time":`) {
+		t.Fatalf("delivery time: %s", w.Body.String())
 	}
 }
 

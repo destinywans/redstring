@@ -6,8 +6,9 @@ S['V3HomeKPI'] = obj({'id': string(), 'label': string(), 'value': string(),
     ['id', 'label', 'value', 'series'])
 S['V3HomeAttention'] = obj({'id': string(), 'severity': {'type': ['string', 'null'],
     'enum': ['P1', 'P2', 'P3', 'P4', None]}, 'service': string(), 'env': string(),
-    'symptom': string(), 'meta': string(),
-    'at': string(format='date-time', description='PA-83: the time inside meta (the alert start while firing, otherwise the last update) in RFC 3339'),
+    'symptom': string(),
+    'meta': string(description='Whether the incident is a stored firing alert or a stored incident; PA-83: no longer carries the time'),
+    'at': string(format='date-time', description='PA-83: the alert start while firing, otherwise the last update, in RFC 3339'),
     'ai': {'type': ['string', 'null'],
     'enum': ['done', 'running', None]}, 'owner': string(),
     'href': string(description='/incidents/{id}: the incident page, which also reads alert incidents (PA-86; there is no /alerts/{id} page)'),
@@ -24,21 +25,22 @@ S['V3HomeService'] = obj({'id': string(), 'name': string(), 'env': string(),
 S['V3HomeActivity'] = obj({**fieldnames('id time kind tone text'),
     'href': string(description='/incidents/{id} for an incident update, /review/{id} for a proposal (PA-86)')},
     ['id', 'time', 'kind', 'tone', 'text', 'href'])
-S['V3HomeRecent'] = obj({**fieldnames('id kind title meta'),
+S['V3HomeRecent'] = obj({**fieldnames('id kind title'),
+    'environment_id': string(description='PA-83: the conversation environment ID'),
+    'environment_label': string(description='PA-83: the environment display name from the instance configuration; the ID when it has none'),
     'href': string(description='/conversations/{id}'),
-    'at': string(format='date-time', description='PA-83: the update time inside meta, in RFC 3339')},
-    ['id', 'kind', 'title', 'meta', 'at', 'href'])
+    'at': string(format='date-time', description='PA-83: the update time in RFC 3339')},
+    ['id', 'kind', 'title', 'environment_id', 'environment_label', 'at', 'href'])
 S['V3HomeBriefing'] = obj({'summary': string(),
     'generated_at': string(format='date-time'),
     'citations': arr(obj({'n': integer(), 'label': string(), 'href': string()},
         ['n', 'label', 'href'])),
     'oncall': obj(fieldnames('name until next'), ['name', 'until', 'next'])},
     ['summary', 'generated_at', 'citations', 'oncall'])
-S['V3HomeAlertTrend'] = obj({'labels': arr(string(description='UTC HH:MM bucket starts, kept for compatibility')),
-    'start': string(format='date-time', description='Start of bucket 0 (whole seconds, UTC); bucket i covers [start+i*step, start+(i+1)*step)'),
+S['V3HomeAlertTrend'] = obj({'start': string(format='date-time', description='Start of bucket 0 (whole seconds, UTC); bucket i covers [start+i*step, start+(i+1)*step)'),
     'step_seconds': {'type': 'number', 'exclusiveMinimum': 0, 'description': 'Bucket width in seconds; may be fractional (15m range: 37.5). Label buckets in the viewer time zone from start and step (PA-25).'},
     'counts': arr(arr(integer(minimum=0))), 'summary': string()},
-    ['labels', 'start', 'step_seconds', 'counts', 'summary'])
+    ['start', 'step_seconds', 'counts', 'summary'])
 S['V3HomeSummary'] = obj({
     'greeting': obj(fieldnames('name summary'), ['name', 'summary']),
     'briefing': {'anyOf': [ref('V3HomeBriefing'), {'type': 'null'}]},

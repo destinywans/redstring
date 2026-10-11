@@ -79,20 +79,20 @@ def timestamp_ns(value):
 def static_projection(value):
     v=copy.deepcopy(value)
     for name in ('window_start_at','window_end_at','took'):v.pop(name)
-    v['histogram'].pop('axis');return v
+    v['histogram'].pop('axis_times');return v
 def verify_empty(value,before,after,tolerance=CLOCK_TOLERANCE_SECONDS):
     check(set(value)==set(STATIC)|{'histogram','took','window_start_at','window_end_at'},'exact partial trace DTO fields differ')
     check(all(value[k]==v for k,v in STATIC.items()) and value['partial'] is True,'honest empty/partial persisted metadata differs')
     check(type(value['total']) is int and type(value['excluded_running']) is int and all(type(v['count']) is int for v in value['views']),'trace count JSON types differ')
     check(isinstance(value['took'],str) and re.fullmatch(r'(0|[1-9][0-9]*) ms',value['took']),'actual nonnegative ms string required')
-    check(set(value['histogram'])=={'counts','axis'} and value['histogram']['counts']==[[0,0] for _ in range(12)] and all(type(n) is int for pair in value['histogram']['counts'] for n in pair),'12 numeric empty histogram buckets differ')
+    check(set(value['histogram'])=={'counts','axis_times'} and value['histogram']['counts']==[[0,0] for _ in range(12)] and all(type(n) is int for pair in value['histogram']['counts'] for n in pair),'12 numeric empty histogram buckets differ')
     check(type(tolerance) is int and 0<=tolerance<=2,'reviewed bounded clock tolerance required')
     low,high=timestamp_ns(before),timestamp_ns(after);start,end=timestamp_ns(value['window_start_at']),timestamp_ns(value['window_end_at'])
     check(low<=high and low-tolerance*1000000000<=end<=high+tolerance*1000000000,'DB clock window outside real request wall bounds')
     check(end-start==24*60*60*1000000000,'actual window must be exactly24h including nanos')
     origin=datetime.datetime.fromtimestamp(start//1000000000,datetime.timezone.utc)
-    expected=[(origin+datetime.timedelta(hours=2*i)).strftime('%H:%M') for i in range(12)]
-    check(value['histogram']['axis']==expected,'12 UTC bucket axes must derive from actual windowstart')
+    expected=[(origin+datetime.timedelta(hours=2*i)).strftime('%Y-%m-%dT%H:%M:%SZ') for i in range(12)]
+    check(value['histogram']['axis_times']==expected,'12 RFC 3339 bucket starts must derive from actual windowstart')
     return static_projection(value)
 def same(before,after):check(before==after,'trace read/refusal changed full Agent run/span/feedback/audit/application ledger or public hashes')
 class Chain(base.Chain):

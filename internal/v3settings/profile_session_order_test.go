@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wans/aiops-canvas/internal/store"
 )
@@ -41,13 +42,19 @@ func TestProfileSessionsMarkCurrentAndNewestFirst(t *testing.T) {
 	}
 	want := []string{store.Hash(tokens[0]), store.Hash(tokens[1]), store.Hash(tokens[2])}
 	for i, session := range view.Security.Sessions {
-		var id, sub string
+		var id, signedIn string
 		var current bool
 		_ = json.Unmarshal(session["id"], &id)
-		_ = json.Unmarshal(session["sub"], &sub)
+		_ = json.Unmarshal(session["signed_in_at"], &signedIn)
 		if _, present := session["current"]; !present || json.Unmarshal(session["current"], &current) != nil ||
-			id != want[i] || current != (i == 0) || !strings.Contains(sub, "登录于 ") {
+			id != want[i] || current != (i == 0) || !validRFC3339UTC(signedIn) {
 			t.Fatalf("session %d: %s", i, w.Body.String())
 		}
 	}
+}
+
+// validRFC3339UTC reports whether value is an RFC 3339 instant in UTC (PA-83).
+func validRFC3339UTC(value string) bool {
+	at, err := time.Parse(time.RFC3339, value)
+	return err == nil && strings.HasSuffix(value, "Z") && at.Location() == time.UTC
 }

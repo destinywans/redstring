@@ -1,11 +1,11 @@
 # Browser Webhook overview combines the generic Push ingress with optional
 # metadata from already-installed native Alertmanager and GitLab receivers.
 S['V3WebhookInbound'] = obj({
-    **fieldnames('id source_id event_type brand name url verify count last status_basis'),
-    'last_at':{**v3_nullable(string(format='date-time')),'description':'PA-83: the latest receipt time inside last, null when unknown'},
-    'last_code':{**v3_nullable(integer()),'description':'PA-83: the HTTP status of the latest receipt inside last, null when unknown'},
+    **fieldnames('id source_id event_type brand name url verify count status_basis'),
+    'last_at':{**v3_nullable(string(format='date-time')),'description':'PA-83: the latest receipt time in RFC 3339, null when unknown'},
+    'last_code':{**v3_nullable(integer()),'description':'PA-83: the HTTP status of the latest receipt, null when unknown'},
     'status':string(enum=['ok','error','unverified']),
-}, ['id','source_id','event_type','brand','name','url','verify','count','last','last_at','last_code','status','status_basis'])
+}, ['id','source_id','event_type','brand','name','url','verify','count','last_at','last_code','status','status_basis'])
 S['V3WebhookReceipt'] = obj(fieldnames('time event code ms'), ['time','event','code','ms'])
 S['V3WebhookAvailability'] = obj(fieldnames(
     'inbound native_inbound api_tokens public_mcp outbound receipt_window'),

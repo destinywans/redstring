@@ -13,19 +13,17 @@ import (
 
 // persistedInboxItem is an alert backed by one persisted incident. A read receipt is
 // not stored, so unread must remain null until that state has a real source.
-// Time ("15:04") and Day ("today"/"yesterday") follow the server's time zone
-// and are kept for older clients; At is the same instant in RFC 3339, for the
-// viewer's time zone (PA-83).
+// At is the item's instant in RFC 3339; the viewer's time zone formats it and
+// groups items by day (PA-83; the server-zone "15:04" time and
+// "today"/"yesterday" day were removed).
 type persistedInboxItem struct {
 	ID      string `json:"id"`
 	Kind    string `json:"kind"`
 	Tone    string `json:"tone"`
 	Title   string `json:"title"`
 	Sub     string `json:"sub"`
-	Time    string `json:"time"`
 	At      string `json:"at"`
 	Unread  *bool  `json:"unread"`
-	Day     string `json:"day"`
 	Href    string `json:"href"`
 	AlertID string `json:"alert_id"`
 	// AssignmentKind is the assigned object's kind (alert, incident or
@@ -143,7 +141,6 @@ func (s *Service) Inbox(w http.ResponseWriter, r *http.Request) {
 			httpapi.Error(w, http.StatusServiceUnavailable, "inbox_unavailable", "Persisted alert is incomplete")
 			return
 		}
-		at := v.UpdatedAt.In(loc)
 		all++
 		mine := v.AssigneeID != "" && v.AssigneeID == userID
 		if mine {
@@ -152,14 +149,10 @@ func (s *Service) Inbox(w http.ResponseWriter, r *http.Request) {
 		if filter == "mine" && !mine {
 			continue
 		}
-		day := "today"
-		if at.Before(today) {
-			day = "yesterday"
-		}
 		itemID := "alert:" + v.ID
 		items = append(items, persistedInboxItem{
 			ID: itemID, Kind: "alert", Tone: inboxTone(severity), Title: v.Title,
-			Sub: v.Summary, Time: at.Format("15:04"), At: at.UTC().Format(time.RFC3339), Day: day,
+			Sub: v.Summary, At: v.UpdatedAt.UTC().Format(time.RFC3339),
 			Href: "/inbox?item=" + url.QueryEscape(itemID), AlertID: v.ID,
 		})
 	}

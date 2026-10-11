@@ -105,7 +105,7 @@ func TestDashboardRejectsUndefinedRatioAndContradictorySLO(t *testing.T) {
 	// Markers the platform did not record are null with a reason, never a bin.
 	unmarked, ok := build(result, dashboardMarkers{}, &target)
 	if !ok || unmarked.Window.ReleaseAt != nil || unmarked.Window.RollbackAt != nil || unmarked.Window.Incident != nil ||
-		unmarked.Window.IncidentLabel != nil || unmarked.Unavailable["window.release_at"] != "not_generated" ||
+		unmarked.Window.IncidentStartAt != nil || unmarked.Unavailable["window.release_at"] != "not_generated" ||
 		unmarked.Unavailable["window.incident"] != "not_generated" || unmarked.KPIs == nil || unmarked.SLO == nil {
 		t.Fatalf("absent markers: %+v %v", unmarked.Window, unmarked.Unavailable)
 	}
@@ -429,7 +429,7 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 	unmarked := decode(request("?service=app"))
 	if unmarked.KPIs == nil || unmarked.Window.ReleaseAt != nil || unmarked.Window.Incident != nil ||
 		unmarked.Unavailable["window.release_at"] != "not_generated" || unmarked.Unavailable["window.rollback_at"] != "not_generated" ||
-		unmarked.Unavailable["kpis"] != "" || len(unmarked.Window.Labels) != dashboardPoints {
+		unmarked.Unavailable["kpis"] != "" || len(unmarked.Window.LabelTimes) != dashboardPoints {
 		t.Fatalf("unmarked dashboard: %+v", unmarked)
 	}
 	end := time.Now().UTC().Truncate(100 * time.Second)
@@ -457,8 +457,8 @@ func TestMetricDashboardRegisteredSourceAndMarkers(t *testing.T) {
 		t.Fatalf("configured dashboard: %d %s", w.Code, w.Body.String())
 	}
 	body := decode(w)
-	if len(body.Window.Labels) != dashboardPoints || len(body.KPIs) != 5 || len(body.Requests.OK) != dashboardPoints || len(body.Latency.Heat) != 8 ||
-		body.SLO == nil || len(body.SLO.Burn) != 3 || len(body.Endpoints) != 1 || len(body.Instances) != 1 || body.Window.IncidentLabel == nil ||
+	if len(body.Window.LabelTimes) != dashboardPoints || len(body.KPIs) != 5 || len(body.Requests.OK) != dashboardPoints || len(body.Latency.Heat) != 8 ||
+		body.SLO == nil || len(body.SLO.Burn) != 3 || len(body.Endpoints) != 1 || len(body.Instances) != 1 || body.Window.IncidentStartAt == nil ||
 		len(body.Unavailable) != 0 || !strings.Contains(w.Body.String(), `"unavailable":{}`) || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("incomplete dashboard: %+v", body)
 	}
@@ -595,13 +595,11 @@ func TestDashboardLocalizesLabels(t *testing.T) {
 		return out
 	}
 	zh, en := build("zh-CN,zh;q=0.9"), build("en-US")
-	stamp := end.Add(-25*time.Minute).UTC().Format("15:04") + "–" + end.Add(-5*time.Minute).UTC().Format("15:04") + " UTC"
-	if zh.KPIs[0].Label != "请求量" || zh.KPIs[0].Sub != "观测到的请求速率" || zh.SLO.Note != "观测到的错误预算消耗速率" ||
-		*zh.Window.IncidentLabel != "事件 · "+stamp {
-		t.Fatalf("Chinese dashboard: %+v %q %q", zh.KPIs[0], zh.SLO.Note, *zh.Window.IncidentLabel)
+	if zh.KPIs[0].Label != "请求量" || zh.KPIs[0].Sub != "观测到的请求速率" || zh.SLO.Note != "观测到的错误预算消耗速率" {
+		t.Fatalf("Chinese dashboard: %+v %q", zh.KPIs[0], zh.SLO.Note)
 	}
-	if en.KPIs[0].Label != "Requests" || en.SLO.Note != "Observed error budget burn rates" || *en.Window.IncidentLabel != "Incident · "+stamp {
-		t.Fatalf("English dashboard: %+v %q %q", en.KPIs[0], en.SLO.Note, *en.Window.IncidentLabel)
+	if en.KPIs[0].Label != "Requests" || en.SLO.Note != "Observed error budget burn rates" {
+		t.Fatalf("English dashboard: %+v %q", en.KPIs[0], en.SLO.Note)
 	}
 	if build("").SLO.Note != zh.SLO.Note {
 		t.Fatal("no Accept-Language must default to Chinese")
@@ -648,21 +646,20 @@ func TestDashboardKeepsBlocksThroughAnOutage(t *testing.T) {
 	}
 }
 
-// PA-83: the window's labels and ticks come with their instants in RFC 3339,
-// so a client can show them in the viewer's time zone; the UTC "15:04" text
-// stays for older clients.
+// PA-83: the window's labels, ticks and incident bounds are RFC 3339
+// instants, for the viewer's time zone; no UTC "15:04" text is sent.
 func TestDashboardWindowCarriesRFC3339Times(t *testing.T) {
 	end := time.Now().UTC().Truncate(100 * time.Second)
 	window := testDashboardWindow(end)
 	incidentStart, incidentEnd := end.Add(-25*time.Minute), end.Add(-5*time.Minute)
 	out := newDashboard(window, dashboardMarkers{incidentStart: &incidentStart, incidentEnd: &incidentEnd})
-	if len(out.Window.LabelTimes) != dashboardPoints || len(out.Window.TickTimes) != len(out.Window.Ticks) {
+	if len(out.Window.LabelTimes) != dashboardPoints || len(out.Window.TickTimes) != 5 {
 		t.Fatalf("times: %d labels, %d ticks", len(out.Window.LabelTimes), len(out.Window.TickTimes))
 	}
-	for i, label := range out.Window.Labels {
-		at, err := time.Parse(time.RFC3339, out.Window.LabelTimes[i])
-		if err != nil || at.UTC().Format("15:04") != label || (i > 0 && at.Sub(mustParse(t, out.Window.LabelTimes[i-1])) != dashboardStep*time.Second) {
-			t.Fatalf("label %d: %q %q %v", i, label, out.Window.LabelTimes[i], err)
+	for i := range out.Window.LabelTimes {
+		at := mustParse(t, out.Window.LabelTimes[i])
+		if i > 0 && at.Sub(mustParse(t, out.Window.LabelTimes[i-1])) != dashboardStep*time.Second {
+			t.Fatalf("label %d: %q", i, out.Window.LabelTimes[i])
 		}
 	}
 	if out.Window.TickTimes[0] != out.Window.LabelTimes[0] || out.Window.TickTimes[4] != out.Window.LabelTimes[35] ||
@@ -672,6 +669,12 @@ func TestDashboardWindowCarriesRFC3339Times(t *testing.T) {
 	}
 	if none := newDashboard(window, dashboardMarkers{}); none.Window.IncidentStartAt != nil || none.Window.IncidentEndAt != nil {
 		t.Fatalf("an unrecorded incident has bounds: %+v", none.Window)
+	}
+	raw, _ := json.Marshal(out.Window)
+	for _, removed := range []string{`"labels"`, `"ticks"`, `"incident_label"`} {
+		if strings.Contains(string(raw), removed) {
+			t.Fatalf("removed field %s is still sent: %s", removed, raw)
+		}
 	}
 }
 

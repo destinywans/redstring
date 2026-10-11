@@ -82,9 +82,10 @@ func TestProfileServesKnownFieldsWithoutIdentityEvidence(t *testing.T) {
 		len(view.Security.Sessions) != 1 || !view.Security.Sessions[0].Current || view.Security.Sessions[0].Device != nil {
 		t.Fatalf("profile fabricated identity evidence: %s", w.Body.String())
 	}
-	// PA-83: the times inside sub also come in RFC 3339.
-	if session := view.Security.Sessions[0]; session.ExpiresAt == "" || !strings.HasSuffix(session.Sub, session.ExpiresAt) ||
-		(session.SignedInAt != nil && !strings.Contains(session.Sub, *session.SignedInAt)) {
+	// PA-83: the times come only in RFC 3339; without evidence the login
+	// method is unknown and sub is empty.
+	if session := view.Security.Sessions[0]; session.Sub != "" || session.SignedInAt == nil ||
+		!validRFC3339UTC(session.ExpiresAt) || !validRFC3339UTC(*session.SignedInAt) {
 		t.Fatalf("session times: %+v", session)
 	}
 	for _, field := range []string{"contacts[].verified", "contacts.feishu", "security.org_rule", "security.factors", "security.sessions[].device", "security.mfa_enabled"} {

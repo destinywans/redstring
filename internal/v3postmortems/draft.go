@@ -120,16 +120,15 @@ func (s *Service) Draft(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem evidence is unavailable")
 		return
 	}
-	// window is "<RFC 3339> – <RFC 3339>" text kept for older clients;
-	// started_at and closed_at are its ends (PA-83).
-	incident := map[string]any{"id": id, "title": title, "severity": sev, "window": nil, "duration": nil, "started_at": nil, "closed_at": nil}
+	// started_at and closed_at bound the incident in RFC 3339 (PA-83; the
+	// "<RFC 3339> – <RFC 3339>" window text was removed).
+	incident := map[string]any{"id": id, "title": title, "severity": sev, "duration": nil, "started_at": nil, "closed_at": nil}
 	missing := []string{"verified_impact", "root_cause", "action_recommendations", "war_room_messages"}
 	if started != nil {
 		incident["started_at"], incident["closed_at"] = started.UTC().Format(time.RFC3339), closed.UTC().Format(time.RFC3339)
-		incident["window"] = started.UTC().Format(time.RFC3339) + " – " + closed.UTC().Format(time.RFC3339)
 		incident["duration"] = duration(*started, *closed)
 	} else {
-		missing = append(missing, "incident.window", "incident.duration", "investigation_report", "evidence_count")
+		missing = append(missing, "incident.started_at", "incident.closed_at", "incident.duration", "investigation_report", "evidence_count")
 	}
 	result := map[string]any{
 		"incident": incident,

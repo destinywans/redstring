@@ -41350,13 +41350,6 @@
                         "severity": {
                           "type": "string"
                         },
-                        "window": {
-                          "type": [
-                            "string",
-                            "null"
-                          ],
-                          "description": "\"<RFC 3339> – <RFC 3339>\" text, kept for older clients; use started_at and closed_at (PA-83)"
-                        },
                         "duration": {
                           "type": [
                             "string",
@@ -41369,7 +41362,7 @@
                             "null"
                           ],
                           "format": "date-time",
-                          "description": "PA-83: start of window"
+                          "description": "PA-83: incident start in RFC 3339, null with closed_at when unknown"
                         },
                         "closed_at": {
                           "type": [
@@ -41377,7 +41370,7 @@
                             "null"
                           ],
                           "format": "date-time",
-                          "description": "PA-83: end of window"
+                          "description": "PA-83: incident close in RFC 3339, null with started_at when unknown"
                         }
                       },
                       "additionalProperties": false,
@@ -41385,7 +41378,6 @@
                         "id",
                         "title",
                         "severity",
-                        "window",
                         "duration",
                         "started_at",
                         "closed_at"
@@ -48951,13 +48943,6 @@
                         "maxItems": 2
                       }
                     },
-                    "trend_days": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "format": "date"
-                      }
-                    },
                     "trend_starts_at": {
                       "type": "array",
                       "items": {
@@ -49171,7 +49156,6 @@
                   "required": [
                     "policies",
                     "trend",
-                    "trend_days",
                     "trend_starts_at",
                     "events",
                     "counts",
@@ -67133,12 +67117,13 @@
             "type": "string"
           },
           "meta": {
-            "type": "string"
+            "type": "string",
+            "description": "Whether the incident is a stored firing alert or a stored incident; PA-83: no longer carries the time"
           },
           "at": {
             "type": "string",
             "format": "date-time",
-            "description": "PA-83: the time inside meta (the alert start while firing, otherwise the last update) in RFC 3339"
+            "description": "PA-83: the alert start while firing, otherwise the last update, in RFC 3339"
           },
           "ai": {
             "type": [
@@ -67304,8 +67289,13 @@
           "title": {
             "type": "string"
           },
-          "meta": {
-            "type": "string"
+          "environment_id": {
+            "type": "string",
+            "description": "PA-83: the conversation environment ID"
+          },
+          "environment_label": {
+            "type": "string",
+            "description": "PA-83: the environment display name from the instance configuration; the ID when it has none"
           },
           "href": {
             "type": "string",
@@ -67314,7 +67304,7 @@
           "at": {
             "type": "string",
             "format": "date-time",
-            "description": "PA-83: the update time inside meta, in RFC 3339"
+            "description": "PA-83: the update time in RFC 3339"
           }
         },
         "additionalProperties": false,
@@ -67322,7 +67312,8 @@
           "id",
           "kind",
           "title",
-          "meta",
+          "environment_id",
+          "environment_label",
           "at",
           "href"
         ]
@@ -67392,13 +67383,6 @@
       "V3HomeAlertTrend": {
         "type": "object",
         "properties": {
-          "labels": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "description": "UTC HH:MM bucket starts, kept for compatibility"
-            }
-          },
           "start": {
             "type": "string",
             "format": "date-time",
@@ -67425,7 +67409,6 @@
         },
         "additionalProperties": false,
         "required": [
-          "labels",
           "start",
           "step_seconds",
           "counts",
@@ -71945,7 +71928,7 @@
                 "type": "null"
               }
             ],
-            "description": "PA-83: the last connection test (the time in meta and in the detail checked) in RFC 3339, null when never tested"
+            "description": "PA-83: the last connection test in RFC 3339, null when never tested; meta no longer carries the time"
           }
         },
         "additionalProperties": false
@@ -72005,15 +71988,12 @@
                 "type": "null"
               }
             ],
-            "description": "PA-83: the last connection test (the time in meta and in the detail checked) in RFC 3339, null when never tested"
+            "description": "PA-83: the last connection test in RFC 3339, null when never tested; meta no longer carries the time"
           },
           "scope": {
             "type": "string"
           },
           "address": {
-            "type": "string"
-          },
-          "checked": {
             "type": "string"
           },
           "deeplink": {
@@ -72106,7 +72086,6 @@
           "scope",
           "address",
           "auth",
-          "checked",
           "services",
           "queries",
           "tools",
@@ -72507,7 +72486,7 @@
                 "type": "null"
               }
             ],
-            "description": "PA-83: the metadata check time inside checks, in RFC 3339; null when this process has no check"
+            "description": "PA-83: the metadata check time in RFC 3339, null when this process has no check; checks no longer carry the time"
           }
         },
         "additionalProperties": false,
@@ -72936,7 +72915,7 @@
                 "type": "null"
               }
             ],
-            "description": "PA-83: the read time inside meta, in RFC 3339; null without a successful read"
+            "description": "PA-83: the read time in RFC 3339, null without a successful read; meta no longer carries the time"
           },
           "highlights": {
             "type": "array",
@@ -73367,10 +73346,6 @@
           "ms": {
             "type": "string"
           },
-          "time": {
-            "type": "string",
-            "description": "\"2006-01-02 15:04 UTC\" text, kept for older clients; use at (PA-83)"
-          },
           "at": {
             "type": "string",
             "format": "date-time",
@@ -73390,7 +73365,6 @@
         },
         "additionalProperties": false,
         "required": [
-          "time",
           "at",
           "source",
           "key",
@@ -75483,14 +75457,10 @@
             "type": "string",
             "description": "An alert opens in the inbox (/inbox?item=…); an assignment opens the assigned object: /incidents/{id} for an alert or incident, /review/{id} for a proposal (PA-84)"
           },
-          "time": {
-            "type": "string",
-            "description": "\"15:04\" in the server time zone (timezone), kept for older clients; use at (PA-83)"
-          },
           "at": {
             "type": "string",
             "format": "date-time",
-            "description": "PA-83: the item time in RFC 3339, for display in the viewer time zone"
+            "description": "PA-83: the item time in RFC 3339; the viewer time zone formats it and groups items by day"
           },
           "kind": {
             "type": "string",
@@ -75519,14 +75489,6 @@
           },
           "unread": {
             "type": "null"
-          },
-          "day": {
-            "type": "string",
-            "enum": [
-              "today",
-              "yesterday"
-            ],
-            "description": "Calendar day in the server time zone (timezone)"
           }
         },
         "additionalProperties": false,
@@ -75536,10 +75498,8 @@
           "tone",
           "title",
           "sub",
-          "time",
           "at",
           "unread",
-          "day",
           "href",
           "alert_id"
         ]
@@ -78164,9 +78124,6 @@
           "id": {
             "type": "string"
           },
-          "window": {
-            "type": "string"
-          },
           "creator": {
             "type": "string"
           },
@@ -78208,7 +78165,6 @@
           "id",
           "matchers",
           "state",
-          "window",
           "starts_at",
           "ends_at",
           "affects",
@@ -84617,7 +84573,7 @@
                   "at": {
                     "type": "string",
                     "format": "date-time",
-                    "description": "PA-83: the \"as of\" time inside text and meta, in RFC 3339"
+                    "description": "PA-83: the time of the investigation note in RFC 3339; text and meta no longer carry it"
                   }
                 },
                 "additionalProperties": false,
@@ -84729,7 +84685,7 @@
                     "at": {
                       "type": "string",
                       "format": "date-time",
-                      "description": "PA-83: the time inside meta, in RFC 3339"
+                      "description": "PA-83: the deployment time in RFC 3339; meta no longer carries it"
                     }
                   },
                   "additionalProperties": false,
@@ -86543,7 +86499,7 @@
                 "type": "null"
               }
             ],
-            "description": "PA-83: the review time inside meta, in RFC 3339"
+            "description": "PA-83: the review time in RFC 3339; meta no longer carries it"
           },
           "stages": {
             "type": "array",
@@ -86700,20 +86656,13 @@
               "$ref": "#/components/schemas/V3ChangeLane"
             }
           },
-          "axis": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "\"Jan 02 15:04 UTC\" text, kept for older clients; use axis_times (PA-83)"
-          },
           "axis_times": {
             "type": "array",
             "items": {
               "type": "string",
               "format": "date-time"
             },
-            "description": "PA-83: the instant of each axis label in RFC 3339"
+            "description": "PA-83: the axis instants in RFC 3339"
           },
           "pipelines": {
             "type": "array",
@@ -86732,7 +86681,6 @@
           "kpis",
           "sources",
           "lanes",
-          "axis",
           "axis_times",
           "pipelines",
           "detail"
@@ -87228,24 +87176,6 @@
           "window": {
             "type": "object",
             "properties": {
-              "labels": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "minItems": 36,
-                "maxItems": 36,
-                "description": "UTC \"15:04\" text, kept for older clients; use label_times (PA-83)"
-              },
-              "ticks": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "minItems": 5,
-                "maxItems": 5,
-                "description": "UTC \"15:04\" text, kept for older clients; use tick_times (PA-83)"
-              },
               "label_times": {
                 "type": "array",
                 "items": {
@@ -87307,17 +87237,6 @@
                   }
                 ]
               },
-              "incident_label": {
-                "oneOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Text with UTC \"15:04\" times, kept for older clients; use incident_start_at and incident_end_at (PA-83)"
-              },
               "incident_start_at": {
                 "oneOf": [
                   {
@@ -87345,14 +87264,11 @@
             },
             "additionalProperties": false,
             "required": [
-              "labels",
-              "ticks",
               "label_times",
               "tick_times",
               "release_at",
               "rollback_at",
               "incident",
-              "incident_label",
               "incident_start_at",
               "incident_end_at"
             ]
@@ -88088,13 +88004,6 @@
                   }
                 }
               },
-              "axis": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "description": "UTC \"15:04\" bucket starts, kept for older clients; use axis_times (PA-83)"
-              },
               "axis_times": {
                 "type": "array",
                 "items": {
@@ -88107,7 +88016,6 @@
             "additionalProperties": false,
             "required": [
               "counts",
-              "axis",
               "axis_times"
             ]
           },
@@ -89605,9 +89513,6 @@
           "count": {
             "type": "string"
           },
-          "last": {
-            "type": "string"
-          },
           "status_basis": {
             "type": "string"
           },
@@ -89621,7 +89526,7 @@
                 "type": "null"
               }
             ],
-            "description": "PA-83: the latest receipt time inside last, null when unknown"
+            "description": "PA-83: the latest receipt time in RFC 3339, null when unknown"
           },
           "last_code": {
             "oneOf": [
@@ -89632,7 +89537,7 @@
                 "type": "null"
               }
             ],
-            "description": "PA-83: the HTTP status of the latest receipt inside last, null when unknown"
+            "description": "PA-83: the HTTP status of the latest receipt, null when unknown"
           },
           "status": {
             "type": "string",
@@ -89653,7 +89558,6 @@
           "url",
           "verify",
           "count",
-          "last",
           "last_at",
           "last_code",
           "status",

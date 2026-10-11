@@ -270,7 +270,7 @@ func (s *Service) narrative(ctx context.Context, user core.User, row serviceRow,
 	if at.Before(now.Add(-time.Hour)) {
 		return aiNarrative{}, unknown(reasonStale)
 	}
-	out := aiNarrative{Text: t.narrative(at, content), Investigation: inv, Meta: t.narrativeMeta(model, at), At: at.UTC().Format(time.RFC3339)}
+	out := aiNarrative{Text: t.narrative(content), Investigation: inv, Meta: t.narrativeMeta(model), At: at.UTC().Format(time.RFC3339)}
 	// Proposal links expose no content, but still require a current proposal
 	// grant and a pending proposal bound to the selected investigation.
 	proposalAllowed, e := s.canView(ctx, user, row, "proposals")

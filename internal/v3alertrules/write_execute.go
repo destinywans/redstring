@@ -158,7 +158,7 @@ func (s *WriteService) approvedIntentTx(ctx context.Context, tx pgx.Tx, proposal
 	var creator, actionDigest, status string
 	err = tx.QueryRow(ctx, `SELECT a.creator_id,a.action_digest,p.status FROM v3_proposal_actions a
  JOIN v3_proposals p ON p.id=a.proposal_id
- WHERE a.proposal_id=$1 AND a.action_kind=$2 FOR SHARE OF a,p`, proposalID, alertRuleEnableKind).
+ WHERE a.proposal_id=$1 AND a.action_kind=$2 FOR SHARE OF a,p`, proposalID, intent.Kind).
 		Scan(&creator, &actionDigest, &status)
 	if err != nil {
 		return zero, AlertRuleApproval{}, "", err
@@ -502,7 +502,8 @@ func (s *WriteService) claimEnableExecution(ctx context.Context, proposalID stri
 // enableExecutionSettled names states whose remote result is recorded: the
 // claim returns them as they are and only observation moves them on.
 func enableExecutionSettled(state string) bool {
-	return state == "pending_review" || state == "merged" || state == "awaiting_provider" || state == "enabled" || state == "failed"
+	return state == "pending_review" || state == "merged" || state == "awaiting_provider" || state == "enabled" ||
+		state == "disabled" || state == "failed"
 }
 
 // enableStepSQL appends a timeline step (D11) unless the last step already
@@ -750,7 +751,7 @@ func (s *WriteService) observationIntent(ctx context.Context, proposalID string)
 	}
 	var digest string
 	if err := tx.QueryRow(ctx, `SELECT action_digest FROM v3_proposal_actions
- WHERE proposal_id=$1 AND action_kind=$2 FOR SHARE`, proposalID, alertRuleEnableKind).Scan(&digest); err != nil {
+ WHERE proposal_id=$1 AND action_kind=$2 FOR SHARE`, proposalID, intent.Kind).Scan(&digest); err != nil {
 		return zero, "", err
 	}
 	return intent, digest, tx.Commit(ctx)
@@ -776,7 +777,7 @@ type enableReadback struct {
 func (s *WriteService) readBackMerged(ctx context.Context, intent AlertRuleEnableIntent, actionDigest string,
 	record enableExecutionRecord, raw []byte, previous enableReadback) (AlertRuleExecutionResult, error) {
 	var zero AlertRuleExecutionResult
-	if record.State != "merged" && record.State != "awaiting_provider" && record.State != "enabled" {
+	if record.State != "merged" && record.State != "awaiting_provider" && record.State != "enabled" && record.State != "disabled" {
 		return zero, problem(409, "execution_not_observable", "Deployment is not ready for observation")
 	}
 	merged := record.Deployment
@@ -787,8 +788,9 @@ func (s *WriteService) readBackMerged(ctx context.Context, intent AlertRuleEnabl
 	if err != nil {
 		return zero, problem(503, "deployment_observation_unavailable", "Deployment state is unavailable")
 	}
+	// A disable may leave the group empty; an enable never does.
 	if observation.State != "synced" || observation.MergeRevision != merged.MergeRevision ||
-		observation.ContentDigest != intent.Deployment.ContentDigest || len(observation.GroupRules) == 0 {
+		observation.ContentDigest != intent.Deployment.ContentDigest || (len(observation.GroupRules) == 0 && intent.Kind != alertRuleDisableKind) {
 		return zero, problem(503, "deployment_observation_invalid", "Merged deployment could not be verified")
 	}
 	readback, observedID, err := s.readBackGroup(ctx, intent, observation.GroupRules, *merged.MergedAt)
@@ -804,6 +806,8 @@ func (s *WriteService) readBackMerged(ctx context.Context, intent AlertRuleEnabl
 	switch readback.State {
 	case "loaded":
 		state = "enabled"
+	case "absent":
+		state = "disabled"
 	case "error":
 		state, failure = "failed", "rule_health_error"
 	default:
@@ -814,6 +818,12 @@ func (s *WriteService) readBackMerged(ctx context.Context, intent AlertRuleEnabl
 	if record.State == "enabled" {
 		if state != "enabled" || record.ObservedRuleID != observedID {
 			return zero, problem(409, "rule_content_changed", "Previously enabled rule is no longer active with approved content")
+		}
+		return executionResult(record), nil
+	}
+	if record.State == "disabled" {
+		if state != "disabled" {
+			return zero, problem(409, "rule_content_changed", "The disabled rule is back in Prometheus or its group changed")
 		}
 		return executionResult(record), nil
 	}
@@ -890,6 +900,17 @@ func (s *WriteService) readBackGroup(ctx context.Context, intent AlertRuleEnable
 			found = &items[i]
 		}
 	}
+	// D11 decision 7: a disable is done when the rule is gone and the group
+	// equals the merged file's; health is the remaining rules' concern.
+	if intent.Kind == alertRuleDisableKind {
+		switch {
+		case found != nil:
+			return enableReadback{State: "pending"}, "", nil
+		case !sameLoadedGroup(loaded, rules):
+			return enableReadback{State: "mismatch"}, "", nil
+		}
+		return enableReadback{State: "absent"}, "", nil
+	}
 	if found == nil {
 		return enableReadback{State: "pending"}, "", nil
 	}
@@ -939,7 +960,7 @@ func approvedRuleMatches(found ObservedRule, intent AlertRuleEnableIntent) error
 	}
 	if found.Expression != intent.Spec.Expr || found.Duration != forDuration.Seconds() ||
 		!maps.Equal(found.Labels, intent.Spec.Labels) || !maps.Equal(found.Annotations, intent.Spec.Annotations) ||
-		found.Labels["application"] != intent.ApplicationID || found.Labels["environment"] != intent.EnvironmentID {
+		found.Labels["environment"] != intent.EnvironmentID {
 		return problem(409, "rule_content_changed", "Observed rule differs from approved bytes")
 	}
 	return nil

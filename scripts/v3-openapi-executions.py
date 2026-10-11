@@ -76,7 +76,7 @@ v3_route('post','/executions/{id}/report/publish',
 S['V3AlertRuleExecutionResult'] = obj({
     'proposal_id':string(),
     'execution_id':string(),
-    'status':string(enum=['pending_review','merged','awaiting_provider','enabled','failed','waiting_sync']),
+    'status':string(enum=['pending_review','merged','awaiting_provider','enabled','disabled','failed','waiting_sync']),
     'deployment':obj({'project_id':integer(),'mr_iid':integer(minimum=1),'url':string(),'source_branch':string(),
         'target_branch':string(),'path':string(),'content_digest':string(),'state':string(enum=['opened','merged']),
         'source_revision':string(),'merge_revision':string(),'merged_at':string(format='date-time')},
@@ -91,7 +91,7 @@ v3_route('post','/executions/{id}/recheck',
          'proposal\'s application (or its owner team). Runs the same read-only observation the executor worker runs every 15 seconds, also '
          'after the worker\'s 24-hour window: GitLab and Prometheus are only read, nothing is merged or written remotely, and only the local '
          'ledger records the readback. A late Prometheus load becomes enabled and clears load_timeout; an evaluation error becomes failed. '
-         'Only pending_review, merged, awaiting_provider and enabled executions can be rechecked (409 execution_not_observable otherwise); '
+         'Only pending_review, merged, awaiting_provider, enabled and disabled executions can be rechecked (409 execution_not_observable otherwise); '
          'an enabled rule that no longer matches is 409 rule_content_changed. deployment and observed_rule_id are omitted until known. '
          'An unknown execution or one in another environment is 404.')
 

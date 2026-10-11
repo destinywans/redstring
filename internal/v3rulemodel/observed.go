@@ -37,4 +37,8 @@ type RuleGroupBinding struct {
 	ApplicationID string
 	File          string
 	Group         string
+	// ApplicationLabel is the value of the group's rules' "application"
+	// label (D32): the application key the alert source mappings use, e.g.
+	// checkout-api. Empty means the application ID (the earlier convention).
+	ApplicationLabel string
 }

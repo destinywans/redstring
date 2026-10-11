@@ -20,6 +20,14 @@ const approvalVoteLifetime = 15 * time.Minute
 
 const alertRuleEnableActionKind = "prometheus.alert_rule.enable"
 
+// alertRuleDisableActionKind removes an active rule through the same domain
+// verifier, approval quorum and executor (D11 decision 7).
+const alertRuleDisableActionKind = "prometheus.alert_rule.disable"
+
+func alertRuleActionKind(kind string) bool {
+	return kind == alertRuleEnableActionKind || kind == alertRuleDisableActionKind
+}
+
 // ApprovalResult is a durable decision snapshot. A pending result never has
 // execution authority; execution_id is allocated only with the second vote.
 type ApprovalResult struct {
@@ -128,7 +136,7 @@ func (s *Service) loadApprovalActionTx(ctx context.Context, tx pgx.Tx, id string
 		return record{}, zero, err
 	}
 	var a v3alertmanager.SilenceReviewedAction
-	if kind == alertRuleEnableActionKind {
+	if alertRuleActionKind(kind) {
 		a, err = s.loadAlertRuleEnableApprovalActionTx(ctx, tx, id, v)
 	} else if kind == RollbackActionKind {
 		a, err = s.loadRollbackApprovalActionTx(ctx, tx, id, v)
@@ -142,7 +150,7 @@ func (s *Service) loadApprovalActionTx(ctx context.Context, tx pgx.Tx, id string
 		a.ApplicationID != v.ApplicationID || a.InvestigationID != v.InvestigationID ||
 		a.CreatorID == "" || a.ActionDigest == "" || a.ReviewContentDigest == "" ||
 		(a.Kind != v3alertmanager.ProposedSilenceCreateKind && a.Kind != v3alertmanager.ProposedSilenceCancelKind &&
-			a.Kind != alertRuleEnableActionKind && a.Kind != RollbackActionKind) {
+			!alertRuleActionKind(a.Kind) && a.Kind != RollbackActionKind) {
 		return record{}, zero, ErrInvalidProposal
 	}
 	return v, a, nil
@@ -175,7 +183,7 @@ func (s *Service) loadAlertRuleEnableApprovalActionTx(ctx context.Context, tx pg
 	if err != nil {
 		return zero, err
 	}
-	if kind != alertRuleEnableActionKind || intent.Kind != kind || version != 1 ||
+	if !alertRuleActionKind(kind) || intent.Kind != kind || version != 1 ||
 		creatorKind != "user" || sourceKind != "human_request" || creatorID == "" ||
 		creatorID != parentCreator || !silenceProductDigest.MatchString(actionDigest) ||
 		!silenceProductDigest.MatchString(reviewDigest) ||

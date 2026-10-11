@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -30,7 +31,9 @@ type Service struct {
 	sources            map[string]operations.Source
 	outboundConfigured bool
 	envs               map[string]bool
-	persist            func(context.Context, operations.Source, []mappedAlert) error
+	// persist stores alerts and returns how many it ignored for an
+	// environment label that differs from their mapping (D32).
+	persist func(context.Context, operations.Source, []mappedAlert) (int, error)
 }
 
 type mappedAlert struct {
@@ -142,7 +145,8 @@ func (s *Service) Handler(w http.ResponseWriter, r *http.Request) {
 		}
 		alerts = append(alerts, mappedAlert{alert: alert, mapping: mapping})
 	}
-	if err = s.persist(r.Context(), source, alerts); err != nil {
+	ignored, err := s.persist(r.Context(), source, alerts)
+	if err != nil {
 		if errors.Is(err, errStaleMapping) {
 			httpapi.Error(w, http.StatusServiceUnavailable, "mapping_unavailable", "Alert source mapping is not active in this instance")
 		} else if errors.Is(err, operations.ErrAlertLabelsConflict) {
@@ -158,17 +162,23 @@ func (s *Service) Handler(w http.ResponseWriter, r *http.Request) {
 		// pending notification into a queue with no delivery worker.
 		delivery = "not_connected"
 	}
-	httpapi.WriteJSON(w, http.StatusAccepted, map[string]any{"accepted": len(alerts), "notification_delivery": delivery})
+	httpapi.WriteJSON(w, http.StatusAccepted, map[string]any{"accepted": len(alerts) - ignored, "ignored": ignored, "notification_delivery": delivery})
 }
 
 var errStaleMapping = errors.New("inactive or cross-instance alert mapping")
 
-func (s *Service) persistAlerts(ctx context.Context, source operations.Source, alerts []mappedAlert) error {
+// persistAlerts keeps environments apart (D32): an alert whose own
+// "environment" label names another environment than its mapping is not
+// stored, so a test rule's alert routed here cannot become a prod incident.
+// It is logged and counted; the rest of the envelope is stored, so
+// Alertmanager does not resend it.
+func (s *Service) persistAlerts(ctx context.Context, source operations.Source, alerts []mappedAlert) (int, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback(ctx)
+	ignored := 0
 	for _, item := range alerts {
 		var environmentKey string
 		// Lock all mapping rows until commit so an archive/reassignment cannot
@@ -179,16 +189,22 @@ func (s *Service) persistAlerts(ctx context.Context, source operations.Source, a
 		 WHERE e.id=$1 AND e.application_id=$2 AND NOT e.archived
 		 FOR SHARE OF e,a,ve`, item.mapping.EnvironmentID, item.mapping.ApplicationID).Scan(&environmentKey)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && !s.envs[environmentKey]) {
-			return errStaleMapping
+			return 0, errStaleMapping
 		}
 		if err != nil {
-			return err
+			return 0, err
+		}
+		if label, ok := item.alert.Labels["environment"]; ok && label != environmentKey {
+			ignored++
+			slog.Warn("V3 alert ignored: its environment label differs from its mapping", "source", source.ID,
+				"alertname", short(item.alert.Labels["alertname"], 128), "environment_label", short(label, 128), "mapped_environment", environmentKey)
+			continue
 		}
 		if err = s.ingestOne(ctx, tx, source.ID, item); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return tx.Commit(ctx)
+	return ignored, tx.Commit(ctx)
 }
 
 func short(value string, max int) string {

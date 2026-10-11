@@ -67,6 +67,7 @@ func (s *WriteService) Register(api *httpapi.Server) {
 		{"PUT /api/v1/alert-rules/{id}", s.Update},
 		{"POST /api/v1/alert-rules/import", s.Import},
 		{"POST /api/v1/executions/{id}/recheck", s.Recheck},
+		{"POST /api/v1/alert-rules/{id}/disable", s.Disable},
 	} {
 		api.Register(route.pattern, "viewer", route.handler)
 		api.MarkV3ObjectRoute(route.pattern, "alert_rules", "change")
@@ -181,6 +182,7 @@ func (s *WriteService) Create(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &input) {
 		return
 	}
+	input.DraftRuleSpec = s.withScopeLabels(input.DraftRuleSpec, env)
 	switch input.Mode {
 	case "dry_run":
 		s.handleTrial(w, r, env, actor, key, input.DraftRuleSpec)
@@ -209,7 +211,7 @@ func (s *WriteService) Create(w http.ResponseWriter, r *http.Request) {
 		httpapi.WriteJSON(w, http.StatusCreated, result)
 		return
 	}
-	if err := validateDraftSpec(input.DraftRuleSpec, env, input.ApplicationID); err != nil {
+	if err := validateDraftSpec(input.DraftRuleSpec, env, input.ApplicationID, s.Reader.ApplicationLabel(env, input.ApplicationID)); err != nil {
 		writeError(w, validationProblem(err))
 		return
 	}
@@ -291,7 +293,7 @@ func (s *WriteService) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, problem(422, "invalid_version", "Expected draft version is required"))
 		return
 	}
-	if err := validateDraftSpec(input.Rule, env, input.Rule.ApplicationID); err != nil {
+	if err := validateDraftSpec(input.Rule, env, input.Rule.ApplicationID, s.Reader.ApplicationLabel(env, input.Rule.ApplicationID)); err != nil {
 		writeError(w, validationProblem(err))
 		return
 	}
@@ -348,7 +350,7 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	app, rules, err := parseRuleImportYAMLWithApp(input.YAML, env, input.ApplicationID)
+	app, rules, err := parseRuleImportYAMLWithApp(input.YAML, env, input.ApplicationID, s.Reader)
 	if err != nil {
 		writeError(w, validationProblem(err))
 		return
@@ -588,7 +590,7 @@ func (s *WriteService) inspectCandidates(ctx context.Context, env, app string, r
 			if item.GroupIdentity != groups[i].file+"\x00"+rule.Group || item.Name != rule.Name {
 				continue
 			}
-			if item.Labels["environment"] != env || item.Labels["application"] != app {
+			if item.Labels["environment"] != env || item.Labels["application"] != s.Reader.ApplicationLabel(env, app) {
 				return nil, nil, problem(503, "rule_scope_conflict", "A bound rule has conflicting scope labels")
 			}
 			if observed[i].exists {

@@ -53,6 +53,17 @@ GitOps `LookupForReconciliation` 仅 GET 原确定分支，验证项目/目标/�
 
 正式入口只在设置 `AIOPS_V3_ALERT_RULE_ENABLE_CONFIG` 时读取受保护的绝对路径 0600 JSON 文件；配置必须把 `environment_id`、`application_id`、`group`、`provider_file` 精确对应当前受信规则来源，并固定上述 GitOps 目标。顶层字段为 `gitlab_url`、`gitlab_token_file`、`argo_url`、`argo_token_file`、`bindings`；每项绑定还需 `project_id`、`target_branch`、`yaml_path`、`repo_url`、`argo_application`、`argo_project`、`argo_namespace`、`argo_source_path`、`destination_server`、`destination_namespace`。令牌文件绝对路径、0600，端点 HTTPS；配置不含令牌明文。启动仅校验本地配置并装配适配器，不访问 GitLab、Argo CD 或 Prometheus。`mode=enabled` 创建前检查确切环境的 worker 正在运行且批准与执行表可读；缺配置、Passkey、worker 或表时返回不可用，不导出远端草稿。
 
+### D32：规则的作用域标签
+
+产品写的每条规则都带两个作用域标签，告警摄取靠它们把告警对到服务、留在自己的环境：
+
+- `application`：应用 key，即告警来源映射（`AIOPS_OPERATIONS_CONFIG` 的 `mappings[].labels`）用的值，如 `checkout-api`。值来自规则来源绑定的 `application_label`；没配置时是应用 ID（旧约定）。规则列表、写入校验、启用时的同名规则检查、YAML 导入和执行器都按这个值判断，导入时按它反查应用。
+- `environment`：环境 ID（`test`、`prod` 等）。
+
+请求没写这两个标签时由服务端补齐；写了但不一致返回 422。启用提案的审查内容另有一行 `Scope labels: environment=… application=…`。
+
+告警摄取：一条告警在映射选中后，若自带 `environment` 标签且与映射的环境 key 不同，不入库，记一条日志并计入响应的 `ignored`；同一批其余告警照常入库，Alertmanager 不会重发。没有 `environment` 标签的旧告警不受影响。路由上建议 prod 实例只收 `environment=~"prod|"`（Alertmanager 中不存在的标签按空串匹配，所以这条同时收下不带该标签的现有实验告警），`environment=~"dev|test|staging"` 另走 nonprod 或丢弃。
+
 ### D11：执行器合并与 `file_pull` 加载
 
 绑定可设 `load: "file_pull"`（默认 `argo_cd` 即上文 WAN-118 流程）。这种绑定不要 Argo CD 和仓库 URL 字段：两人通行密钥批准覆盖“执行器合并这个 MR”，Prometheus 自己拉取目标分支并自动重载。计划（`AlertRuleDeploymentPlan`）多出 `load: "file_pull"`、`merge: "executor"` 和 `readback_timeout_seconds`（绑定配置，默认 300，60–3600），都计入动作摘要。
@@ -61,7 +72,9 @@ GitOps `LookupForReconciliation` 仅 GET 原确定分支，验证项目/目标/�
 
 合并后（`merged`），观察先核对合并身份、目标分支仍是批准的完整字节，再读 Prometheus：`/api/v1/rules` 没有修订号，所以要求绑定组**整组**与合并后文件里该组一致（规则名集合、持续时间、标签、注解逐条相等；表达式只对新规则逐字比较，因为 Prometheus 返回的是规范化后的表达式），新规则精确一致、`health=ok` 且 `lastEvaluation` 晚于合并时间，才记 `enabled`。新规则 `health=err`（且是合并后的求值）记 `failed`（`rule_health_error`，保存截断后的 `lastError`）：规则确实在跑，只能另走停用。尚未加载保持 `awaiting_provider`；超过 `readback_timeout_seconds` 记 `load_timeout`，但 worker 在合并后 24 小时内继续每 15 秒读回，晚到的加载仍会记为 `enabled` 并清除失败原因。整组不一致记读回 `mismatch` 并继续等待。
 
-执行记录（迁移 175）新增：状态 `merged`、`failed`；`failure_code`（`stale_base`、`branch_conflict`、`mr_closed`、`protection_changed`、`merge_refused`、`credential_rejected`、`approval_invalid`、`plan_changed`、`source_changed`、`load_timeout`、`rule_health_error`，空表示无）；`readback`（`state` 为 `pending`、`loaded`、`mismatch`、`error`、`timeout`，以及 `checked_at`、`first_seen_at`、`health`、`last_evaluation_at`、`last_error`）；`steps`（`{state, at}` 时间线，名称用 `reserved`、`committing`、`merging`、`merged`、`loading`、`enabled`、`failed`、`needs_attention`、`uncertain`，最多 64 条）。观察只在状态变化时写审计。
+执行记录（迁移 175）新增：状态 `merged`、`failed`（迁移 177 再加停用的 `disabled`）；`failure_code`（`stale_base`、`branch_conflict`、`mr_closed`、`protection_changed`、`merge_refused`、`credential_rejected`、`approval_invalid`、`plan_changed`、`source_changed`、`load_timeout`、`rule_health_error`，空表示无）；`readback`（`state` 为 `pending`、`loaded`、`absent`（停用）、`mismatch`、`error`、`timeout`，以及 `checked_at`、`first_seen_at`、`health`、`last_evaluation_at`、`last_error`）；`steps`（`{state, at}` 时间线，名称用 `reserved`、`committing`、`merging`、`merged`、`loading`、`enabled`、`disabled`、`failed`、`needs_attention`、`uncertain`，最多 64 条）。观察只在状态变化时写审计。
+
+**停用（决定 7，迁移 177）**：`POST /alert-rules/{id}/disable` 提出动作 `prometheus.alert_rule.disable`。意图固定为版本 2，规则取 Prometheus 当前报告的原样（`for` 由秒数换算，严重级别不限于 P1–P4，但名称、组和作用域标签必须正确），并记下请求时的已观测身份；计划是绑定文件去掉这一条规则后的完整字节。只支持 `file_pull` 绑定。审批、两票重验、领取、提交、合并、对账与启用完全相同，MR 标题为 `Disable AIOps alert rule <名称>`。读回要求新规则从组里消失、且组与合并后的文件一致（读回状态 `absent`），执行状态记 `disabled`；规则仍在为 `pending`，超时同样记 `load_timeout`。已停用的执行重新核对时，规则又出现会返回 409。
 
 配置（仍是 `AIOPS_V3_ALERT_RULE_ENABLE_CONFIG`，没有另起设计稿里的 `AIOPS_V3_ALERT_RULE_WRITE_BINDINGS`）：`gitlab_token_file` 与 `gitlab_token_ref` 二选一；`gitlab_token_ref` 为 `vault://mount/path#field`，用进程的 `AIOPS_VAULT_URL`、`AIOPS_VAULT_TOKEN` 读取，每次请求都读、不缓存；`gitlab_ca_field`（如 `ca`）指同一条目里的私有 CA，同样每次读取，读不到就不发请求；`gitlab_web_url` 是 GitLab 自报的外部地址（MR 链接的协议和主机，可与 HTTPS 入口不同，只用于核对、不会访问）。只有存在 `argo_cd` 绑定时才需要 `argo_url`、`argo_token_file`，否则不能设置。每项绑定可加 `load`、`readback_timeout_seconds`。启动不读 Vault、不访问 GitLab。
 

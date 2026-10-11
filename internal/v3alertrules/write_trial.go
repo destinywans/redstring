@@ -67,7 +67,7 @@ func (s *WriteService) handleTrial(w http.ResponseWriter, r *http.Request, env s
 	}
 	validated := spec
 	validated.Mode = "draft" // Reuse the existing shape validator without allowing draft export.
-	if err := validateDraftSpec(validated, env, spec.ApplicationID); err != nil {
+	if err := validateDraftSpec(validated, env, spec.ApplicationID, s.Reader.ApplicationLabel(env, spec.ApplicationID)); err != nil {
 		writeError(w, validationProblem(err))
 		return
 	}

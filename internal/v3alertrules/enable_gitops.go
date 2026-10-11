@@ -35,6 +35,10 @@ type AlertRuleGitOpsBinding struct {
 	ArgoApplication, ArgoProject, ArgoNamespace             string
 	ArgoSourcePath, DestinationServer, DestinationNamespace string
 	Load                                                    string
+	// ApplicationLabel is the trusted rule binding's application label
+	// value (D32); empty means ApplicationID. It is not part of the scope:
+	// the approved rule's labels already carry it.
+	ApplicationLabel string
 	// ReadbackTimeoutSeconds bounds how long a file_pull deployment waits
 	// for Prometheus to load the merged file before it needs attention
 	// (default 300). The approval covers it.
@@ -168,10 +172,17 @@ func (a *GitOpsAlertRuleApplier) binding(in AlertRuleEnableIntent) (AlertRuleGit
 	}
 	b, ok := a.bindings[gitOpsBindingKey(in.EnvironmentID, in.ApplicationID, in.Spec.Group)]
 	if !ok || fileIdentityDigest(b.ProviderFile) != in.ProviderFileIdentityDigest ||
-		validateDraftSpec(in.Spec, in.EnvironmentID, in.ApplicationID) != nil {
+		validateIntentSpec(in, b.applicationLabel()) != nil {
 		return AlertRuleGitOpsBinding{}, errors.New("alert rule GitOps binding changed")
 	}
 	return b, nil
+}
+
+func (b AlertRuleGitOpsBinding) applicationLabel() string {
+	if b.ApplicationLabel != "" {
+		return b.ApplicationLabel
+	}
+	return b.ApplicationID
 }
 
 func deploymentScope(b AlertRuleGitOpsBinding) string {
@@ -199,7 +210,7 @@ func (a *GitOpsAlertRuleApplier) Plan(ctx context.Context, in AlertRuleEnableInt
 	if err != nil {
 		return AlertRuleDeploymentPlan{}, err
 	}
-	content, err := renderDeployableRule(before, in.Spec)
+	content, err := renderIntent(before, in)
 	if err != nil {
 		return AlertRuleDeploymentPlan{}, err
 	}
@@ -234,7 +245,7 @@ func (a *GitOpsAlertRuleApplier) verifiedPlan(ctx context.Context, in AlertRuleE
 	if err != nil {
 		return b, nil, err
 	}
-	content, err := renderDeployableRule(before, in.Spec)
+	content, err := renderIntent(before, in)
 	if err != nil {
 		return b, nil, err
 	}
@@ -368,67 +379,105 @@ func (a *GitOpsAlertRuleApplier) readFile(ctx context.Context, b AlertRuleGitOps
 	return raw, nil
 }
 
-// renderDeployableRule rewrites the complete bounded native Prometheus file.
-// Unknown fields on unrelated rules are retained by yaml.Node. The target
-// rule is replaced only when its existing fields fit the supported subset.
-func renderDeployableRule(before []byte, spec DraftRuleSpec) ([]byte, error) {
+// boundGroupRules parses a complete bounded native Prometheus file and
+// returns it with the rules sequence of the bound group and the index of the
+// alert named name in it (-1 when absent).
+func boundGroupRules(before []byte, group, name string) (*yaml.Node, *yaml.Node, int, error) {
 	if len(before) == 0 || len(before) > 128<<10 {
-		return nil, errors.New("invalid GitOps rule file size")
+		return nil, nil, 0, errors.New("invalid GitOps rule file size")
 	}
 	dec := yaml.NewDecoder(bytes.NewReader(before))
 	var doc, extra yaml.Node
 	if err := dec.Decode(&doc); err != nil || len(doc.Content) != 1 {
-		return nil, errors.New("invalid GitOps rule YAML")
+		return nil, nil, 0, errors.New("invalid GitOps rule YAML")
 	}
 	if err := dec.Decode(&extra); err != nil && !errors.Is(err, io.EOF) {
-		return nil, errors.New("invalid GitOps rule YAML")
+		return nil, nil, 0, errors.New("invalid GitOps rule YAML")
 	}
 	if len(extra.Content) != 0 {
-		return nil, errors.New("GitOps rule file has multiple documents")
+		return nil, nil, 0, errors.New("GitOps rule file has multiple documents")
 	}
 	if err := checkImportYAMLNode(&doc); err != nil {
-		return nil, err
+		return nil, nil, 0, err
 	}
 	root := doc.Content[0]
 	if root.Kind != yaml.MappingNode {
-		return nil, errors.New("GitOps rule file must be native groups YAML")
+		return nil, nil, 0, errors.New("GitOps rule file must be native groups YAML")
 	}
 	groups := yamlMappingValue(root, "groups")
 	if groups == nil || groups.Kind != yaml.SequenceNode {
-		return nil, errors.New("GitOps rule groups unavailable")
+		return nil, nil, 0, errors.New("GitOps rule groups unavailable")
 	}
 	var target *yaml.Node
 	for _, g := range groups.Content {
 		if g.Kind != yaml.MappingNode {
-			return nil, errors.New("invalid GitOps rule group")
+			return nil, nil, 0, errors.New("invalid GitOps rule group")
 		}
-		name := yamlMappingValue(g, "name")
-		if name != nil && name.Kind == yaml.ScalarNode && name.Value == spec.Group {
+		n := yamlMappingValue(g, "name")
+		if n != nil && n.Kind == yaml.ScalarNode && n.Value == group {
 			if target != nil {
-				return nil, errors.New("ambiguous GitOps rule group")
+				return nil, nil, 0, errors.New("ambiguous GitOps rule group")
 			}
 			target = g
 		}
 	}
 	if target == nil {
-		return nil, errors.New("bound GitOps rule group missing")
+		return nil, nil, 0, errors.New("bound GitOps rule group missing")
 	}
 	rules := yamlMappingValue(target, "rules")
 	if rules == nil || rules.Kind != yaml.SequenceNode || len(rules.Content) > 1000 {
-		return nil, errors.New("invalid bound GitOps rule group")
+		return nil, nil, 0, errors.New("invalid bound GitOps rule group")
 	}
 	index := -1
 	for i, rule := range rules.Content {
 		if rule.Kind != yaml.MappingNode {
-			return nil, errors.New("invalid GitOps rule")
+			return nil, nil, 0, errors.New("invalid GitOps rule")
 		}
-		name := yamlMappingValue(rule, "alert")
-		if name != nil && name.Kind == yaml.ScalarNode && name.Value == spec.Name {
+		n := yamlMappingValue(rule, "alert")
+		if n != nil && n.Kind == yaml.ScalarNode && n.Value == name {
 			if index >= 0 {
-				return nil, errors.New("ambiguous GitOps rule identity")
+				return nil, nil, 0, errors.New("ambiguous GitOps rule identity")
 			}
 			index = i
 		}
+	}
+	return &doc, rules, index, nil
+}
+
+// renderIntent renders the file an intent deploys: the rule added or
+// replaced for an enable, removed for a disable (D11 decision 7).
+func renderIntent(before []byte, in AlertRuleEnableIntent) ([]byte, error) {
+	if in.Kind == alertRuleDisableKind {
+		return renderRemovedRule(before, in.Spec)
+	}
+	return renderDeployableRule(before, in.Spec)
+}
+
+// renderRemovedRule removes exactly the named rule from the bound group and
+// keeps every other byte's meaning; the rule must be in the file once.
+func renderRemovedRule(before []byte, spec DraftRuleSpec) ([]byte, error) {
+	doc, rules, index, err := boundGroupRules(before, spec.Group, spec.Name)
+	if err != nil {
+		return nil, err
+	}
+	if index < 0 {
+		return nil, errors.New("alert rule to disable is missing from GitOps file")
+	}
+	rules.Content = append(rules.Content[:index], rules.Content[index+1:]...)
+	out, err := yaml.Marshal(doc)
+	if err != nil || len(out) > 256<<10 {
+		return nil, errors.New("deployable GitOps rule file exceeds limit")
+	}
+	return out, nil
+}
+
+// renderDeployableRule rewrites the complete bounded native Prometheus file.
+// Unknown fields on unrelated rules are retained by yaml.Node. The target
+// rule is replaced only when its existing fields fit the supported subset.
+func renderDeployableRule(before []byte, spec DraftRuleSpec) ([]byte, error) {
+	doc, rules, index, err := boundGroupRules(before, spec.Group, spec.Name)
+	if err != nil {
+		return nil, err
 	}
 	if index >= 0 && spec.ObservedRuleID == "" {
 		return nil, errors.New("alert rule already exists in GitOps file")
@@ -464,7 +513,7 @@ func renderDeployableRule(before []byte, spec DraftRuleSpec) ([]byte, error) {
 	} else {
 		rules.Content = append(rules.Content, rule.Content[0])
 	}
-	out, err := yaml.Marshal(&doc)
+	out, err := yaml.Marshal(doc)
 	if err != nil || len(out) > 256<<10 {
 		return nil, errors.New("deployable GitOps rule file exceeds limit")
 	}

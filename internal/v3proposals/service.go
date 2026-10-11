@@ -165,7 +165,7 @@ func executionTx(ctx context.Context, tx pgx.Tx, proposalID string) (*ProposalEx
 	switch out.ActionKind {
 	case "alertmanager.silence.create", "alertmanager.silence.cancel":
 		err = tx.QueryRow(ctx, `SELECT state,upstream_id FROM v3_silence_execution_claims WHERE proposal_id=$1`, proposalID).Scan(&status, &upstream)
-	case "prometheus.alert_rule.enable":
+	case alertRuleEnableActionKind, alertRuleDisableActionKind:
 		var state string
 		err = tx.QueryRow(ctx, `SELECT state FROM v3_alert_rule_enable_executions WHERE proposal_id=$1 AND execution_id=$2`,
 			proposalID, out.ExecutionID).Scan(&state)

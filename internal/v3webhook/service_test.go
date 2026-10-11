@@ -48,7 +48,7 @@ func request(s *Service, token, body string) *httptest.ResponseRecorder {
 func TestSourceAuthenticationAndMappingFailClosed(t *testing.T) {
 	s, token := testWebhook(t)
 	calls := 0
-	s.persist = func(context.Context, operations.Source, []mappedAlert) error { calls++; return nil }
+	s.persist = func(context.Context, operations.Source, []mappedAlert) (int, error) { calls++; return 0, nil }
 	valid := alertJSON(`{"service":"checkout"}`)
 	for _, tc := range []struct {
 		name, bearer, body string
@@ -81,9 +81,9 @@ func TestAmbiguousMappingsAndCrossInstanceConfig(t *testing.T) {
 	source := s.sources["prom"]
 	source.Mappings = append(source.Mappings, operations.Mapping{Labels: map[string]string{"service": "checkout", "severity": "critical"}, ApplicationID: "other", EnvironmentID: "other-staging"})
 	s.sources["prom"] = source
-	s.persist = func(context.Context, operations.Source, []mappedAlert) error {
+	s.persist = func(context.Context, operations.Source, []mappedAlert) (int, error) {
 		t.Fatal("ambiguous mapping persisted")
-		return nil
+		return 0, nil
 	}
 	if got := request(s, token, alertJSON(`{"service":"checkout","severity":"critical"}`)); got.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status %d, body %s", got.Code, got.Body.String())
@@ -105,11 +105,11 @@ func TestMissingLabelDoesNotMatchConfiguredEmptyValue(t *testing.T) {
 
 func TestNoBrowserSessionOrEnvironmentHeaderRequired(t *testing.T) {
 	s, token := testWebhook(t)
-	s.persist = func(_ context.Context, source operations.Source, alerts []mappedAlert) error {
+	s.persist = func(_ context.Context, source operations.Source, alerts []mappedAlert) (int, error) {
 		if source.ID != "prom" || len(alerts) != 1 || alerts[0].mapping.EnvironmentID != "checkout-staging" {
 			t.Fatalf("unexpected source mapping: %+v %+v", source, alerts)
 		}
-		return nil
+		return 0, nil
 	}
 	// request() deliberately supplies neither browser cookie nor environment
 	// header. The fixed source mapping is the only accepted scope.

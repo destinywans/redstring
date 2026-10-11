@@ -33,6 +33,9 @@ func loadV3AlertRuleSource(path string, instance v3Instance) (*v3alertrules.Prom
 			ApplicationID string `json:"application_id"`
 			File          string `json:"file"`
 			Group         string `json:"group"`
+			// D32: the rules' "application" label value, the key the alert
+			// source mappings use; empty keeps the application ID.
+			ApplicationLabel string `json:"application_label"`
 		} `json:"bindings"`
 	}
 	contents, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
@@ -68,7 +71,7 @@ func loadV3AlertRuleSource(path string, instance v3Instance) (*v3alertrules.Prom
 		}
 		bindings = append(bindings, v3alertrules.RuleGroupBinding{
 			EnvironmentID: value.EnvironmentID, ApplicationID: value.ApplicationID,
-			File: value.File, Group: value.Group,
+			File: value.File, Group: value.Group, ApplicationLabel: value.ApplicationLabel,
 		})
 	}
 	source, err := v3alertrules.NewPrometheusSource(endpoints, nil)

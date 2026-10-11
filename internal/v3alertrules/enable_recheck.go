@@ -62,7 +62,7 @@ func (s *WriteService) recheckExecution(ctx context.Context, env string, actor c
 	if err := tx.Commit(ctx); err != nil {
 		return zero, err
 	}
-	if state != "pending_review" && state != "merged" && state != "awaiting_provider" && state != "enabled" {
+	if state != "pending_review" && state != "merged" && state != "awaiting_provider" && state != "enabled" && state != "disabled" {
 		return zero, problem(409, "execution_not_observable", "Only a merged or loading execution can be rechecked")
 	}
 	return s.ObserveEnabled(ctx, proposalID)

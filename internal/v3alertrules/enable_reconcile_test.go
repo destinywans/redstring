@@ -218,7 +218,7 @@ func seedEnableRecoveryPlan(t *testing.T, db *pgxpool.Pool, expired, revoked boo
  VALUES($1,$2,$3,'test',$4::jsonb,$5,'user')`, id, investigation, app, reviewRaw, creator)
 	exec(`INSERT INTO v3_proposal_actions(proposal_id,action_kind,schema_version,action,action_digest,review_content_digest,request_hash,binding_fingerprint,
  creator_id,environment_id,application_id,investigation_id,investigation_updated_at,idempotency_key,source_kind)
- VALUES($1,$2,1,$3::jsonb,$4,$5,$4,$4,$6,'test',$7,$8,$9,$1,'human_request')`, id, alertRuleEnableKind, actionRaw, actionDigest, reviewDigest, creator, app, investigation, now)
+ VALUES($1,$2,1,$3::jsonb,$4,$5,$4,$4,$6,'test',$7,$8,$9,$1,'human_request')`, id, intent.Kind, actionRaw, actionDigest, reviewDigest, creator, app, investigation, now)
 	approvedAt, expiresAt := now.Add(-time.Minute), now.Add(10*time.Minute)
 	if expired {
 		approvedAt, expiresAt = now.Add(-10*time.Minute), now.Add(-time.Minute)
@@ -230,13 +230,13 @@ func seedEnableRecoveryPlan(t *testing.T, db *pgxpool.Pool, expired, revoked boo
 		exec(`INSERT INTO v3_passkey_credentials(instance_id,rp_id,user_id,credential_id,credential_json) VALUES('recovery-test','example.invalid',$1,$2,'{}')`, u, credential)
 		exec(`INSERT INTO v3_passkey_challenges(id,instance_id,rp_id,user_id,session_hash,tier,environment_id,kind,session_data,created_at,expires_at,consumed_at,proposal_id,action_kind,action_digest,review_content_digest)
  VALUES($1,'recovery-test','example.invalid',$2,$3,'nonprod','test','proposal_approve','{}',$4::timestamptz,$4::timestamptz+interval '9 minutes',$4::timestamptz+interval '1 second',$5,$6,$7,$8)`,
-			challenge, u, strings.Repeat("a", 64), approvedAt, id, alertRuleEnableKind, actionDigest, reviewDigest)
+			challenge, u, strings.Repeat("a", 64), approvedAt, id, intent.Kind, actionDigest, reviewDigest)
 		exec(`INSERT INTO v3_proposal_approval_votes(id,proposal_id,approver_id,challenge_id,action_kind,action_digest,review_content_digest,instance_id,rp_id,credential_id,credential_fingerprint,request_hash,verified_at,expires_at)
- VALUES($1,$2,$3,$4,$5,$6,$7,'recovery-test','example.invalid',$8,$9,$6,$10,$11)`, votes[i], id, u, challenge, alertRuleEnableKind, actionDigest, reviewDigest, credential, strings.Repeat("a", 16), approvedAt, expiresAt)
+ VALUES($1,$2,$3,$4,$5,$6,$7,'recovery-test','example.invalid',$8,$9,$6,$10,$11)`, votes[i], id, u, challenge, intent.Kind, actionDigest, reviewDigest, credential, strings.Repeat("a", 16), approvedAt, expiresAt)
 	}
 	approvalDigest := strings.Repeat("e", 64)
 	exec(`INSERT INTO v3_proposal_approval_decisions(proposal_id,execution_id,action_kind,action_digest,review_content_digest,approval_digest,creator_id,environment_id,application_id,risk,required_count,first_vote_id,second_vote_id,approved_at,expires_at)
- VALUES($1,$2,$3,$4,$5,$6,$7,'test',$8,'high',2,$9,$10,$11,$12)`, id, execution, alertRuleEnableKind, actionDigest, reviewDigest, approvalDigest, creator, app, votes[0], votes[1], approvedAt, expiresAt)
+ VALUES($1,$2,$3,$4,$5,$6,$7,'test',$8,'high',2,$9,$10,$11,$12)`, id, execution, intent.Kind, actionDigest, reviewDigest, approvalDigest, creator, app, votes[0], votes[1], approvedAt, expiresAt)
 	exec(`UPDATE v3_proposals SET status='approved' WHERE id=$1`, id)
 	if revoked {
 		exec(`INSERT INTO v3_proposal_approval_revocations(proposal_id,revoked_by,reason) VALUES($1,$2,'Test revocation')`, id, second)

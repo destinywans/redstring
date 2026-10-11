@@ -37,12 +37,15 @@ P['/webhooks/alertmanager/{source}']['post']['description'] = (
     'V3 source Bearer token required. Each alert must uniquely match a configured '
     'application/environment mapping that is still active in this instance. '
     'The receiver atomically persists incidents and deduplicated occurrences; '
-    'unmapped or cross-instance events are rejected. External notification '
+    'unmapped or cross-instance events are rejected. An alert whose own environment '
+    'label names another environment than its mapping is not stored (D32): it is '
+    'logged and counted in ignored, and the rest of the envelope is stored. External notification '
     'delivery remains disconnected until a V3-authorized worker is available.')
 P['/webhooks/alertmanager/{source}']['post']['responses']['202']['content']['application/json']['schema'] = obj({
     'accepted': integer(),
+    'ignored': integer(description='Alerts not stored because their environment label differs from their mapping (D32)'),
     'notification_delivery': {'type': 'string', 'enum': ['not_configured', 'not_connected']},
-}, ['accepted', 'notification_delivery'])
+}, ['accepted', 'ignored', 'notification_delivery'])
 v3_route('post','/webhooks','Request an inbound Webhook registration',
     role='human connectors.manage',body=obj({'name':string(maxLength=1000),'type':string(enum=['change','alert','incident']),'verify':string(enum=['hmac','token'])},['name','type','verify']),
     response=obj({'id':string(),'url':string(),'secret_shown_once':string()},['id','url','secret_shown_once']),status=201,

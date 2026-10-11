@@ -101,12 +101,16 @@ type Service struct {
 	Source   Source
 	Now      func() time.Time
 	bindings map[string]string // environment + provider group identity -> application ID
+	// D32: environment + application ID -> application label value, and
+	// environment + label value -> application ID.
+	appLabels, labelApps map[string]string
 }
 
 type RuleGroupBinding = v3rulemodel.RuleGroupBinding
 
 func New(catalog Catalog, access Access, source Source, bindings []RuleGroupBinding) (*Service, error) {
 	index := make(map[string]string, len(bindings))
+	appLabels, labelApps := make(map[string]string), make(map[string]string)
 	for _, b := range bindings {
 		if b.EnvironmentID == "" || b.EnvironmentID == "all" || b.ApplicationID == "" || b.File == "" || b.Group == "" ||
 			strings.ContainsRune(b.EnvironmentID, 0) || strings.ContainsRune(b.ApplicationID, 0) || strings.ContainsRune(b.File, 0) || strings.ContainsRune(b.Group, 0) {
@@ -117,8 +121,41 @@ func New(catalog Catalog, access Access, source Source, bindings []RuleGroupBind
 			return nil, errors.New("duplicate alert rule group binding")
 		}
 		index[key] = b.ApplicationID
+		label := b.ApplicationLabel
+		if label == "" {
+			label = b.ApplicationID
+		}
+		if len(label) > 128 || strings.ContainsAny(label, "\x00\r\n") {
+			return nil, errors.New("invalid alert rule application label")
+		}
+		// One application has one label value in an environment, and one
+		// label value names one application, so an alert maps back.
+		appKey, labelKey := bindingKey(b.EnvironmentID, b.ApplicationID), bindingKey(b.EnvironmentID, label)
+		if prior, ok := appLabels[appKey]; ok && prior != label {
+			return nil, errors.New("an application has two alert rule application labels")
+		}
+		if prior, ok := labelApps[labelKey]; ok && prior != b.ApplicationID {
+			return nil, errors.New("an alert rule application label names two applications")
+		}
+		appLabels[appKey], labelApps[labelKey] = label, b.ApplicationID
 	}
-	return &Service{Catalog: catalog, Access: access, Source: source, bindings: index}, nil
+	return &Service{Catalog: catalog, Access: access, Source: source, bindings: index, appLabels: appLabels, labelApps: labelApps}, nil
+}
+
+// ApplicationLabel is the "application" label value of app's rules in env
+// (D32): the bound key, or the application ID when none is configured.
+func (s *Service) ApplicationLabel(env, app string) string {
+	if label, ok := s.appLabels[bindingKey(env, app)]; ok {
+		return label
+	}
+	return app
+}
+
+// applicationOfLabel maps a rule's "application" label back to the bound
+// application in env.
+func (s *Service) applicationOfLabel(env, label string) (string, bool) {
+	app, ok := s.labelApps[bindingKey(env, label)]
+	return app, ok
 }
 
 func bindingKey(env, identity string) string {
@@ -236,7 +273,7 @@ func (s *Service) visible(r *http.Request) ([]Detail, []string, int, error) {
 		}
 		for _, rule := range rules {
 			app, bound := s.bindings[bindingKey(env, rule.GroupIdentity)]
-			if _, authorized := allowed[env][app]; !bound || rule.Labels["environment"] != env || rule.Labels["application"] != app || !authorized || rule.Name == "" || rule.Group == "" {
+			if _, authorized := allowed[env][app]; !bound || rule.Labels["environment"] != env || rule.Labels["application"] != s.ApplicationLabel(env, app) || !authorized || rule.Name == "" || rule.Group == "" {
 				continue
 			}
 			items = append(items, toDetail(env, app, rule))

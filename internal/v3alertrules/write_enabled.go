@@ -22,6 +22,17 @@ import (
 
 const alertRuleEnableKind = "prometheus.alert_rule.enable"
 
+// alertRuleDisableKind removes an active rule through the same approval and
+// executor (D11 decision 7). Its intent is always schema version 2.
+const alertRuleDisableKind = "prometheus.alert_rule.disable"
+
+// alertRuleActionKinds are the alert rule proposal actions.
+var alertRuleActionKinds = []string{alertRuleEnableKind, alertRuleDisableKind}
+
+func alertRuleActionKind(kind string) bool {
+	return kind == alertRuleEnableKind || kind == alertRuleDisableKind
+}
+
 // AlertRuleEnableIntent is review evidence, never execution authority. WAN-117
 // must verify independent human approval, current grants, source content, MR
 // bytes and target binding before an independent executor changes a rule.
@@ -92,7 +103,7 @@ func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env 
 	// The stored spec keeps the draft rule format; enabling is the proposal
 	// action, never a mode of the rule itself.
 	spec.Mode = "draft"
-	if err := validateDraftSpec(spec, env, spec.ApplicationID); err != nil {
+	if err := validateDraftSpec(spec, env, spec.ApplicationID, s.Reader.ApplicationLabel(env, spec.ApplicationID)); err != nil {
 		writeError(w, validationProblem(err))
 		return
 	}
@@ -101,11 +112,11 @@ func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env 
 		writeError(w, err)
 		return
 	}
-	if _, err := s.enablePreflight(r.Context(), actor, env, spec.ApplicationID, in.InvestigationID, key, digest); err != nil {
+	if _, err := s.enablePreflight(r.Context(), actor, env, spec.ApplicationID, in.InvestigationID, key, digest, alertRuleEnableKind); err != nil {
 		writeError(w, err)
 		return
 	}
-	if result, found, err := s.replayEnable(r.Context(), actor, key, digest, in.InvestigationID); err != nil {
+	if result, found, err := s.replayEnable(r.Context(), actor, key, digest, in.InvestigationID, alertRuleEnableKind); err != nil {
 		writeError(w, err)
 		return
 	} else if found {
@@ -129,7 +140,7 @@ func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env 
 		writeError(w, err)
 		return
 	}
-	result, err := s.persistEnableIntent(r.Context(), actor, env, key, digest, in.InvestigationID, spec, groups[0], observed[0])
+	result, err := s.persistEnableIntent(r.Context(), actor, env, key, digest, in.InvestigationID, spec, groups[0], observed[0], alertRuleEnableKind)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -148,7 +159,7 @@ func validEnableInvestigationID(id string) bool {
 	return prefixed && hexID(suffix)
 }
 
-func (s *WriteService) enablePreflight(ctx context.Context, actor core.User, env, app, investigation, key, requestDigest string) (time.Time, error) {
+func (s *WriteService) enablePreflight(ctx context.Context, actor core.User, env, app, investigation, key, requestDigest, actionKind string) (time.Time, error) {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return time.Time{}, err
@@ -161,7 +172,7 @@ func (s *WriteService) enablePreflight(ctx context.Context, actor core.User, env
 	var kind, storedDigest string
 	err = tx.QueryRow(ctx, `SELECT action_kind,request_hash FROM v3_proposal_actions
  WHERE creator_id=$1 AND idempotency_key=$2 FOR SHARE`, actor.ID, key).Scan(&kind, &storedDigest)
-	if err == nil && (kind != alertRuleEnableKind || storedDigest != requestDigest) {
+	if err == nil && (kind != actionKind || storedDigest != requestDigest) {
 		return time.Time{}, problem(409, "idempotency_conflict", "Idempotency key was used for another proposal")
 	}
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -213,6 +224,9 @@ func (s *WriteService) enableScopeTx(ctx context.Context, tx pgx.Tx, actor core.
 }
 
 func enableReviewContent(in AlertRuleEnableIntent, actorID string) v3proposals.Content {
+	if in.Kind == alertRuleDisableKind {
+		return disableReviewContent(in, actorID)
+	}
 	if in.SchemaVersion == alertRuleEnableIntentDirect {
 		return directEnableReviewContent(in, actorID)
 	}
@@ -249,8 +263,11 @@ func enableReviewContent(in AlertRuleEnableIntent, actorID string) v3proposals.C
 // the exact target file and its base revision, and the proposed bytes digest.
 // The text must stay a pure function of the intent, which the loader rechecks.
 func directEnableReviewContent(in AlertRuleEnableIntent, actorID string) v3proposals.Content {
+	// D32: the scope labels decide which instance and service the rule's
+	// alerts reach, so the summary names them.
 	lines := []string{fmt.Sprintf("Rule: %s / %s", in.Spec.Group, in.Spec.Name),
-		"For: " + in.Spec.For, "Severity: " + in.Spec.Labels["severity"]}
+		"For: " + in.Spec.For, "Severity: " + in.Spec.Labels["severity"],
+		fmt.Sprintf("Scope labels: environment=%s application=%s", in.Spec.Labels["environment"], in.Spec.Labels["application"])}
 	fullAction, _ := json.Marshal(in)
 	runes := []rune(string(fullAction))
 	for start := 0; start < len(runes); start += 1200 {
@@ -279,15 +296,16 @@ func directEnableReviewContent(in AlertRuleEnableIntent, actorID string) v3propo
 	}
 }
 
-// persistEnableIntent stores a version 2 proposal: the rule, the observed
-// identity it was checked against and the adapter's exact deployable plan.
+// persistEnableIntent stores a version 2 proposal of kind (enable or
+// disable): the rule, the observed identity it was checked against and the
+// adapter's exact deployable plan.
 func (s *WriteService) persistEnableIntent(ctx context.Context, actor core.User, env, key, requestDigest, investigation string,
-	spec DraftRuleSpec, group boundGroup, observed observedIdentity) (map[string]any, error) {
+	spec DraftRuleSpec, group boundGroup, observed observedIdentity, kind string) (map[string]any, error) {
 	specHash, _, err := specDigest(spec)
 	if err != nil {
 		return nil, err
 	}
-	intent := AlertRuleEnableIntent{Kind: alertRuleEnableKind, SchemaVersion: alertRuleEnableIntentDirect,
+	intent := AlertRuleEnableIntent{Kind: kind, SchemaVersion: alertRuleEnableIntentDirect,
 		InvestigationID: investigation, EnvironmentID: env, ApplicationID: spec.ApplicationID,
 		ProviderFileIdentityDigest: fileIdentityDigest(group.file), ObservedRuleID: observed.id, ObservedDigest: observed.digest,
 		SpecDigest: specHash, Spec: spec}
@@ -297,6 +315,10 @@ func (s *WriteService) persistEnableIntent(ctx context.Context, actor core.User,
 	}
 	if err := validateDeploymentPlan(plan); err != nil {
 		return nil, err
+	}
+	// D11: only the executor's merge and readback can remove a rule.
+	if kind == alertRuleDisableKind && !plan.ExecutorMerges() {
+		return nil, problem(422, "disable_unavailable", "This rule group is deployed without an executor merge; disable it in its repository")
 	}
 	intent.Deployment = plan
 	tx, err := s.DB.Begin(ctx)
@@ -309,7 +331,7 @@ func (s *WriteService) persistEnableIntent(ctx context.Context, actor core.User,
 		return nil, err
 	}
 	intent.InvestigationUpdatedAt = updated
-	if prior, found, err := replayEnableTx(ctx, tx, actor, key, requestDigest, investigation); err != nil || found {
+	if prior, found, err := replayEnableTx(ctx, tx, actor, key, requestDigest, investigation, kind); err != nil || found {
 		if err != nil {
 			return nil, err
 		}
@@ -350,17 +372,17 @@ func (s *WriteService) persistEnableIntent(ctx context.Context, actor core.User,
  binding_fingerprint,creator_id,environment_id,application_id,investigation_id,
  investigation_updated_at,idempotency_key,source_kind)
  VALUES($1,$2,1,$3::jsonb,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'human_request')`,
-		proposalID, alertRuleEnableKind, actionRaw, actionDigest,
+		proposalID, kind, actionRaw, actionDigest,
 		enableDigest("aiops.v3.proposal.review.v1", contentRaw), requestDigest, binding,
 		actor.ID, env, spec.ApplicationID, investigation, updated, key)
 	if err != nil {
 		return nil, dbWriteProblem(err)
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
- VALUES($1,'user',$2,'v3.alert_rule.enable_requested',$3,'pending',jsonb_build_object(
+ VALUES($1,'user',$2,$11,$3,'pending',jsonb_build_object(
  'environment_id',$4::text,'investigation_id',$5::text,'group',$6::text,'alert',$7::text,
  'base_revision',$8::text,'content_digest',$9::text,'action_digest',$10::text))`, actor.ID, spec.ApplicationID, proposalID,
-		env, investigation, spec.Group, spec.Name, plan.BaseRevision, plan.ContentDigest, actionDigest)
+		env, investigation, spec.Group, spec.Name, plan.BaseRevision, plan.ContentDigest, actionDigest, requestedAudit(kind))
 	if err != nil {
 		return nil, err
 	}
@@ -370,21 +392,28 @@ func (s *WriteService) persistEnableIntent(ctx context.Context, actor core.User,
 	return enabledResponse(intent, proposalID, "pending"), nil
 }
 
+func requestedAudit(kind string) string {
+	if kind == alertRuleDisableKind {
+		return "v3.alert_rule.disable_requested"
+	}
+	return "v3.alert_rule.enable_requested"
+}
+
 // replayEnable answers a repeated request with the proposal it created.
-func (s *WriteService) replayEnable(ctx context.Context, actor core.User, key, requestDigest, investigation string) (map[string]any, bool, error) {
+func (s *WriteService) replayEnable(ctx context.Context, actor core.User, key, requestDigest, investigation, actionKind string) (map[string]any, bool, error) {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return nil, false, err
 	}
 	defer tx.Rollback(ctx)
-	result, found, err := replayEnableTx(ctx, tx, actor, key, requestDigest, investigation)
+	result, found, err := replayEnableTx(ctx, tx, actor, key, requestDigest, investigation, actionKind)
 	if err != nil || !found {
 		return nil, false, err
 	}
 	return result, true, tx.Commit(ctx)
 }
 
-func replayEnableTx(ctx context.Context, tx pgx.Tx, actor core.User, key, requestDigest, investigation string) (map[string]any, bool, error) {
+func replayEnableTx(ctx context.Context, tx pgx.Tx, actor core.User, key, requestDigest, investigation, actionKind string) (map[string]any, bool, error) {
 	var proposalID, storedDigest, kind, status string
 	err := tx.QueryRow(ctx, `SELECT a.proposal_id,a.request_hash,a.action_kind,p.status
  FROM v3_proposal_actions a JOIN v3_proposals p ON p.id=a.proposal_id
@@ -396,7 +425,7 @@ func replayEnableTx(ctx context.Context, tx pgx.Tx, actor core.User, key, reques
 	if err != nil {
 		return nil, false, err
 	}
-	if kind != alertRuleEnableKind || storedDigest != requestDigest {
+	if kind != actionKind || storedDigest != requestDigest {
 		return nil, false, problem(409, "idempotency_conflict", "Idempotency key was used for another proposal")
 	}
 	intent, err := loadAlertRuleEnableIntentWithTx(ctx, tx, proposalID, false)
@@ -414,6 +443,9 @@ func enabledResponse(intent AlertRuleEnableIntent, proposalID, proposalStatus st
 		status = "rejected"
 	} else if proposalStatus == "approved" {
 		status = "approved_pending_execution"
+	}
+	if intent.Kind == alertRuleDisableKind {
+		return map[string]any{"proposal_id": proposalID, "status": status}
 	}
 	result := map[string]any{"draft_id": nil, "version": nil, "mr": nil, "proposal_id": proposalID, "status": status}
 	if intent.SchemaVersion == 1 {
@@ -444,13 +476,14 @@ func loadAlertRuleEnableIntentWithTx(ctx context.Context, tx pgx.Tx, proposalID 
 	}
 	canonicalAction, actionErr := canonicalEnableJSON(actionRaw)
 	canonicalReview, reviewErr := canonicalEnableJSON(reviewRaw)
-	if kind != alertRuleEnableKind || schemaVersion != 1 || source != "human_request" ||
+	if !alertRuleActionKind(kind) || schemaVersion != 1 || source != "human_request" ||
 		(requirePending && status != "pending") || (status != "pending" && status != "rejected" && status != "approved") ||
 		actionErr != nil || reviewErr != nil ||
 		enableDigest("aiops.v3.proposal.action.v1", canonicalAction) != actionHash ||
 		enableDigest("aiops.v3.proposal.review.v1", canonicalReview) != reviewHash ||
 		json.Unmarshal(actionRaw, &intent) != nil || intent.Kind != kind ||
 		(intent.SchemaVersion != 1 && intent.SchemaVersion != alertRuleEnableIntentDirect) ||
+		(kind == alertRuleDisableKind && intent.SchemaVersion != alertRuleEnableIntentDirect) ||
 		intent.EnvironmentID != env || intent.ApplicationID != app || intent.InvestigationID != investigation {
 		return AlertRuleEnableIntent{}, problem(409, "enable_intent_invalid", "Alert rule enable proposal is invalid or rejected")
 	}
@@ -462,6 +495,7 @@ func loadAlertRuleEnableIntentWithTx(ctx context.Context, tx pgx.Tx, proposalID 
 	if err != nil || hash != intent.SpecDigest || intent.Spec.Mode != "draft" ||
 		intent.Spec.EnvironmentID != env || intent.Spec.ApplicationID != app ||
 		(intent.SchemaVersion == 1 && !draft) || (intent.SchemaVersion == alertRuleEnableIntentDirect && !direct) ||
+		(kind == alertRuleDisableKind && (intent.ObservedRuleID == "" || intent.ObservedDigest == "")) ||
 		validateDeploymentPlan(intent.Deployment) != nil {
 		return AlertRuleEnableIntent{}, problem(409, "enable_intent_invalid", "Alert rule enable proposal snapshot is invalid")
 	}

@@ -259,6 +259,9 @@ func (a *GitOpsAlertRuleApplier) Prepare(ctx context.Context, in AlertRuleEnable
 		return AlertRuleDeploymentReceipt{}, errors.New("GitOps target changed before MR creation")
 	}
 	title := "Review AIOps alert rule " + in.Spec.Name
+	if in.Kind == alertRuleDisableKind {
+		title = "Disable AIOps alert rule " + in.Spec.Name
+	}
 	if len(title) > 180 {
 		return AlertRuleDeploymentReceipt{}, errors.New("GitOps MR title too long")
 	}

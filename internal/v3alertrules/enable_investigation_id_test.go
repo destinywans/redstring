@@ -201,6 +201,11 @@ func TestEnableRequestWithoutDraft(t *testing.T) {
 			t.Errorf("version 2 intent carries %s", field)
 		}
 	}
+	var review string
+	if err := f.db.QueryRow(t.Context(), `SELECT content::text FROM v3_proposals WHERE id=$1`, body["proposal_id"]).Scan(&review); err != nil ||
+		!strings.Contains(review, "Scope labels: environment=test application=allowed") {
+		t.Fatalf("review summary lacks the scope labels: %v %s", err, review)
+	}
 	if raw["schema_version"] != float64(2) || envelope != 1 || f.repository.exports != 0 {
 		t.Fatalf("intent %v envelope %d exports %d", raw["schema_version"], envelope, f.repository.exports)
 	}

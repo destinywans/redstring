@@ -10,7 +10,8 @@
       "environment_id": "test",
       "application_id": "registered-application-id",
       "file": "/etc/prometheus/rules/application-alerts.yml",
-      "group": "application-alerts"
+      "group": "application-alerts",
+      "application_label": "application-key"
     }
   ]
 }

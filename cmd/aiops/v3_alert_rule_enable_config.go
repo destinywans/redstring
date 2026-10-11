@@ -106,6 +106,7 @@ func loadV3AlertRuleEnableApplier(path string, instance v3Instance,
 		knownEnvironments[env.ID] = true
 	}
 	trustedGroups := make(map[string]string, len(ruleBindings))
+	labels := make(map[string]string, len(ruleBindings))
 	for _, binding := range ruleBindings {
 		key := v3AlertRuleEnableKey(binding.EnvironmentID, binding.ApplicationID, binding.Group)
 		if binding.EnvironmentID == "" || binding.ApplicationID == "" || binding.Group == "" || binding.File == "" ||
@@ -113,6 +114,7 @@ func loadV3AlertRuleEnableApplier(path string, instance v3Instance,
 			return nil, nil, errors.New("alert rule enable source has ambiguous group bindings")
 		}
 		trustedGroups[key] = binding.File
+		labels[key] = binding.ApplicationLabel
 	}
 	bindings := make([]v3alertrules.AlertRuleGitOpsBinding, 0, len(config.Bindings))
 	enabledEnvironments := make(map[string]bool)
@@ -136,6 +138,7 @@ func loadV3AlertRuleEnableApplier(path string, instance v3Instance,
 			ArgoSourcePath: item.ArgoSourcePath, DestinationServer: item.DestinationServer,
 			DestinationNamespace: item.DestinationNamespace,
 			Load:                 load, ReadbackTimeoutSeconds: item.ReadbackTimeout,
+			ApplicationLabel: labels[v3AlertRuleEnableKey(item.EnvironmentID, item.ApplicationID, item.Group)],
 		})
 	}
 	applier, err := v3alertrules.NewGitOpsAlertRuleApplier(v3alertrules.AlertRuleGitOpsConfig{

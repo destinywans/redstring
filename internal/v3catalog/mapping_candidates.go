@@ -25,7 +25,7 @@ type mappingTarget struct {
 	revision                          int64
 	targetID, connectorID, externalID string
 	boundAt                           time.Time
-	ready                             bool
+	ready, mapped                     bool
 }
 
 type mappingCandidate struct {
@@ -118,6 +118,34 @@ func validMappingProject(id string) bool {
 	return err == nil && n > 0
 }
 
+// codeProjectTarget reads the confirmed code project of a service
+// environment (D20); lock locks the row for the acceptance that may replace it.
+func codeProjectTarget(ctx context.Context, tx pgx.Tx, app, env string, lock bool) (string, bool, error) {
+	query := `SELECT target_id FROM v3_service_code_projects WHERE application_id=$1 AND environment_id=$2`
+	if lock {
+		query += ` FOR UPDATE`
+	}
+	var target string
+	err := tx.QueryRow(ctx, query, app, env).Scan(&target)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	return target, err == nil, err
+}
+
+// withoutCode drops stored code bindings: since migration 174 the code
+// project is not a stored binding, and one left in a legacy database bound to
+// V3 later is not read.
+func withoutCode(bindings []core.Binding) []core.Binding {
+	out := make([]core.Binding, 0, len(bindings))
+	for _, binding := range bindings {
+		if mappingKind(binding.Kind) != "code" {
+			out = append(out, binding)
+		}
+	}
+	return out
+}
+
 func mappingBindings(raw []byte) ([]core.Binding, bool, error) {
 	var bindings []core.Binding
 	if err := json.Unmarshal(raw, &bindings); err != nil {
@@ -197,7 +225,8 @@ const eligibleMappingTarget = `c.enabled AND c.status='ok'
 
 func mappingTargetBatch(ctx context.Context, tx pgx.Tx, env, after string) ([]mappingTarget, error) {
 	rows, err := tx.Query(ctx, `SELECT a.id,a.key,COALESCE(a.owner_team_id,''),t.environment_id,e.id,e.bindings,e.binding_revision,
- t.id,t.connector_id,t.external_id,t.bound_at,COALESCE(`+eligibleMappingTarget+`,false)
+ t.id,t.connector_id,t.external_id,t.bound_at,COALESCE(`+eligibleMappingTarget+`,false),
+ EXISTS(SELECT 1 FROM v3_service_code_projects p WHERE p.application_id=a.id AND p.environment_id=t.environment_id)
  FROM v3_connector_targets t
  JOIN v3_connectors c ON c.id=t.connector_id AND c.environment_id=t.environment_id
  JOIN applications a ON a.id=t.application_id AND NOT a.archived
@@ -213,7 +242,7 @@ func mappingTargetBatch(ctx context.Context, tx pgx.Tx, env, after string) ([]ma
 	for rows.Next() {
 		var item mappingTarget
 		if err := rows.Scan(&item.appID, &item.key, &item.teamID, &item.env, &item.envID, &item.bindings,
-			&item.revision, &item.targetID, &item.connectorID, &item.externalID, &item.boundAt, &item.ready); err != nil {
+			&item.revision, &item.targetID, &item.connectorID, &item.externalID, &item.boundAt, &item.ready, &item.mapped); err != nil {
 			return nil, err
 		}
 		batch = append(batch, item)
@@ -287,12 +316,7 @@ func (s *Service) mappingDiscover(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			configured = true
-			_, mapped, err := mappingBindings(item.bindings)
-			if err != nil {
-				httpapi.Error(w, 503, "catalog_unavailable", "Stored mapping is invalid")
-				return
-			}
-			if mapped {
+			if item.mapped {
 				continue
 			}
 			seen++
@@ -347,9 +371,9 @@ func (s *Service) mappingDiscover(w http.ResponseWriter, r *http.Request) {
 		if len(groups[appID]) == 0 || key == "" || len(key) > 295 {
 			continue
 		}
-		_, mapped, err := mappingBindings(raw)
+		_, mapped, err := codeProjectTarget(ctx, tx, appID, envs[0], false)
 		if err != nil {
-			httpapi.Error(w, 503, "catalog_unavailable", "Stored mapping is invalid")
+			httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
 			return
 		}
 		if mapped {
@@ -417,7 +441,7 @@ func (s *Service) mappingDiscover(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		expected := core.Binding{Kind: "gitlab", ConnectorID: item.connectorID, Resource: item.externalID}
-		supported := mappingBindingSupported(append(bindings, expected), expected)
+		supported := mappingBindingSupported(append(withoutCode(bindings), expected), expected)
 		// A previous candidate from a removed target cannot make today's
 		// unique reviewed target ambiguous at accept time.
 		if _, err := tx.Exec(ctx, `DELETE FROM v3_service_mapping_candidates
@@ -633,13 +657,19 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		bindings, mapped, err := mappingBindings(raw)
+		bindings, _, err := mappingBindings(raw)
 		if err != nil {
 			httpapi.Error(w, 503, "catalog_unavailable", "Stored mapping is invalid")
 			return
 		}
+		bindings = withoutCode(bindings)
+		mappedTarget, mapped, err := codeProjectTarget(ctx, tx, appID, envs[0], true)
+		if err != nil {
+			httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
+			return
+		}
 		if mapped {
-			item, alreadyAccepted, err := existingAcceptedMapping(ctx, tx, selected, serviceKey, revision, bindings)
+			item, alreadyAccepted, err := existingAcceptedMapping(ctx, tx, selected, serviceKey, revision, mappedTarget)
 			if err != nil {
 				httpapi.Error(w, 503, "catalog_unavailable", "Mapping candidate unavailable")
 				return
@@ -731,22 +761,28 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 			httpapi.Error(w, 409, "mapping_binding_unavailable", "This mapping is not supported by the current environment")
 			return
 		}
-		serialized, err := json.Marshal(bindings)
-		if err != nil {
-			httpapi.Error(w, 503, "catalog_unavailable", "Mapping could not be serialized")
-			return
-		}
+		// The candidate's token stays the stored binding revision; the
+		// confirmed project is a registry row (D20), not a stored binding.
 		var nextRevision int64
 		err = tx.QueryRow(ctx, `UPDATE application_environments
- SET bindings=$1,binding_revision=binding_revision+1
- WHERE id=$2 AND application_id=$3 AND key=$4 AND binding_revision=$5
- RETURNING binding_revision`, serialized, envID, appID, envs[0], revision).Scan(&nextRevision)
+ SET binding_revision=binding_revision+1
+ WHERE id=$1 AND application_id=$2 AND key=$3 AND binding_revision=$4
+ RETURNING binding_revision`, envID, appID, envs[0], revision).Scan(&nextRevision)
 		if errors.Is(err, pgx.ErrNoRows) {
 			httpapi.Error(w, 409, "stale_mapping", "Mapping changed after discovery")
 			return
 		}
 		if err != nil {
 			httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
+			return
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO v3_service_code_projects(application_id,environment_id,target_id,source,candidate_id,confirmed_by)
+ VALUES($1,$2,$3,'candidate',$4,$5)`, appID, envs[0], candidate.sourceID, candidate.id, user.ID); err != nil {
+			if errors.Is(store.ClassifyError(err), store.ErrInvalidReference) {
+				httpapi.Error(w, 409, "stale_mapping", "Mapping changed after discovery")
+			} else {
+				httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
+			}
 			return
 		}
 		if _, err := tx.Exec(ctx, `UPDATE v3_service_mapping_candidates
@@ -791,22 +827,8 @@ func (s *Service) mappingAccept(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, 200, map[string]any{"accepted": accepted, "items": items})
 }
 
-func existingAcceptedMapping(ctx context.Context, tx pgx.Tx, selected mappingAcceptCandidate, key string, revision int64, bindings []core.Binding) (mappingAcceptItem, bool, error) {
+func existingAcceptedMapping(ctx context.Context, tx pgx.Tx, selected mappingAcceptCandidate, key string, revision int64, mappedTarget string) (mappingAcceptItem, bool, error) {
 	var empty mappingAcceptItem
-	var code *core.Binding
-	for _, binding := range bindings {
-		if mappingKind(binding.Kind) != "code" {
-			continue
-		}
-		if code != nil {
-			return empty, false, nil
-		}
-		copy := binding
-		code = &copy
-	}
-	if code == nil || code.Kind != "gitlab" || code.Resource == "" {
-		return empty, false, nil
-	}
 	var candidate mappingCandidate
 	err := tx.QueryRow(ctx, `SELECT id,service_key,source_id,source_bound_at,connector_id,external_id,binding_revision,discovered_at
 	 FROM v3_service_mapping_candidates
@@ -823,11 +845,12 @@ func existingAcceptedMapping(ctx context.Context, tx pgx.Tx, selected mappingAcc
 	}
 	if candidate.serviceKey != key || candidate.revision != selected.BindingRevision ||
 		mappingVersion(candidate.discoveredAt) != selected.Version || revision != candidate.revision+1 ||
-		*code != (core.Binding{Kind: "gitlab", ConnectorID: candidate.connectorID, Resource: candidate.externalID}) {
+		mappedTarget != candidate.sourceID {
 		return empty, false, nil
 	}
 	return mappingAcceptItem{CandidateID: candidate.id, ServiceID: selected.ServiceID,
 		EnvironmentID: selected.EnvironmentID, SystemID: "code", ConnectorID: candidate.connectorID,
 		TargetID: candidate.sourceID, ExternalID: candidate.externalID, BindingRevision: revision,
-		Binding: *code, Status: "already_accepted"}, true, nil
+		Binding: core.Binding{Kind: "gitlab", ConnectorID: candidate.connectorID, Resource: candidate.externalID},
+		Status:  "already_accepted"}, true, nil
 }

@@ -79,7 +79,7 @@ func TestServiceMappingsHTTPV3ObjectScopeAndPersistedBindings(t *testing.T) {
 		`INSERT INTO application_environments(id,application_id,key,name,bindings) VALUES
  ('visible-dev','app-visible','dev','Dev','[{"kind":"argocd","resource":"job=visible"},{"kind":"prometheus","resource":"legacy-metric"}]'),
  ('visible-test','app-visible','test','Test','[{"kind":"grafana","resource":"secret-test-log"}]'),
- ('team-dev','app-team','dev','Dev','[{"kind":"gitlab","resource":"ops/team"}]'),
+ ('team-dev','app-team','dev','Dev','[{"kind":"argocd","resource":"ops/team"}]'),
  ('hidden-dev','app-hidden','dev','Dev','[{"kind":"kibana","resource":"secret-hidden-trace"}]'),
  ('empty-dev','app-empty','dev','Dev','[]'),
  ('archived-dev','app-archived','dev','Dev','[{"kind":"argocd","resource":"secret-archive"}]')`,
@@ -179,7 +179,7 @@ func TestServiceMappingsHTTPV3ObjectScopeAndPersistedBindings(t *testing.T) {
 		t.Fatalf("cross-environment status=%d body=%s", w.Code, w.Body.String())
 	}
 	teamView := read("dev", teamToken)
-	if len(teamView.Rows) != 1 || teamView.Rows[0].Service != "team-owned" || teamView.Rows[0].Cells["code"].Value != "ops/team" {
+	if len(teamView.Rows) != 1 || teamView.Rows[0].Service != "team-owned" || teamView.Rows[0].Cells["deploy"].Value != "ops/team" {
 		t.Fatalf("team scope leaked another service: %+v", teamView.Rows)
 	}
 	allView := read("all", adminToken)

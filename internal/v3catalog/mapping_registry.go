@@ -12,9 +12,10 @@ import (
 // PA-19 P3 stage 2 step 2: the metrics, logs, traces and workload systems of
 // the service mapping are read from the connector registry
 // (v3_connector_targets), so connector_id is a real connector ID; saves write
-// them as targets (step 6, mapping_write.go). Code keeps its stored binding
-// and the GitLab candidate flow, deploy and dash are read-only
-// (system_not_supported). Since P4 this is the only mapping path.
+// them as targets (step 6, mapping_write.go). Code is the GitLab project
+// target confirmed in v3_service_code_projects (D20, migration 174): only the
+// candidate flow sets it, a save can keep or remove it. Deploy and dash are
+// read-only (system_not_supported). Since P4 this is the only mapping path.
 
 // registryMappingSystem maps a registry target kind to its mapping system.
 var registryMappingSystem = map[string]string{
@@ -34,6 +35,10 @@ func registrySystem(systemID string) bool {
 	return false
 }
 
+// projectedSystem reports whether a mapping system is answered from the
+// registry: the target systems and the confirmed code project.
+func projectedSystem(systemID string) bool { return registrySystem(systemID) || systemID == "code" }
+
 // legacyOnlySystem reports a system without registry target kinds.
 func legacyOnlySystem(systemID string) bool { return systemID == "deploy" || systemID == "dash" }
 
@@ -44,14 +49,17 @@ type registryTarget struct {
 const maxMappingTargets = 10000
 
 // mappingRegistryTargets reads the registry targets of the given environments
-// (and application, when not empty), keyed by application and environment.
+// (and application, when not empty), keyed by application and environment,
+// with the confirmed code project as system "code".
 func mappingRegistryTargets(ctx context.Context, q interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
 }, envs []string, app string) (map[string][]registryTarget, error) {
-	rows, err := q.Query(ctx, `SELECT t.application_id,t.environment_id,t.id,t.connector_id,c.provider,t.target_kind,t.external_id
+	rows, err := q.Query(ctx, `SELECT t.application_id,t.environment_id,t.id,t.connector_id,c.provider,
+ CASE WHEN p.target_id IS NULL THEN t.target_kind ELSE 'code_project' END,t.external_id
  FROM v3_connector_targets t JOIN v3_connectors c ON c.id=t.connector_id AND c.environment_id=t.environment_id
+ LEFT JOIN v3_service_code_projects p ON p.target_id=t.id
  WHERE t.environment_id=ANY($1::text[]) AND ($2='' OR t.application_id=$2)
- AND t.target_kind IN ('metric_resource','log_stream','log_index','trace_service','workload')
+ AND (t.target_kind IN ('metric_resource','log_stream','log_index','trace_service','workload') OR p.target_id IS NOT NULL)
  ORDER BY t.application_id,t.environment_id,t.target_kind,t.id LIMIT $3`, envs, app, maxMappingTargets+1)
 	if err != nil {
 		return nil, err
@@ -68,7 +76,11 @@ func mappingRegistryTargets(ctx context.Context, q interface {
 		if count++; count > maxMappingTargets {
 			return nil, errMappingTargetLimit
 		}
-		target.System = registryMappingSystem[target.Kind]
+		if target.Kind == "code_project" {
+			target.Kind, target.System = "project", "code"
+		} else {
+			target.System = registryMappingSystem[target.Kind]
+		}
 		out[appID+"\x00"+env] = append(out[appID+"\x00"+env], target)
 	}
 	return out, rows.Err()
@@ -76,11 +88,13 @@ func mappingRegistryTargets(ctx context.Context, q interface {
 
 var errMappingTargetLimit = errors.New("too many registry targets for the service mapping")
 
-// legacyKept drops the bindings of systems the registry now answers.
+// legacyKept drops the bindings of systems the registry now answers. Code
+// bindings left in a legacy database bound to V3 after migration 174 are not
+// read: their candidate is accepted again.
 func legacyKept(bindings []core.Binding) []core.Binding {
 	kept := make([]core.Binding, 0, len(bindings))
 	for _, binding := range bindings {
-		if !registrySystem(mappingKind(binding.Kind)) {
+		if !projectedSystem(mappingKind(binding.Kind)) {
 			kept = append(kept, binding)
 		}
 	}

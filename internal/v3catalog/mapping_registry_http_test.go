@@ -21,7 +21,8 @@ import (
 )
 
 // PA-19 P3 stage 2 step 2: metrics, logs, traces and workload come from
-// registry targets (real connector IDs); code keeps its legacy binding;
+// registry targets (real connector IDs); code is the confirmed project of
+// v3_service_code_projects (D20);
 // deploy and dash are read-only; the options route lists what the editor may
 // offer. Writes of the registry systems: mapping_write_http_test.go.
 func TestServiceMappingFromTheRegistry(t *testing.T) {
@@ -72,7 +73,6 @@ func TestServiceMappingFromTheRegistry(t *testing.T) {
 	}
 	legacy := `[{"kind":"prometheus","connector_id":"prometheus","resource":"checkout-legacy"},
  {"kind":"loki","connector_id":"loki","resource":"checkout"},
- {"kind":"gitlab","connector_id":"gitlab-1","resource":"42"},
  {"kind":"argocd","connector_id":"argo","resource":"checkout-app"}]`
 	for _, statement := range []string{
 		`DELETE FROM v3_role_grants WHERE role_id='viewer'`,
@@ -98,6 +98,10 @@ func TestServiceMappingFromTheRegistry(t *testing.T) {
  ('t-logs','app','dev','loki-1','log_stream','checkout',$1),
  ('t-workload','app','dev','k8s','workload','checkout-api',$1),
  ('t-code','app','dev','gitlab-1','project','42',$1)`, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_service_code_projects(application_id,environment_id,target_id,source)
+ VALUES('app','dev','t-code','migrated_binding')`); err != nil {
 		t.Fatal(err)
 	}
 	catalog, err := v3telemetry.ParseCatalog([]byte(`{"queries":[{"connector_id":"prom","application_id":"app","environment_id":"dev",
@@ -239,16 +243,23 @@ func TestServiceMappingFromTheRegistry(t *testing.T) {
 	if w := call("PUT", "/service-mappings", strings.Replace(string(snapshot), `"editable":true`, `"editable":"yes"`, 1)); w.Code != 422 {
 		t.Fatalf("editable must stay a boolean: %d", w.Code)
 	}
-	// Removing the code binding changes the stored bindings; the legacy
-	// telemetry bindings stay as they are.
+	// Removing the code project deletes its row and keeps the target; the
+	// stored bindings stay as they are.
 	w := put(replace("code", ""))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), fmt.Sprintf(`"binding_revision":%d`, targetRevision+1)) || !strings.Contains(w.Body.String(), `"connector_id":"prom"`) {
 		t.Fatalf("remove code: %d %s", w.Code, w.Body.String())
 	}
 	var stored string
 	if err := db.QueryRow(ctx, `SELECT bindings::text FROM application_environments WHERE id='app-dev'`).Scan(&stored); err != nil ||
-		!strings.Contains(stored, "checkout-legacy") || strings.Contains(stored, "gitlab") {
+		!strings.Contains(stored, "checkout-legacy") || !strings.Contains(stored, "checkout-app") {
 		t.Fatalf("stored legacy bindings: %s %v", stored, err)
+	}
+	var codeRows, targetRows, removals int
+	if err := db.QueryRow(ctx, `SELECT (SELECT count(*) FROM v3_service_code_projects),
+ (SELECT count(*) FROM v3_connector_targets WHERE id='t-code'),
+ (SELECT count(*) FROM management_audit WHERE action='v3.service_code_project.removed' AND target='t-code')`).Scan(&codeRows, &targetRows, &removals); err != nil ||
+		codeRows != 0 || targetRows != 1 || removals != 1 {
+		t.Fatalf("code removal: rows=%d targets=%d audits=%d err=%v", codeRows, targetRows, removals, err)
 	}
 
 	// Options: per system, in mapping order, with readiness and catalog

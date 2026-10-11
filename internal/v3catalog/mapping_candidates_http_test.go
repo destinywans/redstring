@@ -424,8 +424,15 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT binding_revision,bindings FROM application_environments WHERE id='env-checkout'`).Scan(&revision, &raw); err != nil {
 		t.Fatal(err)
 	}
+	// D20: the accepted project is a registry row, not a stored binding.
 	var bindings []core.Binding
-	if err := json.Unmarshal(raw, &bindings); err != nil || revision != 2 || len(bindings) != 1 || bindings[0].Kind != "gitlab" || bindings[0].ConnectorID != "gitlab-1" || bindings[0].Resource != "123" {
+	var codeTarget, codeSource, codeCandidate, codeBy string
+	if err := db.QueryRow(ctx, `SELECT target_id,source,candidate_id,confirmed_by FROM v3_service_code_projects
+ WHERE application_id='app-checkout' AND environment_id='dev'`).Scan(&codeTarget, &codeSource, &codeCandidate, &codeBy); err != nil ||
+		codeTarget != "target-checkout" || codeSource != "candidate" || codeCandidate != checkout.ID || codeBy == "" {
+		t.Fatalf("accepted code project: target=%q source=%q candidate=%q by=%q err=%v", codeTarget, codeSource, codeCandidate, codeBy, err)
+	}
+	if err := json.Unmarshal(raw, &bindings); err != nil || revision != 2 || len(bindings) != 0 {
 		t.Fatalf("accepted mapping is not exact: revision=%d bindings=%s err=%v", revision, raw, err)
 	}
 	var audits int
@@ -444,10 +451,11 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 			t.Fatalf("accepted binding was not read back: %+v", row)
 		}
 	}
-	// Removing an accepted binding permits a fresh review of the same exact
-	// target without erasing the earlier accepted decision and audit history.
-	if _, err := db.Exec(ctx, `UPDATE application_environments
- SET bindings='[]',binding_revision=binding_revision+1 WHERE id='env-checkout'`); err != nil {
+	// Removing an accepted code project permits a fresh review of the same
+	// exact target without erasing the earlier accepted decision and audit
+	// history.
+	if _, err := db.Exec(ctx, `DELETE FROM v3_service_code_projects WHERE application_id='app-checkout';
+ UPDATE application_environments SET binding_revision=binding_revision+1 WHERE id='env-checkout'`); err != nil {
 		t.Fatal(err)
 	}
 	if w := request(http.MethodPost, "/service-mappings/discover", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"suggestions":2`) {
@@ -555,8 +563,8 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 		// Reopen the two accepted services. Each discover request then updates
 		// both pending candidate rows in one transaction, exercising the lock
 		// order when the requests start together.
-		if _, err := db.Exec(ctx, `UPDATE application_environments
-		 SET bindings='[]',binding_revision=binding_revision+1
+		if _, err := db.Exec(ctx, `DELETE FROM v3_service_code_projects WHERE application_id IN ('app-concurrent-a','app-concurrent-b');
+		 UPDATE application_environments SET binding_revision=binding_revision+1
 		 WHERE id IN ('env-concurrent-a','env-concurrent-b')`); err != nil {
 			t.Fatal(err)
 		}
@@ -603,8 +611,8 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 		}
 	})
 	t.Run("discover locks service before expired candidate", func(t *testing.T) {
-		if _, err := db.Exec(ctx, `UPDATE application_environments
-		 SET bindings='[]',binding_revision=binding_revision+1
+		if _, err := db.Exec(ctx, `DELETE FROM v3_service_code_projects WHERE application_id='app-concurrent-a';
+		 UPDATE application_environments SET binding_revision=binding_revision+1
 		 WHERE id='env-concurrent-a'`); err != nil {
 			t.Fatal(err)
 		}
@@ -660,9 +668,9 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 		if probeErr != nil || candidateID == "" {
 			t.Fatalf("discover locked an expired candidate before its service: id=%s err=%v", candidateID, probeErr)
 		}
-		if _, err := serviceLock.Exec(ctx, `UPDATE application_environments
-		 SET bindings='[{"kind":"gitlab","connector_id":"gitlab-1","resource":"1001"}]',
-		 binding_revision=binding_revision+1 WHERE id='env-concurrent-a'`); err != nil {
+		if _, err := serviceLock.Exec(ctx, `INSERT INTO v3_service_code_projects(application_id,environment_id,target_id,source)
+		 VALUES('app-concurrent-a','dev','target-concurrent-a','migrated_binding');
+		 UPDATE application_environments SET binding_revision=binding_revision+1 WHERE id='env-concurrent-a'`); err != nil {
 			t.Fatal(err)
 		}
 		if err := serviceLock.Commit(ctx); err != nil {
@@ -686,8 +694,8 @@ func TestMappingCandidateDiscoveryAndAcceptance(t *testing.T) {
 		}
 	})
 	t.Run("discover rechecks connector grant after service lock", func(t *testing.T) {
-		if _, err := db.Exec(ctx, `UPDATE application_environments
-		 SET bindings='[]',binding_revision=binding_revision+1 WHERE id='env-concurrent-b'`); err != nil {
+		if _, err := db.Exec(ctx, `DELETE FROM v3_service_code_projects WHERE application_id='app-concurrent-b';
+		 UPDATE application_environments SET binding_revision=binding_revision+1 WHERE id='env-concurrent-b'`); err != nil {
 			t.Fatal(err)
 		}
 		if w := request(http.MethodPost, "/service-mappings/discover", ""); w.Code != 200 {

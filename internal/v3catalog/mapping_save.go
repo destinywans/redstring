@@ -358,18 +358,3 @@ func mappingSavePolicyError(w http.ResponseWriter, err error) {
 	}
 	policyError(w, err)
 }
-
-func mappingSaveGitLabSafe(before, after []core.Binding) bool {
-	var existing, desired *core.Binding
-	for i := range before {
-		if mappingKind(before[i].Kind) == "code" {
-			existing = &before[i]
-		}
-	}
-	for i := range after {
-		if mappingKind(after[i].Kind) == "code" {
-			desired = &after[i]
-		}
-	}
-	return desired == nil || (existing != nil && *existing == *desired)
-}

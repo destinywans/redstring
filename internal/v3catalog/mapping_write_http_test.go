@@ -78,7 +78,6 @@ func TestServiceMappingWritesTheRegistry(t *testing.T) {
 	}
 	legacy := `[{"kind":"prometheus","connector_id":"prometheus","resource":"checkout-legacy"},
  {"kind":"loki","connector_id":"loki","resource":"checkout"},
- {"kind":"gitlab","connector_id":"gitlab-1","resource":"42"},
  {"kind":"argocd","connector_id":"argo","resource":"checkout-app"}]`
 	exec(`DELETE FROM v3_role_grants WHERE role_id='viewer'`)
 	exec(`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
@@ -101,6 +100,7 @@ func TestServiceMappingWritesTheRegistry(t *testing.T) {
 	exec(`INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app','dev'),('app2','dev')`)
 	exec(`DROP TRIGGER v3_connector_targets_revision ON v3_connector_targets;
  DROP TRIGGER application_environments_target_revision ON application_environments;
+ DROP TRIGGER v3_service_code_projects_revision ON v3_service_code_projects;
  DROP FUNCTION v3_target_revision_bump();
  DROP FUNCTION v3_service_target_revision_bump(text,text);
  DROP TABLE v3_service_target_revisions;
@@ -108,6 +108,10 @@ func TestServiceMappingWritesTheRegistry(t *testing.T) {
 	if err = st.Migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
+	// Migration 174 hooks the code projects on the function 172 defines.
+	exec(`CREATE TRIGGER v3_service_code_projects_revision
+ AFTER INSERT OR UPDATE OR DELETE ON v3_service_code_projects
+ FOR EACH ROW EXECUTE FUNCTION v3_target_revision_bump()`)
 	revisionOf := func(app string) int64 {
 		t.Helper()
 		var revision int64
@@ -126,7 +130,9 @@ func TestServiceMappingWritesTheRegistry(t *testing.T) {
  ('t-workload','app','dev','k8s','workload','checkout-api',$1),
  ('t-code','app','dev','gitlab-1','project','42',$1),
  ('t2-logs','app2','dev','loki-1','log_stream','orders',$1)`, user.ID)
-	if revisionOf("app") != 8 || revisionOf("app2") != 3 {
+	// D20: the code project is a registry row, which raises the revision too.
+	exec(`INSERT INTO v3_service_code_projects(application_id,environment_id,target_id,source) VALUES('app','dev','t-code','migrated_binding')`)
+	if revisionOf("app") != 9 || revisionOf("app2") != 3 {
 		t.Fatalf("target writes must raise the revision: %d %d", revisionOf("app"), revisionOf("app2"))
 	}
 	catalog, err := v3telemetry.ParseCatalog([]byte(`{"queries":[
@@ -239,7 +245,7 @@ func TestServiceMappingWritesTheRegistry(t *testing.T) {
 	// The snapshot carries the target revision; the options make the
 	// registry systems editable.
 	view := snapshot()
-	if view.BindingRevision != 8 || !view.Editable {
+	if view.BindingRevision != 9 || !view.Editable {
 		t.Fatalf("snapshot: %+v", view)
 	}
 
@@ -328,9 +334,12 @@ func TestServiceMappingWritesTheRegistry(t *testing.T) {
 	if _, connector, _ := targetOf("log_index"); connector != "" {
 		t.Fatal("logs not removed")
 	}
-	if err := db.QueryRow(ctx, `SELECT binding_revision,bindings::text FROM application_environments WHERE id='app-dev'`).Scan(&legacyRevision, &stored); err != nil ||
-		legacyRevision != 4 || strings.Contains(stored, "gitlab") || !strings.Contains(stored, "checkout-legacy") {
-		t.Fatalf("code removal: %d %s %v", legacyRevision, stored, err)
+	// Removing the code project leaves the stored bindings as they are.
+	var codeRows int
+	if err := db.QueryRow(ctx, `SELECT binding_revision,bindings::text,(SELECT count(*) FROM v3_service_code_projects)
+ FROM application_environments WHERE id='app-dev'`).Scan(&legacyRevision, &stored, &codeRows); err != nil ||
+		legacyRevision != 3 || codeRows != 0 || !strings.Contains(stored, "checkout-legacy") {
+		t.Fatalf("code removal: %d %s rows=%d %v", legacyRevision, stored, codeRows, err)
 	}
 	// A snapshot sent back as it is saves nothing.
 	view = snapshot()

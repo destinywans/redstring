@@ -408,15 +408,19 @@ func TestServiceMappingSaveVersionedAndAtomic(t *testing.T) {
 	if got := auditCount(); got != 3 {
 		t.Fatalf("revoked save created audit: %d", got)
 	}
-	// A code binding already in the persisted row may be retained unchanged
-	// or removed. PUT cannot add it back after removal; source acceptance is
-	// deliberately outside this replacement route.
+	// A confirmed code project (D20) may be retained unchanged or removed.
+	// PUT cannot add it back after removal; source acceptance is deliberately
+	// outside this replacement route.
 	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
  VALUES('mapping-writer','services','change','environment','dev')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(ctx, `UPDATE application_environments
- SET bindings='[{"kind":"gitlab","connector_id":"gitlab-1","resource":"123"}]' WHERE id='env-payments'`); err != nil {
+	if _, err := db.Exec(ctx, `UPDATE application_environments SET bindings='[]' WHERE id='env-payments';
+ INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,enabled,tools)
+ VALUES('gitlab-1','dev','gitlab','GitLab','delivery','https://gitlab.example.invalid','pat','vault://kv/gitlab#token',true,'[]');
+ INSERT INTO v3_connector_targets(id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
+ SELECT 't-code','app-payments','dev','gitlab-1','project','123',id FROM users LIMIT 1;
+ INSERT INTO v3_service_code_projects(application_id,environment_id,target_id,source) VALUES('app-payments','dev','t-code','migrated_binding')`); err != nil {
 		t.Fatal(err)
 	}
 	code := `{"system_id":"code","kind":"gitlab","connector_id":"gitlab-1","resource":"123"}`

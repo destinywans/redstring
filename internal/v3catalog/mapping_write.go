@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"reflect"
 	"slices"
 
 	"github.com/jackc/pgx/v5"
@@ -19,9 +18,9 @@ import (
 // registry targets of the metrics, logs, traces and workload systems instead
 // of the stored bindings. Each system has at most one target; a new target
 // must name a connector of the environment that serves the system and a
-// resource the catalog reviewed for this service. Code keeps its stored
-// binding and the candidate flow (it can be kept or removed), deploy and
-// dashboard stay read-only. The token is the service environment's target
+// resource the catalog reviewed for this service. Code is the confirmed
+// project of v3_service_code_projects (D20): only the candidate flow sets it,
+// a save keeps or removes it. Deploy and dashboard stay read-only. The token is the service environment's target
 // revision (migration 172, v3_service_target_revisions), which every target
 // or binding change raises.
 
@@ -100,9 +99,9 @@ func (s *Service) registryMappingWrite(ctx context.Context, tx pgx.Tx, w http.Re
 		requested[binding.SystemID] = binding
 	}
 
-	// Stored systems: deploy and dashboard as read, code kept or removed.
+	// Stored systems: deploy and dashboard as read.
 	stored := map[string]mappingSaveBinding{}
-	for _, binding := range saveResponseBindings(before) {
+	for _, binding := range saveResponseBindings(legacyKept(before)) {
 		stored[binding.SystemID] = binding
 	}
 	for _, system := range []string{"deploy", "dash"} {
@@ -111,22 +110,17 @@ func (s *Service) registryMappingWrite(ctx context.Context, tx pgx.Tx, w http.Re
 			return none, false
 		}
 	}
+	// Code: the confirmed project is kept or removed, never set by a save.
+	var removeCode *registryTarget
 	code, keepCode := requested["code"]
-	after := make([]core.Binding, 0, len(before))
-	for _, binding := range before {
-		if mappingKind(binding.Kind) != "code" {
-			after = append(after, binding)
-		} else if keepCode {
-			after = append(after, core.Binding{Kind: code.Kind, ConnectorID: code.ConnectorID, Resource: code.Resource})
-			keepCode = false
-		}
-	}
-	if keepCode {
-		after = append(after, core.Binding{Kind: code.Kind, ConnectorID: code.ConnectorID, Resource: code.Resource})
-	}
-	if !mappingSaveGitLabSafe(before, after) {
+	currentCode, hasCode := current["code"]
+	switch {
+	case keepCode && (!hasCode || code.Kind != currentCode.Provider || code.ConnectorID != currentCode.ConnectorID ||
+		code.Resource != currentCode.Resource):
 		httpapi.Error(w, 409, "code_mapping_requires_accept", "GitLab projects must be accepted from a verified candidate")
 		return none, false
+	case !keepCode && hasCode:
+		removeCode = &currentCode
 	}
 
 	// Registry systems: validate every new target before writing any.
@@ -190,7 +184,7 @@ func (s *Service) registryMappingWrite(ctx context.Context, tx pgx.Tx, w http.Re
 	}
 
 	responseBefore := registryResponseBindings(before, targets)
-	if len(plans) == 0 && reflect.DeepEqual(before, after) {
+	if len(plans) == 0 && removeCode == nil {
 		return mappingSaveCommittedItem{ServiceID: row.appID, ServiceEnvironmentID: row.envID,
 			BindingRevision: revision, Bindings: responseBefore}, true
 	}
@@ -201,22 +195,19 @@ func (s *Service) registryMappingWrite(ctx context.Context, tx pgx.Tx, w http.Re
 			user.ID, row.appID, action, target, env, connector, kind, external)
 		return err
 	}
-	// The stored bindings first: the importer locks them before targets, so
-	// every writer takes the two in the same order.
-	if !reflect.DeepEqual(before, after) {
-		serialized, err := json.Marshal(after)
-		if err != nil {
-			httpapi.Error(w, 503, "catalog_unavailable", "Mapping serialization failed")
-			return none, false
-		}
-		tag, err := tx.Exec(ctx, `UPDATE application_environments SET bindings=$1,binding_revision=binding_revision+1
- WHERE id=$2 AND application_id=$3 AND key=$4 AND binding_revision=$5`, serialized, row.envID, row.appID, env, row.revision)
+	if removeCode != nil {
+		tag, err := tx.Exec(ctx, `DELETE FROM v3_service_code_projects WHERE application_id=$1 AND environment_id=$2 AND target_id=$3`,
+			row.appID, env, removeCode.TargetID)
 		if err != nil {
 			httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
 			return none, false
 		}
 		if tag.RowsAffected() != 1 {
 			httpapi.Error(w, 409, "stale_mapping", "Mapping changed after selection")
+			return none, false
+		}
+		if err := audit("v3.service_code_project.removed", removeCode.TargetID, removeCode.ConnectorID, removeCode.Kind, removeCode.Resource); err != nil {
+			httpapi.Error(w, 503, "audit_unavailable", "Mapping audit unavailable")
 			return none, false
 		}
 	}
@@ -270,10 +261,11 @@ func (s *Service) registryMappingWrite(ctx context.Context, tx pgx.Tx, w http.Re
 		httpapi.Error(w, 503, "catalog_unavailable", "Mapping storage unavailable")
 		return none, false
 	}
-	responseAfter := registryResponseBindings(after, all[row.appID+"\x00"+env])
+	responseAfter := registryResponseBindings(before, all[row.appID+"\x00"+env])
 	record, err := json.Marshal(map[string]any{"environment": env, "source": "registry",
 		"binding_revision_before": revision, "binding_revision_after": nextRevision,
-		"bindings_before": responseBefore, "bindings_after": responseAfter, "targets": changes})
+		"bindings_before": responseBefore, "bindings_after": responseAfter, "targets": changes,
+		"code_project_removed": removeCode != nil})
 	if err != nil {
 		httpapi.Error(w, 503, "audit_unavailable", "Mapping audit unavailable")
 		return none, false

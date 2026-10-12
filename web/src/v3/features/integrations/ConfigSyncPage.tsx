@@ -31,6 +31,8 @@ export default function ConfigSyncPage() {
     alert_rule: tx("导入为生产配置记录，不会应用到 Prometheus。", "It is imported as a production configuration record and isn't applied to Prometheus."),
     agent_version: tx("导入为目录版本；新 Agent 默认暂停、L0，已有 Agent 不改变发布状态。", "It is imported as a catalog version; a new Agent starts paused at L0, an existing one keeps its rollout."),
     template: tx("导入为生产画布模板。", "It is imported as a production canvas template."),
+    // PA-100: a just-merged MR GitLab is still preparing; nothing was read from it yet.
+    unknown: tx("合并请求还在核验，暂不能导入。", "The merge request is still being verified and can't be imported yet."),
   };
   const importIt = async (it: SyncItem) => {
     const ok = await confirmAction({

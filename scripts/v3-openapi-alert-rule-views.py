@@ -38,14 +38,19 @@ S['V3AlertRuleExecutionDetail'] = obj({
         'state':string(enum=['reserved','committing','merging','merged','loading','enabled','disabled','failed',
             'needs_attention','uncertain']),
         'steps':arr(obj({'state':string(enum=['reserved','committing','merging','merged','loading','enabled','disabled',
-            'failed','needs_attention','uncertain','pending_review']),'at':string(format='date-time')},['state','at'])),
+            'failed','needs_attention','uncertain','pending_review','recheck']),'at':string(format='date-time'),
+            'reason':{**_text_or_null,'description':'PA-90: the failure code of needs_attention and failed, what left uncertain unknown, '
+                'manual for a recheck; null otherwise'}},['state','at','reason'])),
         'repository':obj({'project_id':string(),'project_path':_text_or_null,'source_branch':string(),
             'target_branch':string(),'path':string(),'commit_sha':_text_or_null,'mr_iid':{'type':['integer','null']},
             'mr_url':_text_or_null,'merged_sha':_text_or_null,'merged_at':_time_or_null},
             ['project_id','project_path','source_branch','target_branch','path','commit_sha','mr_iid','mr_url','merged_sha','merged_at']),
         'readback':obj({'state':string(enum=['pending','loaded','absent','mismatch','error','timeout']),
             'checked_at':_time_or_null,'first_seen_at':_time_or_null,'health':_text_or_null,
-            'last_evaluation_at':_time_or_null,'last_error':_text_or_null,'reload':{'type':'null'}},
+            'last_evaluation_at':_time_or_null,'last_error':_text_or_null,
+            'reload':v3_nullable(obj({'last_successful':{'type':['boolean','null']},'last_success_at':_time_or_null,
+                'unavailable':{'type':['string','null'],'enum':[None,'not_found','ambiguous','source_unavailable','not_connected']}},
+                ['last_successful','last_success_at','unavailable']))},
             ['state','checked_at','first_seen_at','health','last_evaluation_at','last_error','reload']),
         'failure':v3_nullable(obj({'code':string(enum=['stale_base','branch_conflict','mr_closed','protection_changed',
             'merge_refused','credential_rejected','approval_invalid','plan_changed','source_changed','load_timeout',
@@ -58,7 +63,10 @@ P['/executions/{id}']['get']['description'] += (' An alert rule enable or disabl
     'or .disable) is projected from the executor ledger: state (exporting is committing, or merging once the MR exists; '
     'awaiting_provider is loading, or needs_attention after load_timeout; stale_remote is needs_attention), the step timeline, '
     'the commit, MR and merge, the last Prometheus readback and the failure code. Fields of steps not reached yet are null; '
-    'readback.reload is always null (not read yet). It needs proposals.view on the application or its owner team.')
+    'readback.reload is set while a load has timed out: the last configuration reload of Prometheus '
+    '(prometheus_config_last_reload_successful and its last success time, or why they could not be read), also named in the '
+    'load_timeout failure message (PA-90). Each step may carry a reason; a load timeout is a needs_attention step and a manual '
+    'recheck a recheck step, so recovery keeps both on the timeline. It needs proposals.view on the application or its owner team.')
 
 S['V3AlertRuleLifecycle'] = obj({'state':string(enum=['active','disable_pending_approval','disabling','needs_attention']),
     'proposal_id':_text_or_null,'execution_id':_text_or_null},['state','proposal_id','execution_id'])

@@ -482,7 +482,7 @@ func (s *WriteService) claimEnableExecution(ctx context.Context, proposalID stri
 	}
 	err = tx.QueryRow(ctx, `UPDATE v3_alert_rule_enable_executions
  SET state='exporting',generation=generation+1,lease_until=clock_timestamp()+interval '1 minute',updated_at=clock_timestamp(),
- steps=`+enableStepSQL("'committing'")+`
+ steps=`+enableStepSQL("'committing'", "''")+`
  WHERE proposal_id=$1 RETURNING generation`, proposalID).Scan(&record.Generation)
 	if err != nil {
 		return record, false, err
@@ -506,11 +506,31 @@ func enableExecutionSettled(state string) bool {
 		state == "disabled" || state == "failed"
 }
 
-// enableStepSQL appends a timeline step (D11) unless the last step already
-// names it; the timeline keeps at most 64 steps. step is a SQL text value.
-func enableStepSQL(step string) string {
-	return `CASE WHEN jsonb_array_length(steps)>=64 OR steps->-1->>'state'=` + step + ` THEN steps
- ELSE steps||jsonb_build_array(jsonb_build_object('state',` + step + `::text,'at',clock_timestamp())) END`
+// enableStepSQL appends a timeline step (D11) with an optional reason
+// unless the last step already has the same state and reason; the timeline
+// keeps at most 64 steps. step and reason are SQL text values; an empty
+// reason adds none.
+func enableStepSQL(step, reason string) string {
+	return `CASE WHEN jsonb_array_length(steps)>=64 OR (steps->-1->>'state'=` + step + `
+ AND COALESCE(steps->-1->>'reason','')=` + reason + `) THEN steps
+ ELSE steps||jsonb_build_array(jsonb_build_object('state',` + step + `::text,'at',clock_timestamp())||
+ CASE WHEN ` + reason + `='' THEN '{}'::jsonb ELSE jsonb_build_object('reason',` + reason + `::text) END) END`
+}
+
+// enableStepReason is why a transition's step happened (PA-90): the
+// failure code of a step that needs attention, or what left the result
+// uncertain.
+func enableStepReason(state, reason string) string {
+	switch state {
+	case "stale_remote":
+		if code := enableFailure(reason); code != "" {
+			return code
+		}
+		return reason
+	case "uncertain":
+		return reason
+	}
+	return ""
 }
 
 // enableStep is the timeline name of an execution state (D11 §11.5).
@@ -572,9 +592,9 @@ func (s *WriteService) markEnableExecution(ctx context.Context, record enableExe
 	}
 	defer tx.Rollback(cleanup)
 	tag, err := tx.Exec(cleanup, `UPDATE v3_alert_rule_enable_executions SET state=$3,
- deployment=$4::jsonb,lease_until=NULL,updated_at=clock_timestamp(),failure_code=$5,steps=`+enableStepSQL("$6")+`
+ deployment=$4::jsonb,lease_until=NULL,updated_at=clock_timestamp(),failure_code=$5,steps=`+enableStepSQL("$6", "$7")+`
  WHERE proposal_id=$1 AND generation=$2 AND state='exporting'`,
-		record.ProposalID, record.Generation, state, payload, enableFailure(reason), enableStep(state))
+		record.ProposalID, record.Generation, state, payload, enableFailure(reason), enableStep(state), enableStepReason(state, reason))
 	if err != nil || tag.RowsAffected() != 1 {
 		if err != nil {
 			return err
@@ -600,7 +620,7 @@ func (s *WriteService) noteEnableMerging(ctx context.Context, record enableExecu
 		return err
 	}
 	tag, err := s.DB.Exec(ctx, `UPDATE v3_alert_rule_enable_executions SET deployment=$3::jsonb,
- lease_until=clock_timestamp()+interval '1 minute',updated_at=clock_timestamp(),steps=`+enableStepSQL("'merging'")+`
+ lease_until=clock_timestamp()+interval '1 minute',updated_at=clock_timestamp(),steps=`+enableStepSQL("'merging'", "''")+`
  WHERE proposal_id=$1 AND generation=$2 AND state='exporting'`, record.ProposalID, record.Generation, payload)
 	if err != nil {
 		return err
@@ -757,6 +777,32 @@ func (s *WriteService) observationIntent(ctx context.Context, proposalID string)
 	return intent, digest, tx.Commit(ctx)
 }
 
+// enableReload is Prometheus's last configuration reload, read when a load
+// times out (D11 §5.4, PA-90). Unavailable says why a value is unknown:
+// not_found, ambiguous or source_unavailable.
+type enableReload struct {
+	LastSuccessful *bool      `json:"last_successful"`
+	LastSuccessAt  *time.Time `json:"last_success_at"`
+	Unavailable    string     `json:"unavailable,omitempty"`
+}
+
+// reloadStatusReader is a rule source that reports Prometheus's reloads.
+type reloadStatusReader interface {
+	ReloadStatus(context.Context, string) (ReloadStatus, error)
+}
+
+func (s *WriteService) reloadStatus(ctx context.Context, env string) *enableReload {
+	reader, ok := s.Reader.Source.(reloadStatusReader)
+	if !ok {
+		return &enableReload{Unavailable: "not_connected"}
+	}
+	status, err := reader.ReloadStatus(ctx, env)
+	if err != nil {
+		return &enableReload{Unavailable: "source_unavailable"}
+	}
+	return &enableReload{LastSuccessful: status.LastSuccessful, LastSuccessAt: status.LastSuccessAt, Unavailable: status.Unavailable}
+}
+
 // enableReadback is the last Prometheus readback of a file_pull deployment
 // (D11 §11.5): pending, loaded, mismatch, error or timeout.
 type enableReadback struct {
@@ -766,6 +812,8 @@ type enableReadback struct {
 	Health           string     `json:"health,omitempty"`
 	LastEvaluationAt *time.Time `json:"last_evaluation_at,omitempty"`
 	LastError        string     `json:"last_error,omitempty"`
+	// Reload is set while a load has timed out.
+	Reload *enableReload `json:"reload,omitempty"`
 }
 
 // readBackMerged observes an executor-merged deployment (D11). The target
@@ -813,7 +861,17 @@ func (s *WriteService) readBackMerged(ctx context.Context, intent AlertRuleEnabl
 	default:
 		if now.After(merged.MergedAt.Add(time.Duration(intent.Deployment.ReadbackTimeoutSeconds) * time.Second)) {
 			readback.State, failure = "timeout", "load_timeout"
+			// PA-90: say whether Prometheus reloaded at all.
+			readback.Reload = s.reloadStatus(ctx, intent.EnvironmentID)
 		}
+	}
+	// PA-90: a load timeout or an evaluation error is its own step.
+	step, stepReason := enableStep(state), ""
+	switch failure {
+	case "load_timeout":
+		step, stepReason = "needs_attention", failure
+	case "rule_health_error":
+		stepReason = failure
 	}
 	if record.State == "enabled" {
 		if state != "enabled" || record.ObservedRuleID != observedID {
@@ -851,8 +909,8 @@ func (s *WriteService) readBackMerged(ctx context.Context, intent AlertRuleEnabl
 		return zero, problem(409, "execution_conflict", "Deployment identity changed during observation")
 	}
 	if _, err := tx.Exec(ctx, `UPDATE v3_alert_rule_enable_executions SET state=$2,observed_rule_id=$3,readback=$4::jsonb,
- failure_code=$5,steps=`+enableStepSQL("$6")+`,updated_at=clock_timestamp()
- WHERE proposal_id=$1`, record.ProposalID, state, observedID, readbackJSON, failure, enableStep(state)); err != nil {
+ failure_code=$5,steps=`+enableStepSQL("$6", "$7")+`,updated_at=clock_timestamp()
+ WHERE proposal_id=$1`, record.ProposalID, state, observedID, readbackJSON, failure, step, stepReason); err != nil {
 		return zero, err
 	}
 	if state != record.State {

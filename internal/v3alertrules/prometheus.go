@@ -213,16 +213,8 @@ func (s *PrometheusSource) QueryRange(ctx context.Context, environment, expressi
 	if err != nil {
 		return nil, err
 	}
-	if endpoint.BearerTokenFile != "" {
-		b, err := os.ReadFile(endpoint.BearerTokenFile)
-		if err != nil {
-			return nil, fmt.Errorf("read Prometheus token: %w", err)
-		}
-		token := strings.TrimSpace(string(b))
-		if token == "" || strings.ContainsAny(token, "\r\n") {
-			return nil, errors.New("invalid Prometheus token")
-		}
-		req.Header.Set("Authorization", "Bearer "+token)
+	if err := setPrometheusAuth(req, endpoint); err != nil {
+		return nil, err
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -359,4 +351,124 @@ func limitText(value string, limit int) string {
 		return string(runes[:limit])
 	}
 	return value
+}
+
+func setPrometheusAuth(req *http.Request, endpoint PrometheusEndpoint) error {
+	if endpoint.BearerTokenFile == "" {
+		return nil
+	}
+	b, err := os.ReadFile(endpoint.BearerTokenFile)
+	if err != nil {
+		return fmt.Errorf("read Prometheus token: %w", err)
+	}
+	token := strings.TrimSpace(string(b))
+	if token == "" || strings.ContainsAny(token, "\r\n") {
+		return errors.New("invalid Prometheus token")
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	return nil
+}
+
+// ReloadStatus is Prometheus's own report of its last configuration reload
+// (D11 §5.4): whether it succeeded and when one last succeeded. Unavailable
+// names why a value is unknown: not_found (Prometheus does not scrape
+// itself) or ambiguous (several Prometheus servers report).
+type ReloadStatus struct {
+	LastSuccessful *bool
+	LastSuccessAt  *time.Time
+	Unavailable    string
+}
+
+// ReloadStatus reads prometheus_config_last_reload_successful and
+// prometheus_config_last_reload_success_timestamp_seconds from the
+// environment's rule source.
+func (s *PrometheusSource) ReloadStatus(ctx context.Context, environment string) (ReloadStatus, error) {
+	var out ReloadStatus
+	successful, n, err := s.instantValue(ctx, environment, "prometheus_config_last_reload_successful")
+	if err != nil {
+		return out, err
+	}
+	at, m, err := s.instantValue(ctx, environment, "prometheus_config_last_reload_success_timestamp_seconds")
+	if err != nil {
+		return out, err
+	}
+	switch {
+	case n > 1 || m > 1:
+		out.Unavailable = "ambiguous"
+		return out, nil
+	case n == 0 || m == 0:
+		out.Unavailable = "not_found"
+	}
+	if n == 1 {
+		ok := successful == 1
+		out.LastSuccessful = &ok
+	}
+	if m == 1 && at > 0 && !math.IsInf(at, 0) {
+		t := time.Unix(0, int64(at*float64(time.Second))).UTC()
+		out.LastSuccessAt = &t
+	}
+	return out, nil
+}
+
+// instantValue reads one instant vector and returns its value when it has
+// exactly one series, with the number of series.
+func (s *PrometheusSource) instantValue(ctx context.Context, environment, expression string) (float64, int, error) {
+	if s == nil {
+		return 0, 0, errors.New("Prometheus rule source unavailable")
+	}
+	endpoint, ok := s.endpoints[environment]
+	if !ok {
+		return 0, 0, errors.New("Prometheus rule source not configured for environment")
+	}
+	u, err := url.Parse(strings.TrimRight(endpoint.URL, "/") + "/api/v1/query")
+	if err != nil {
+		return 0, 0, err
+	}
+	query := u.Query()
+	query.Set("query", expression)
+	query.Set("timeout", "10s")
+	u.RawQuery = query.Encode()
+	requestCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	if err := setPrometheusAuth(req, endpoint); err != nil {
+		return 0, 0, err
+	}
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, 0, fmt.Errorf("Prometheus query HTTP %d", resp.StatusCode)
+	}
+	var envelope struct {
+		Status string `json:"status"`
+		Data   struct {
+			ResultType string `json:"resultType"`
+			Result     []struct {
+				Value []json.RawMessage `json:"value"`
+			} `json:"result"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&envelope); err != nil ||
+		envelope.Status != "success" || envelope.Data.ResultType != "vector" {
+		return 0, 0, errors.New("invalid Prometheus query response")
+	}
+	if len(envelope.Data.Result) != 1 {
+		return 0, len(envelope.Data.Result), nil
+	}
+	sample := envelope.Data.Result[0].Value
+	var text string
+	if len(sample) != 2 || json.Unmarshal(sample[1], &text) != nil {
+		return 0, 0, errors.New("invalid Prometheus sample")
+	}
+	value, err := strconv.ParseFloat(text, 64)
+	if err != nil || math.IsNaN(value) {
+		return 0, 0, errors.New("invalid Prometheus sample")
+	}
+	return value, 1, nil
 }

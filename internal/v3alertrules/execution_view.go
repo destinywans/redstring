@@ -31,6 +31,27 @@ var failureMessages = map[string]string{
 	"rule_health_error":   "Prometheus loaded the rule, and its evaluation fails.",
 }
 
+// failureMessage explains a failure; a load timeout also says what
+// Prometheus reported about its last configuration reload (PA-90).
+func failureMessage(code string, reload *enableReload) string {
+	message := failureMessages[code]
+	if code != "load_timeout" || reload == nil {
+		return message
+	}
+	switch {
+	case reload.LastSuccessful != nil && !*reload.LastSuccessful:
+		message += " Prometheus's last configuration reload failed"
+	case reload.LastSuccessful != nil:
+		message += " Prometheus's last configuration reload succeeded, so the merged file has not reached it (check the rule sync)"
+	default:
+		return message + " Prometheus's reload status could not be read (" + reload.Unavailable + ")."
+	}
+	if reload.LastSuccessAt != nil {
+		message += "; the last successful reload was at " + reload.LastSuccessAt.UTC().Format(time.RFC3339)
+	}
+	return message + "."
+}
+
 // executionViewState is the page's state (D11 §11.5) for a ledger state.
 func executionViewState(state, failure string, receipt AlertRuleDeploymentReceipt) string {
 	switch state {
@@ -116,8 +137,9 @@ func (s *WriteService) executionView(ctx context.Context, envs []string, user co
 	var receipt AlertRuleDeploymentReceipt
 	var readback enableReadback
 	var steps []struct {
-		State string    `json:"state"`
-		At    time.Time `json:"at"`
+		State  string    `json:"state"`
+		At     time.Time `json:"at"`
+		Reason string    `json:"reason"`
 	}
 	if err != nil || json.Unmarshal(deploymentRaw, &receipt) != nil || json.Unmarshal(readbackRaw, &readback) != nil ||
 		json.Unmarshal(stepsRaw, &steps) != nil {
@@ -142,9 +164,10 @@ func (s *WriteService) executionView(ctx context.Context, envs []string, user co
 	if kind == alertRuleDisableKind {
 		operation = "disable"
 	}
-	stepsOut := make([]map[string]string, 0, len(steps))
+	stepsOut := make([]map[string]any, 0, len(steps))
 	for _, step := range steps {
-		stepsOut = append(stepsOut, map[string]string{"state": step.State, "at": step.At.UTC().Format(time.RFC3339)})
+		stepsOut = append(stepsOut, map[string]any{"state": step.State, "at": step.At.UTC().Format(time.RFC3339),
+			"reason": textOrNil(step.Reason)})
 	}
 	var projectPath any
 	if display, ok := s.targetDisplay(intent); ok && display.ProjectPath != "" {
@@ -163,7 +186,12 @@ func (s *WriteService) executionView(ctx context.Context, envs []string, user co
 	}
 	var failureOut any
 	if failure != "" {
-		failureOut = map[string]string{"code": failure, "message": failureMessages[failure]}
+		failureOut = map[string]string{"code": failure, "message": failureMessage(failure, readback.Reload)}
+	}
+	var reloadOut any
+	if r := readback.Reload; r != nil {
+		reloadOut = map[string]any{"last_successful": r.LastSuccessful, "last_success_at": timeOrNil(r.LastSuccessAt),
+			"unavailable": textOrNil(r.Unavailable)}
 	}
 	return http.StatusOK, map[string]any{
 		"id": id, "kind": kind, "proposal_id": proposalID, "investigation_id": intent.InvestigationID,
@@ -174,7 +202,7 @@ func (s *WriteService) executionView(ctx context.Context, envs []string, user co
 			"steps": stepsOut, "repository": repository,
 			"readback": map[string]any{"state": readbackState, "checked_at": timeOrNil(readback.CheckedAt),
 				"first_seen_at": timeOrNil(readback.FirstSeenAt), "health": textOrNil(readback.Health),
-				"last_evaluation_at": timeOrNil(readback.LastEvaluationAt), "last_error": textOrNil(readback.LastError), "reload": nil},
+				"last_evaluation_at": timeOrNil(readback.LastEvaluationAt), "last_error": textOrNil(readback.LastError), "reload": reloadOut},
 			"failure": failureOut,
 		},
 	}, true

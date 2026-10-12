@@ -351,14 +351,19 @@ function Timeline({ ar, timeoutMin, failure }: { ar: ExecutionAlertRule; timeout
       case "reserved":
         return { title: tx("已领取", "Claimed"), desc: tx("两票批准重验通过，绑定的指纹一致", "Both approvals rechecked; the bound fingerprint matches"), tone };
       case "committing": {
+        // "Committed" only with a recorded commit (on the latest attempt). An attempt that stopped before writing
+        // (needs_attention, uncertain, failed next) is "preparing the commit"; a running one is "committing".
         const next = steps[i + 1];
-        const title = retry ? tx("重新提交", "Commit again") : next?.state === "uncertain" ? tx("提交", "Commit") : tx("已提交", "Committed");
-        const desc =
-          latest && repo.commit_sha
-            ? (retry ? tx("对账后重新提交 · ", "Committed again after reconciling · ") : "") + tx("分支 {b} · 提交 {s}", "Branch {b} · commit {s}", { b: repo.source_branch, s: short(repo.commit_sha) ?? "—" })
-            : retry
-              ? tx("对账后重新提交到分支 {b}", "Committing again to branch {b} after reconciling", { b: repo.source_branch })
-              : tx("在分支 {b} 上提交", "Committing on branch {b}", { b: repo.source_branch });
+        const hasCommit = latest && !!repo.commit_sha;
+        const stopped = !!next && (next.state === "needs_attention" || next.state === "uncertain" || next.state === "failed");
+        const running = current && !terminal && ar.state !== "uncertain";
+        const title = hasCommit ? (retry ? tx("重新提交", "Commit again") : tx("已提交", "Committed")) : running ? tx("提交中", "Committing") : stopped || !next ? tx("准备提交", "Preparing the commit") : retry ? tx("重新提交", "Commit again") : tx("已提交", "Committed");
+        const branch = tx("分支 {b}", "Branch {b}", { b: repo.source_branch });
+        const desc = hasCommit
+          ? (retry ? tx("对账后重新提交 · ", "Committed again after reconciling · ") : "") + tx("提交 {s} · {br}", "Commit {s} · {br}", { s: short(repo.commit_sha) ?? "—", br: branch })
+          : retry
+            ? tx("对账后重试 · {br}", "Retried after reconciling · {br}", { br: branch })
+            : branch;
         return { title, desc, tone };
       }
       case "uncertain":

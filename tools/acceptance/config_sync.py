@@ -236,8 +236,9 @@ def export(state):
     check('exporting the same template again reuses its MR', (again or {}).get('mr') == state['exports']['template'].get('mr'), f'{status} {again}')
     status, listing = np('GET', '/config-sync')
     exported = {i.get('kind'): i for i in (listing or {}).get('items') or []}
+    # A rerun replays an object that was already merged (the template), so merged counts too.
     check('nonprod lists the four as exported', listing.get('direction') == 'export' and
-          all(exported.get(k, {}).get('status') in ('exported', 'pending') for k in state['exports']),
+          all(exported.get(k, {}).get('status') in ('exported', 'pending', 'merged') for k in state['exports']),
           {k: v.get('status') for k, v in exported.items()})
     for kind, out in state['exports'].items():
         iid = str(out.get('mr', '')).split('-')[-1].lstrip('!')
@@ -245,18 +246,22 @@ def export(state):
             mr = gitlab(f'/merge_requests/{iid}')
             changes = gitlab(f'/merge_requests/{iid}/changes')
             files = [c['new_path'] for c in changes.get('changes') or []]
-            check(f'{kind}: MR !{iid} open on main with one manifest file', mr.get('state') == 'opened' and mr.get('target_branch') == 'main'
+            out['merged'] = mr.get('state') == 'merged'
+            check(f'{kind}: MR !{iid} open (or already merged) on main with one manifest file', mr.get('state') in ('opened', 'merged') and mr.get('target_branch') == 'main'
                   and mr.get('source_branch', '').startswith('aiops/promotions/') and files == [out.get('path')], f"{mr.get('state')} {files}")
             out['iid'] = int(iid)
         except (OSError, ValueError) as e:
             check(f'{kind}: MR readable', False, e)
-    first = next(iter(state['exports'].values()))
-    status, body = pr('POST', f"/config-sync/mr-{first.get('iid')}/import", {})
-    check('prod refuses to import an unmerged MR', status in (404, 409, 422, 503), f"{status} {(body or {}).get('error')}")
+    open_mr = next((o for o in state['exports'].values() if not o.get('merged')), None)
+    if open_mr:
+        status, body = pr('POST', f"/config-sync/mr-{open_mr.get('iid')}/import", {})
+        check('prod refuses to import an unmerged MR', status in (404, 409, 422, 503), f"{status} {(body or {}).get('error')}")
 
 
 def merge(state):
     for kind, out in state['exports'].items():
+        if gitlab(f"/merge_requests/{out['iid']}").get('state') == 'merged':
+            continue
         r = subprocess.run(['python3', 'delivery/d11.py', 'config-mr', str(out['iid'])], cwd=LAB, capture_output=True, text=True, timeout=300)
         last = (r.stdout.strip().splitlines() or [''])[-1]
         check(f'{kind}: lab-maintainer approves and merges !{out["iid"]}', r.returncode == 0, last[:200])

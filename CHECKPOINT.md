@@ -15,7 +15,14 @@
   3. 验证环境偏窄：多服务与大数据量、多副本部署、其他版本 GitLab/Prometheus、模型只验过 DeepSeek；现有业务库未执行新迁移（需另行授权）；
   4. 安全：登录二次验证（PA-06 安全待办）、成员低于只读（D38）、独立安全审查（本轮验收标准未单列安全测试）；
   5. 运维：备份恢复、升级迁移、Redstring 自身监控告警、凭据轮换自动化（目前手工，回滚写令牌 10-13 01:27Z 到期）。
-- 交接：新会话先读 `PLAN.md`、本节与登记册。本轮子会话（后端 nifty-raman、前端 fe-real-mode、实验 lab-faults）的提交均已合入集成分支或在 aiops-test 本地提交；aiops-test 工作区里 `observability/prometheus/prometheus.yml` 的中间件采集块由本仓库 `scripts/install-observability-exporters.py` 运行时写入，不是遗留改动。
+- 交接：新会话先读 `PLAN.md`、本节与登记册。本轮子会话（后端 nifty-raman、前端 fe-real-mode、实验 lab-faults）的提交均已合入集成分支或在 aiops-test 本地提交，三个会话已归档；aiops-test 工作区里 `observability/prometheus/prometheus.yml` 的中间件采集块由本仓库 `scripts/install-observability-exporters.py` 运行时写入，不是遗留改动。
+- 合并（用户 10-12 要求）：集成分支先合入 main 上的 WAN-369（无冲突，`pnpm --dir web build` 与 `go build ./...` 通过），main 快进到 7f6d317f 并推送。
+- 资源清理（用户 10-12 要求：难恢复且下一轮要用的保留，用不上或易恢复的清理）：
+  - 已删：三个已归档会话的 worktree 与本地分支（均已合入，约 1 GB）；`.local/acceptance/bin/aiops.prev`、`.local/acceptance/web.prev`（可重建）。
+  - 已停、数据保留：两个验收实例进程，`aiops-acceptance-{pg,proxy,smtpsink}` 容器（库与卷都在）；实验三台 Lima Kubernetes 虚拟机（`cluster/cluster.py stop`）；交付 GitLab、runner、kind 节点（`delivery/lab.py park`）；`aiops-test-*` 观测与中间件九个容器（prometheus、rules-sync、alertmanager、loki、grafana、mysql、kafka、ollama、redis）；`aiops-enterprise-{elasticsearch,tempo,otel-collector}`。
+  - 保留运行：`aiops-enterprise-vault-1`（开发模式，数据只在内存，停了要 `enterprise/vault.py init` 重建；占用小）；交付 registry、seaweedfs、buildkit（按 `lab.py park` 的设计保留，虚拟机集群从这里拉镜像）。
+  - 未动：验收报告与 `.local/acceptance/e2e` 证据、配置备份、`aiops-testlab-*`、其他 kind 集群与非本项目容器、`aiops-wan-293`/`aiops-wan-370` 两个其他任务的 worktree。
+  - 恢复顺序：aiops-test 里 `python3 cluster/cluster.py up` → `python3 cluster/clock-watchdog.py check`（须 READY）→ `docker start` 上述 `aiops-test-*` 与 `aiops-enterprise-*` 容器 → `python3 delivery/lab.py resume` → 回滚演练前 `python3 enterprise/vault.py rotate-rollback`；本仓库 `docker start aiops-acceptance-pg aiops-acceptance-smtpsink aiops-acceptance-proxy` → `python3 tools/acceptance/acceptance.py start all`。GitLab 停止时超时被强制结束（park 的既有行为），恢复后先确认能登录再跑演练。
 
 **此前验收：[CP-325](#cp-325-current)，2026-10-12 (+08)。D11 交付链路在两个验收实例上完成：实验 GitLab 的变更与集群修订对上，事件“告警前后变更”与 AI `read_service_changes` 接通，告警规则由独立执行器启用与停用；prod 完整发布演练第 2 轮 24/24、反例全部符合设计；本轮新登记 PA-88～90 均已修复验证，登记 90 条全部验证，最终回归 18/18。报告 https://claude.ai/artifact/CD6jdw84V8stiLQRsqvjHt 。**
 

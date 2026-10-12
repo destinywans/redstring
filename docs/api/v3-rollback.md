@@ -240,7 +240,7 @@
 - **证据**：`kind: workload`、`source: kubernetes`，内容是：
   - 当前修订、是否暂停；
   - 滚动状态：副本数和 `Progressing` 的原因；
-  - 最近 5 个修订：是否当前、创建时间、`change_cause`（截断到 200 字）、容器镜像，以及回滚到该修订会改变什么；
+  - 最近 5 个修订：是否当前、ReplicaSet 创建时间 `created_at`、`replicaset_reused`（PA-94：为真时 ReplicaSet 被复用，`created_at` 不是该修订的生效时间；生效时间看 `read_service_changes` 的 `at`，为 `null` 时看 `not_before`/`not_after`）、`change_cause`（截断到 200 字）、容器镜像，以及回滚到该修订会改变什么；
   - 回滚可行性：`blocked_reason`，以及观察时长和阈值。
 - **差异对模型脱敏**：只有 `image` 和 `resources` 带新旧值。`env` 只给变量名，`command`、`other` 只给字段名。
 - **错误码**：

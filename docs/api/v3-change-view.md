@@ -63,7 +63,13 @@
   - 流水线的 `merge_request_iid`：MR 流水线取自 `refs/merge-requests/<iid>/…`；源分支流水线取窗口内唯一来自该分支的 MR；主干流水线按合并后的提交匹配（恰好一个时）。流水线详情和 AI 证据 `failed_pipelines[]` 用同一条规则（PA-95，`v3changes.PipelineMergeRequest`）；详情不读窗口，候选 MR 是来自该分支（每个目录分支最多读 2 个）和 GitLab 关联到该提交（`list_merge_requests` 开启时读 `/repository/commits/:sha/merge_requests`，关联 20 个以上不归属）的目录分支 MR；`deployment_ids` 为该流水线产生的部署；
   - MR 的 `pipeline_ids`、`deployment_ids` 为反向关联。
 - **告警**：`alerts` 是窗口内已覆盖来源的告警（覆盖声明沿用 `AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG`；没有覆盖时为 `null`，`coverage.alerts` 为 `unknown`）。部署的 `adjacent_alerts` 列出部署生效（结束；未结束取创建）前 15 分钟到后 60 分钟内开始的告警，`offset_seconds` 为告警开始减部署时间，`basis` 恒为 `time_adjacent`，文案写“时间相邻，不代表因果”。本轮不产生“已审阅”的关联（人工审阅界面不在 D11 范围）。
-- **集群修订**：`kubernetes_revisions` 为窗口内创建的 ReplicaSet 修订，经回滚服务的读凭据和 `resources.view` 读取；`coverage.kubernetes` 为 `history_limited`（只覆盖保留的历史）、`not_configured`、`no_authorized_target` 或 `unavailable`，后三种时为 `null`。
+- **集群修订**：`kubernetes_revisions` 为窗口内生效的 ReplicaSet 修订，按修订号从旧到新，经回滚服务的读凭据和 `resources.view` 读取；`coverage.kubernetes` 为 `history_limited`（只覆盖保留的历史）、`not_configured`、`no_authorized_target` 或 `unavailable`，后三种时为 `null`。
+- **修订时间（PA-94，D42）**：Deployment 回到旧模板时 Kubernetes 复用旧 ReplicaSet，只把修订号往上加，`creationTimestamp` 不变，所以 `created_at` 只表示 ReplicaSet 创建时间。`replicaset_reused` 为真（`revision-history` 非空）时，生效时间 `at` 按以下依据取，`time_basis` 写明来源：
+  - 新建的 ReplicaSet：`at` 为创建时间，`replicaset_created`。
+  - change-cause 为产品回滚写的 `aiops rollback to revision R (execution E)`，且回滚账本里执行 E 达到的修订号就是本修订：`at` 为账本 `applied` 那一步的时间，`rollback_execution`。
+  - change-cause 为 `gitlab pipeline N sha`：服务部署环境里该流水线、该提交的 GitLab 部署的完成时间（没有时取部署作业的完成时间），`gitlab_deployment`；为此按最早的相关 ReplicaSet 创建时间读一次部署列表（最多 100 条）。该部署须晚于 ReplicaSet 创建开始、没有别的 ReplicaSet 带同样的 change-cause（否则是复制来的旧原因），时间还须符合修订号先后（允许比下一修订晚 10 分钟，部署作业应用后还要等滚动完成）。
+  - 都对不上：`at` 为 `null`，`time_basis` 为 `unknown`，`time_unknown_reason` 为 `replicaset_reused`（没有可用的 change-cause）、`change_cause_stale`、`gitlab_deployment_not_found`、`gitlab_deployment_unfinished`、`gitlab_unavailable`、`rollback_execution_not_found`、`rollback_ledger_unavailable` 或 `out_of_order`；`not_before`/`not_after` 为按修订号推出的区间（较低修订的最晚已知时间与 ReplicaSet 创建取较晚者，较高修订的最早已知时间或读取时刻）。区间与窗口有交集的修订列在同一数组里，`at` 为 `null`。
+  - 回滚时间按 ReplicaSet 创建时间核对，GitLab 部署时间按创建时间和回滚时间核对，避免一个错的时间把更可靠的时间判为乱序。AI 证据 `read_service_changes.kubernetes_revisions[]` 带同样字段，按修订号从新到旧；`read_service_workload` 只带 `replicaset_reused`，不推导时间。
 - **KPI**：`deployments`（成功部署）、`failed_deployments`（GitLab 部署层面的失败，不是 DORA 变更失败率）、`pipelines`、`merged_merge_requests`；`series` 按 `series_step_seconds`（24h 为 3600，7d 为 86400）从 `series_start_at` 分桶。某类连接器工具关闭时该类列表为 `null`，没有对应 KPI，`unavailable` 写 `kpis.<id>: not_configured`。
 - **错误**：未配置代码项目、目录范围或连接器为 503 `change_source_not_configured`；凭据问题 503 `credential_unavailable`；GitLab 不可用 503 `source_unavailable`；某类超过 100 条 413 `change_window_too_large`；读取期间来源变化 409 `source_changed`；告警超过 200 条 413 `change_view_limit`。不返回部分结果。
 

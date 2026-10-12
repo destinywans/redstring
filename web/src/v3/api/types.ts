@@ -922,6 +922,48 @@ export type IncidentKubernetesRevision = {
   change_cause: string | null;
   /** The window's GitLab deployment whose pipeline the change cause names; null = not deployed through GitLab (or unknown when GitLab isn't readable). */
   gitlab_deployment_id: number | null;
+  /** What `at` comes from (PA-94). */
+  time_basis: Exclude<RevisionTimeBasis, "unknown">;
+  /** The ReplicaSet's creation; for a reused ReplicaSet not when the revision took effect. */
+  created_at: string;
+  replicaset_reused: boolean;
+};
+/** How a Kubernetes revision's time is known (PA-94). */
+export type RevisionTimeBasis = "replicaset_created" | "gitlab_deployment" | "rollback_execution" | "unknown";
+export type RevisionTimeUnknownReason =
+  | "replicaset_reused"
+  | "change_cause_stale"
+  | "gitlab_deployment_not_found"
+  | "gitlab_deployment_unfinished"
+  | "gitlab_unavailable"
+  | "rollback_execution_not_found"
+  | "rollback_ledger_unavailable"
+  | "out_of_order";
+/** A revision of unknown time that took effect between not_before and not_after, an interval meeting the window: shown apart, "time unknown · between X and Y". */
+export type IncidentUntimedRevision = {
+  kind: "kubernetes_revision";
+  id: string;
+  revision: string;
+  change_cause: string | null;
+  time_unknown_reason: RevisionTimeUnknownReason;
+  not_before: string;
+  not_after: string;
+  created_at: string;
+  replicaset_reused: boolean;
+};
+/** A Kubernetes revision of the change view: `at` null means its time is unknown, bounded by not_before..not_after (PA-94). */
+export type KubernetesRevision = {
+  revision: string;
+  /** The ReplicaSet's creation; for a reused ReplicaSet not when the revision took effect. */
+  created_at: string;
+  change_cause: string | null;
+  gitlab_pipeline_id: number | null;
+  replicaset_reused: boolean;
+  at: string | null;
+  time_basis: RevisionTimeBasis;
+  time_unknown_reason: RevisionTimeUnknownReason | null;
+  not_before: string | null;
+  not_after: string | null;
 };
 export type IncidentChanges = {
   incident_id: string;
@@ -930,6 +972,8 @@ export type IncidentChanges = {
   alert_started_at: string;
   window: { start_at: string; end_at: string };
   items: (IncidentGitLabDeployment | IncidentKubernetesRevision)[];
+  /** Revisions of unknown time that may fall in the window; not on the timeline (PA-94). */
+  untimed_revisions: IncidentUntimedRevision[];
   coverage: { gitlab: "complete" | "not_configured" | "no_authorized_target" | "unavailable"; kubernetes: "history_limited" | "not_configured" | "no_authorized_target" | "unavailable" };
   note: "time_adjacent_not_causal";
   unavailable: Unavailable;
@@ -948,7 +992,7 @@ export type GitLabChangesView = {
   merge_requests: GitLabMergeRequest[] | null;
   /** null without an alert coverage statement (coverage.alerts unknown) or permission (not_authorized). */
   alerts: { incident_id: string; title: string; href: string; started_at: string; ended_at: string | null }[] | null;
-  kubernetes_revisions: { revision: string; created_at: string; change_cause: string | null; gitlab_pipeline_id: number | null }[] | null;
+  kubernetes_revisions: KubernetesRevision[] | null;
   coverage: { gitlab: "complete"; alerts: "complete" | "unknown" | "not_authorized"; kubernetes: "history_limited" | "not_configured" | "no_authorized_target" | "unavailable" };
   captured_at: string;
   unavailable: Unavailable;

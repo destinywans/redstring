@@ -63,10 +63,20 @@ func (f *fakeIncidentChanges) ReadRevisions(context.Context, core.User, string, 
 	}
 	cause := "gitlab pipeline 11 11111111"
 	eleven := int64(11)
+	// As the reader sets them (PA-94): new ReplicaSets at their creation;
+	// revision 24 reused one created a day earlier, at an unknown time after
+	// revision 23; revision 9's bounds lie before the window.
+	at := func(d time.Duration) *time.Time { v := f.start.Add(d); return &v }
+	reused, missing := "change_cause_stale", "gitlab_deployment_not_found"
+	created := v3changes.TimeBasisReplicaSetCreated
 	return []v3changes.KubernetesRevision{
-		{Revision: "22", CreatedAt: f.start.Add(-2 * time.Minute), ChangeCause: &cause, GitLabPipelineID: &eleven},
-		{Revision: "23", CreatedAt: f.start.Add(5 * time.Minute)},
-		{Revision: "10", CreatedAt: f.start.Add(-5 * time.Hour)}}, nil
+		{Revision: "22", CreatedAt: f.start.Add(-2 * time.Minute), ChangeCause: &cause, GitLabPipelineID: &eleven, At: at(-2 * time.Minute), TimeBasis: created},
+		{Revision: "23", CreatedAt: f.start.Add(5 * time.Minute), At: at(5 * time.Minute), TimeBasis: created},
+		{Revision: "24", CreatedAt: f.start.Add(-24 * time.Hour), ReplicaSetReused: true, ChangeCause: &cause, TimeBasis: v3changes.TimeBasisUnknown,
+			TimeUnknownReason: &reused, NotBefore: at(5 * time.Minute), NotAfter: at(2 * time.Hour)},
+		{Revision: "10", CreatedAt: f.start.Add(-5 * time.Hour), At: at(-5 * time.Hour), TimeBasis: created},
+		{Revision: "9", CreatedAt: f.start.Add(-30 * time.Hour), ReplicaSetReused: true, TimeBasis: v3changes.TimeBasisUnknown,
+			TimeUnknownReason: &missing, NotBefore: at(-8 * time.Hour), NotAfter: at(-5 * time.Hour)}}, nil
 }
 
 func TestIncidentChangesAroundTheAlert(t *testing.T) {
@@ -180,9 +190,18 @@ func TestIncidentChangesAroundTheAlert(t *testing.T) {
 		AlertStartedAt string            `json:"alert_started_at"`
 		Window         map[string]string `json:"window"`
 		Items          []json.RawMessage `json:"items"`
-		Coverage       map[string]string `json:"coverage"`
-		Note           string            `json:"note"`
-		Unavailable    map[string]string `json:"unavailable"`
+		Untimed        []struct {
+			Kind              string `json:"kind"`
+			Revision          string `json:"revision"`
+			TimeUnknownReason string `json:"time_unknown_reason"`
+			NotBefore         string `json:"not_before"`
+			NotAfter          string `json:"not_after"`
+			CreatedAt         string `json:"created_at"`
+			ReplicaSetReused  bool   `json:"replicaset_reused"`
+		} `json:"untimed_revisions"`
+		Coverage    map[string]string `json:"coverage"`
+		Note        string            `json:"note"`
+		Unavailable map[string]string `json:"unavailable"`
 	}
 	read := func(path string) (view, []item) {
 		t.Helper()
@@ -226,6 +245,17 @@ func TestIncidentChangesAroundTheAlert(t *testing.T) {
 		if it.Basis != "time_adjacent" {
 			t.Fatalf("basis: %+v", it)
 		}
+	}
+	if string(items[1].Raw["time_basis"]) != `"replicaset_created"` || string(items[1].Raw["replicaset_reused"]) != "false" {
+		t.Fatalf("revision item time basis: %s", items[1].Raw)
+	}
+	// PA-94: the reused ReplicaSet of unknown time is listed apart, not at
+	// its creation a day earlier; revision 9's bounds miss the window.
+	if len(out.Untimed) != 1 || out.Untimed[0].Kind != "kubernetes_revision" || !out.Untimed[0].ReplicaSetReused ||
+		out.Untimed[0].Revision != "24" || out.Untimed[0].TimeUnknownReason != "change_cause_stale" ||
+		out.Untimed[0].NotBefore != start.Add(5*time.Minute).Format(time.RFC3339) ||
+		out.Untimed[0].CreatedAt != start.Add(-24*time.Hour).Format(time.RFC3339) {
+		t.Fatalf("untimed revisions: %+v", out.Untimed)
 	}
 	// A manual incident starts at its creation.
 	if out, _ := read("/api/v1/incidents/INC-1/changes?before=2h&after=0m"); out.Window["start_at"] != start.Add(-2*time.Hour).Format(time.RFC3339) ||

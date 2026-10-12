@@ -174,9 +174,19 @@ func TestGitLabChangesViewHTTP(t *testing.T) {
 		now.Add(-27*time.Minute), now.Add(-5*time.Hour))
 	cause := "gitlab pipeline 11 11111111"
 	eleven := int64(11)
+	// As the reader sets them (PA-94): new ReplicaSets at their creation,
+	// a reused one of unknown time bounded by its neighbours, and one whose
+	// bounds lie before the window.
+	at := func(d time.Duration) *time.Time { v := now.Add(d); return &v }
+	reused, stale := "replicaset_reused", "change_cause_stale"
 	fake := &fakeChanges{now: now, revisions: []v3changes.KubernetesRevision{
-		{Revision: "22", CreatedAt: now.Add(-29 * time.Minute), ChangeCause: &cause, GitLabPipelineID: &eleven},
-		{Revision: "23", CreatedAt: now.Add(-10 * time.Minute)}}}
+		{Revision: "22", CreatedAt: now.Add(-29 * time.Minute), ChangeCause: &cause, GitLabPipelineID: &eleven,
+			At: at(-29 * time.Minute), TimeBasis: v3changes.TimeBasisReplicaSetCreated},
+		{Revision: "23", CreatedAt: now.Add(-10 * time.Minute), At: at(-10 * time.Minute), TimeBasis: v3changes.TimeBasisReplicaSetCreated},
+		{Revision: "24", CreatedAt: now.Add(-30 * 24 * time.Hour), ReplicaSetReused: true, TimeBasis: v3changes.TimeBasisUnknown,
+			TimeUnknownReason: &reused, NotBefore: at(-10 * time.Minute), NotAfter: at(0)},
+		{Revision: "8", CreatedAt: now.Add(-40 * 24 * time.Hour), ReplicaSetReused: true, TimeBasis: v3changes.TimeBasisUnknown,
+			TimeUnknownReason: &stale, NotBefore: at(-30 * 24 * time.Hour), NotAfter: at(-20 * 24 * time.Hour)}}}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
 	service := New(st, policy, AuditReviewSource{DB: db}, func(_ context.Context, app, env string, start, end time.Time) string {
@@ -265,8 +275,15 @@ func TestGitLabChangesViewHTTP(t *testing.T) {
 	if mr := view.MergeRequests[1]; len(mr.PipelineIDs) != 2 || mr.PipelineIDs[0] != 12 || mr.PipelineIDs[1] != 13 || len(mr.DeploymentIDs) != 0 {
 		t.Fatalf("merge request 5 links: %+v", mr)
 	}
-	if len(view.Alerts) != 2 || len(view.KubernetesRevisions) != 2 || view.KubernetesRevisions[1].GitLabPipelineID != nil {
+	if len(view.Alerts) != 2 || len(view.KubernetesRevisions) != 3 || view.KubernetesRevisions[1].GitLabPipelineID != nil ||
+		view.KubernetesRevisions[0].At == nil || view.KubernetesRevisions[0].TimeBasis != "replicaset_created" {
 		t.Fatalf("alerts and revisions: %+v %+v", view.Alerts, view.KubernetesRevisions)
+	}
+	// PA-94: the reused ReplicaSet of unknown time is listed with a null at
+	// and its bounds; the one bounded before the window is not.
+	if r := view.KubernetesRevisions[2]; r.Revision != "24" || r.At != nil || !r.ReplicaSetReused || r.TimeBasis != "unknown" ||
+		r.TimeUnknownReason == nil || *r.TimeUnknownReason != "replicaset_reused" || r.NotBefore == nil || r.NotAfter == nil {
+		t.Fatalf("untimed revision: %+v", r)
 	}
 	if english := read("en-US"); english.KPIs[0].Label != "Successful deployments" {
 		t.Fatalf("english labels: %+v", english.KPIs)

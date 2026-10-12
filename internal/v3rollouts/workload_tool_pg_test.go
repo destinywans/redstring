@@ -11,6 +11,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3catalog"
 	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/wans/aiops-canvas/internal/v3kube/kubetest"
 )
 
 func (f *rolloutFixture) workloadTool() inference.EvidenceTool {
@@ -59,6 +60,18 @@ func TestWorkloadToolForTheModel(t *testing.T) {
 		w.Rollback.ObservationSeconds == nil || *w.Rollback.ObservationSeconds != 180 ||
 		!strings.Contains(w.ChangesBasis, "from is the current revision's value") {
 		t.Fatalf("workload evidence: %+v", w)
+	}
+	if w.Revisions[0].ReplicaSetReused || w.Revisions[1].ReplicaSetReused || !strings.Contains(tool.Description, "replicaset_reused") {
+		t.Fatalf("new ReplicaSets flagged as reused: %+v", w.Revisions)
+	}
+	// PA-94: returning to the good template reuses revision 1's ReplicaSet
+	// as revision 3; its created_at is still that ReplicaSet's creation.
+	f.cluster.Touch("checkout-api", kubetest.Template("checkout-api", "api:1.4.2", nil))
+	if evidence, err = tool.Read(t.Context(), "checkout"); err != nil || json.Unmarshal([]byte(evidence.Content), &w) != nil {
+		t.Fatalf("after reuse: %v", err)
+	}
+	if w.CurrentRevision != "3" || w.Revisions[0].Revision != "3" || !w.Revisions[0].ReplicaSetReused || w.Revisions[1].ReplicaSetReused {
+		t.Fatalf("reused ReplicaSet: %+v", w.Revisions)
 	}
 	if _, err := tool.Read(t.Context(), "other-service"); inference.ToolErrorCode(err) != inference.ToolUnknownService {
 		t.Fatalf("other service: %v", err)

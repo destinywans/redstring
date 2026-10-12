@@ -58,6 +58,16 @@ func TestRollbackAgainstFakeCluster(t *testing.T) {
 	if o, err = client.Apply(ctx, r); err != nil || !o.Applied || server.Patches != 1 {
 		t.Fatalf("replayed apply wrote again: %+v %v patches=%d", o, err, server.Patches)
 	}
+	// PA-94: the reused ReplicaSet keeps its creation and lists the number
+	// it had before; the new one created for revision 2 has no history.
+	d, err = client.GetDeployment(ctx, "aiops-lab", "checkout-api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revisions, err = client.Revisions(ctx, d); err != nil || len(revisions) != 2 || revisions[0].Revision != "3" ||
+		len(revisions[0].History) != 1 || revisions[0].History[0] != "1" || len(revisions[1].History) != 0 {
+		t.Fatalf("revision history after reuse: %+v %v", revisions, err)
+	}
 	// Someone else changes the Deployment after the rollback.
 	server.Touch("checkout-api", kubetest.Template("checkout-api", "api:1.5.0", nil))
 	if o, err = client.Reconcile(ctx, r); err != nil || o.Applied || !o.Drift {

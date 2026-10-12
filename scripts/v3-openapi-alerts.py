@@ -433,16 +433,26 @@ S['V3IncidentGitLabDeployment'] = obj({**_ic_common,'kind':string(enum=['gitlab_
     ['kind','id','at','offset_seconds','basis','status','sha','short_sha','ref','pipeline_id','merge_request','kubernetes_revision','web_url','href'])
 S['V3IncidentKubernetesRevision'] = obj({**_ic_common,'kind':string(enum=['kubernetes_revision']),'revision':string(),
     'change_cause':{'type':['string','null']},
-    'gitlab_deployment_id':{'type':['integer','null'],'description':'The GitLab deployment of the window whose pipeline the change cause names; null when none'}},
-    ['kind','id','at','offset_seconds','basis','revision','change_cause','gitlab_deployment_id'])
+    'gitlab_deployment_id':{'type':['integer','null'],'description':'The GitLab deployment of the window whose pipeline the change cause names; null when none'},
+    'time_basis':string(enum=['replicaset_created','gitlab_deployment','rollback_execution'],description='What at comes from (PA-94)'),
+    'created_at':string(format='date-time',description='The ReplicaSet\'s creation'),'replicaset_reused':{'type':'boolean'}},
+    ['kind','id','at','offset_seconds','basis','revision','change_cause','gitlab_deployment_id','time_basis','created_at','replicaset_reused'])
+S['V3IncidentUntimedRevision'] = obj({'kind':string(enum=['kubernetes_revision']),'id':string(),'revision':string(),
+    'change_cause':{'type':['string','null']},
+    'time_unknown_reason':string(enum=['replicaset_reused','change_cause_stale','gitlab_deployment_not_found','gitlab_deployment_unfinished','gitlab_unavailable','rollback_execution_not_found','rollback_ledger_unavailable','out_of_order']),
+    'not_before':string(format='date-time'),'not_after':string(format='date-time'),
+    'created_at':string(format='date-time',description='The ReplicaSet\'s creation, not when the revision took effect'),
+    'replicaset_reused':{'type':'boolean'}},
+    ['kind','id','revision','change_cause','time_unknown_reason','not_before','not_after','created_at','replicaset_reused'])
 S['V3IncidentChanges'] = obj({**fieldnames('incident_id service_id environment_id'),
     'alert_started_at':string(format='date-time'),
     'window':obj({'start_at':string(format='date-time'),'end_at':string(format='date-time')},['start_at','end_at']),
     'items':arr({'oneOf':[ref('V3IncidentGitLabDeployment'),ref('V3IncidentKubernetesRevision')]}),
+    'untimed_revisions':{**arr(ref('V3IncidentUntimedRevision')),'description':'Revisions whose time is unknown and whose not_before..not_after meets the window; not on the timeline (PA-94)'},
     'coverage':obj({'gitlab':string(enum=['complete','not_configured','no_authorized_target','unavailable']),
         'kubernetes':string(enum=['history_limited','not_configured','no_authorized_target','unavailable'])},['gitlab','kubernetes']),
     'note':string(enum=['time_adjacent_not_causal']),'unavailable':ref('V3Unavailable')},
-    ['incident_id','service_id','environment_id','alert_started_at','window','items','coverage','note','unavailable'])
+    ['incident_id','service_id','environment_id','alert_started_at','window','items','untimed_revisions','coverage','note','unavailable'])
 v3_route('get','/incidents/{id}/changes','Read the changes around an incident',
     query=[v3_query('before',string(default='60m')),v3_query('after',string(default='15m'))],
     response=ref('V3IncidentChanges'),

@@ -34,7 +34,8 @@ func changeRevisions(rollouts *v3rollouts.Service) func(context.Context, core.Us
 			if err != nil {
 				return nil, v3changes.ErrRevisionsUnavailable
 			}
-			out = append(out, v3changes.KubernetesRevision{Revision: revision.Revision, CreatedAt: at.UTC(), ChangeCause: revision.ChangeCause})
+			out = append(out, v3changes.KubernetesRevision{Revision: revision.Revision, CreatedAt: at.UTC(), ChangeCause: revision.ChangeCause,
+				ReplicaSetReused: revision.ReplicaSetReused})
 		}
 		return out, nil
 	}

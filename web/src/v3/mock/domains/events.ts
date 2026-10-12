@@ -225,7 +225,11 @@ mock("GET", "/incidents/:id/changes", ({ params, query }) => {
   return {
     incident_id: params.id, service_id: c.service, environment_id: "prod", alert_started_at: c.start,
     window: { start_at: iso(start - min * 60_000), end_at: iso(end) },
-    items: items.filter((i) => Date.parse(i.at) >= start - min * 60_000 && Date.parse(i.at) <= end),
+    // Mock revisions are new ReplicaSets: at is their creation (PA-94).
+    items: items
+      .filter((i) => Date.parse(i.at) >= start - min * 60_000 && Date.parse(i.at) <= end)
+      .map((i) => ((i as Record<string, unknown>).kind === "kubernetes_revision" ? { time_basis: "replicaset_created", created_at: i.at, replicaset_reused: false, ...i } : i)),
+    untimed_revisions: [],
     coverage: { gitlab: c.gitlab, kubernetes: c.kubernetes },
     note: "time_adjacent_not_causal",
     unavailable: c.gitlab === "unavailable" ? { "coverage.gitlab": "unavailable" } : {},

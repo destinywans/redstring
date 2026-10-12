@@ -504,6 +504,38 @@ func toMergeRequest(item gitLabMergeRequest, projectID, ref string, now time.Tim
 		MergeCommitSHA: item.MergeCommitSHA, SquashCommitSHA: item.SquashCommitSHA, WebURL: item.WebURL}, true
 }
 
+// toDeployment checks a GitLab deployment of environment deployEnv.
+func toDeployment(item gitLabDeployment, deployEnv string, now time.Time) (Deployment, bool) {
+	if item.ID <= 0 || item.IID <= 0 || !validDeploymentStatus(item.Status) || item.Environment.Name != deployEnv ||
+		!gitSHA.MatchString(item.SHA) || len(item.Ref) > 256 || !validTime(item.CreatedAt, now) || item.UpdatedAt.Before(item.CreatedAt) ||
+		!validTime(item.UpdatedAt, now) || (item.FinishedAt != nil && !validTime(*item.FinishedAt, now)) || !validUser(item.User) {
+		return Deployment{}, false
+	}
+	deployment := Deployment{ID: item.ID, IID: item.IID, Status: item.Status, Environment: item.Environment.Name,
+		Ref: item.Ref, SHA: item.SHA, User: item.User, CreatedAt: item.CreatedAt.UTC(), UpdatedAt: item.UpdatedAt.UTC(),
+		FinishedAt: utcPointer(item.FinishedAt)}
+	if d := item.Deployable; d != nil {
+		if d.ID <= 0 || len(d.Name) > 255 || !validWebURL(d.WebURL) || (d.Pipeline != nil && d.Pipeline.ID <= 0) ||
+			(d.FinishedAt != nil && !validTime(*d.FinishedAt, now)) {
+			return Deployment{}, false
+		}
+		id := d.ID
+		deployment.JobID, deployment.JobName, deployment.WebURL = &id, cleanText(d.Name, 255), d.WebURL
+		if d.Pipeline != nil {
+			pipelineID := d.Pipeline.ID
+			deployment.PipelineID = &pipelineID
+		}
+		// GitLab 19 has no deployment finished_at; its job has.
+		if deployment.FinishedAt == nil && finishedDeployment(item.Status) {
+			deployment.FinishedAt = utcPointer(d.FinishedAt)
+		}
+	}
+	if deployment.FinishedAt == nil && finishedDeployment(item.Status) {
+		deployment.FinishedAt = utcPointer(&item.UpdatedAt)
+	}
+	return deployment, true
+}
+
 func validDeploymentStatus(status string) bool {
 	switch status {
 	case "created", "running", "success", "failed", "canceled", "skipped", "blocked":
@@ -601,32 +633,9 @@ func (s *Service) ReadServiceChanges(ctx context.Context, user core.User, app, e
 	if src.toolEnabled(ToolDeployments) {
 		out.Deployments = make([]Deployment, 0, len(deployments))
 		for _, item := range deployments {
-			if item.ID <= 0 || item.IID <= 0 || !validDeploymentStatus(item.Status) || item.Environment.Name != src.scope.DeployEnvironment ||
-				!gitSHA.MatchString(item.SHA) || len(item.Ref) > 256 || !validTime(item.CreatedAt, now) || item.UpdatedAt.Before(item.CreatedAt) ||
-				!validTime(item.UpdatedAt, now) || (item.FinishedAt != nil && !validTime(*item.FinishedAt, now)) || !validUser(item.User) {
+			deployment, ok := toDeployment(item, src.scope.DeployEnvironment, now)
+			if !ok {
 				return out, ErrUnavailable
-			}
-			deployment := Deployment{ID: item.ID, IID: item.IID, Status: item.Status, Environment: item.Environment.Name,
-				Ref: item.Ref, SHA: item.SHA, User: item.User, CreatedAt: item.CreatedAt.UTC(), UpdatedAt: item.UpdatedAt.UTC(),
-				FinishedAt: utcPointer(item.FinishedAt)}
-			if d := item.Deployable; d != nil {
-				if d.ID <= 0 || len(d.Name) > 255 || !validWebURL(d.WebURL) || (d.Pipeline != nil && d.Pipeline.ID <= 0) ||
-					(d.FinishedAt != nil && !validTime(*d.FinishedAt, now)) {
-					return out, ErrUnavailable
-				}
-				id := d.ID
-				deployment.JobID, deployment.JobName, deployment.WebURL = &id, cleanText(d.Name, 255), d.WebURL
-				if d.Pipeline != nil {
-					pipelineID := d.Pipeline.ID
-					deployment.PipelineID = &pipelineID
-				}
-				// GitLab 19 has no deployment finished_at; its job has.
-				if deployment.FinishedAt == nil && finishedDeployment(item.Status) {
-					deployment.FinishedAt = utcPointer(d.FinishedAt)
-				}
-			}
-			if deployment.FinishedAt == nil && finishedDeployment(item.Status) {
-				deployment.FinishedAt = utcPointer(&item.UpdatedAt)
 			}
 			out.Deployments = append(out.Deployments, deployment)
 		}

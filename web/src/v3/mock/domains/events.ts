@@ -95,7 +95,20 @@ mock("GET", "/alert-groups", ({ query }) => {
   if (q) items = items.filter((g) => g.labels.some((x) => `${x.k}=${x.v}`.includes(q) || x.v.includes(q)));
   return { items, counts: { firing: 6, pending: 1, silenced: 2, resolved: 14 } };
 });
-mock("GET", "/alert-groups/:id/policy", () => ({
+// PA-104: like nonprod's first real alert — the Alertmanager route can't be read for these groups, so the route-side
+// fields are null and `unavailable` names them and why; the platform's own timeline still shows.
+const PARTIAL_POLICY: Record<string, string> = { "g-disk-io": "policy_source_binding", "g-cert": "route_ambiguous" };
+mock("GET", "/alert-groups/:id/policy", ({ params }) =>
+  PARTIAL_POLICY[params.id]
+    ? {
+        group_id: params.id, group_by: null, route: null, timing: null, receivers: null, policy_source: null, policy_observed_at: null, inhibition: null,
+        timeline: [{ id: "q-1", time: at("13:52"), channel: "feishu", text: P("平台通知已排队", "Platform notice queued"), done: null }],
+        local_grouping: ["environment_id", "application_id", "source_id", "fingerprint"], timeline_scope: "platform_queue", timeline_truncated: false,
+        partial: true, unavailable: ["inhibition", "timeline[].done", "external_notification_history", "receiver_acknowledgement", "group_by", "route", "timing", PARTIAL_POLICY[params.id]],
+      }
+    : policySample(),
+);
+const policySample = () => ({
   group_by: ["service", "alertname"],
   route: P("来自路由「生产 · 交易平台」", "From route “prod · trading”"),
   timing: [
@@ -113,7 +126,7 @@ mock("GET", "/alert-groups/:id/policy", () => ({
     P("本组触发期间，同一服务的 DownstreamTimeout 被抑制（3 条），不单独通知。", "While this group fires, DownstreamTimeout on the same service is inhibited (3) and not notified."),
     P("实例 -5 处于待定：条件已满足 3 分钟，满 5 分钟才会触发。", "Instance -5 is pending: condition met for 3 min, fires at 5 min."),
   ],
-}));
+});
 mock("POST", "/alert-groups/bulk", ({ body }) => ({ ok: true, ...(body as object) }));
 
 const SERVICES: Record<string, unknown> = {

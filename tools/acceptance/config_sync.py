@@ -273,8 +273,9 @@ def import_(state):
     before = prom_group('redstring-prod-checkout-api')
     status, listing = pr('GET', '/config-sync')
     merged = {i.get('id'): i for i in (listing or {}).get('items') or []}
-    check('prod lists the four as merged', listing.get('direction') == 'import' and
-          all(merged.get(f"mr-{o['iid']}", {}).get('status') == 'merged' for o in state['exports'].values()),
+    # An unchanged object (the placeholder rule) replays its earlier export, which may already be imported.
+    check('prod lists the four as merged (or already imported)', listing.get('direction') == 'import' and
+          all(merged.get(f"mr-{o['iid']}", {}).get('status') in ('merged', 'imported') for o in state['exports'].values()),
           {k: v.get('status') for k, v in merged.items()})
     first = next(iter(state['exports'].values()))
     status, body = pr('POST', f"/config-sync/mr-{first['iid']}/import", {}, role='operator')

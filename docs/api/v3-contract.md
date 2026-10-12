@@ -96,7 +96,7 @@
 | GET | `/integrations/lower-sources` | | `{ items: LowerSource[] }`，只有生产实例提供；非生产实例返回 404。仅返回服务端显式配置的来源元数据，不代表连接已验证 | implemented |
 | GET | `/config-sync` | | `{ direction: "import" \| "export", items: SyncItem[] }`：生产实例列出已合并候选，非生产实例列出本人已导出项。未配置配置仓库（`AIOPS_V3_CONFIG_SYNC_CONFIG`）或来源信任时返回 `501 config_repository_unavailable` / `config_source_trust_unavailable`，表示功能未接入而非故障，页面应显示“未接入” | implemented |
 | POST | `/config-sync/{id}/import` | `id=mr-<正整数 IID>`；只允许生产实例 | 验证已合并、签名且独立审核的四类配置并持久导入；不执行目标能力 | implemented |
-| POST | `/promotions` | `{ kind: template\|runbook\|alert_rule\|agent_version, id }`；单一非生产环境 | `{ mr, path }`：净化快照签名后写入独立配置仓库并发起 MR；生产实例返回 409 | implemented |
+| POST | `/promotions` | `{ kind: template\|runbook\|alert_rule\|agent_version, id }`；单一非生产环境 | `{ mr, path }`：净化快照签名后写入独立配置仓库并发起 MR；生产实例返回 409；来源超出导出契约时在写入前返回 422 并以错误码说明原因（PA-96/97，见 [配置提升](v3-config-sync.md)） | implemented |
 
 `GET /config-sync` 在非生产列出当前操作者有权导出的签名记录，在生产仅向当前人类平台管理员列出已合并的候选；四类 `template`、`runbook`、`alert_rule`、`agent_version` 均按目标记录、导入台账和成功审计核对后可显示 `imported`。两端均核固定提交、唯一文件、签名、当前来源版本和权限，最多返回 100 项；超限 413，仓库或信任未配置 501，来源无法核实 503。`merged` 表示此刻可验证的合并状态，不证明合并当时的审批或分支保护。冻结页面只在 `pending` 展示导入入口，而生产读取返回 `merged`，页面未验收，详见[配置提升证据边界](v3-config-sync.md)。
 

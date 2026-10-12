@@ -22072,7 +22072,7 @@
             }
           },
           "422": {
-            "description": "Invalid input",
+            "description": "Invalid request, or a source object outside the export contract, refused before any export record or GitLab call (PA-96, PA-97): template_has_description, template_retained_content, template_private_runbooks, template_structure_invalid, alert_rule_expression_unsafe, alert_rule_label_not_exportable, alert_rule_not_exportable or artifact_ref_not_pinned. An alert rule reason is given only after alert_rules.manage on its application or owner team.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22082,7 +22082,7 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Dependency unavailable, or the GitLab export result is unknown; the export record stays uncertain and the same request reconciles it. gitlab_web_url_mismatch: GitLab returned a merge request link outside gitlab.web_url (or base_url when unset); after fixing web_url the retry reuses that merge request (PA-98).",
             "content": {
               "application/json": {
                 "schema": {

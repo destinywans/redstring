@@ -66,6 +66,9 @@ func (s *Service) exportKind(r *http.Request, kind, env, sourceID string) (MR, s
 			if auditErr := s.markExportUnknown(cleanupCtx, actor, record.ID, record.Attempt); auditErr != nil {
 				return MR{}, "", auditErr
 			}
+			if errors.Is(exportErr, ErrMRLinkMismatch) {
+				return MR{}, "", ErrMRLinkMismatch
+			}
 			if exportErr != nil {
 				return MR{}, "", errUnavailable
 			}
@@ -198,6 +201,9 @@ func (s *Service) reserveKindExport(ctx context.Context, actor core.User, kind, 
 	}
 	if err != nil {
 		return exportRecord{}, "", err
+	}
+	if alertCandidate.Refused != nil {
+		return exportRecord{}, "", alertCandidate.Refused
 	}
 	snapshot, _, err := m.snapshot()
 	if err != nil {

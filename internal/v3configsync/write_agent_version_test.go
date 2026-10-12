@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -125,6 +126,22 @@ INSERT INTO v3_agent_versions(agent_id,version,artifact_ref,created_by)
 		access.decisions[1].Action != "change" || access.decisions[1].ApplicationID != "app-a" ||
 		access.decisions[1].EnvironmentID != "test" {
 		t.Fatalf("unexpected source ACL: %+v", access.decisions)
+	}
+	// A tag is registered but not promoted, and the refusal names why (P3).
+	if _, err = tx.Exec(ctx, `UPDATE v3_agent_versions SET artifact_ref='registry.example/triage:v3' WHERE agent_id='triage'`); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = service.resolveAgentVersionSnapshot(ctx, tx, core.User{ID: "owner"}, "test", "triage")
+	if !errors.Is(err, errAgentArtifactUnpinned) {
+		t.Fatalf("unpinned artifact: got %v", err)
+	}
+	w := httptest.NewRecorder()
+	service.writeError(w, httptest.NewRequest("POST", "/api/v1/promotions", nil), err)
+	if w.Code != 422 || !strings.Contains(w.Body.String(), `"code":"artifact_ref_not_pinned"`) {
+		t.Fatalf("unpinned artifact response: %d %s", w.Code, w.Body.String())
+	}
+	if _, err = tx.Exec(ctx, `UPDATE v3_agent_versions SET artifact_ref='registry.example/triage@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' WHERE agent_id='triage'`); err != nil {
+		t.Fatal(err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatal(err)

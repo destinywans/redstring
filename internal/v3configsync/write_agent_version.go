@@ -56,9 +56,13 @@ func (s *Service) resolveAgentVersionSnapshot(ctx context.Context, tx pgx.Tx, ac
 		return readAgentSnapshot{}, "", err
 	}
 	snapshot := readAgentSnapshot{Name: name, Version: version, ArtifactRef: artifactRef}
-	if !objectKeyRE.MatchString(appID) || !boundedText(name, 160) ||
-		!versionKeyRE.MatchString(version) || !safeAgentArtifactRef(artifactRef) {
+	if !objectKeyRE.MatchString(appID) || !boundedText(name, 160) || !versionKeyRE.MatchString(version) {
 		return readAgentSnapshot{}, "", errInvalid
+	}
+	// The catalog registers any reference; only a pinned one is promoted,
+	// and the refusal says so.
+	if !safeAgentArtifactRef(artifactRef) {
+		return readAgentSnapshot{}, "", errAgentArtifactUnpinned
 	}
 	return snapshot, appID, nil
 }

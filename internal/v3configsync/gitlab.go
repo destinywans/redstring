@@ -36,6 +36,10 @@ type Config struct {
 	// non-symlink file that neither group nor others can write, and only
 	// with HTTPS.
 	CAFile string
+	// WebURL is the address GitLab's web links use (its external_url) when
+	// it differs from BaseURL, as behind an API proxy (PA-98). Merge request
+	// links must be on it. Empty means BaseURL.
+	WebURL string
 }
 
 type MR struct {
@@ -69,12 +73,16 @@ func (e *ExportError) Error() string { return fmt.Sprintf("GitLab export %s: %v"
 func (e *ExportError) Unwrap() error { return e.Err }
 
 var (
-	ErrConflict     = errors.New("GitLab export identity conflicts with existing content")
-	ErrUntrusted    = errors.New("GitLab merge request provenance cannot be verified")
-	ErrListTooLarge = errors.New("GitLab merge request list exceeds configured bound")
-	branchRE        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_./-]{0,127}$`)
-	shaRE           = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
-	pathPartRE      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+	ErrConflict  = errors.New("GitLab export identity conflicts with existing content")
+	ErrUntrusted = errors.New("GitLab merge request provenance cannot be verified")
+	// ErrMRLinkMismatch is a merge request whose web link is not on the
+	// configured web address (PA-98). It is untrusted, and usually means
+	// gitlab.web_url is missing or wrong.
+	ErrMRLinkMismatch = fmt.Errorf("%w: merge request link is not on the configured GitLab web address", ErrUntrusted)
+	ErrListTooLarge   = errors.New("GitLab merge request list exceeds configured bound")
+	branchRE          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_./-]{0,127}$`)
+	shaRE             = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
+	pathPartRE        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 )
 
 const promotionLabel = "aiops-config-promotion"
@@ -85,6 +93,7 @@ const alertRuleDraftLabel = "aiops-alert-rule-draft"
 type GitLabClient struct {
 	config  Config
 	base    *url.URL
+	web     *url.URL // scheme and host of web links; base when not set
 	token   string
 	http    *http.Client
 	mrLabel string
@@ -185,7 +194,15 @@ func NewGitLabClient(config Config) (*GitLabClient, error) {
 		}
 		transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 	}
-	return &GitLabClient{config: config, base: u, token: token, mrLabel: promotionLabel, http: &http.Client{
+	web := u
+	if config.WebURL != "" {
+		web, err = url.Parse(config.WebURL)
+		if err != nil || web == nil || (web.Scheme != "https" && web.Scheme != "http") || web.Host == "" || web.User != nil ||
+			web.RawQuery != "" || web.Fragment != "" || (web.Path != "" && web.Path != "/") {
+			return nil, errors.New("invalid GitLab web URL")
+		}
+	}
+	return &GitLabClient{config: config, base: u, web: web, token: token, mrLabel: promotionLabel, http: &http.Client{
 		Timeout: 8 * time.Second, Transport: transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}, nil
@@ -318,8 +335,11 @@ func (c *GitLabClient) trustedMR(m MR, requireMerged bool) error {
 		return ErrUntrusted
 	}
 	u, err := url.Parse(m.URL)
-	if err != nil || u.Scheme != c.base.Scheme || !strings.EqualFold(u.Host, c.base.Host) || u.User != nil || u.Path == "" {
+	if err != nil || u.User != nil || u.Fragment != "" || u.Path == "" {
 		return ErrUntrusted
+	}
+	if u.Scheme != c.web.Scheme || !strings.EqualFold(u.Host, c.web.Host) {
+		return ErrMRLinkMismatch
 	}
 	return nil
 }
@@ -352,8 +372,11 @@ func (c *GitLabClient) findMR(ctx context.Context, branch string) (MR, bool, err
 	if len(list) == 0 {
 		return MR{}, false, nil
 	}
-	if list[0].SourceBranch != branch || c.trustedMR(list[0], false) != nil {
+	if list[0].SourceBranch != branch {
 		return MR{}, false, ErrUntrusted
+	}
+	if err := c.trustedMR(list[0], false); err != nil {
+		return MR{}, false, err
 	}
 	return list[0], true, nil
 }
@@ -440,8 +463,11 @@ func (c *GitLabClient) Export(ctx context.Context, branch, path string, payload 
 		}
 		return MR{}, &ExportError{Stage: "merge_request", MayHaveChanged: true, Err: err}
 	}
-	if m.SourceBranch != branch || c.trustedMR(m, false) != nil {
+	if m.SourceBranch != branch {
 		return MR{}, ErrUntrusted
+	}
+	if err := c.trustedMR(m, false); err != nil {
+		return MR{}, err
 	}
 	return m, nil
 }
@@ -492,7 +518,10 @@ func (c *GitLabClient) ListMerged(ctx context.Context, limit int) ([]MR, error) 
 			continue // An unrelated branch is not a promotion candidate.
 		}
 		id := strings.TrimPrefix(m.SourceBranch, c.config.BranchPrefix)
-		if !promotionIDRE.MatchString(id) || c.trustedMR(m, false) != nil || m.State != "merged" || !shaRE.MatchString(m.MergeCommitSHA) {
+		if err := c.trustedMR(m, false); err != nil {
+			return nil, err
+		}
+		if !promotionIDRE.MatchString(id) || m.State != "merged" || !shaRE.MatchString(m.MergeCommitSHA) {
 			return nil, ErrUntrusted
 		}
 		result = append(result, m)
@@ -788,8 +817,11 @@ func (c *GitLabClient) Merged(ctx context.Context, iid int64) (MR, error) {
 	if err != nil {
 		return MR{}, err
 	}
-	if m.IID != iid || c.trustedMR(m, true) != nil {
+	if m.IID != iid {
 		return MR{}, ErrUntrusted
+	}
+	if err := c.trustedMR(m, true); err != nil {
+		return MR{}, err
 	}
 	return m, nil
 }
@@ -807,9 +839,11 @@ func (c *GitLabClient) LookupPromotionMR(ctx context.Context, iid int64) (MR, er
 		return MR{}, err
 	}
 	id := strings.TrimPrefix(m.SourceBranch, c.config.BranchPrefix)
+	if err := c.trustedMR(m, false); err != nil {
+		return MR{}, err
+	}
 	if m.IID != iid || !strings.HasPrefix(m.SourceBranch, c.config.BranchPrefix) ||
-		!promotionIDRE.MatchString(id) || c.trustedMR(m, false) != nil ||
-		(m.State == "merged" && !shaRE.MatchString(m.MergeCommitSHA)) {
+		!promotionIDRE.MatchString(id) || (m.State == "merged" && !shaRE.MatchString(m.MergeCommitSHA)) {
 		return MR{}, ErrUntrusted
 	}
 	u, _ := url.Parse(m.URL) // trustedMR already validated this URL and host.

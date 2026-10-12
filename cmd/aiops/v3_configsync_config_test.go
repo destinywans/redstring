@@ -136,6 +136,8 @@ func TestLoadV3ConfigSyncRejectsInvalidTrustAndTokenPaths(t *testing.T) {
 		{"missing public key", "production", func(c *v3ConfigSyncFile) { c.TrustedSources["aiops-test"] = "/missing/config-sync-public-key" }},
 		{"relative GitLab CA file", "nonprod", func(c *v3ConfigSyncFile) { c.GitLab.CAFile = "gitlab-ca.pem" }},
 		{"missing GitLab CA file", "production", func(c *v3ConfigSyncFile) { c.GitLab.CAFile = "/missing/gitlab-ca.pem" }},
+		{"GitLab web URL with a path", "nonprod", func(c *v3ConfigSyncFile) { c.GitLab.WebURL = "https://gitlab.example/group" }},
+		{"GitLab web URL with user information", "production", func(c *v3ConfigSyncFile) { c.GitLab.WebURL = "https://user@gitlab.example" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			config := v3ConfigSyncFixture(t, tc.tier)
@@ -191,8 +193,11 @@ func TestLoadV3ConfigSyncGitLabCAFile(t *testing.T) {
 	config := v3ConfigSyncFixture(t, "nonprod")
 	config.GitLab.BaseURL = "https://127.0.0.1:18446"
 	config.GitLab.CAFile = writeV3ConfigSyncFile(t, "gitlab-ca.pem", ca, 0644)
+	// PA-98: the acceptance proxy serves the API; GitLab links are on its
+	// external_url.
+	config.GitLab.WebURL = "http://127.0.0.1:28080"
 	if service, err := loadV3ConfigSync(writeV3ConfigSyncJSON(t, config), "nonprod", nil, nil); err != nil || service.Repository == nil {
-		t.Fatalf("valid GitLab CA file refused: %v", err)
+		t.Fatalf("valid GitLab CA file and web URL refused: %v", err)
 	}
 	config.GitLab.CAFile = writeV3ConfigSyncFile(t, "writable-ca.pem", ca, 0666)
 	if service, err := loadV3ConfigSync(writeV3ConfigSyncJSON(t, config), "nonprod", nil, nil); err == nil || service != nil {

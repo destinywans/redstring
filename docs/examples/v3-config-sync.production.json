@@ -7,7 +7,8 @@
     "branch_prefix": "aiops/promotions/",
     "token_file": "/run/secrets/aiops-config-sync-gitlab-token",
     "allow_loopback_http": false,
-    "ca_file": "/etc/aiops/gitlab-internal-ca.pem"
+    "ca_file": "/etc/aiops/gitlab-internal-ca.pem",
+    "web_url": ""
   },
   "trusted_sources": {
     "aiops-test": "/run/secrets/aiops-config-sync-aiops-test-public-key"

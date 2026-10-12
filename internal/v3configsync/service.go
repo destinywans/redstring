@@ -188,8 +188,29 @@ var (
 	errKindSourceUnavailable = errors.New("configuration kind source unavailable")
 )
 
+// notExportable is a source object the export contract cannot carry. It is
+// refused before anything is reserved or written, with a code naming why
+// (PA-96, PA-97), not reported as an untrusted merged source.
+type notExportable struct{ code, zh, en string }
+
+func (e *notExportable) Error() string { return "configuration source not exportable: " + e.code }
+
+var (
+	errTemplateDescription   = &notExportable{"template_has_description", "模板带说明文字，配置提升只携带结构", "The template has a description; promotion carries structure only"}
+	errTemplateContent       = &notExportable{"template_retained_content", "模板保留了节点标题、步骤或内容，配置提升只携带结构", "The template keeps node titles, steps or content; promotion carries structure only"}
+	errTemplateRunbooks      = &notExportable{"template_private_runbooks", "模板关联了本实例的 Runbook，无法随配置提升", "The template links this instance's Runbooks, which cannot be promoted with it"}
+	errTemplateStructure     = &notExportable{"template_structure_invalid", "模板结构不在配置提升支持的范围内", "The template structure is outside what promotion supports"}
+	errAlertRuleExpression   = &notExportable{"alert_rule_expression_unsafe", "告警表达式含不能提升的字符串字面量或字符", "The alert expression has string literals or characters that cannot be promoted"}
+	errAlertRuleLabels       = &notExportable{"alert_rule_label_not_exportable", "告警规则带有不能提升的标签或级别", "The alert rule has labels or a severity that cannot be promoted"}
+	errAlertRuleShape        = &notExportable{"alert_rule_not_exportable", "告警规则名称、分组或持续时间超出配置提升的范围", "The alert rule name, group or duration is outside what promotion supports"}
+	errAgentArtifactUnpinned = &notExportable{"artifact_ref_not_pinned", "Agent 稳定版本的制品引用没有固定到 @sha256 摘要", "The Agent's stable version artifact is not pinned to an @sha256 digest"}
+)
+
 func (s *Service) writeError(w http.ResponseWriter, r *http.Request, err error) {
+	var refused *notExportable
 	switch {
+	case errors.As(err, &refused):
+		problem(w, r, 422, refused.code, refused.zh, refused.en)
 	case errors.Is(err, errListSessionRevoked):
 		problem(w, r, 401, "unauthorized", "请重新登录", "Sign in again")
 	case errors.Is(err, errKindSourceUnavailable):
@@ -208,6 +229,11 @@ func (s *Service) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		problem(w, r, 409, "promotion_in_progress", "配置正在导出，请稍后重试", "Configuration export is in progress")
 	case errors.Is(err, store.ErrConflict), errors.Is(err, ErrConflict):
 		problem(w, r, 409, "promotion_conflict", "配置来源或目标已变化", "Configuration source or target has changed")
+	case errors.Is(err, ErrMRLinkMismatch):
+		// The MR may exist; the export stays uncertain and a retry after
+		// fixing gitlab.web_url reuses it (PA-98).
+		problem(w, r, 503, "gitlab_web_url_mismatch", "GitLab 返回的合并请求链接不在配置的网页地址下，请检查 gitlab.web_url；导出记为结果未知，修正后重试会复用同一个合并请求",
+			"GitLab returned a merge request link outside the configured web address; check gitlab.web_url. The export is recorded as unknown and a retry reuses the same merge request")
 	case errors.Is(err, errUntrusted), errors.Is(err, ErrUntrusted), errors.Is(err, errInvalidManifest):
 		problem(w, r, 503, "config_source_untrusted", "无法验证已合并配置来源", "Merged configuration provenance cannot be verified")
 	default:

@@ -22,20 +22,71 @@ import (
 type AlertRuleResolver struct {
 	source   v3rulemodel.Source
 	bindings map[string]string
+	// labels maps environment + application ID to the value of its rules'
+	// "application" label (D32): the bound key, else the application ID.
+	labels map[string]string
 }
 
 type alertRuleCandidate struct {
 	ApplicationID string
 	Snapshot      readAlertSnapshot
+	// Refused says why the rule cannot be promoted. The caller reports it
+	// only after authorizing the rule's application, so its reason does not
+	// describe a rule the caller may not see.
+	Refused error
 }
 
-var safeAlertExpressionRE = regexp.MustCompile(`^[A-Za-z0-9_:.{}\[\](),+*/%<>=!^ -]+$`)
+var (
+	// ~ is only for the =~ and !~ matchers of a quoted value below.
+	safeAlertExpressionRE = regexp.MustCompile(`^[A-Za-z0-9_:.{}\[\](),+*/%<>=!~^ -]+$`)
+	// A quoted label matcher value an expression may carry (PA-97).
+	safeMatcherValueRE = regexp.MustCompile(`^[A-Za-z0-9._:-]{0,128}$`)
+	matcherBeforeRE    = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)\s*(=|!=|=~|!~)\s*$`)
+	// Label names whose values are credentials by name are never carried.
+	secretLabelNameRE = regexp.MustCompile(`(?i)token|secret|passw|credential|api_?key|auth`)
+)
+
+// safeAlertExpression accepts an expression of the characters PromQL
+// selectors and operators need, whose only string literals are label
+// matcher values inside braces made of [A-Za-z0-9._:-], such as
+// {application="checkout-api"} (PA-97), on labels not named like a
+// credential. Any other literal, an escape or a regex metacharacter can
+// carry text that should not leave the environment.
+func safeAlertExpression(expr string) bool {
+	var stripped strings.Builder
+	depth := 0
+	for i := 0; i < len(expr); i++ {
+		c := expr[i]
+		switch c {
+		case '{':
+			depth++
+		case '}':
+			depth--
+		case '"', '\'', '`':
+			end := strings.IndexByte(expr[i+1:], c)
+			matcher := matcherBeforeRE.FindStringSubmatch(expr[:i])
+			if depth != 1 || end < 0 || matcher == nil || secretLabelNameRE.MatchString(matcher[1]) ||
+				!safeMatcherValueRE.MatchString(expr[i+1:i+1+end]) {
+				return false
+			}
+			stripped.WriteByte('v')
+			i += end + 1
+			continue
+		}
+		if depth < 0 || depth > 1 {
+			return false
+		}
+		stripped.WriteByte(c)
+	}
+	return depth == 0 && safeAlertExpressionRE.MatchString(stripped.String())
+}
 
 func NewAlertRuleResolver(source v3rulemodel.Source, bindings []v3rulemodel.RuleGroupBinding) (*AlertRuleResolver, error) {
 	if source == nil || len(bindings) == 0 {
 		return nil, errUnavailable
 	}
 	index := make(map[string]string, len(bindings))
+	labels := make(map[string]string, len(bindings))
 	for _, b := range bindings {
 		if b.EnvironmentID == "" || b.EnvironmentID == "all" ||
 			b.ApplicationID == "" || b.File == "" || b.Group == "" ||
@@ -48,14 +99,27 @@ func NewAlertRuleResolver(source v3rulemodel.Source, bindings []v3rulemodel.Rule
 			return nil, errInvalid
 		}
 		index[key] = b.ApplicationID
+		label := b.ApplicationLabel
+		if label == "" {
+			label = b.ApplicationID
+		}
+		appKey := b.EnvironmentID + "\x00" + b.ApplicationID
+		if prior, ok := labels[appKey]; ok && prior != label {
+			return nil, errInvalid
+		}
+		labels[appKey] = label
 	}
-	return &AlertRuleResolver{source: source, bindings: index}, nil
+	return &AlertRuleResolver{source: source, bindings: index, labels: labels}, nil
 }
 
 // Resolve captures an observed, bound configuration rather than a runtime
 // firing state. Its digest-derived version identifies exactly the captured
-// source definition. Quoted PromQL literals, free-form annotations, and
-// unrecognized labels are refused because their contents may include secrets.
+// source definition. A rule is matched and identified as the observed rule
+// list does (D32): its "application" label is the binding's label value and
+// its prom- ID derives from the application ID. Free-form annotations are
+// left out of the snapshot; quoted literals other than safe label matcher
+// values and unrecognized labels are refused, because their contents may
+// include secrets.
 func (r *AlertRuleResolver) Resolve(ctx context.Context, environment, observedID string) (alertRuleCandidate, error) {
 	if r == nil || r.source == nil || environment == "" || environment == "prod" || environment == "all" ||
 		len(observedID) != len("prom-")+24 || !strings.HasPrefix(observedID, "prom-") {
@@ -75,7 +139,8 @@ func (r *AlertRuleResolver) Resolve(ctx context.Context, environment, observedID
 	found := false
 	for _, rule := range rules {
 		app, bound := r.bindings[environment+"\x00"+rule.GroupIdentity]
-		if !bound || rule.Labels["environment"] != environment || rule.Labels["application"] != app {
+		label := r.labels[environment+"\x00"+app]
+		if !bound || rule.Labels["environment"] != environment || rule.Labels["application"] != label {
 			continue
 		}
 		identity := sha256.Sum256([]byte(environment + "\x00" + app + "\x00" + rule.GroupIdentity + "\x00" + rule.Name))
@@ -91,7 +156,12 @@ func (r *AlertRuleResolver) Resolve(ctx context.Context, environment, observedID
 		if len(parts) != 2 || parts[0] == "" || parts[1] != rule.Group {
 			return alertRuleCandidate{}, errUntrusted
 		}
-		snapshot, err := alertSnapshot(rule, environment, app, identity)
+		snapshot, err := alertSnapshot(rule, environment, app, label, identity)
+		var refused *notExportable
+		if errors.As(err, &refused) {
+			result = alertRuleCandidate{ApplicationID: app, Refused: err}
+			continue
+		}
 		if err != nil {
 			return alertRuleCandidate{}, err
 		}
@@ -103,31 +173,25 @@ func (r *AlertRuleResolver) Resolve(ctx context.Context, environment, observedID
 	return result, nil
 }
 
-func alertSnapshot(rule v3rulemodel.ObservedRule, environment, app string, identity [32]byte) (readAlertSnapshot, error) {
-	if !boundedText(rule.Name, 200) || !boundedText(rule.Expression, 4096) ||
-		!safeAlertExpressionRE.MatchString(rule.Expression) || !boundedText(rule.Group, 200) ||
-		rule.Duration < 0 || rule.Duration > 86400 || math.Trunc(rule.Duration) != rule.Duration ||
-		len(rule.Annotations) != 0 || len(rule.Labels) < 2 || len(rule.Labels) > 3 ||
-		rule.Labels["environment"] != environment || rule.Labels["application"] != app {
-		return readAlertSnapshot{}, errInvalidManifest
+// alertSnapshot is the promoted definition of a bound rule whose
+// "application" label is label. Its annotations (summary, description) are
+// free text and are not promoted (PA-97).
+func alertSnapshot(rule v3rulemodel.ObservedRule, environment, app, label string, identity [32]byte) (readAlertSnapshot, error) {
+	if !boundedText(rule.Name, 200) || !boundedText(rule.Expression, 4096) || !boundedText(rule.Group, 200) ||
+		rule.Duration < 0 || rule.Duration > 86400 || math.Trunc(rule.Duration) != rule.Duration {
+		return readAlertSnapshot{}, errAlertRuleShape
+	}
+	if !safeAlertExpression(rule.Expression) {
+		return readAlertSnapshot{}, errAlertRuleExpression
+	}
+	if len(rule.Labels) < 2 || len(rule.Labels) > 3 ||
+		rule.Labels["environment"] != environment || rule.Labels["application"] != label {
+		return readAlertSnapshot{}, errAlertRuleLabels
 	}
 	labels := make(map[string]string, len(rule.Labels))
 	for key, value := range rule.Labels {
-		switch key {
-		case "environment":
-			if value != environment || !objectKeyRE.MatchString(value) {
-				return readAlertSnapshot{}, errInvalidManifest
-			}
-		case "application":
-			if value != app || !objectKeyRE.MatchString(value) {
-				return readAlertSnapshot{}, errInvalidManifest
-			}
-		case "severity":
-			if !oneOf(value, "info", "warning", "critical") {
-				return readAlertSnapshot{}, errInvalidManifest
-			}
-		default:
-			return readAlertSnapshot{}, errInvalidManifest
+		if !exportableAlertLabel(key, value, environment, label) {
+			return readAlertSnapshot{}, errAlertRuleLabels
 		}
 		labels[key] = value
 	}
@@ -143,39 +207,44 @@ func alertSnapshot(rule v3rulemodel.ObservedRule, environment, app string, ident
 	}
 	version := sha256.Sum256(raw)
 	snapshot.Version = "sha256:" + hex.EncodeToString(version[:])
-	if !sanitizedAlertSnapshot(environment, app, "prom-"+hex.EncodeToString(identity[:12]), snapshot) {
+	if !sanitizedAlertSnapshot(environment, label, "prom-"+hex.EncodeToString(identity[:12]), snapshot) {
 		return readAlertSnapshot{}, errInvalidManifest
 	}
 	return snapshot, nil
 }
 
+// exportableAlertLabel is a label a promoted rule may carry: its scope
+// labels, and a severity of the product's P1-P4 or Prometheus's usual
+// info/warning/critical. label is the expected "application" value; empty
+// accepts any object key (an import cannot know the source's D32 label).
+func exportableAlertLabel(key, value, environment, label string) bool {
+	switch key {
+	case "environment":
+		return value == environment && objectKeyRE.MatchString(value)
+	case "application":
+		return (label == "" || value == label) && objectKeyRE.MatchString(value)
+	case "severity":
+		return oneOf(value, "P1", "P2", "P3", "P4", "info", "warning", "critical")
+	}
+	return false
+}
+
 // Re-run source sanitization on import. A trusted signature proves provenance,
-// but does not by itself prove that free text was safe to promote.
-func sanitizedAlertSnapshot(environment, app, sourceID string, snapshot readAlertSnapshot) bool {
+// but does not by itself prove that free text was safe to promote. label is
+// the expected "application" label value; on import it is empty, since the
+// source instance's D32 label is not known here, and any object key passes.
+func sanitizedAlertSnapshot(environment, label, sourceID string, snapshot readAlertSnapshot) bool {
 	if !boundedText(snapshot.Name, 200) || !boundedText(snapshot.Expression, 4096) ||
-		!safeAlertExpressionRE.MatchString(snapshot.Expression) || len(snapshot.Annotations) != 0 ||
+		!safeAlertExpression(snapshot.Expression) || len(snapshot.Annotations) != 0 ||
 		len(snapshot.Labels) < 2 || len(snapshot.Labels) > 3 ||
-		snapshot.Labels["environment"] != environment || snapshot.Labels["application"] != app ||
+		snapshot.Labels["environment"] != environment || snapshot.Labels["application"] == "" ||
 		!hexDigestRE.MatchString(snapshot.SourceIdentityDigest) ||
 		sourceID != "prom-"+snapshot.SourceIdentityDigest[:24] ||
 		snapshot.DurationSeconds < 0 || snapshot.DurationSeconds > 86400 {
 		return false
 	}
 	for key, value := range snapshot.Labels {
-		switch key {
-		case "environment":
-			if value != environment || !objectKeyRE.MatchString(value) {
-				return false
-			}
-		case "application":
-			if value != app || !objectKeyRE.MatchString(value) {
-				return false
-			}
-		case "severity":
-			if !oneOf(value, "info", "warning", "critical") {
-				return false
-			}
-		default:
+		if !exportableAlertLabel(key, value, environment, label) {
 			return false
 		}
 	}
@@ -199,7 +268,7 @@ func (s *Service) saveAlertRuleTarget(ctx context.Context, tx pgx.Tx, _ core.Use
 	if _, err := m.validate(m.PromotionID); err != nil {
 		return "", errInvalidManifest
 	}
-	if !sanitizedAlertSnapshot(m.SourceEnvironment, m.ApplicationID, m.SourceID, *m.AlertRule) {
+	if !sanitizedAlertSnapshot(m.SourceEnvironment, "", m.SourceID, *m.AlertRule) {
 		return "", errInvalidManifest
 	}
 	var activeApp string
@@ -282,7 +351,7 @@ func (s *Service) verifyImportedAlertRule(ctx context.Context, m readManifestV2,
 	if _, err := m.validate(m.PromotionID); err != nil {
 		return errUntrusted
 	}
-	if !sanitizedAlertSnapshot(m.SourceEnvironment, m.ApplicationID, m.SourceID, *m.AlertRule) {
+	if !sanitizedAlertSnapshot(m.SourceEnvironment, "", m.SourceID, *m.AlertRule) {
 		return errUntrusted
 	}
 	labels, err := json.Marshal(m.AlertRule.Labels)

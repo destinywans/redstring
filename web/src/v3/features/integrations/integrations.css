@@ -634,3 +634,34 @@ a.cov-miss:hover {
   font-size: var(--fs-sub);
   margin-top: -2px;
 }
+
+/* ---------- config sync ---------- */
+/* Kind, title, status and actions in fixed columns so the status tags line up row to row. */
+.cs-row {
+  display: grid;
+  /* Fixed status and action widths: each row is its own grid, so auto columns would drift row to row. */
+  grid-template-columns: 120px minmax(0, 1fr) 140px 172px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.cs-row:last-child {
+  border-bottom: none;
+}
+.cs-row > .v3-badge {
+  justify-self: start;
+}
+.cs-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.cs-status {
+  display: flex;
+}
+.cs-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

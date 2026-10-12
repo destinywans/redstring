@@ -83,10 +83,14 @@ var (
 	// computed yet, as just after a merge. It is untrusted for now; reading
 	// it again later can verify it.
 	ErrMRNotPrepared = fmt.Errorf("%w: GitLab has not finished processing the merge request", ErrUntrusted)
-	ErrListTooLarge  = errors.New("GitLab merge request list exceeds configured bound")
-	branchRE         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_./-]{0,127}$`)
-	shaRE            = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
-	pathPartRE       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+	// ErrGitLabUnavailable is a read that failed in transit or that GitLab
+	// refused as unauthorized, throttled or failing (401, 403, 429, 5xx):
+	// nothing was learned about the object, so it is not untrusted (PA-103).
+	ErrGitLabUnavailable = errors.New("GitLab unavailable")
+	ErrListTooLarge      = errors.New("GitLab merge request list exceeds configured bound")
+	branchRE             = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_./-]{0,127}$`)
+	shaRE                = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
+	pathPartRE           = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 )
 
 const promotionLabel = "aiops-config-promotion"
@@ -266,7 +270,30 @@ func (c *GitLabClient) projectPath() string {
 	return "/api/v4/projects/" + strconv.FormatInt(c.config.ProjectID, 10)
 }
 
+// gitLabRetryDelay is the pause before the one retry of a failed read.
+var gitLabRetryDelay = 300 * time.Millisecond
+
+// request reads or writes once; a GET that failed in transit or at a
+// gateway (502, 503, 504) is tried once more, since a proxy in front of
+// GitLab can drop a new connection now and then (PA-103). Writes are never
+// repeated here: their callers reconcile instead.
 func (c *GitLabClient) request(ctx context.Context, method, path string, query url.Values, body any) (int, []byte, http.Header, error) {
+	status, data, header, err := c.requestOnce(ctx, method, path, query, body)
+	transient := (err != nil && errors.Is(err, ErrGitLabUnavailable)) || status == 502 || status == 503 || status == 504
+	if method != http.MethodGet || !transient || ctx.Err() != nil {
+		return status, data, header, err
+	}
+	timer := time.NewTimer(gitLabRetryDelay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return status, data, header, err
+	case <-timer.C:
+	}
+	return c.requestOnce(ctx, method, path, query, body)
+}
+
+func (c *GitLabClient) requestOnce(ctx context.Context, method, path string, query url.Values, body any) (int, []byte, http.Header, error) {
 	u, err := url.Parse(strings.TrimRight(c.base.String(), "/") + path)
 	if err != nil {
 		return 0, nil, nil, err
@@ -290,12 +317,12 @@ func (c *GitLabClient) request(ctx context.Context, method, path string, query u
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, nil, nil, err
+		return 0, nil, nil, fmt.Errorf("%w: %w", ErrGitLabUnavailable, err)
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024+1))
 	if err != nil {
-		return 0, nil, nil, err
+		return 0, nil, nil, fmt.Errorf("%w: %w", ErrGitLabUnavailable, err)
 	}
 	if len(b) > 1024*1024 {
 		return 0, nil, nil, errors.New("GitLab response exceeds limit")
@@ -309,12 +336,60 @@ func (c *GitLabClient) call(ctx context.Context, method, path string, query url.
 		return 0, nil, err
 	}
 	if status != expected {
-		return status, header, fmt.Errorf("GitLab status %d", status)
+		return status, header, &StatusError{Status: status}
 	}
 	if out != nil && json.Unmarshal(data, out) != nil {
 		return status, header, errors.New("invalid GitLab response")
 	}
 	return status, header, nil
+}
+
+// StatusError is a GitLab answer with another status than expected. A
+// 401, 403, 429 or 5xx is ErrGitLabUnavailable.
+type StatusError struct{ Status int }
+
+func (e *StatusError) Error() string { return fmt.Sprintf("GitLab status %d", e.Status) }
+
+func (e *StatusError) Unwrap() error {
+	if e.Status == 401 || e.Status == 403 || e.Status == 429 || e.Status >= 500 {
+		return ErrGitLabUnavailable
+	}
+	return nil
+}
+
+// MergedCheckError says which check of a merged MR failed (PA-103): the
+// step, GitLab's status when a request failed, and the cause, which is
+// ErrGitLabUnavailable, ErrMRNotPrepared or ErrUntrusted. It carries no
+// token or response body.
+type MergedCheckError struct {
+	IID    int64
+	Step   string
+	Status int
+	Err    error
+}
+
+func (e *MergedCheckError) Error() string {
+	return fmt.Sprintf("merged MR !%d %s check: %v", e.IID, e.Step, e.Err)
+}
+
+func (e *MergedCheckError) Unwrap() error { return e.Err }
+
+// checkStep names the step of a failed merged MR check. A failure that is
+// not GitLab being unavailable or the MR not being ready is untrusted.
+func checkStep(step string, err error) error {
+	var check *MergedCheckError
+	if errors.As(err, &check) {
+		return err
+	}
+	out := &MergedCheckError{Step: step, Err: err}
+	var status *StatusError
+	if errors.As(err, &status) {
+		out.Status = status.Status
+	}
+	if !errors.Is(err, ErrGitLabUnavailable) && !errors.Is(err, ErrUntrusted) {
+		out.Err = fmt.Errorf("%w: %w", ErrUntrusted, err)
+	}
+	return out
 }
 
 func (c *GitLabClient) trustedMR(m MR, requireMerged bool) error {
@@ -361,7 +436,7 @@ func (c *GitLabClient) file(ctx context.Context, path, ref string) ([]byte, int,
 		return nil, 0, err
 	}
 	if status != 200 {
-		return nil, status, fmt.Errorf("GitLab status %d", status)
+		return nil, status, &StatusError{Status: status}
 	}
 	if len(data) > 256*1024 {
 		return nil, 0, errors.New("GitLab configuration file exceeds limit")
@@ -570,28 +645,43 @@ func (c *GitLabClient) ReadMerged(ctx context.Context, iid int64, path string) (
 // ReadMergedManifest derives the exact file from the complete, reviewed MR
 // diff. Its path and promotion ID must agree with the owned branch; callers
 // cannot supply a path or read mutable branch HEAD.
+// ReadMergedManifest verifies a merged promotion MR and reads its one
+// file. A failure is a *MergedCheckError naming the MR and the step.
 func (c *GitLabClient) ReadMergedManifest(ctx context.Context, iid int64) (MR, string, []byte, error) {
+	m, path, data, err := c.readMergedManifest(ctx, iid)
+	if err != nil {
+		err = checkStep("merge_request", err)
+		var check *MergedCheckError
+		if errors.As(err, &check) {
+			check.IID = iid
+		}
+		return MR{}, "", nil, err
+	}
+	return m, path, data, nil
+}
+
+func (c *GitLabClient) readMergedManifest(ctx context.Context, iid int64) (MR, string, []byte, error) {
 	m, err := c.Merged(ctx, iid)
 	if err != nil {
-		return MR{}, "", nil, err
+		return MR{}, "", nil, checkStep("merge_request", err)
 	}
 	if err := c.verifyMergedReview(ctx, m); err != nil {
 		return MR{}, "", nil, err
 	}
 	path, err := c.mergedDiffPath(ctx, m)
 	if err != nil {
-		return MR{}, "", nil, err
+		return MR{}, "", nil, checkStep("diff", err)
 	}
 	id := strings.TrimPrefix(m.SourceBranch, c.config.BranchPrefix)
 	if !promotionIDRE.MatchString(id) || !validPromotionManifestPath(path, id) {
-		return MR{}, "", nil, ErrUntrusted
+		return MR{}, "", nil, checkStep("diff", ErrUntrusted)
 	}
 	data, _, err := c.file(ctx, path, m.MergeCommitSHA)
 	if err != nil {
-		return MR{}, "", nil, err
+		return MR{}, "", nil, checkStep("file", err)
 	}
 	if !json.Valid(data) {
-		return MR{}, "", nil, ErrUntrusted
+		return MR{}, "", nil, checkStep("file", ErrUntrusted)
 	}
 	return m, path, data, nil
 }
@@ -643,8 +733,11 @@ func (c *GitLabClient) verifyMergedReview(ctx context.Context, m MR) error {
 	}
 	q := url.Values{"per_page": {"100"}, "page": {"1"}}
 	_, h, err := c.call(ctx, http.MethodGet, root+"/versions", q, nil, 200, &versions)
-	if err != nil || h.Get("X-Next-Page") != "" || len(versions) == 0 || len(versions) > 100 {
-		return ErrUntrusted
+	if err != nil {
+		return checkStep("versions", err)
+	}
+	if h.Get("X-Next-Page") != "" || len(versions) == 0 || len(versions) > 100 {
+		return checkStep("versions", ErrUntrusted)
 	}
 	latest := versions[0]
 	for _, v := range versions[1:] {
@@ -653,7 +746,7 @@ func (c *GitLabClient) verifyMergedReview(ctx context.Context, m MR) error {
 		}
 	}
 	if latest.State != "collected" || latest.CreatedAt.IsZero() || !latest.CreatedAt.Before(m.MergedAt) || latest.HeadCommitSHA != m.SourceCommitSHA {
-		return ErrUntrusted
+		return checkStep("versions", ErrUntrusted)
 	}
 	var approvals struct {
 		IID        *int64 `json:"iid"`
@@ -673,13 +766,17 @@ func (c *GitLabClient) verifyMergedReview(ctx context.Context, m MR) error {
 	// GitLab CE's /approvals response has no MR/project/state fields. The
 	// request path is built from the exact MR validated by Merged. Some
 	// editions may include identifiers; reject them when inconsistent.
-	if err != nil || (approvals.IID != nil && *approvals.IID != m.IID) ||
+	if err != nil {
+		return checkStep("approvals", err)
+	}
+	if (approvals.IID != nil && *approvals.IID != m.IID) ||
 		(approvals.ProjectID != nil && *approvals.ProjectID != c.config.ProjectID) ||
 		(approvals.State != "" && approvals.State != "merged") ||
 		approvals.Approved == nil || !*approvals.Approved || len(approvals.ApprovedBy) == 0 || len(approvals.ApprovedBy) > 20 {
-		return ErrUntrusted
+		return checkStep("approvals", ErrUntrusted)
 	}
 	reviewerVerified := false
+	var approverErr error
 	for _, a := range approvals.ApprovedBy {
 		if a.User.ID <= 0 || a.User.ID == m.Author.ID || !a.ApprovedAt.After(latest.CreatedAt) || !a.ApprovedAt.Before(m.MergedAt) {
 			continue
@@ -693,11 +790,21 @@ func (c *GitLabClient) verifyMergedReview(ctx context.Context, m MR) error {
 			reviewerVerified = true
 			break
 		}
+		if errors.Is(err, ErrGitLabUnavailable) {
+			approverErr = err
+		}
 	}
 	if !reviewerVerified {
-		return ErrUntrusted
+		// An approver that could not be read is not one that failed.
+		if approverErr != nil {
+			return checkStep("approver", approverErr)
+		}
+		return checkStep("approver", ErrUntrusted)
 	}
-	return c.verifyProtectedTarget(ctx)
+	if err := c.verifyProtectedTarget(ctx); err != nil {
+		return checkStep("protected_branch", err)
+	}
+	return nil
 }
 
 type branchAccessLevel struct {
@@ -762,11 +869,17 @@ func (c *GitLabClient) verifyProtectedTarget(ctx context.Context) error {
 		Protected *bool  `json:"protected"`
 	}
 	_, _, err := c.call(ctx, http.MethodGet, c.projectPath()+"/repository/branches/"+url.PathEscape(c.config.TargetBranch), nil, nil, 200, &branch)
+	if errors.Is(err, ErrGitLabUnavailable) {
+		return err
+	}
 	if err != nil || branch.Name != c.config.TargetBranch || branch.Protected == nil || !*branch.Protected {
 		return ErrUntrusted
 	}
 	var policy protectedBranchRule
 	_, _, err = c.call(ctx, http.MethodGet, c.projectPath()+"/protected_branches/"+url.PathEscape(c.config.TargetBranch), nil, nil, 200, &policy)
+	if errors.Is(err, ErrGitLabUnavailable) {
+		return err
+	}
 	if err != nil || policy.Name != c.config.TargetBranch || !safeProtectedRule(policy) {
 		return ErrUntrusted
 	}
@@ -775,6 +888,9 @@ func (c *GitLabClient) verifyProtectedTarget(ctx context.Context) error {
 		q := url.Values{"per_page": {"100"}, "page": {strconv.Itoa(page)}}
 		var rules []protectedBranchRule
 		_, h, err := c.call(ctx, http.MethodGet, c.projectPath()+"/protected_branches", q, nil, 200, &rules)
+		if errors.Is(err, ErrGitLabUnavailable) {
+			return err
+		}
 		if err != nil || len(rules) > 100 || h.Get("X-Page") != strconv.Itoa(page) || h.Get("X-Per-Page") != "100" {
 			return ErrUntrusted
 		}

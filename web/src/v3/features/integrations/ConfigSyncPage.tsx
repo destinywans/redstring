@@ -62,6 +62,8 @@ export default function ConfigSyncPage() {
       merged: prod ? <Badge tone="warn">{tx("已合并 · 待导入", "Merged · to import")}</Badge> : <Badge tone="ok">{tx("已合并", "Merged")}</Badge>,
       // PA-100: GitLab is still preparing a just-merged MR; nothing was read from it and it cannot be imported yet.
       verifying: <Badge tone="info">{tx("核验中", "Verifying")}</Badge>,
+      // PA-103: this one candidate could not be verified (GitLab unavailable or a mismatch); the rest of the list stands.
+      unverifiable: <Badge tone="warn">{tx("无法核验", "Unverifiable")}</Badge>,
     })[s];
   // Production needs a platform administrator with global workspace.manage to read the list (D44 wording elsewhere).
   const forbidden = error instanceof ApiError && error.status === 403 && !data;

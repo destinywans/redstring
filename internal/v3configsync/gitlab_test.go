@@ -678,7 +678,13 @@ func TestGitLabReadMergedReviewProvenance(t *testing.T) {
 			if tc.wantOK && err != nil {
 				t.Fatalf("valid reviewed MR rejected: %v", err)
 			}
-			if !tc.wantOK && !errors.Is(err, ErrUntrusted) {
+			// PA-103: GitLab failing a read is unavailable, not untrusted;
+			// either way nothing is accepted.
+			unavailable := tc.unavailableApproval || tc.unavailableVersions || tc.unavailablePolicy || tc.listUnavailable
+			if !tc.wantOK && unavailable && (!errors.Is(err, ErrGitLabUnavailable) || errors.Is(err, ErrUntrusted)) {
+				t.Fatalf("GitLab outage not reported as unavailable: %v", err)
+			}
+			if !tc.wantOK && !unavailable && !errors.Is(err, ErrUntrusted) {
 				t.Fatalf("untrusted MR accepted: %v", err)
 			}
 		})

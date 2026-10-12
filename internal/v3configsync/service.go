@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -79,6 +80,9 @@ type SyncItem struct {
 	Author    string `json:"author"`
 	Meta      string `json:"meta"`
 	Status    string `json:"status"`
+	// Reason says why a production candidate is verifying or unverifiable:
+	// not_ready, gitlab_unavailable or untrusted (PA-103).
+	Reason string `json:"reason,omitempty"`
 }
 
 func msg(r *http.Request, zh, en string) string {
@@ -233,6 +237,8 @@ func (s *Service) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		problem(w, r, 409, "promotion_in_progress", "配置正在导出，请稍后重试", "Configuration export is in progress")
 	case errors.Is(err, store.ErrConflict), errors.Is(err, ErrConflict):
 		problem(w, r, 409, "promotion_conflict", "配置来源或目标已变化", "Configuration source or target has changed")
+	case errors.Is(err, ErrGitLabUnavailable):
+		problem(w, r, 503, "gitlab_unavailable", "GitLab 暂时无法读取，请稍后重试", "GitLab could not be read; retry shortly")
 	case errors.Is(err, ErrMRNotPrepared):
 		problem(w, r, 503, "merge_request_not_ready", "GitLab 仍在处理这次合并，请稍后重试", "GitLab is still processing this merge; retry shortly")
 	case errors.Is(err, ErrMRLinkMismatch):
@@ -517,78 +523,112 @@ func (s *Service) importItems(r *http.Request) ([]SyncItem, error) {
 	}
 	items := make([]SyncItem, 0, len(merged))
 	for _, item := range merged {
-		id := strings.TrimPrefix(item.SourceBranch, s.Repository.BranchPrefix())
-		if !promotionIDRE.MatchString(id) || item.SourceBranch != s.Repository.BranchPrefix()+id {
-			return nil, errUntrusted
-		}
-		verifiedMR, path, raw, err := s.Repository.ReadMergedManifest(r.Context(), item.IID)
-		if errors.Is(err, ErrMRNotPrepared) {
-			// Just merged: GitLab is still processing it. Only this item
-			// waits; nothing about it is read or claimed until it verifies.
-			sha := item.MergeCommitSHA
-			if len(sha) > 8 {
-				sha = sha[:8]
-			}
-			items = append(items, SyncItem{ID: fmt.Sprintf("mr-%d", item.IID), Kind: "unknown",
-				KindLabel: msg(r, "核验中", "Verifying"), Title: msg(r, "GitLab 仍在处理这次合并，稍后可核验", "GitLab is still processing this merge; it can be verified shortly"),
-				MR: fmt.Sprintf("!%d", item.IID), Author: item.Author.Name,
-				Meta: msg(r, "已合并提交 ", "Merged commit ") + sha, Status: "verifying"})
-			continue
-		}
+		listed, err := s.importItem(r, item)
 		if err != nil {
 			return nil, err
 		}
-		if verifiedMR.IID != item.IID || verifiedMR.MergeCommitSHA != item.MergeCommitSHA ||
-			verifiedMR.SourceBranch != item.SourceBranch || verifiedMR.SourceProjectID != s.Repository.ProjectID() ||
-			verifiedMR.TargetProjectID != s.Repository.ProjectID() {
-			return nil, errUntrusted
-		}
-		summary, err := readPromotionSummary(raw, id, s.TrustedSources)
-		if err != nil {
-			return nil, errUntrusted
-		}
-		expectedPath, err := promotionPathForKind(summary.Kind, id)
-		if err != nil || path != expectedPath {
-			return nil, errUntrusted
-		}
-		var importSHA, importID, importKind, importTarget, importActor string
-		imported := false
-		err = s.DB.QueryRow(r.Context(), `SELECT merge_sha,promotion_id,kind,target_id,actor_id FROM v3_config_imports
- WHERE project_id=$1 AND mr_iid=$2`, s.Repository.ProjectID(), item.IID).
-			Scan(&importSHA, &importID, &importKind, &importTarget, &importActor)
-		if errors.Is(err, pgx.ErrNoRows) {
-			err = nil
-		} else if err != nil {
-			return nil, err
-		} else {
-			imported = true
-		}
-		if imported && (importSHA != item.MergeCommitSHA || importID != id || importKind != summary.Kind) {
-			return nil, errUntrusted
-		}
-		status := "merged"
-		if imported {
-			if summary.Kind == "template" {
-				if importTarget != "CTP-"+id ||
-					s.verifyImportedTemplate(r.Context(), raw, verifiedMR, importTarget, importActor) != nil {
-					return nil, errUntrusted
-				}
-			} else if s.verifyImportedKind(r.Context(), raw, verifiedMR, summary.Kind, importTarget, importActor) != nil {
-				return nil, errUntrusted
-			}
-			status = "imported"
-		}
-		sha := verifiedMR.MergeCommitSHA
-		if len(sha) > 8 {
-			sha = sha[:8]
-		}
-		items = append(items, SyncItem{ID: fmt.Sprintf("mr-%d", verifiedMR.IID), Kind: summary.Kind,
-			KindLabel: configKindLabel(r, summary.Kind), Title: summary.Title,
-			MR: fmt.Sprintf("!%d", verifiedMR.IID), Author: verifiedMR.Author.Name,
-			Meta:   msg(r, "已合并提交 ", "Merged commit ") + sha,
-			Status: status})
+		items = append(items, listed)
 	}
 	return items, nil
+}
+
+// importItem verifies one merged candidate. A candidate that cannot be
+// verified is listed by itself as verifying (GitLab still processing the
+// merge) or unverifiable, with the reason, and logged with its step, so one
+// candidate never hides the others (PA-103); nothing is read from it or
+// claimed for it. The list fails only when it cannot be built: GitLab cannot
+// enumerate the candidates, there are too many, or this instance's own
+// ledger cannot be read.
+func (s *Service) importItem(r *http.Request, item MR) (SyncItem, error) {
+	sha := item.MergeCommitSHA
+	if len(sha) > 8 {
+		sha = sha[:8]
+	}
+	listed := SyncItem{ID: fmt.Sprintf("mr-%d", item.IID), Kind: "unknown", MR: fmt.Sprintf("!%d", item.IID),
+		Author: item.Author.Name, Meta: msg(r, "已合并提交 ", "Merged commit ") + sha}
+	unverified := func(step string, err error) (SyncItem, error) {
+		var check *MergedCheckError
+		status := 0
+		if errors.As(err, &check) {
+			step, status = check.Step, check.Status
+		}
+		switch {
+		case errors.Is(err, ErrMRNotPrepared):
+			// Just merged: GitLab is still processing it.
+			listed.Status, listed.Reason = "verifying", "not_ready"
+			listed.KindLabel = msg(r, "核验中", "Verifying")
+			listed.Title = msg(r, "GitLab 仍在处理这次合并，稍后可核验", "GitLab is still processing this merge; it can be verified shortly")
+		case errors.Is(err, ErrGitLabUnavailable):
+			listed.Status, listed.Reason = "unverifiable", "gitlab_unavailable"
+			listed.KindLabel = msg(r, "无法核验", "Unverifiable")
+			listed.Title = msg(r, "GitLab 暂时无法读取，这一条稍后刷新再核验", "GitLab could not be read; refresh shortly to verify this one")
+		default:
+			listed.Status, listed.Reason = "unverifiable", "untrusted"
+			listed.KindLabel = msg(r, "无法核验", "Unverifiable")
+			listed.Title = msg(r, "合并记录与签名或审核不符，不能导入", "The merge does not match its signature or review; it cannot be imported")
+		}
+		slog.Warn("V3 config sync merged candidate not verified", "mr_iid", item.IID, "step", step,
+			"gitlab_status", status, "reason", listed.Reason)
+		return listed, nil
+	}
+	id := strings.TrimPrefix(item.SourceBranch, s.Repository.BranchPrefix())
+	if !promotionIDRE.MatchString(id) || item.SourceBranch != s.Repository.BranchPrefix()+id {
+		return unverified("branch", errUntrusted)
+	}
+	verifiedMR, path, raw, err := s.Repository.ReadMergedManifest(r.Context(), item.IID)
+	if err != nil {
+		return unverified("merge_request", err)
+	}
+	if verifiedMR.IID != item.IID || verifiedMR.MergeCommitSHA != item.MergeCommitSHA ||
+		verifiedMR.SourceBranch != item.SourceBranch || verifiedMR.SourceProjectID != s.Repository.ProjectID() ||
+		verifiedMR.TargetProjectID != s.Repository.ProjectID() {
+		return unverified("merge_request", errUntrusted)
+	}
+	summary, err := readPromotionSummary(raw, id, s.TrustedSources)
+	if err != nil {
+		return unverified("manifest", errUntrusted)
+	}
+	expectedPath, err := promotionPathForKind(summary.Kind, id)
+	if err != nil || path != expectedPath {
+		return unverified("manifest_path", errUntrusted)
+	}
+	var importSHA, importID, importKind, importTarget, importActor string
+	imported := false
+	err = s.DB.QueryRow(r.Context(), `SELECT merge_sha,promotion_id,kind,target_id,actor_id FROM v3_config_imports
+ WHERE project_id=$1 AND mr_iid=$2`, s.Repository.ProjectID(), item.IID).
+		Scan(&importSHA, &importID, &importKind, &importTarget, &importActor)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = nil
+	} else if err != nil {
+		return SyncItem{}, err
+	} else {
+		imported = true
+	}
+	if imported && (importSHA != item.MergeCommitSHA || importID != id || importKind != summary.Kind) {
+		return unverified("import_ledger", errUntrusted)
+	}
+	status := "merged"
+	if imported {
+		if summary.Kind == "template" {
+			if importTarget != "CTP-"+id {
+				return unverified("imported_target", errUntrusted)
+			}
+			err = s.verifyImportedTemplate(r.Context(), raw, verifiedMR, importTarget, importActor)
+		} else {
+			err = s.verifyImportedKind(r.Context(), raw, verifiedMR, summary.Kind, importTarget, importActor)
+		}
+		if err != nil {
+			if !errors.Is(err, errUntrusted) && !errors.Is(err, ErrUntrusted) && !errors.Is(err, errInvalidManifest) {
+				return SyncItem{}, err
+			}
+			return unverified("imported_target", err)
+		}
+		status = "imported"
+	}
+	return SyncItem{ID: fmt.Sprintf("mr-%d", verifiedMR.IID), Kind: summary.Kind,
+		KindLabel: configKindLabel(r, summary.Kind), Title: summary.Title,
+		MR: fmt.Sprintf("!%d", verifiedMR.IID), Author: verifiedMR.Author.Name,
+		Meta: msg(r, "已合并提交 ", "Merged commit ") + sha, Status: status}, nil
 }
 
 // The template writer commits its target, ledger, and success audit together.
@@ -745,6 +785,11 @@ func (s *Service) importMerged(w http.ResponseWriter, r *http.Request) {
 	// any production target is changed. The signed kind selects the importer.
 	mr, raw, summary, err := s.readAnyImport(r.Context(), iid)
 	if err != nil {
+		var check *MergedCheckError
+		if errors.As(err, &check) {
+			slog.Warn("V3 config sync merged MR not verified for import", "mr_iid", iid, "step", check.Step,
+				"gitlab_status", check.Status, "gitlab_unavailable", errors.Is(err, ErrGitLabUnavailable))
+		}
 		s.writeError(w, r, err)
 		return
 	}

@@ -1,4 +1,6 @@
-**当前验收：[CP-325](CHECKPOINT.md#cp-325-current)，2026-10-12。D11 交付链路完成：GitLab 变更与集群修订、事件告警前后变更、AI 变更取证、告警规则执行器启用与停用在两个验收实例上验收；prod 完整发布演练 24/24，PA-01～PA-90 全部验证，最终回归 18/18。见[验收登记](docs/releases/2026-10-09-production-acceptance.md)。**
+**当前验收：[CP-326](CHECKPOINT.md#cp-326-current)，2026-10-12。除性能与 24 小时外本轮全部收尾：D11 收尾、配置提升四类全部走通、审阅页批准后状态上线；PA-01～PA-104 全部验证，最终回归 19/19；自主决定 D35～D45 待审阅。见[验收登记](docs/releases/2026-10-09-production-acceptance.md)。**
+
+**此前验收：[CP-325](CHECKPOINT.md#cp-325-current)，2026-10-12。D11 交付链路完成：GitLab 变更与集群修订、事件告警前后变更、AI 变更取证、告警规则执行器启用与停用在两个验收实例上验收；prod 完整发布演练 24/24，PA-01～PA-90 全部验证，最终回归 18/18。见[验收登记](docs/releases/2026-10-09-production-acceptance.md)。**
 
 **此前验收：[CP-324](CHECKPOINT.md#cp-324-current)，2026-10-11。生产验收本轮完成：Kubernetes 回滚闭环、统一来源登记第二阶段与 P4 清理在两个验收实例上验收，登记 PA-01～PA-87 全部验证，最终回归 16/16、prod 回滚演练 23/23；用户离开期间的决定 D22～D29 待审阅；全部只在本地，未推送。见[验收登记](docs/releases/2026-10-09-production-acceptance.md)。**
 

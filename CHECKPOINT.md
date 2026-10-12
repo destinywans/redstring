@@ -1,4 +1,16 @@
-**最新验收：[CP-325](#cp-325-current)，2026-10-12 (+08)。D11 交付链路在两个验收实例上完成：实验 GitLab 的变更与集群修订对上，事件“告警前后变更”与 AI `read_service_changes` 接通，告警规则由独立执行器启用与停用；prod 完整发布演练第 2 轮 24/24、反例全部符合设计；本轮新登记 PA-88～90 均已修复验证，登记 90 条全部验证，最终回归 18/18。报告 https://claude.ai/artifact/CD6jdw84V8stiLQRsqvjHt 。**
+**最新验收：[CP-326](#cp-326-current)，2026-10-12 (+08)。本轮除性能与 24 小时外全部收尾：D11 补齐逐条比对与审计检查并对照设计图核对页面；配置提升首次接实验配置仓库，四类配置从 nonprod 导出、真人审批合并、prod 导入全部走通（Runbook 首次走通审核发布）；审阅页批准后状态按用户确认的方案 A 上线。登记 PA-01～PA-104 全部验证，最终回归 19/19。报告 https://claude.ai/artifact/CD6jdw84V8stiLQRsqvjHt 。**
+
+<a id="cp-326-current"></a>
+## CP-326 · 生产验收：D11 收尾与配置提升
+
+- 用户 10-12 要求除性能与 24 小时外全部收尾、需要选择时自行决定并留记录：决定 D35～D45 见登记（`docs/releases/2026-10-09-production-acceptance.md`）；用户确认 D37 设计图方案 A（https://claude.ai/artifact/V3q7UaCqzj2wkZGnLk3wxp ）。
+- D11 收尾：`tools/acceptance/gitlab_compare.py`（GitLab 与产品逐条比对，两实例 6/6，入回归）；告警规则闭环补待生效列表、MR 与 main 文件逐字一致、审计（入回归，21/21）；D11 页面真实模式对照设计图（规则列表实现偏差按 D39 接受）。修复 PA-91～95、PA-104。
+- 配置提升（D35、D36、D40、D41、D44）：实验配置仓库 `aiops-lab/redstring-config`（项目 7），两实例 `AIOPS_V3_CONFIG_SYNC_CONFIG`（`.local/acceptance/config-sync/`：私有 CA、`web_url`、nonprod Ed25519 私钥、prod 信任公钥、两枚 GitLab 令牌，均 0600 不提交）；nonprod 新增 `AIOPS_OPERATIONS_CONFIG` webhook 源与 `source_ids`；实验告警重标记与 nonprod 精确路由（aiops-test f71b950、5494db6）。`tools/acceptance/config_sync.py`（prepare/export/merge/import）干净重跑 43/44（唯一项为脚本预期，已改）。修复 PA-96～103（含 P1：PA-100 跨实例按应用 key、PA-101 生产导入入口）。迁移 179 已在两验收库执行（现有业务库未执行）。
+- 其他：PA-94 修订生效时间（D42、D43）、PA-102 提案 `decision` 与审阅页方案 A；验收代理 GitLab 段补连接复用（PA-103 根因）。
+- 最终回归 `regress-round-final-2.json` 19/19；对拍中 `/services` 在宿主负载 30–39 时超时，按 D45 转性能轮。实验：worker2 10-12 04:17Z 时钟前跳致指标中断约 1 小时，已修（aiops-test 4f89051）。回滚写令牌到 10-13 01:27Z、读令牌到 10-18、GitLab 管理员令牌到 10-20、配置仓库令牌到 11-11。
+- 待定：性能与 24 小时（下一轮，含 D45 输入）；部署到现有业务库需另行授权；成员无法低于只读权限（D38，观察）。
+
+**此前验收：[CP-325](#cp-325-current)，2026-10-12 (+08)。D11 交付链路在两个验收实例上完成：实验 GitLab 的变更与集群修订对上，事件“告警前后变更”与 AI `read_service_changes` 接通，告警规则由独立执行器启用与停用；prod 完整发布演练第 2 轮 24/24、反例全部符合设计；本轮新登记 PA-88～90 均已修复验证，登记 90 条全部验证，最终回归 18/18。报告 https://claude.ai/artifact/CD6jdw84V8stiLQRsqvjHt 。**
 
 <a id="cp-325-current"></a>
 ## CP-325 · 生产验收：D11 交付链路

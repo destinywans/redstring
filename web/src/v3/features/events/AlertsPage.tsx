@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { AlertGroup, AlertGroupPolicy, ServiceCatalog } from "../../api/types";
 import { serviceParts } from "../../api/ids";
-import { UnknownValue } from "../../ui/unknown";
+import { Unavailable, UnknownValue } from "../../ui/unknown";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, IconBtn, Kbd, LabelChip, Muted, Pills, Row, SearchBox, Section, Sev, Skeleton, Spacer, State, Strong, Tile, Toggle, Bar, cx, type Tone } from "../../ui/core";
 import { toast, Tooltip } from "../../ui/overlays";
 import { DataTable } from "../../ui/data";
@@ -39,6 +39,16 @@ export default function AlertsPage() {
     if (focus) setOpen((o) => (o.size ? o : new Set([focus])));
   }, [focus]);
   const policy = useGet<AlertGroupPolicy>(focus ? `/alert-groups/${focus}/policy` : null);
+  // Why the Alertmanager route couldn't be read, when `unavailable` names it (PA-104).
+  const policyMissing = policy.data?.unavailable ?? [];
+  const policyReason = policyMissing.includes("policy_source") || policyMissing.includes("policy_source_binding") ? ("not_configured" as const) : ("unavailable" as const);
+  const POLICY_CAUSE: Record<string, string> = {
+    policy_source: tx("没有配置 Alertmanager 路由来源", "No Alertmanager route source is configured"),
+    policy_source_binding: tx("这个环境没有绑定 Alertmanager 路由来源", "This environment has no Alertmanager route source bound"),
+    occurrence_labels: tx("这组告警缺少标签，无法定位路由", "This group's alerts lack labels, so the route can't be found"),
+    route_ambiguous: tx("这组告警命中了多条路由，无法确定是哪一条", "This group's alerts match more than one route, so it can't be told which"),
+  };
+  const policyCause = policyMissing.map((u) => POLICY_CAUSE[u]).find(Boolean) ?? null;
   // Real groups name the application ID; show the catalog service (name, peek ID) for the same application and environment.
   const { data: catalog } = useGet<ServiceCatalog>(API_MODE === "mock" ? null : "/services", undefined, { staleTime: 5 * 60_000 });
   const svcOf = (g: AlertGroup) => {
@@ -298,18 +308,36 @@ export default function AlertsPage() {
               <Muted size={11.5}>{data?.items.find((g) => g.id === focus)?.labels.map((l) => l.v).join(" / ")}</Muted>
             </Col>
           </Row>
-          {policy.data ? (
+          {policy.error && !policy.data ? (
+            // The whole policy read failed (e.g. 503 alert_policy_unavailable): say so instead of loading forever.
+            <div style={{ padding: 16 }}>
+              <Unavailable reason="unavailable" icon="layers" source="Alertmanager" title={tx("聚合与通知策略暂时读不到", "The grouping and notification policy can't be read right now")} />
+            </div>
+          ) : policy.data ? (
             <Col gap={16} style={{ padding: 16 }} className="anim-fade" key={focus}>
+              {/* The Alertmanager route may be unreadable: group_by / route / timing are then null and `unavailable` says why. */}
               <Section title={tx("分组依据", "Group by")}>
-                <Row gap={6} wrap>
-                  {policy.data.group_by.map((g) => (
-                    <Badge key={g}>{g}</Badge>
-                  ))}
-                  <Muted size={11.5}>{policy.data.route}</Muted>
-                </Row>
+                {policy.data.group_by ? (
+                  <Row gap={6} wrap>
+                    {policy.data.group_by.map((g) => (
+                      <Badge key={g}>{g}</Badge>
+                    ))}
+                    {policy.data.route ? <Muted size={11.5}>{policy.data.route}</Muted> : <UnknownValue reason={policyReason} source="Alertmanager" />}
+                  </Row>
+                ) : (
+                  <Muted size={11.5}>
+                    {tx("Alertmanager 的分组和路由", "Alertmanager grouping and route")} <UnknownValue reason={policyReason} source="Alertmanager" />
+                    {policyCause && <> · {policyCause}</>}
+                  </Muted>
+                )}
               </Section>
               <Section title={tx("时间参数", "Timing")}>
-                {policy.data.timing.map((t) => (
+                {!policy.data.timing && (
+                  <Muted size={11.5}>
+                    {tx("等待、间隔和重复通知", "Wait, interval and repeat")} <UnknownValue reason={policyReason} source="Alertmanager" />
+                  </Muted>
+                )}
+                {(policy.data.timing ?? []).map((t) => (
                   <Col key={t.key} gap={2}>
                     <Row gap={6}>
                       <Strong>{t.label}</Strong>
@@ -325,7 +353,7 @@ export default function AlertsPage() {
               <Section title={tx("通知时间线", "Notification timeline")}>
                 {!policy.data.timeline.length && <Muted size={11.5}>{tx("平台还没有发出过这一组的通知；外部通知记录暂缺。", "The platform hasn't sent notifications for this group; external notification history isn't available.")}</Muted>}
                 {policy.data.timeline.map((n) => (
-                  <Row key={n.time} gap={8}>
+                  <Row key={n.id ?? n.time} gap={8}>
                     <Muted size={11.5}>{when.short(n.time)}</Muted>
                     {n.channel === "feishu" ? <Brand name="feishu" size={18} /> : <Icon name={n.channel === "sms" ? "message" : "rotate"} size={14} color="var(--muted)" />}
                     <span className="grow" style={{ fontSize: "var(--fs-sub)" }}>

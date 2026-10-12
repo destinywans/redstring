@@ -311,13 +311,21 @@ export type AlertGroup = {
   environment_id?: string;
   unavailable?: string[];
 };
-/** inhibition is null and timeline entries may lack done (unknown) when the source can't prove them. */
+/**
+ * GET /alert-groups/{id}/policy. group_by, route, timing, receivers and policy_source are null when the Alertmanager
+ * route can't be read; `unavailable` then names those fields and the cause (policy_source, policy_source_binding,
+ * occurrence_labels, route_ambiguous). inhibition is null and timeline entries may lack done (unknown).
+ */
 export type AlertGroupPolicy = {
-  group_by: string[];
-  route: string;
-  timing: { key: "group_wait" | "group_interval" | "repeat_interval"; label: string; value: string; help: string }[];
-  timeline: { time: string; channel: string; text: string; done?: boolean | null }[];
+  group_by: string[] | null;
+  route: string | null;
+  timing: { key: "group_wait" | "group_interval" | "repeat_interval"; label: string; value: string; help: string }[] | null;
+  timeline: { id?: string; time: string; channel: string; text: string; done?: boolean | null }[];
   inhibition: string[] | null;
+  receivers?: string[] | null;
+  policy_source?: string | null;
+  local_grouping?: string[];
+  partial?: boolean;
   unavailable?: string[];
 };
 /** Peeks are partial: null means unknown (never "healthy", "no owner" or "off call"). */

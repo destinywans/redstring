@@ -39,7 +39,7 @@ def run(name, cmd, cwd=ROOT, env=None, timeout=1800, parse=None):
 
 
 def passed_line(out):
-    m = re.search(r'(\d+)/(\d+) passed', out)
+    m = re.search(r'(\d+)/(\d+) (?:checks )?passed', out)
     return {'passed': int(m[1]), 'total': int(m[2]), 'ok': m[1] == m[2]} if m else {}
 
 
@@ -91,6 +91,9 @@ def main():
     results.append(run('credentials', ['python3', 'tools/acceptance/credentials.py'], parse=passed_line))
     for script in ('environments', 'inputs', 'auth'):
         results.append(run(script, ['python3', f'tools/acceptance/{script}.py'], parse=passed_line))
+    # D11: enable and disable one rule through the GitOps executor on nonprod (its alert is dropped by
+    # design), so every regression exercises the executor, GitLab and the rule loading path.
+    results.append(run('alert rule loop nonprod', ['python3', 'tools/acceptance/alert_rule_loop.py', 'nonprod'], parse=passed_line))
     if a.with_golden_api:
         for path in ('canvas', 'conversation', 'settings', 'agents'):
             results.append(run(f'golden {path}', ['python3', 'tools/acceptance/golden.py', path]))

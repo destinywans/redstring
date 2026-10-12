@@ -282,10 +282,16 @@ def rules_part():
         ok, out = docker('start', RULES_SYNC)
         check('rules sync started again', ok, out)
     time.sleep(45)
+    reload = (rule.get('readback') or {}).get('reload')
+    check('the load timeout names Prometheus reloads (PA-90)', reload and 'reload' in json.dumps(rule.get('failure') or {}),
+          f"reload={json.dumps(reload)[:160]} failure={json.dumps(rule.get('failure'), ensure_ascii=False)[:160]}")
     status, r = op('POST', f'/executions/{ex_w}/recheck', {}, key=secrets.token_hex(12))
     _, rule = execution(pw, lambda r: r.get('state') == 'enabled', 120)
     if check('recheck records W enabled once loaded', status == 200 and rule.get('state') == 'enabled', f"{status} {rule.get('state')} {steps(rule)}"):
         enabled.append(w)
+    names = [x.get('state') for x in rule.get('steps') or []]
+    check('the timeline keeps the timeout and the recheck (PA-90)', 'needs_attention' in names and 'recheck' in names,
+          ' → '.join(f"{x.get('state')}({x.get('reason')})" if x.get('reason') else str(x.get('state')) for x in rule.get('steps') or []))
 
     # GitLab paused right after approval.
     v, pv, _ = propose('V')

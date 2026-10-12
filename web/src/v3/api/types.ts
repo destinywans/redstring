@@ -380,19 +380,31 @@ export type AlertRulePending = {
 export type EmptyReason = "no_authorized_target" | null;
 /** pending is null (and unavailable says "pending" / "items[].lifecycle") when the GitOps view can't be read. */
 export type AlertRuleList = { items: AlertRuleSummary[] | null; counts: { all: number; firing: number; scheduled: number } | null; empty_reason: EmptyReason; unavailable: Unavailable; pending?: AlertRulePending[] | null };
+/**
+ * GET /alert-rules/{id} (V3AlertRuleDetail). The real rule comes from its bound Prometheus file: query_ref, preview,
+ * condition, evaluation, runbook, route_path and ai_triage have no trusted source and are null (listed in
+ * `unavailable`, a list of field names); the sample fills them.
+ */
 export type AlertRule = AlertRuleSummary & {
   datasource: string;
-  query_ref: string;
+  query_ref: string | null;
   expr: string;
-  preview: { values: number[]; threshold: number };
-  condition: { op: ">" | "<"; value: number; unit: string; for_minutes: number; recover_minutes: number };
-  evaluation: { mode: "continuous" | "cron"; interval: string; cron?: string; no_data: string };
+  for_seconds?: number;
+  preview: { values: number[]; threshold: number } | null;
+  condition: { op: ">" | "<"; value: number; unit: string; for_minutes: number; recover_minutes: number } | null;
+  evaluation: { mode: "continuous" | "cron"; interval: string; cron?: string; no_data: string } | null;
+  evaluation_interval_seconds?: number | null;
+  evaluation_ms?: number | null;
   labels: { k: string; v: string }[];
-  annotation: string;
-  runbook: string;
-  route_path: string[];
-  ai_triage: { enabled: boolean; template: string };
-  last_eval: string;
+  annotations?: Record<string, string>;
+  annotation: string | null;
+  runbook: string | null;
+  route_path: string[] | null;
+  ai_triage: { enabled: boolean; template: string } | null;
+  /** When Prometheus last evaluated the rule. */
+  last_eval: string | null;
+  partial?: boolean;
+  unavailable?: string[];
 };
 /** Page shape of a route node (sample data uses it directly; the real tree is normalized into it). hits null = unknown. */
 export type RouteNode = {

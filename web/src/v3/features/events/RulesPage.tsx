@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { AlertRule, AlertRuleLifecycle, AlertRuleList, AlertRulePending, AlertRuleSummary, Tone } from "../../api/types";
-import { Unavailable } from "../../ui/unknown";
-import { Badge, Brand, Btn, Card, Chip, Code, Col, Dot, Env, Icon, Input, LabelChip, Legend, Muted, Pills, Radio, Row, SearchBox, Sev, Skeleton, Spacer, State, Tabs, TextLink, Toggle, cx } from "../../ui/core";
+import { Unavailable, UnknownValue } from "../../ui/unknown";
+import { useWhen } from "../../ui/when";
+import { Badge, Brand, Btn, Card, Chip, Code, Col, Dot, Env, Icon, Input, KV, LabelChip, Legend, Muted, Pills, Radio, Row, SearchBox, Sev, Skeleton, Spacer, State, Tabs, TextLink, Toggle, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
@@ -35,6 +36,8 @@ export default function RulesPage() {
   const [sel, setSel] = useState("");
   const [disabling, setDisabling] = useState(false);
   const [tab, setTab] = useState<"def" | "history" | "preview">("def");
+  const demo = API_MODE === "mock";
+  const when = useWhen();
   const list = useGet<AlertRuleList>("/alert-rules");
   // items null = no rule source configured; [] with empty_reason = nothing visible to you; [] alone = no rules yet.
   const noSource = !!list.data && list.data.items === null;
@@ -169,7 +172,11 @@ export default function RulesPage() {
               <Row gap={8} wrap>
                 <h2 style={{ fontSize: 16, fontWeight: 600 }}>{r.name}</h2>
                 <State tone={STATE[r.state][0]}>{STATE[r.state][1]}</State>
-                <Muted size={11.5}>{r.last_eval}</Muted>
+                <Muted size={11.5}>
+                  {r.last_eval ? tx("最近评估 {t}", "Last evaluated {t}", { t: when.clock(r.last_eval) ?? "—" }) : tx("最近评估", "Last evaluated")}
+                  {r.evaluation_ms != null && tx(" · 用时 {n} ms", " · {n} ms", { n: Math.round(r.evaluation_ms) })}
+                </Muted>
+                {!r.last_eval && <UnknownValue />}
                 <Spacer />
                 {/* D11 decision 7: any rule in effect can be proposed for disabling; the server says when its file isn't executor-merged. */}
                 {(!life || life.state === "active") && (
@@ -182,15 +189,26 @@ export default function RulesPage() {
                 <Btn
                   icon="play"
                   onClick={async () => {
-                    const res = await api<{ would_fire: number; windows: string[] }>("POST", `/alert-rules/${r.id}/dry-run`, { body: { threshold, for_minutes: forMin } });
-                    setDry(tx("最近 6 小时会触发 {n} 次：{w}", "Would have fired {n}× in the last 6 h: {w}", { n: res.would_fire, w: res.windows.join(", ") }));
+                    try {
+                      // The real dry run replays the rule's own expression with its `for` over the last 6 h.
+                      const body = demo && !r.partial ? { threshold, for_minutes: forMin } : { expr: r.expr, for: `${Math.round(r.for_seconds ?? 0)}s` };
+                      const res = await api<{ would_fire: number; windows: string[] }>("POST", `/alert-rules/${r.id}/dry-run`, { body });
+                      // Real windows are "start/end" timestamps.
+                      const w = res.windows.map((x) => (x.includes("/") ? x.split("/").map((t) => when.clock(t) ?? t).join("–") : x));
+                      setDry(res.would_fire ? tx("最近 6 小时会触发 {n} 次：{w}", "Would have fired {n}× in the last 6 h: {w}", { n: res.would_fire, w: w.join(tx("、", ", ")) }) : tx("最近 6 小时不会触发。", "Wouldn't have fired in the last 6 h."));
+                    } catch (e) {
+                      toast(e instanceof ApiError ? e.message : tx("试运行失败，请稍后重试", "The dry run failed; try again later"), { tone: "danger" });
+                    }
                   }}
                 >
                   {tx("试运行（最近 6 小时）", "Dry run (last 6 h)")}
                 </Btn>
-                <Btn kind="primary" icon="check" onClick={() => { void api("PUT", `/alert-rules/${r.id}`, { body: { threshold, for_minutes: forMin, mode, ai } }); toast(tx("规则已保存，下一次评估生效", "Saved — applies at the next evaluation")); }}>
-                  {tx("保存", "Save")}
-                </Btn>
+                {/* Saving edits needs the versioned draft body (PUT /alert-rules/{id}); this view has no editor fields in real mode. */}
+                {demo && !r.partial && (
+                  <Btn kind="primary" icon="check" onClick={() => { void api("PUT", `/alert-rules/${r.id}`, { body: { threshold, for_minutes: forMin, mode, ai } }); toast(tx("规则已保存，下一次评估生效", "Saved — applies at the next evaluation")); }}>
+                    {tx("保存", "Save")}
+                  </Btn>
+                )}
               </Row>
               <DisableRuleDialog open={disabling} onClose={() => setDisabling(false)} ruleId={r.id} ruleName={r.name} app={r.labels.find((l) => l.k === "application")?.v} />
               {life && (
@@ -210,12 +228,14 @@ export default function RulesPage() {
                   {dry}
                 </div>
               )}
-              {tab === "def" && (
+              {/* A rule read from its Prometheus file (real, or a sample rule-repository rule) is partial and read-only. */}
+              {tab === "def" && (!demo || r.partial) && <RealRuleDefinition r={r} />}
+              {tab === "def" && demo && !r.partial && (
                 <>
                   <Step n={1} title={tx("查询", "Query")}>
                     <Row gap={8} wrap>
                       <ChipSelect label="" showLabel={false} icon="database" defaultValue={r.datasource} options={[r.datasource, "VictoriaMetrics · prod", "Prometheus · staging"]} />
-                      <ChipSelect label={tx("已登记查询", "Registered query")} defaultValue={r.query_ref} options={[r.query_ref, "http_5xx_ratio", "http_p99_latency", "rpc_client_retry_ratio"].filter((v, i, a) => a.indexOf(v) === i)} />
+                      <ChipSelect label={tx("已登记查询", "Registered query")} defaultValue={r.query_ref ?? ""} options={[r.query_ref ?? "", "http_5xx_ratio", "http_p99_latency", "rpc_client_retry_ratio"].filter((v, i, a) => a.indexOf(v) === i)} />
                       <Muted size={11.5}>{tx("或编写 PromQL（需要规则编辑权限）", "or write PromQL (requires rule editor)")}</Muted>
                     </Row>
                     <Code>{r.expr}</Code>
@@ -225,7 +245,7 @@ export default function RulesPage() {
                         <Spacer />
                         <Legend items={[[tx("5xx 比例", "5xx ratio"), "var(--c3)"], [tx("阈值 {v}%", "Threshold {v}%", { v: threshold }), "var(--danger)"]]} />
                       </Row>
-                      <Lines series={[{ name: "5xx", values: r.preview.values, color: "var(--c3)", fill: "var(--c3s)" }]} height={80} max={10} threshold={threshold} grid={2} format={(v) => `${v}%`} />
+                      <Lines series={[{ name: "5xx", values: r.preview?.values ?? [], color: "var(--c3)", fill: "var(--c3s)" }]} height={80} max={10} threshold={threshold} grid={2} format={(v) => `${v}%`} />
                     </Card>
                   </Step>
                   <div className="grid-2">
@@ -239,7 +259,7 @@ export default function RulesPage() {
                       <Muted size={11.5}>{tx("条件需连续满足 {m} 分钟才触发，期间显示为“待定”，避免瞬时抖动误报。", "The condition must hold for {m} minutes; meanwhile it shows as “pending” to avoid flapping.", { m: forMin })}</Muted>
                       <Row gap={8}>
                         <Muted>{tx("恢复：低于阈值持续", "Recover after below threshold for")}</Muted>
-                        <Input type="number" defaultValue={r.condition.recover_minutes} width={90} right={<Muted>{tx("分钟", "min")}</Muted>} aria-label={tx("恢复时间", "Recovery")} />
+                        <Input type="number" defaultValue={r.condition?.recover_minutes} width={90} right={<Muted>{tx("分钟", "min")}</Muted>} aria-label={tx("恢复时间", "Recovery")} />
                       </Row>
                     </Step>
                     <Step n={3} title={tx("评估方式", "Evaluation")}>
@@ -248,7 +268,7 @@ export default function RulesPage() {
                       <Row gap={8}>
                         <Input mono defaultValue="0 9 * * *" width={140} disabled={mode !== "cron"} aria-label="cron" />
                         <Muted>{tx("无数据时", "No data")}</Muted>
-                        <ChipSelect label="" showLabel={false} defaultValue={r.evaluation.no_data} options={[r.evaluation.no_data, tx("保持上次状态", "Keep last state"), tx("视为正常", "Treat as OK"), tx("视为告警", "Treat as firing")].filter((v, i, a) => a.indexOf(v) === i)} />
+                        <ChipSelect label="" showLabel={false} defaultValue={r.evaluation?.no_data ?? ""} options={[r.evaluation?.no_data ?? "", tx("保持上次状态", "Keep last state"), tx("视为正常", "Treat as OK"), tx("视为告警", "Treat as firing")].filter((v, i, a) => a.indexOf(v) === i)} />
                       </Row>
                     </Step>
                   </div>
@@ -260,7 +280,7 @@ export default function RulesPage() {
                         ))}
                         <AddChip label={tx("标签", "Label")} free placeholder="team=trade" options={["team=trade", "severity=P2", "slo=availability"]} />
                       </Row>
-                      <Input mono defaultValue={r.annotation} aria-label={tx("说明模板", "Annotation")} />
+                      <Input mono defaultValue={r.annotation ?? ""} aria-label={tx("说明模板", "Annotation")} />
                       <Row gap={8}>
                         <Muted>Runbook</Muted>
                         <Badge>
@@ -282,7 +302,7 @@ export default function RulesPage() {
                       <Row gap={8}>
                         <Toggle on={ai} onChange={setAi} label={tx("触发后 AI 自动初查", "AI triage on fire")} />
                         <span style={{ fontSize: "var(--fs-sm)" }}>{tx("触发后 AI 自动初查", "AI auto-triage when firing")}</span>
-                        <Muted size={11.5}>{tx("模板：{t}", "Template: {t}", { t: r.ai_triage.template })}</Muted>
+                        <Muted size={11.5}>{tx("模板：{t}", "Template: {t}", { t: r.ai_triage?.template ?? "" })}</Muted>
                       </Row>
                       <Row gap={8}>
                         <Toggle on={false} label={tx("同时抑制下游超时告警", "Inhibit downstream timeouts")} />
@@ -333,5 +353,107 @@ export default function RulesPage() {
         </div>
       </div>
     </Page>
+  );
+}
+
+/**
+ * A real rule's definition (GET /alert-rules/{id}), read-only: name, expression, `for`, labels and annotation come
+ * from the bound Prometheus file; the threshold preview, structured condition, evaluation settings, runbook, route
+ * and AI triage have no trusted source and are null, so they show as unknown — never as sample values.
+ */
+function RealRuleDefinition({ r }: { r: AlertRule }) {
+  const { tx } = useI18n();
+  const dur = (s: number | null | undefined) => (s == null ? null : s % 60 === 0 ? tx("{n} 分钟", "{n} min", { n: s / 60 }) : tx("{n} 秒", "{n} s", { n: Math.round(s) }));
+  const kw = 76;
+  return (
+    <>
+      <Step n={1} title={tx("查询", "Query")}>
+        <Row gap={12} wrap>
+          <Badge>
+            <Icon name="database" size={11} />
+            {r.datasource}
+          </Badge>
+          <Row gap={6}>
+            <Muted>{tx("已登记查询", "Registered query")}</Muted>
+            {r.query_ref ? <span className="mono">{r.query_ref}</span> : <UnknownValue />}
+          </Row>
+        </Row>
+        <Code>{r.expr}</Code>
+        {r.preview ? (
+          <Card style={{ padding: "10px 12px" }}>
+            <Muted>{tx("预览 · 最近 2 小时", "Preview · last 2 h")}</Muted>
+            <Lines series={[{ name: r.name, values: r.preview.values, color: "var(--c3)", fill: "var(--c3s)" }]} height={80} threshold={r.preview.threshold} grid={2} />
+          </Card>
+        ) : (
+          <Unavailable icon="activity" title={tx("没有阈值预览", "No threshold preview")} desc={tx("这条规则没有可信的阈值来源，不画预览；触发条件以上面的表达式为准。", "This rule has no trusted threshold source, so no preview is drawn; the expression above is the condition.")} />
+        )}
+      </Step>
+      <div className="grid-2">
+        <Step n={2} title={tx("触发条件", "Condition")}>
+          <Col gap={8}>
+            <KV k={tx("持续", "For")} kw={kw}>
+              {dur(r.for_seconds) ?? <UnknownValue />}
+            </KV>
+            <KV k={tx("阈值", "Threshold")} kw={kw}>
+              {r.condition ? `${r.condition.op} ${r.condition.value}${r.condition.unit}` : <UnknownValue />}
+            </KV>
+            <KV k={tx("恢复", "Recovery")} kw={kw}>
+              {r.condition ? dur(r.condition.recover_minutes * 60) : <UnknownValue />}
+            </KV>
+          </Col>
+        </Step>
+        <Step n={3} title={tx("评估方式", "Evaluation")}>
+          <Col gap={8}>
+            <KV k={tx("评估间隔", "Interval")} kw={kw}>
+              {r.evaluation_interval_seconds != null ? tx("每 {n}", "Every {n}", { n: dur(r.evaluation_interval_seconds) ?? "" }) : <UnknownValue />}
+            </KV>
+            <KV k={tx("无数据时", "No data")} kw={kw}>
+              {r.evaluation?.no_data ?? <UnknownValue />}
+            </KV>
+          </Col>
+        </Step>
+      </div>
+      <div className="grid-2">
+        <Step n={4} title={tx("标签与说明", "Labels & annotation")}>
+          <Row gap={6} wrap>
+            {r.labels.map((l) => (
+              <LabelChip key={l.k} k={l.k} v={l.v} />
+            ))}
+          </Row>
+          <KV k={tx("说明", "Summary")} kw={kw}>
+            {r.annotation ?? <UnknownValue />}
+          </KV>
+          <KV k="Runbook" kw={kw}>
+            {r.runbook ? (
+              <Badge>
+                <Icon name="book" size={11} />
+                {r.runbook}
+              </Badge>
+            ) : (
+              <UnknownValue />
+            )}
+          </KV>
+        </Step>
+        <Step n={5} title={tx("通知与 AI", "Notification & AI")}>
+          <KV k={tx("匹配路由", "Route")} kw={kw}>
+            {r.route_path ? (
+              <Row gap={6} wrap>
+                {r.route_path.map((x, i) => (
+                  <Row key={i} gap={6}>
+                    {i > 0 && <Icon name="right" size={12} color="var(--faint)" />}
+                    <Badge>{x}</Badge>
+                  </Row>
+                ))}
+              </Row>
+            ) : (
+              <UnknownValue />
+            )}
+          </KV>
+          <KV k={tx("AI 初查", "AI triage")} kw={kw}>
+            {r.ai_triage ? (r.ai_triage.enabled ? tx("触发后自动初查 · 模板：{t}", "On fire · template: {t}", { t: r.ai_triage.template }) : tx("关闭", "Off")) : <UnknownValue />}
+          </KV>
+        </Step>
+      </div>
+    </>
   );
 }

@@ -403,6 +403,8 @@ const DECIDED: Record<string, Record<string, unknown>> = {
   "PRP-91": { status: "rejected", decision: { state: "rejected", decided_at: at("11:03"), approvers: [], rejected_by: { id: "u-li", name: "李明", at: at("11:03") } } },
   "PRP-94": { status: "rejected" },
   "PRP-92": { status: "expired" },
+  // A silence-like proposal whose impact is a long server sentence.
+  "PRP-96": { impact: "Matching alerts for this application and environment are silenced for 1 h; notifications resume when it ends, or earlier if a separate approver cancels it." },
   // Approved, then one approver withdrew the approval: the execution was refused.
   "PRP-95": { status: "approved", decision: { state: "approved", decided_at: at("10:20"), approvers: [{ id: "u-li", name: "李明", method: "passkey", at: at("10:18") }, { id: "u-zhou", name: "周航", method: "passkey", at: at("10:20") }], rejected_by: null, revoked: { id: "u-zhou", name: "周航", at: at("10:24") } } },
 };

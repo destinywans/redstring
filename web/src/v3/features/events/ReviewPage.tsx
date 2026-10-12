@@ -123,7 +123,10 @@ export default function ReviewPage() {
               </Muted>
               <Badge tone={risk[p.risk][0]}>{risk[p.risk][1]}</Badge>
               {/* A rollback's or alert rule's impact is a sentence; it gets its own card below. */}
-              {!p.rollback && !p.alert_rule && <Badge>{p.impact}</Badge>}
+              {/* A long impact sentence (e.g. a silence's) wraps inside the badge instead of running past the column. */}
+              {!p.rollback && !p.alert_rule && (
+                <Badge style={{ height: "auto", minHeight: 20, padding: "2px 7px", whiteSpace: "normal", flex: "0 1 auto", lineHeight: 1.45 }}>{p.impact}</Badge>
+              )}
               {p.reversible && <Badge tone="ok">{tx("可回退", "Reversible")}</Badge>}
             </Row>
           </Col>

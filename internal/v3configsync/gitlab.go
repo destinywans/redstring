@@ -3,6 +3,8 @@ package v3configsync
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,6 +30,12 @@ type Config struct {
 	BranchPrefix      string
 	TokenFile         string
 	AllowLoopbackHTTP bool
+	// CAFile optionally names a PEM CA bundle for a GitLab behind an
+	// internal CA (PA-91). With it this client trusts only that bundle; the
+	// host name is still verified. It must be an absolute path to a regular,
+	// non-symlink file that neither group nor others can write, and only
+	// with HTTPS.
+	CAFile string
 }
 
 type MR struct {
@@ -166,10 +175,49 @@ func NewGitLabClient(config Config) (*GitLabClient, error) {
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	if config.CAFile != "" {
+		if u.Scheme != "https" {
+			return nil, errors.New("GitLab CA file is only for an HTTPS GitLab")
+		}
+		pool, err := gitLabCAPool(config.CAFile)
+		if err != nil {
+			return nil, err
+		}
+		transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	}
 	return &GitLabClient{config: config, base: u, token: token, mrLabel: promotionLabel, http: &http.Client{
 		Timeout: 8 * time.Second, Transport: transport,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}, nil
+}
+
+// gitLabCAPool reads a CA bundle that only its owner can change.
+func gitLabCAPool(path string) (*x509.CertPool, error) {
+	if !filepath.IsAbs(path) || strings.ContainsAny(path, "\r\n") {
+		return nil, errors.New("GitLab CA file path must be absolute")
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 || info.Size() < 1 || info.Size() > 1<<20 {
+		return nil, errors.New("GitLab CA file must be a regular file of at most 1 MiB that neither group nor others can write")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, errors.New("cannot read GitLab CA file")
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil || !os.SameFile(info, opened) || !opened.Mode().IsRegular() || opened.Mode().Perm()&0o022 != 0 {
+		return nil, errors.New("GitLab CA file changed during opening")
+	}
+	pem, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
+	if err != nil || len(pem) > 1<<20 {
+		return nil, errors.New("cannot read GitLab CA file")
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, errors.New("GitLab CA file holds no PEM certificate")
+	}
+	return pool, nil
 }
 
 func validBranch(s string) bool {

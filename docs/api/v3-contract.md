@@ -46,6 +46,8 @@
 | `text.delta` | 向第 `index` 个 `text` 部件追加 `delta` |
 | `message.completed` | 结束，前端关闭 EventSource |
 
+**工具调用前的过程句（PA-92）**：模型被要求按请求语言作答、调用工具前不写过程说明（PA-77），但仍可能写出“我先确认服务键与可读来源。”这类句子。事件流只能追加，因此运行时先按轮暂存文本：一轮文本出现第二行或超过 160 字才开始推送；该轮以工具调用结束且仍是单行短句时整句丢弃，不进入 `text.delta` 与保存的消息；最后一轮（不再调用工具）总是完整推送，首句也不删。工具调用前已推送的较长正文保留，后一轮正文与它之间补一个空行。
+
 **按轮选择模型（v4）**：请求体可带 `model`（`provider:model`，来自 `GET /models`）与 `reasoning`（该模型声明的档位 id）；缺省时用 `GET /models` 的 `default`。一轮只用一个模型，回复进行中切换只影响下一轮。`message.completed.run` 仅在取得可信模型用量时出现；存在时才记录 `model_id`、`model`、`reasoning`、`reasoning_label`、`brand`，不能为缺失用量补零。冻结前端先经 `POST /uploads` 上传，再以 `attachments: Upload[]` 随消息提交。后端在接受事务中复核本人、当前环境、完整引用及内容，将粘贴和安全 UTF-8 文本文件（`.txt/.log/.conf/.toml/.md/.csv/.json/.yaml/.yml`）存为有界私有快照；符合安全 URL 规则的公开 HTTPS Markdown 链接（不超过 1000 字节、无查询/片段、只用 443 端口）在接受前安全抓取一次并冻结正文，重试及后续回合不重新抓取。PNG/JPEG/GIF/WebP 图片和 PDF 只交给明确支持相应媒体输入的 OpenAI Responses 模型，原始字节在同一事务保存为私有媒体快照；对外消息及 SSE 只返回附件引用，不返回正文或媒体字节。无效或越界引用返回 `422 invalid_attachment`，不支持的媒体/模型或不可公开读取的链接在建回合前明确 422。上传接口允许更宽的 HTTP/HTTPS URL，上传成功不保证链接可用于发送；内部 Grafana/Kibana/GitLab 链接也不能当作公开 Markdown 读取。超出来源、媒体或已知模型预算返回 413，上游链接暂时不可用返回 503；已接受回合的供应商错误保留失败状态并可重试。历史媒体及文本在后续回合按快照恢复，模型切换时也先检查能力与已知预算；媒体 token 成本和完整系统/工具输入仍以供应商为准，可能在接受后失败。迁移 `086_v3_conversation_attachment_context.sql` 不将旧引用推断为已读正文；`133_v3_conversation_media_snapshot.sql` 保存新媒体快照。冻结前端的粘贴展示别名现可按严格格式规范化；文件上传 XHR 仍缺环境头，页面附件发送与错误恢复未验收。`POST` 仅按后端处理、鉴权、契约和定向检查计为 `implemented`；SSE 按其独立读取语义判断，不表示真实供应商或整页已验收。
 
 调查画布节点对话仍规划复用富消息部件与事件；当前通用画布节点 `POST /canvases/{id}/nodes/{node}/messages` 是持久化同步 `{ reply }`，不使用上述 SSE 流。

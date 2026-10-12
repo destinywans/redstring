@@ -248,3 +248,78 @@ func TestRuntimeFinalRoundOnlyAndLanguage(t *testing.T) {
 		})
 	}
 }
+
+// runToolPreambleRounds streams texts as successive model rounds, every round
+// but the last calling a tool, with DropToolPreamble set.
+func runToolPreambleRounds(t *testing.T, api string, texts []string) (answer, streamed string) {
+	t.Helper()
+	var calls atomic.Int32
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		i := int(calls.Add(1)) - 1
+		if i >= len(texts) {
+			t.Error("unexpected extra model call")
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		writeToolRound(w, api, texts[i], i < len(texts)-1, i)
+	}))
+	defer s.Close()
+	kind := map[string]string{"messages": "claude", "ollama": "ollama"}[api]
+	if kind == "" {
+		kind = "openai"
+	}
+	r, err := New(Config{Providers: []Provider{{ID: "test", Kind: kind, API: api, Model: "test-model", BaseURL: s.URL}},
+		HTTPClient: s.Client(), MaxCalls: len(texts), Timeout: 10 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	answer, err = r.Run(context.Background(), Request{ModelID: "test", Messages: []Message{{Role: "user", Content: "最近 2 小时有哪些部署？"}},
+		Language: "zh", DropToolPreamble: true,
+		Tools: []EvidenceTool{{Name: "read_health", Description: "health", Read: func(context.Context, string) (Evidence, error) {
+			return Evidence{Content: "TOOL_RESULT_NOT_ASSISTANT_TEXT"}, nil
+		}}}}, func(e Event) error {
+		if e.Type == "delta" {
+			out.WriteString(e.Delta)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if answer != out.String() {
+		t.Fatalf("answer differs from the stream: answer=%q streamed=%q", answer, out.String())
+	}
+	return answer, out.String()
+}
+
+// PA-92: a chat answer no longer starts with the process sentence the model
+// wrote before its tool call ("我先确认服务键与可读来源。## 结论…"), while
+// the final round, its first sentence included, is shown whole, and text
+// before a tool call that reads as an answer is kept, set apart by a blank
+// line. Every wire protocol, streamed or not.
+func TestRuntimeDropsToolPreambleKeepsAnswer(t *testing.T) {
+	long := strings.Repeat("错误率在修订 8 之后升高，", 15) + "需要读取部署记录。"
+	for _, c := range []struct {
+		name  string
+		texts []string
+		want  string
+	}{
+		{"process sentences before tools", []string{"我先确认服务键与可读来源。", "我再读一次部署记录。\n", "## 结论：无法回答\n\n原因是 GitLab 来源不可读。"},
+			"## 结论：无法回答\n\n原因是 GitLab 来源不可读。"},
+		{"short conclusion is the final round", []string{"我先查一下。", "结论：最近 2 小时没有部署。"}, "结论：最近 2 小时没有部署。"},
+		{"final round starting like a process sentence", []string{"我先查一下。", "我先说结论：没有部署。\n\n依据是部署记录为空。"},
+			"我先说结论：没有部署。\n\n依据是部署记录为空。"},
+		{"long text before a tool", []string{long, "## 结论\n\n部署后错误率升高。"}, long + "\n\n## 结论\n\n部署后错误率升高。"},
+		{"several lines before a tool", []string{"观测到两点：\n- 错误率升高\n", "## 结论\n\n部署后错误率升高。"},
+			"观测到两点：\n- 错误率升高\n## 结论\n\n部署后错误率升高。"},
+	} {
+		for _, api := range []string{"chat_completions", "messages", "responses", "ollama"} {
+			t.Run(c.name+"/"+api, func(t *testing.T) {
+				if _, streamed := runToolPreambleRounds(t, api, c.texts); streamed != c.want {
+					t.Fatalf("streamed=%q want=%q", streamed, c.want)
+				}
+			})
+		}
+	}
+}

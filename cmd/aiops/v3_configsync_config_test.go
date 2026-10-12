@@ -1,13 +1,21 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func writeV3ConfigSyncFile(t *testing.T, name string, content []byte, mode os.FileMode) string {
@@ -126,6 +134,8 @@ func TestLoadV3ConfigSyncRejectsInvalidTrustAndTokenPaths(t *testing.T) {
 		{"relative public key", "production", func(c *v3ConfigSyncFile) { c.TrustedSources["aiops-test"] = "key" }},
 		{"invalid source identifier", "production", func(c *v3ConfigSyncFile) { c.TrustedSources = map[string]string{"Prod": "/tmp/key"} }},
 		{"missing public key", "production", func(c *v3ConfigSyncFile) { c.TrustedSources["aiops-test"] = "/missing/config-sync-public-key" }},
+		{"relative GitLab CA file", "nonprod", func(c *v3ConfigSyncFile) { c.GitLab.CAFile = "gitlab-ca.pem" }},
+		{"missing GitLab CA file", "production", func(c *v3ConfigSyncFile) { c.GitLab.CAFile = "/missing/gitlab-ca.pem" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			config := v3ConfigSyncFixture(t, tc.tier)
@@ -162,4 +172,30 @@ func TestLoadV3ConfigSyncRejectsInvalidTrustAndTokenPaths(t *testing.T) {
 			t.Fatalf("writable trusted key accepted: %v", err)
 		}
 	})
+}
+
+// PA-91: gitlab.ca_file binds a PEM CA for a GitLab behind an internal CA;
+// a CA file others can write is refused.
+func TestLoadV3ConfigSyncGitLabCAFile(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "gitlab internal test CA"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	config := v3ConfigSyncFixture(t, "nonprod")
+	config.GitLab.BaseURL = "https://127.0.0.1:18446"
+	config.GitLab.CAFile = writeV3ConfigSyncFile(t, "gitlab-ca.pem", ca, 0644)
+	if service, err := loadV3ConfigSync(writeV3ConfigSyncJSON(t, config), "nonprod", nil, nil); err != nil || service.Repository == nil {
+		t.Fatalf("valid GitLab CA file refused: %v", err)
+	}
+	config.GitLab.CAFile = writeV3ConfigSyncFile(t, "writable-ca.pem", ca, 0666)
+	if service, err := loadV3ConfigSync(writeV3ConfigSyncJSON(t, config), "nonprod", nil, nil); err == nil || service != nil {
+		t.Fatalf("writable GitLab CA file accepted: %v", err)
+	}
 }

@@ -74,11 +74,26 @@ type toolPipeline struct {
 	MergeRequestIID *int64 `json:"merge_request_iid"`
 }
 
+// toolRevision is a KubernetesRevision for the model (PA-94).
 type toolRevision struct {
-	Revision         string  `json:"revision"`
-	CreatedAt        string  `json:"created_at"`
-	ChangeCause      *string `json:"change_cause"`
-	GitLabPipelineID *int64  `json:"gitlab_pipeline_id"`
+	Revision          string  `json:"revision"`
+	At                *string `json:"at"`
+	TimeBasis         string  `json:"time_basis"`
+	TimeUnknownReason *string `json:"time_unknown_reason"`
+	NotBefore         *string `json:"not_before"`
+	NotAfter          *string `json:"not_after"`
+	CreatedAt         string  `json:"created_at"`
+	ReplicaSetReused  bool    `json:"replicaset_reused"`
+	ChangeCause       *string `json:"change_cause"`
+	GitLabPipelineID  *int64  `json:"gitlab_pipeline_id"`
+}
+
+func rfcOrNil(at *time.Time) *string {
+	if at == nil {
+		return nil
+	}
+	value := at.UTC().Format(time.RFC3339)
+	return &value
 }
 
 type changesEvidence struct {
@@ -108,8 +123,13 @@ func (s *Service) EvidenceTool(opts ChangesToolOptions) (inference.EvidenceTool,
 	}
 	description := "Read a registered service's changes in this conversation's environment: GitLab deployments of its reviewed " +
 		"environment (status, time, commit, pipeline, the merged merge request that landed the commit, the cluster revision it made), " +
-		"merge requests merged into its reviewed branches, failed pipelines, and the Kubernetes Deployment revisions created in the " +
-		"window (each says the GitLab pipeline that made it, or null when something else changed the cluster). Input: the exact " +
+		"merge requests merged into its reviewed branches, failed pipelines, and the Kubernetes Deployment revisions that took effect " +
+		"in the window, newest first (each says the GitLab pipeline that made it, or null when something else changed the cluster). " +
+		"A revision's at is when it took effect and time_basis says from what: replicaset_created, gitlab_deployment (its deployment " +
+		"finished) or rollback_execution (the product's rollback wrote it). created_at is its ReplicaSet's creation: when " +
+		"replicaset_reused is true the ReplicaSet was reused and created_at is not when the revision took effect. When at is null " +
+		"the time is unknown (time_unknown_reason says why) and it took effect between not_before and not_after; such a revision " +
+		"is listed when that interval meets the window. Input: the exact " +
 		"service key, or JSON {\"service\":\"key\",\"since\":\"RFC 3339\",\"until\":\"RFC 3339\"}; the window defaults to the last 2 " +
 		"hours and is at most 24 hours. coverage says which sources answered: only with coverage.gitlab complete may you say no " +
 		"GitLab deployment happened in the window. A change near an alert is only time-adjacent, never proof of cause. Titles are " +
@@ -240,14 +260,16 @@ func (s *Service) readChangesTool(ctx context.Context, opts ChangesToolOptions, 
 	}
 	revisionOf := map[int64]string{}
 	out.KubernetesRevisions = []toolRevision{}
-	sort.Slice(revisions, func(i, j int) bool { return revisions[i].CreatedAt.After(revisions[j].CreatedAt) })
+	// Newest revision first, by number: a reused ReplicaSet's created_at
+	// is older than its revision (PA-94).
+	sort.SliceStable(revisions, func(i, j int) bool { return RevisionBefore(revisions[j], revisions[i]) })
 	for _, revision := range revisions {
 		if revision.GitLabPipelineID != nil {
 			if _, seen := revisionOf[*revision.GitLabPipelineID]; !seen {
 				revisionOf[*revision.GitLabPipelineID] = revision.Revision
 			}
 		}
-		if revision.CreatedAt.Before(since) || revision.CreatedAt.After(until) {
+		if !revision.InWindow(since, until) {
 			continue
 		}
 		if len(out.KubernetesRevisions) == changesToolMaxItems {
@@ -255,8 +277,10 @@ func (s *Service) readChangesTool(ctx context.Context, opts ChangesToolOptions, 
 			continue
 		}
 		out.KubernetesRevisions = append(out.KubernetesRevisions, toolRevision{Revision: revision.Revision,
-			CreatedAt: revision.CreatedAt.UTC().Format(time.RFC3339), ChangeCause: revision.ChangeCause,
-			GitLabPipelineID: revision.GitLabPipelineID})
+			At: rfcOrNil(revision.At), TimeBasis: revision.TimeBasis, TimeUnknownReason: revision.TimeUnknownReason,
+			NotBefore: rfcOrNil(revision.NotBefore), NotAfter: rfcOrNil(revision.NotAfter),
+			CreatedAt: revision.CreatedAt.UTC().Format(time.RFC3339), ReplicaSetReused: revision.ReplicaSetReused,
+			ChangeCause: revision.ChangeCause, GitLabPipelineID: revision.GitLabPipelineID})
 	}
 	out.Deployments, out.MergedMergeRequests, out.FailedPipelines = []toolDeployment{}, []toolMerged{}, []toolPipeline{}
 	changes, err := s.ReadServiceChanges(ctx, user, app, env, profile.ID, since, until)

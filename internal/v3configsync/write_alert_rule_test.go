@@ -2,6 +2,7 @@ package v3configsync
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -265,5 +266,54 @@ func TestAlertRuleRefusalAfterAuthorization(t *testing.T) {
 	var reserved int
 	if err = s.DB.QueryRow(t.Context(), `SELECT count(*) FROM v3_config_exports`).Scan(&reserved); err != nil || reserved != 0 {
 		t.Fatalf("a refused rule reached the ledger: %d %v", reserved, err)
+	}
+}
+
+// PA-100: a kind export carries the application key in a schema 3 manifest;
+// an earlier format-1 record of the same source is history, not a replay,
+// and an application without a key cannot be exported.
+func TestKindExportCarriesApplicationKey(t *testing.T) {
+	s := isolatedConfigStore(t)
+	ctx := t.Context()
+	if _, err := s.DB.Exec(ctx, `INSERT INTO v3_application_environments(application_id,environment_id)
+ VALUES('app-a','test') ON CONFLICT DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	rule, id, bind := alertFixture()
+	resolver, err := NewAlertRuleResolver(alertRuleSourceStub{rules: []v3rulemodel.ObservedRule{rule}}, []v3rulemodel.RuleGroupBinding{bind})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{DB: s.DB, Access: &agentPromotionAccess{}, AlertRules: resolver, Repository: &fakeRepository{},
+		SourceInstanceID: "aiops-test", SigningKey: testSigningKey()}
+	first, _, err := service.reserveKindExport(ctx, core.User{ID: "owner"}, "alert_rule", "test", id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m readManifestV2
+	if err = json.Unmarshal(first.Payload, &m); err != nil || m.Schema != readManifestKeyed || m.ApplicationKey != "checkout-api" ||
+		m.ApplicationID != "app-a" {
+		t.Fatalf("manifest: %+v %v", m, err)
+	}
+	if _, err = m.verify(first.ID, map[string]ed25519.PublicKey{"aiops-test": testSigningKey().Public().(ed25519.PublicKey)}); err != nil {
+		t.Fatalf("keyed manifest does not verify: %v", err)
+	}
+	// The same source exported before PA-100.
+	if _, err = s.DB.Exec(ctx, `UPDATE v3_config_exports SET export_format=1,state='exported',mr_iid=3,mr_url='https://gitlab.example/mr/3',lease_until=NULL
+ WHERE id=$1`, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	again, _, err := service.reserveKindExport(ctx, core.User{ID: "owner"}, "alert_rule", "test", id)
+	if err != nil || again.ID == first.ID || again.State == "exported" {
+		t.Fatalf("re-export replayed the old record: %+v %v", again, err)
+	}
+	if _, err = s.DB.Exec(ctx, `UPDATE applications SET key='' WHERE id='app-a'`); err != nil {
+		t.Fatal(err)
+	}
+	other := rule
+	other.Expression = "sum(rate(http_errors_total[5m])) > 20"
+	service.AlertRules, _ = NewAlertRuleResolver(alertRuleSourceStub{rules: []v3rulemodel.ObservedRule{other}}, []v3rulemodel.RuleGroupBinding{bind})
+	if _, _, err = service.reserveKindExport(ctx, core.User{ID: "owner"}, "alert_rule", "test", id); !errors.Is(err, errApplicationKeyMissing) {
+		t.Fatalf("application without a key: %v", err)
 	}
 }

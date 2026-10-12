@@ -22072,7 +22072,7 @@
             }
           },
           "422": {
-            "description": "Invalid request, or a source object outside the export contract, refused before any export record or GitLab call (PA-96, PA-97): template_has_description, template_retained_content, template_private_runbooks, template_structure_invalid, alert_rule_expression_unsafe, alert_rule_label_not_exportable, alert_rule_not_exportable or artifact_ref_not_pinned. An alert rule reason is given only after alert_rules.manage on its application or owner team.",
+            "description": "Invalid request, or a source object outside the export contract, refused before any export record or GitLab call (PA-96, PA-97): template_has_description, template_retained_content, template_private_runbooks, template_structure_invalid, alert_rule_expression_unsafe, alert_rule_label_not_exportable, alert_rule_not_exportable, artifact_ref_not_pinned, or application_key_missing (the application has no key to match it in production, PA-100). An alert rule reason is given only after alert_rules.manage on its application or owner team.",
             "content": {
               "application/json": {
                 "schema": {
@@ -22189,7 +22189,7 @@
             }
           },
           "422": {
-            "description": "Invalid input",
+            "description": "Invalid MR id, or the import cannot map the application (PA-100): application_not_registered (production has no active application with the manifest's application_key registered in prod) or promotion_reexport_required (a schema 2 manifest without application_key; export the object again from non-production).",
             "content": {
               "application/json": {
                 "schema": {
@@ -22199,7 +22199,7 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Dependency unavailable or the merged source cannot be verified; merge_request_not_ready while GitLab still processes a just-merged MR (retry shortly).",
             "content": {
               "application/json": {
                 "schema": {
@@ -68072,8 +68072,10 @@
               "runbook",
               "alert_rule",
               "agent_version",
-              "template"
-            ]
+              "template",
+              "unknown"
+            ],
+            "description": "unknown only with status verifying"
           },
           "status": {
             "type": "string",
@@ -68081,8 +68083,10 @@
               "pending",
               "imported",
               "exported",
-              "merged"
-            ]
+              "merged",
+              "verifying"
+            ],
+            "description": "verifying: a production candidate GitLab is still processing just after its merge; nothing is read from it until it verifies (PA-100)"
           }
         },
         "additionalProperties": false,
@@ -78855,6 +78859,23 @@
               "null"
             ],
             "description": "The GitLab deployment of the window whose pipeline the change cause names; null when none"
+          },
+          "time_basis": {
+            "type": "string",
+            "enum": [
+              "replicaset_created",
+              "gitlab_deployment",
+              "rollback_execution"
+            ],
+            "description": "What at comes from (PA-94)"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The ReplicaSet's creation"
+          },
+          "replicaset_reused": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false,
@@ -78866,7 +78887,74 @@
           "basis",
           "revision",
           "change_cause",
-          "gitlab_deployment_id"
+          "gitlab_deployment_id",
+          "time_basis",
+          "created_at",
+          "replicaset_reused"
+        ]
+      },
+      "V3IncidentUntimedRevision": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "kubernetes_revision"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "change_cause": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "time_unknown_reason": {
+            "type": "string",
+            "enum": [
+              "replicaset_reused",
+              "change_cause_stale",
+              "gitlab_deployment_not_found",
+              "gitlab_deployment_unfinished",
+              "gitlab_unavailable",
+              "rollback_execution_not_found",
+              "rollback_ledger_unavailable",
+              "out_of_order"
+            ]
+          },
+          "not_before": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "not_after": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The ReplicaSet's creation, not when the revision took effect"
+          },
+          "replicaset_reused": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id",
+          "revision",
+          "change_cause",
+          "time_unknown_reason",
+          "not_before",
+          "not_after",
+          "created_at",
+          "replicaset_reused"
         ]
       },
       "V3IncidentChanges": {
@@ -78916,6 +79004,13 @@
               ]
             }
           },
+          "untimed_revisions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/V3IncidentUntimedRevision"
+            },
+            "description": "Revisions whose time is unknown and whose not_before..not_after meets the window; not on the timeline (PA-94)"
+          },
           "coverage": {
             "type": "object",
             "properties": {
@@ -78962,6 +79057,7 @@
           "alert_started_at",
           "window",
           "items",
+          "untimed_revisions",
           "coverage",
           "note",
           "unavailable"
@@ -80614,6 +80710,127 @@
                   "status",
                   "upstream_id",
                   "unavailable"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decision": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "rejected",
+                      "expired"
+                    ],
+                    "description": "expired: approved, but the approval lapsed before any executor took it up"
+                  },
+                  "decided_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "approvers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string",
+                          "description": "Display name, or the account ID without one"
+                        },
+                        "method": {
+                          "type": "string",
+                          "enum": [
+                            "passkey"
+                          ]
+                        },
+                        "at": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "name",
+                        "method",
+                        "at"
+                      ]
+                    }
+                  },
+                  "rejected_by": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "name",
+                          "at"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "revoked": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "name",
+                          "at"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "state",
+                  "decided_at",
+                  "approvers",
+                  "rejected_by",
+                  "revoked"
                 ]
               },
               {
@@ -87974,6 +88191,99 @@
           "deployment_ids"
         ]
       },
+      "V3KubernetesRevision": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The ReplicaSet's creation; for a reused ReplicaSet not when this revision took effect (PA-94)"
+          },
+          "change_cause": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gitlab_pipeline_id": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "replicaset_reused": {
+            "type": "boolean",
+            "description": "The Deployment returned to this ReplicaSet's template; its revision number moved on, its creation did not"
+          },
+          "at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the revision took effect; null when unknown"
+          },
+          "time_basis": {
+            "type": "string",
+            "enum": [
+              "replicaset_created",
+              "gitlab_deployment",
+              "rollback_execution",
+              "unknown"
+            ],
+            "description": "replicaset_created: a new ReplicaSet's creation; gitlab_deployment: the finish of the GitLab deployment its change cause names (else its job's); rollback_execution: the product rollback's applied step"
+          },
+          "time_unknown_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "replicaset_reused",
+              "change_cause_stale",
+              "gitlab_deployment_not_found",
+              "gitlab_deployment_unfinished",
+              "gitlab_unavailable",
+              "rollback_execution_not_found",
+              "rollback_ledger_unavailable",
+              "out_of_order",
+              null
+            ]
+          },
+          "not_before": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "With at null: the latest time of a lower revision, or the ReplicaSet's creation"
+          },
+          "not_after": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "With at null: the earliest time of a higher revision, or when it was read"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "revision",
+          "created_at",
+          "change_cause",
+          "gitlab_pipeline_id",
+          "replicaset_reused",
+          "at",
+          "time_basis",
+          "time_unknown_reason",
+          "not_before",
+          "not_after"
+        ]
+      },
       "V3GitLabChangesView": {
         "type": "object",
         "properties": {
@@ -88147,35 +88457,7 @@
               {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "properties": {
-                    "revision": {
-                      "type": "string"
-                    },
-                    "created_at": {
-                      "type": "string",
-                      "format": "date-time"
-                    },
-                    "change_cause": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "gitlab_pipeline_id": {
-                      "type": [
-                        "integer",
-                        "null"
-                      ]
-                    }
-                  },
-                  "additionalProperties": false,
-                  "required": [
-                    "revision",
-                    "created_at",
-                    "change_cause",
-                    "gitlab_pipeline_id"
-                  ]
+                  "$ref": "#/components/schemas/V3KubernetesRevision"
                 }
               },
               {

@@ -38,6 +38,9 @@ func TestReadServiceChangesTool(t *testing.T) {
 		return []KubernetesRevision{
 			{Revision: "22", CreatedAt: time.Now().Add(-29 * time.Minute), ChangeCause: &cause},
 			{Revision: "23", CreatedAt: time.Now().Add(-5 * time.Minute)},
+			// PA-94: 24 reused a ReplicaSet created long ago, without a
+			// cause: after 23, so listed by its bounds, with no time.
+			{Revision: "24", CreatedAt: time.Now().Add(-40 * time.Hour), ReplicaSetReused: true},
 			{Revision: "9", CreatedAt: time.Now().Add(-30 * time.Hour)}}, nil
 	}
 	tool := f.tool(t)
@@ -60,11 +63,20 @@ func TestReadServiceChangesTool(t *testing.T) {
 		*got.Deployments[0].KubernetesRevision != "22" || got.Deployments[1].KubernetesRevision != nil {
 		t.Fatalf("deployments: %+v", got.Deployments)
 	}
-	// Revision 23 was made by something else; revision 9 is outside the
-	// default two hours.
-	if len(got.KubernetesRevisions) != 2 || got.KubernetesRevisions[0].Revision != "23" ||
-		got.KubernetesRevisions[0].GitLabPipelineID != nil || got.KubernetesRevisions[1].GitLabPipelineID == nil {
+	// Newest first by number. Revision 24 has no known time; 23 was made by
+	// something else; revision 9 is outside the default two hours.
+	if len(got.KubernetesRevisions) != 3 || got.KubernetesRevisions[1].Revision != "23" ||
+		got.KubernetesRevisions[1].GitLabPipelineID != nil || got.KubernetesRevisions[2].GitLabPipelineID == nil ||
+		got.KubernetesRevisions[1].At == nil || got.KubernetesRevisions[1].TimeBasis != TimeBasisReplicaSetCreated {
 		t.Fatalf("revisions: %+v", got.KubernetesRevisions)
+	}
+	if r := got.KubernetesRevisions[0]; r.Revision != "24" || r.At != nil || r.TimeBasis != TimeBasisUnknown || !r.ReplicaSetReused ||
+		r.TimeUnknownReason == nil || *r.TimeUnknownReason != "replicaset_reused" || r.NotBefore == nil ||
+		*r.NotBefore != got.KubernetesRevisions[1].CreatedAt || r.NotAfter == nil {
+		t.Fatalf("untimed revision: %+v", r)
+	}
+	if !strings.Contains(tool.Description, "created_at is not when the revision took effect") || !strings.Contains(tool.Description, "not_before") {
+		t.Fatalf("tool description: %s", tool.Description)
 	}
 	if len(got.MergedMergeRequests) != 1 || got.MergedMergeRequests[0].IID != 4 || len(got.FailedPipelines) != 2 {
 		t.Fatalf("merge requests and pipelines: %+v %+v", got.MergedMergeRequests, got.FailedPipelines)

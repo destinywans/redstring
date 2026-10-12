@@ -60,12 +60,32 @@ type incidentDeploymentItem struct {
 }
 
 // incidentRevisionItem is a cluster revision; GitLabDeploymentID is null
-// when no GitLab deployment of the window made it.
+// when no GitLab deployment of the window made it. Its at is when it took
+// effect, from TimeBasis; CreatedAt is its ReplicaSet's creation (PA-94).
 type incidentRevisionItem struct {
 	incidentChange
 	Revision           string  `json:"revision"`
 	ChangeCause        *string `json:"change_cause"`
 	GitLabDeploymentID *int64  `json:"gitlab_deployment_id"`
+	TimeBasis          string  `json:"time_basis"`
+	CreatedAt          string  `json:"created_at"`
+	ReplicaSetReused   bool    `json:"replicaset_reused"`
+}
+
+// incidentUntimedRevision is a revision whose time is unknown and that took
+// effect between NotBefore and NotAfter, an interval meeting the window. It
+// is listed apart, not placed on the timeline by its ReplicaSet's creation
+// (PA-94).
+type incidentUntimedRevision struct {
+	Kind              string  `json:"kind"`
+	ID                string  `json:"id"`
+	Revision          string  `json:"revision"`
+	ChangeCause       *string `json:"change_cause"`
+	TimeUnknownReason string  `json:"time_unknown_reason"`
+	NotBefore         string  `json:"not_before"`
+	NotAfter          string  `json:"not_after"`
+	CreatedAt         string  `json:"created_at"`
+	ReplicaSetReused  bool    `json:"replicaset_reused"`
 }
 
 type incidentChangesView struct {
@@ -75,9 +95,12 @@ type incidentChangesView struct {
 	AlertStartedAt string            `json:"alert_started_at"`
 	Window         map[string]string `json:"window"`
 	Items          []any             `json:"items"`
-	Coverage       map[string]string `json:"coverage"`
-	Note           string            `json:"note"`
-	Unavailable    map[string]string `json:"unavailable"`
+	// UntimedRevisions are revisions of unknown time that may fall in the
+	// window (PA-94).
+	UntimedRevisions []incidentUntimedRevision `json:"untimed_revisions"`
+	Coverage         map[string]string         `json:"coverage"`
+	Note             string                    `json:"note"`
+	Unavailable      map[string]string         `json:"unavailable"`
 }
 
 // incidentChangesWindow parses before and after (Go durations such as 60m or
@@ -176,7 +199,7 @@ func (s *Service) IncidentChanges(w http.ResponseWriter, r *http.Request) {
 	out := incidentChangesView{IncidentID: id, ServiceID: serviceID, EnvironmentID: scope.EnvironmentKey,
 		AlertStartedAt: start.UTC().Format(time.RFC3339),
 		Window:         map[string]string{"start_at": windowStart.Format(time.RFC3339), "end_at": windowEnd.Format(time.RFC3339)},
-		Items:          []any{}, Coverage: map[string]string{}, Note: "time_adjacent_not_causal",
+		Items:          []any{}, UntimedRevisions: []incidentUntimedRevision{}, Coverage: map[string]string{}, Note: "time_adjacent_not_causal",
 		Unavailable: map[string]string{}}
 	user := httpapi.CurrentUser(r)
 	offset := func(at time.Time) int64 { return int64(at.Sub(start) / time.Second) }
@@ -252,13 +275,25 @@ func (s *Service) IncidentChanges(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, revision := range revisions {
-		if revision.CreatedAt.Before(windowStart) || revision.CreatedAt.After(windowEnd) {
+		if !revision.InWindow(windowStart, windowEnd) {
 			continue
 		}
-		item := incidentRevisionItem{incidentChange: incidentChange{Kind: "kubernetes_revision",
-			ID: "kubernetes:" + scope.ApplicationID + ":" + scope.EnvironmentKey + ":" + revision.Revision,
-			At: revision.CreatedAt.UTC().Format(time.RFC3339), OffsetSeconds: offset(revision.CreatedAt), Basis: "time_adjacent"},
-			Revision: revision.Revision, ChangeCause: revision.ChangeCause}
+		id := "kubernetes:" + scope.ApplicationID + ":" + scope.EnvironmentKey + ":" + revision.Revision
+		if revision.At == nil {
+			if revision.NotBefore == nil || revision.NotAfter == nil || revision.TimeUnknownReason == nil {
+				continue
+			}
+			out.UntimedRevisions = append(out.UntimedRevisions, incidentUntimedRevision{Kind: "kubernetes_revision", ID: id,
+				Revision: revision.Revision, ChangeCause: revision.ChangeCause, TimeUnknownReason: *revision.TimeUnknownReason,
+				NotBefore: revision.NotBefore.UTC().Format(time.RFC3339), NotAfter: revision.NotAfter.UTC().Format(time.RFC3339),
+				CreatedAt: revision.CreatedAt.UTC().Format(time.RFC3339), ReplicaSetReused: revision.ReplicaSetReused})
+			continue
+		}
+		at := *revision.At
+		item := incidentRevisionItem{incidentChange: incidentChange{Kind: "kubernetes_revision", ID: id,
+			At: at.UTC().Format(time.RFC3339), OffsetSeconds: offset(at), Basis: "time_adjacent"},
+			Revision: revision.Revision, ChangeCause: revision.ChangeCause, TimeBasis: revision.TimeBasis,
+			CreatedAt: revision.CreatedAt.UTC().Format(time.RFC3339), ReplicaSetReused: revision.ReplicaSetReused}
 		if deploymentID, ok := deploymentOf[revision.Revision]; ok {
 			item.GitLabDeploymentID = &deploymentID
 		}

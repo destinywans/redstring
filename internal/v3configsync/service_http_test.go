@@ -71,7 +71,8 @@ CREATE TABLE v3_role_grants(role_id text NOT NULL,module text NOT NULL,action te
 INSERT INTO rbac_roles(id) VALUES('admin'),('viewer');
 CREATE TABLE teams(id text PRIMARY KEY,name text NOT NULL);
 CREATE TABLE team_members(team_id text NOT NULL,user_id text NOT NULL,PRIMARY KEY(team_id,user_id));
-CREATE TABLE applications(id text PRIMARY KEY,name text NOT NULL,owner_team_id text,archived boolean NOT NULL DEFAULT false);
+CREATE TABLE applications(id text PRIMARY KEY,name text NOT NULL,owner_team_id text,archived boolean NOT NULL DEFAULT false,
+ key text NOT NULL DEFAULT '' UNIQUE);
 CREATE TABLE application_environments(id text PRIMARY KEY,application_id text NOT NULL,key text NOT NULL,
  name text NOT NULL,archived boolean NOT NULL DEFAULT false);
 CREATE TABLE v3_application_environments(application_id text NOT NULL,environment_id text NOT NULL,
@@ -81,7 +82,7 @@ CREATE TABLE v3_effective_role_grants(user_id text NOT NULL,module text NOT NULL
 CREATE TABLE v3_canvas_templates(id text PRIMARY KEY,owner_id text,environment_id text,
  kind text NOT NULL,name text NOT NULL,description text NOT NULL DEFAULT '',nodes jsonb NOT NULL,edges jsonb NOT NULL,
  is_default boolean NOT NULL DEFAULT false,created_at timestamptz NOT NULL DEFAULT now());
-CREATE TABLE management_audit(id bigserial PRIMARY KEY,actor_id text NOT NULL,action text NOT NULL,
+CREATE TABLE management_audit(id bigserial PRIMARY KEY,actor_id text NOT NULL,application_id text NOT NULL DEFAULT '',action text NOT NULL,
  target text NOT NULL,outcome text NOT NULL,changes jsonb NOT NULL DEFAULT '{}');
 CREATE TABLE knowledge_documents(id text PRIMARY KEY,application_id text,title text NOT NULL,body text NOT NULL,
  source text NOT NULL,version integer NOT NULL,content_hash text NOT NULL,created_by text NOT NULL,
@@ -97,7 +98,7 @@ INSERT INTO rbac_platform_administrators(user_id) VALUES('admin');
 INSERT INTO rbac_user_roles(user_id,role_id) VALUES('owner','viewer'),('viewer','viewer'),('admin','admin');
 INSERT INTO teams(id,name) VALUES('team-ops','Operations');
 INSERT INTO team_members(team_id,user_id) VALUES('team-ops','owner');
-INSERT INTO applications(id,name,owner_team_id) VALUES('app-a','App A','team-ops');
+INSERT INTO applications(id,name,owner_team_id,key) VALUES('app-a','App A','team-ops','checkout-api');
 INSERT INTO application_environments(id,application_id,key,name)
  VALUES('app-a-test','app-a','test','Test');
 INSERT INTO sessions(token_hash,user_id,expires_at) VALUES
@@ -130,12 +131,14 @@ VALUES('CT-source','owner','test','plan','Safe plan',
 	if _, err = db.Exec(ctx, string(fenceMigration)); err != nil {
 		t.Fatal(err)
 	}
-	readMigration, err := os.ReadFile("../../migrations/124_v3_config_sync_read_kinds.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = db.Exec(ctx, string(readMigration)); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"124_v3_config_sync_read_kinds.sql", "179_v3_config_export_format.sql"} {
+		migration, err := os.ReadFile("../../migrations/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = db.Exec(ctx, string(migration)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return &store.Store{DB: db}
 }

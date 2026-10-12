@@ -79,10 +79,14 @@ var (
 	// configured web address (PA-98). It is untrusted, and usually means
 	// gitlab.web_url is missing or wrong.
 	ErrMRLinkMismatch = fmt.Errorf("%w: merge request link is not on the configured GitLab web address", ErrUntrusted)
-	ErrListTooLarge   = errors.New("GitLab merge request list exceeds configured bound")
-	branchRE          = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_./-]{0,127}$`)
-	shaRE             = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
-	pathPartRE        = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+	// ErrMRNotPrepared is a merged MR whose changes_count GitLab has not
+	// computed yet, as just after a merge. It is untrusted for now; reading
+	// it again later can verify it.
+	ErrMRNotPrepared = fmt.Errorf("%w: GitLab has not finished processing the merge request", ErrUntrusted)
+	ErrListTooLarge  = errors.New("GitLab merge request list exceeds configured bound")
+	branchRE         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_./-]{0,127}$`)
+	shaRE            = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
+	pathPartRE       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
 )
 
 const promotionLabel = "aiops-config-promotion"
@@ -321,8 +325,14 @@ func (c *GitLabClient) trustedMR(m MR, requireMerged bool) error {
 	// independent changes_count must confirm one changed file before a
 	// single returned diff can be treated as complete. Empty/asynchronous
 	// or capped counts fail closed for a merged MR.
-	if requireMerged && (m.State != "merged" || !shaRE.MatchString(m.MergeCommitSHA) || m.ChangesCount != "1" ||
+	if requireMerged && (m.State != "merged" || !shaRE.MatchString(m.MergeCommitSHA) ||
 		!shaRE.MatchString(m.SourceCommitSHA) || m.Author.ID <= 0 || m.MergedAt.IsZero()) {
+		return ErrUntrusted
+	}
+	if requireMerged && m.ChangesCount == "" {
+		return ErrMRNotPrepared
+	}
+	if requireMerged && m.ChangesCount != "1" {
 		return ErrUntrusted
 	}
 	if m.State != "merged" && m.State != "opened" {

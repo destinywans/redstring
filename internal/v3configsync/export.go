@@ -131,7 +131,7 @@ func (s *Service) reserveExport(ctx context.Context, actor core.User, env, templ
 	_, err = tx.Exec(ctx, `INSERT INTO v3_config_exports
  (id,kind,object_id,environment_id,source_digest,payload,branch,path,project_id,state,actor_id)
  VALUES($1,'template',$2,$3,$4,$5::jsonb,$6,$7,$8,'reserved',$9)
- ON CONFLICT(kind,object_id,environment_id,source_digest) DO NOTHING`,
+ ON CONFLICT(kind,object_id,environment_id,source_digest,export_format) DO NOTHING`,
 		newID, templateID, env, digest, payload, branch, path, s.Repository.ProjectID(), actor.ID)
 	if err != nil {
 		return exportRecord{}, err
@@ -139,7 +139,7 @@ func (s *Service) reserveExport(ctx context.Context, actor core.User, env, templ
 	var record exportRecord
 	err = tx.QueryRow(ctx, `SELECT id,branch,path,project_id,payload,state,COALESCE(mr_iid,0),mr_url,attempt_generation
  FROM v3_config_exports WHERE kind='template' AND object_id=$1 AND environment_id=$2 AND source_digest=$3
- FOR UPDATE`, templateID, env, digest).
+ AND export_format=1 FOR UPDATE`, templateID, env, digest).
 		Scan(&record.ID, &record.Branch, &record.Path, &record.ProjectID, &record.Payload,
 			&record.State, &record.MR, &record.URL, &record.Attempt)
 	if err != nil {

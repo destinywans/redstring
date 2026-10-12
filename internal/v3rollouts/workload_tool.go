@@ -53,11 +53,14 @@ type WorkloadRollout struct {
 }
 
 type WorkloadRevision struct {
-	Revision    string             `json:"revision"`
-	Current     bool               `json:"current"`
-	CreatedAt   *string            `json:"created_at"`
-	ChangeCause *string            `json:"change_cause"`
-	Containers  []v3kube.Container `json:"containers"`
+	Revision string `json:"revision"`
+	Current  bool   `json:"current"`
+	// CreatedAt is the ReplicaSet's creation. For a reused ReplicaSet
+	// (ReplicaSetReused) it is not when this revision took effect (PA-94).
+	CreatedAt        *string            `json:"created_at"`
+	ReplicaSetReused bool               `json:"replicaset_reused"`
+	ChangeCause      *string            `json:"change_cause"`
+	Containers       []v3kube.Container `json:"containers"`
 	// Changes are what rolling back to this revision changes, from the
 	// current template.
 	Changes []WorkloadChange `json:"changes"`
@@ -121,12 +124,16 @@ func (s *Service) ReadWorkload(ctx context.Context, user core.User, app, env str
 			out.Rollout.Progressing = &reason
 		}
 	}
+	reused := map[string]bool{}
+	for _, r := range in.Revisions {
+		reused[r.Revision] = len(r.History) > 0
+	}
 	for _, c := range candidateList(d, in.Revisions) {
 		if len(out.Revisions) == maxWorkloadRevisions {
 			break
 		}
-		r := WorkloadRevision{Revision: c.Revision, Current: c.Current, CreatedAt: c.CreatedAt, Containers: c.Containers,
-			Changes: []WorkloadChange{}}
+		r := WorkloadRevision{Revision: c.Revision, Current: c.Current, CreatedAt: c.CreatedAt, ReplicaSetReused: reused[c.Revision],
+			Containers: c.Containers, Changes: []WorkloadChange{}}
 		if c.ChangeCause != nil {
 			cause := []rune(*c.ChangeCause)
 			if len(cause) > maxWorkloadChangeCause {
@@ -184,7 +191,10 @@ func (s *Service) EvidenceTool(opts WorkloadToolOptions) (inference.EvidenceTool
 			"and the names of changed environment variables; values are never shown): in changes[], from is always the current " +
 			"revision's value and to is that revision's, while the revision's own images are in its containers[]. It also says " +
 			"whether a rollback is possible " +
-			"(rollback.blocked_reason null) and its verification thresholds. Read-only: it cannot roll back; a person proposes a " +
+			"(rollback.blocked_reason null) and its verification thresholds. A revision's created_at is its ReplicaSet's creation: " +
+			"when replicaset_reused is true the ReplicaSet was reused and created_at is not when the revision took effect; for that " +
+			"time use read_service_changes, whose kubernetes_revisions[].at is it, or not_before/not_after when at is null. " +
+			"Read-only: it cannot roll back; a person proposes a " +
 			"rollback. Input: the exact service key or JSON {\"service\":\"key\"}. Errors start with a code: unknown_service, " +
 			"not_configured (no workload registered for the service), source_unavailable (cluster or credential unavailable; retry later).",
 		Read: func(ctx context.Context, input string) (inference.Evidence, error) {

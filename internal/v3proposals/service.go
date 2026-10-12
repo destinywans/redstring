@@ -138,6 +138,9 @@ type Proposal struct {
 	// Execution is null until a second approval allocates an execution
 	// (PA-36); its status and upstream ID come from the executor's records.
 	Execution *ProposalExecution `json:"execution"`
+	// Decision is how it was decided, from the approval records (PA-102);
+	// null while pending.
+	Decision *ProposalDecision `json:"decision"`
 }
 
 // ProposalExecution is a read-only projection of the approval decision and
@@ -567,7 +570,10 @@ func (s *Service) detailTx(ctx context.Context, tx pgx.Tx, v record) (Proposal, 
 			return out, err
 		}
 	}
-	out.Execution, err = executionTx(ctx, tx, v.ID)
+	if out.Execution, err = executionTx(ctx, tx, v.ID); err != nil {
+		return out, err
+	}
+	out.Decision, err = decisionTx(ctx, tx, v, out.Execution)
 	return out, err
 }
 
@@ -771,6 +777,14 @@ func (s *Service) Reject(w http.ResponseWriter, r *http.Request) {
 		v.Status = "rejected"
 	}
 	out.Status = v.Status
+	// The detail was read before the rejection; its decision is this one
+	// (PA-102).
+	decision, err := decisionTx(ctx, tx, v, out.Execution)
+	if err != nil {
+		unavailable(w)
+		return
+	}
+	out.Decision = decision
 	if !commitReview(w, r, tx) {
 		return
 	}

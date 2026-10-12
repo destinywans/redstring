@@ -44,6 +44,7 @@ type Server struct {
 
 type replicaSet struct {
 	revision  int
+	history   []string // earlier revision numbers, as revision-history
 	template  any
 	created   time.Time
 	cause     string
@@ -168,6 +169,8 @@ func (s *Server) rollout(d *deployment, template any, cause string) {
 		cause = annotated
 	}
 	if reused != nil {
+		// Like the controller: the earlier number moves to revision-history.
+		reused.history = append(reused.history, strconv.Itoa(reused.revision))
 		reused.revision = next
 		if cause != "" {
 			reused.cause = cause
@@ -230,6 +233,9 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 				annotations := map[string]any{"deployment.kubernetes.io/revision": strconv.Itoa(rs.revision)}
 				if rs.cause != "" {
 					annotations["kubernetes.io/change-cause"] = rs.cause
+				}
+				if len(rs.history) > 0 {
+					annotations["deployment.kubernetes.io/revision-history"] = strings.Join(rs.history, ",")
 				}
 				items = append(items, map[string]any{
 					"metadata": map[string]any{"name": rs.uid, "annotations": annotations, "creationTimestamp": rs.created.Format(time.RFC3339),

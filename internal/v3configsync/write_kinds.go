@@ -161,7 +161,7 @@ func (s *Service) reserveKindExport(ctx context.Context, actor core.User, kind, 
 	if err != nil {
 		return exportRecord{}, "", err
 	}
-	m := readManifestV2{Schema: readManifestVersion, Kind: kind, SourceID: sourceID,
+	m := readManifestV2{Schema: readManifestKeyed, Kind: kind, SourceID: sourceID,
 		SourceInstance: s.SourceInstanceID, SourceEnvironment: env}
 	switch kind {
 	case "runbook":
@@ -182,10 +182,10 @@ func (s *Service) reserveKindExport(ctx context.Context, actor core.User, kind, 
 		return exportRecord{}, "", err
 	}
 	var ownerTeam string
-	err = tx.QueryRow(ctx, `SELECT COALESCE(a.owner_team_id,'') FROM applications a
+	err = tx.QueryRow(ctx, `SELECT COALESCE(a.owner_team_id,''),COALESCE(a.key,'') FROM applications a
  JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
  JOIN application_environments e ON e.application_id=a.id AND e.key=$2 AND NOT e.archived
- WHERE a.id=$1 AND NOT a.archived`, m.ApplicationID, env).Scan(&ownerTeam)
+ WHERE a.id=$1 AND NOT a.archived`, m.ApplicationID, env).Scan(&ownerTeam, &m.ApplicationKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return exportRecord{}, "", store.ErrNotFound
 	}
@@ -204,6 +204,10 @@ func (s *Service) reserveKindExport(ctx context.Context, actor core.User, kind, 
 	}
 	if alertCandidate.Refused != nil {
 		return exportRecord{}, "", alertCandidate.Refused
+	}
+	// Production finds the application by its key (PA-100).
+	if !objectKeyRE.MatchString(m.ApplicationKey) {
+		return exportRecord{}, "", errApplicationKeyMissing
 	}
 	snapshot, _, err := m.snapshot()
 	if err != nil {
@@ -228,11 +232,13 @@ func (s *Service) reserveKindExport(ctx context.Context, actor core.User, kind, 
 		return exportRecord{}, "", err
 	}
 	branch := s.Repository.BranchPrefix() + m.PromotionID
+	// Export format 2 carries the application key (PA-100); an earlier
+	// format-1 record of the same digest is history, not this export.
 	_, err = tx.Exec(ctx, `INSERT INTO v3_config_exports
  (id,kind,object_id,environment_id,application_id,source_version,source_digest,payload,
- branch,path,project_id,state,actor_id)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,'reserved',$12)
- ON CONFLICT(kind,object_id,environment_id,source_digest) DO NOTHING`,
+ branch,path,project_id,state,actor_id,export_format)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,'reserved',$12,2)
+ ON CONFLICT(kind,object_id,environment_id,source_digest,export_format) DO NOTHING`,
 		m.PromotionID, kind, sourceID, env, m.ApplicationID, m.SourceVersion, m.SourceDigest,
 		payload, branch, path, s.Repository.ProjectID(), actor.ID)
 	if err != nil {
@@ -242,7 +248,8 @@ func (s *Service) reserveKindExport(ctx context.Context, actor core.User, kind, 
 	var storedActor, storedApp, storedVersion, storedDigest string
 	err = tx.QueryRow(ctx, `SELECT id,branch,path,project_id,payload,state,COALESCE(mr_iid,0),mr_url,
  attempt_generation,actor_id,COALESCE(application_id,''),COALESCE(source_version,''),source_digest
- FROM v3_config_exports WHERE kind=$1 AND object_id=$2 AND environment_id=$3 AND source_digest=$4 FOR UPDATE`,
+ FROM v3_config_exports WHERE kind=$1 AND object_id=$2 AND environment_id=$3 AND source_digest=$4
+ AND export_format=2 FOR UPDATE`,
 		kind, sourceID, env, m.SourceDigest).Scan(&record.ID, &record.Branch, &record.Path, &record.ProjectID,
 		&record.Payload, &record.State, &record.MR, &record.URL, &record.Attempt,
 		&storedActor, &storedApp, &storedVersion, &storedDigest)
@@ -256,6 +263,7 @@ func (s *Service) reserveKindExport(ctx context.Context, actor core.User, kind, 
 		storedVersion != m.SourceVersion || storedDigest != m.SourceDigest ||
 		summary.Kind != kind || summary.SourceID != sourceID || summary.SourceVersion != m.SourceVersion ||
 		summary.SourceDigest != m.SourceDigest || summary.ApplicationID != m.ApplicationID ||
+		summary.ApplicationKey != m.ApplicationKey ||
 		summary.SourceInstance != s.SourceInstanceID || summary.SourceEnvironment != env ||
 		record.ProjectID != s.Repository.ProjectID() || record.Branch != s.Repository.BranchPrefix()+record.ID ||
 		record.Path != expectedPath {

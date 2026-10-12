@@ -350,8 +350,8 @@ mock("GET", "/changes", ({ query }) => {
     deployments, pipelines, merge_requests: mergeRequests,
     alerts: [{ incident_id: "INC-1042", title: P("checkout-api 5xx 升高", "checkout-api 5xx rising"), href: "/incidents/INC-1042", started_at: at("14:05"), ended_at: at("14:22") }],
     kubernetes_revisions: [
-      { revision: "8", created_at: at("14:20"), change_cause: "lab drill bad-release", gitlab_pipeline_id: null },
-      { revision: "7", created_at: at("14:03"), change_cause: "gitlab pipeline 8812 a3f9c21b", gitlab_pipeline_id: 8812 },
+      { revision: "8", created_at: at("14:20"), change_cause: "lab drill bad-release", gitlab_pipeline_id: null, replicaset_reused: false, at: at("14:20"), time_basis: "replicaset_created", time_unknown_reason: null, not_before: null, not_after: null },
+      { revision: "7", created_at: at("14:03"), change_cause: "gitlab pipeline 8812 a3f9c21b", gitlab_pipeline_id: 8812, replicaset_reused: false, at: at("14:03"), time_basis: "replicaset_created", time_unknown_reason: null, not_before: null, not_after: null },
     ],
     coverage: { gitlab: "complete", alerts: "complete", kubernetes: "history_limited" },
   };

@@ -229,8 +229,14 @@ func decodeDeployment(data []byte) (Deployment, error) {
 
 // Revision is one ReplicaSet the Deployment owns.
 type Revision struct {
-	Revision    string
-	CreatedAt   *time.Time
+	Revision string
+	// CreatedAt is the ReplicaSet's creation. When the Deployment returns to
+	// an earlier template the controller reuses its ReplicaSet with a new
+	// revision number, so CreatedAt is then older than the revision.
+	CreatedAt *time.Time
+	// History is the revision numbers the ReplicaSet had before
+	// (deployment.kubernetes.io/revision-history); nonempty means reused.
+	History     []string
 	ChangeCause string
 	// Template is the ReplicaSet's Pod template without pod-template-hash,
 	// the template a rollback restores.
@@ -287,7 +293,13 @@ func (c *Client) Revisions(ctx context.Context, d Deployment) ([]Revision, error
 		if err != nil {
 			return nil, ErrUnavailable
 		}
-		out = append(out, Revision{Revision: revision, CreatedAt: rs.Metadata.CreationTimestamp,
+		var history []string
+		for _, item := range strings.Split(rs.Metadata.Annotations["deployment.kubernetes.io/revision-history"], ",") {
+			if item = strings.TrimSpace(item); item != "" {
+				history = append(history, item)
+			}
+		}
+		out = append(out, Revision{Revision: revision, CreatedAt: rs.Metadata.CreationTimestamp, History: history,
 			ChangeCause: rs.Metadata.Annotations["kubernetes.io/change-cause"], Template: template, Digest: Digest(template)})
 	}
 	sort.Slice(out, func(i, j int) bool {

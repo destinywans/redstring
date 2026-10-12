@@ -36,6 +36,35 @@ func (s *Service) readAnyImport(ctx context.Context, iid int64) (MR, []byte, Pro
 	return mr, raw, summary, nil
 }
 
+// importTarget maps a verified manifest to this instance's application
+// (PA-100). Instances register applications separately, so their IDs differ
+// and only the key is common: production finds the active application with
+// the manifest's application_key registered in prod. The returned copy names
+// that application; the source's application ID stays in the manifest and
+// the audit as evidence. A schema 2 manifest has no key and must be
+// exported again.
+func importTarget(ctx context.Context, q interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, m readManifestV2) (readManifestV2, error) {
+	if m.Schema != readManifestKeyed || m.ApplicationKey == "" {
+		return m, errReexportRequired
+	}
+	var app string
+	err := q.QueryRow(ctx, `SELECT a.id FROM applications a
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id='prod'
+ JOIN application_environments ae ON ae.application_id=a.id AND ae.key='prod' AND NOT ae.archived
+ WHERE a.key=$1 AND NOT a.archived`, m.ApplicationKey).Scan(&app)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return m, errApplicationNotRegistered
+	}
+	if err != nil {
+		return m, err
+	}
+	target := m
+	target.ApplicationID = app
+	return target, nil
+}
+
 func (s *Service) saveKindImport(ctx context.Context, actor core.User, mr MR, m readManifestV2) error {
 	_, verifyErr := m.verify(m.PromotionID, s.TrustedSources)
 	if m.Kind == "template" || verifyErr != nil ||
@@ -75,6 +104,10 @@ func (s *Service) saveKindImport(ctx context.Context, actor core.User, mr MR, m 
 	if previous && (existingSHA != mr.MergeCommitSHA || existingID != m.PromotionID || existingKind != m.Kind) {
 		return store.ErrConflict
 	}
+	source := m
+	if m, err = importTarget(ctx, tx, m); err != nil {
+		return err
+	}
 	var targetID string
 	switch m.Kind {
 	case "runbook":
@@ -93,7 +126,7 @@ func (s *Service) saveKindImport(ctx context.Context, actor core.User, mr MR, m 
 		if existingTarget != targetID {
 			return store.ErrConflict
 		}
-		if err = s.verifyKindAuditWithTx(ctx, tx, mr, m, targetID, existingActor); err != nil {
+		if err = s.verifyKindAuditWithTx(ctx, tx, mr, m, source.ApplicationID, targetID, existingActor); err != nil {
 			return err
 		}
 		return tx.Commit(ctx)
@@ -108,27 +141,28 @@ func (s *Service) saveKindImport(ctx context.Context, actor core.User, mr MR, m 
 		}
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
- VALUES($1,'v3.config_import.completed',$2,'success',jsonb_build_object(
+	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
+ VALUES($1,$4,'v3.config_import.completed',$2,'success',jsonb_build_object(
  'environment_id','prod','kind',$3::text,'application_id',$4::text,
  'project_id',$5::bigint,'mr_iid',$6::bigint,'merge_sha',$7::text,
  'promotion_id',$8::text,'source_instance',$9::text,'source_environment',$10::text,
- 'source_id',$11::text,'source_version',$12::text,'source_digest',$13::text))`,
+ 'source_id',$11::text,'source_version',$12::text,'source_digest',$13::text,
+ 'application_key',$14::text,'source_application_id',$15::text))`,
 		actor.ID, targetID, m.Kind, m.ApplicationID, s.Repository.ProjectID(), mr.IID,
 		mr.MergeCommitSHA, m.PromotionID, m.SourceInstance, m.SourceEnvironment,
-		m.SourceID, m.SourceVersion, m.SourceDigest)
+		m.SourceID, m.SourceVersion, m.SourceDigest, m.ApplicationKey, source.ApplicationID)
 	if err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
-func (s *Service) verifyKindAuditWithTx(ctx context.Context, tx pgx.Tx, mr MR, m readManifestV2, targetID, actorID string) error {
+func (s *Service) verifyKindAuditWithTx(ctx context.Context, tx pgx.Tx, mr MR, m readManifestV2, sourceApp, targetID, actorID string) error {
 	var exists bool
 	err := tx.QueryRow(ctx, kindAuditSQL, actorID, targetID, m.Kind, m.ApplicationID,
 		strconv.FormatInt(s.Repository.ProjectID(), 10), strconv.FormatInt(mr.IID, 10),
 		mr.MergeCommitSHA, m.PromotionID, m.SourceInstance, m.SourceEnvironment,
-		m.SourceID, m.SourceVersion, m.SourceDigest).Scan(&exists)
+		m.SourceID, m.SourceVersion, m.SourceDigest, m.ApplicationKey, sourceApp).Scan(&exists)
 	if err != nil {
 		return err
 	}
@@ -145,7 +179,8 @@ const kindAuditSQL = `SELECT EXISTS(SELECT 1 FROM management_audit WHERE actor_i
  AND changes->>'mr_iid'=$6 AND changes->>'merge_sha'=$7
  AND changes->>'promotion_id'=$8 AND changes->>'source_instance'=$9
  AND changes->>'source_environment'=$10 AND changes->>'source_id'=$11
- AND changes->>'source_version'=$12 AND changes->>'source_digest'=$13)`
+ AND changes->>'source_version'=$12 AND changes->>'source_digest'=$13
+ AND changes->>'application_key'=$14 AND changes->>'source_application_id'=$15)`
 
 func (s *Service) verifyImportedKind(ctx context.Context, raw []byte, mr MR, kind, targetID, actorID string) error {
 	var m readManifestV2
@@ -155,7 +190,11 @@ func (s *Service) verifyImportedKind(ctx context.Context, raw []byte, mr MR, kin
 	if _, err := m.verify(m.PromotionID, s.TrustedSources); err != nil {
 		return errUntrusted
 	}
-	var err error
+	sourceApp := m.ApplicationID
+	m, err := importTarget(ctx, s.DB, m)
+	if err != nil {
+		return errUntrusted
+	}
 	switch kind {
 	case "runbook":
 		err = s.verifyImportedRunbook(ctx, m, targetID)
@@ -173,7 +212,7 @@ func (s *Service) verifyImportedKind(ctx context.Context, raw []byte, mr MR, kin
 	err = s.DB.QueryRow(ctx, kindAuditSQL, actorID, targetID, m.Kind, m.ApplicationID,
 		strconv.FormatInt(s.Repository.ProjectID(), 10), strconv.FormatInt(mr.IID, 10),
 		mr.MergeCommitSHA, m.PromotionID, m.SourceInstance, m.SourceEnvironment,
-		m.SourceID, m.SourceVersion, m.SourceDigest).Scan(&audited)
+		m.SourceID, m.SourceVersion, m.SourceDigest, m.ApplicationKey, sourceApp).Scan(&audited)
 	if err != nil {
 		return err
 	}

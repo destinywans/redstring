@@ -115,11 +115,26 @@ type alertView struct {
 	Href       string  `json:"href"`
 }
 
+// revisionView is a Kubernetes revision. created_at is its ReplicaSet's
+// creation; at is when the revision took effect, or null with not_before
+// and not_after bounding it (PA-94).
 type revisionView struct {
-	Revision         string  `json:"revision"`
-	CreatedAt        string  `json:"created_at"`
-	ChangeCause      *string `json:"change_cause"`
-	GitLabPipelineID *int64  `json:"gitlab_pipeline_id"`
+	Revision          string  `json:"revision"`
+	CreatedAt         string  `json:"created_at"`
+	ChangeCause       *string `json:"change_cause"`
+	GitLabPipelineID  *int64  `json:"gitlab_pipeline_id"`
+	ReplicaSetReused  bool    `json:"replicaset_reused"`
+	At                *string `json:"at"`
+	TimeBasis         string  `json:"time_basis"`
+	TimeUnknownReason *string `json:"time_unknown_reason"`
+	NotBefore         *string `json:"not_before"`
+	NotAfter          *string `json:"not_after"`
+}
+
+func toRevisionView(r v3changes.KubernetesRevision) revisionView {
+	return revisionView{Revision: r.Revision, CreatedAt: rfc(r.CreatedAt), ChangeCause: r.ChangeCause,
+		GitLabPipelineID: r.GitLabPipelineID, ReplicaSetReused: r.ReplicaSetReused, At: rfcPointer(r.At),
+		TimeBasis: r.TimeBasis, TimeUnknownReason: r.TimeUnknownReason, NotBefore: rfcPointer(r.NotBefore), NotAfter: rfcPointer(r.NotAfter)}
 }
 
 type gitLabCoverage struct {
@@ -275,12 +290,13 @@ func (s *Service) gitLabView(w http.ResponseWriter, r *http.Request, f requestFi
 	out.Coverage.Kubernetes = revisionState
 	if revisionState == "history_limited" {
 		out.KubernetesRevisions = []revisionView{}
+		// A revision whose time is unknown is listed when its bounds meet
+		// the window, with a null at (PA-94).
 		for _, revision := range revisions {
-			if revision.CreatedAt.Before(start) || revision.CreatedAt.After(end) {
+			if !revision.InWindow(start, end) {
 				continue
 			}
-			out.KubernetesRevisions = append(out.KubernetesRevisions, revisionView{Revision: revision.Revision,
-				CreatedAt: rfc(revision.CreatedAt), ChangeCause: revision.ChangeCause, GitLabPipelineID: revision.GitLabPipelineID})
+			out.KubernetesRevisions = append(out.KubernetesRevisions, toRevisionView(revision))
 		}
 	} else {
 		out.Unavailable["kubernetes_revisions"] = revisionState
@@ -496,7 +512,8 @@ func (s *Service) gitLabRevisions(ctx context.Context, current core.User, app, e
 	revisions, err := s.GitLab.ReadRevisions(ctx, current, app, env)
 	switch {
 	case err == nil:
-		sort.Slice(revisions, func(i, j int) bool { return revisions[i].CreatedAt.Before(revisions[j].CreatedAt) })
+		// In the order they took effect (PA-94).
+		sort.SliceStable(revisions, func(i, j int) bool { return v3changes.RevisionBefore(revisions[i], revisions[j]) })
 		return revisions, "history_limited"
 	case errors.Is(err, v3changes.ErrRevisionsNotConfigured):
 		return nil, "not_configured"

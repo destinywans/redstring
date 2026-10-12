@@ -438,6 +438,16 @@ export type SilenceList = { items: Silence[] | null; counts: { active: number; p
 export type Inhibition = { id: string; source: { k: string; v: string }[]; target: { k: string; v: string }[]; equal: string[]; active: boolean; stat: string };
 
 /* ---------------- proposals & executions ---------------- */
+/** How a proposal was decided (PA-102). expired: approved, but the approval lapsed before any executor took it up. */
+export type ProposalDecision = {
+  state: "approved" | "rejected" | "expired";
+  decided_at: string;
+  /** The two counted votes, in vote order; empty for a rejection. */
+  approvers: { id: string; name: string; method: "passkey"; at: string }[];
+  rejected_by: { id: string; name: string; at: string } | null;
+  /** An approval withdrawn after it was given (its execution is refused). */
+  revoked: { id: string; name: string; at: string } | null;
+};
 export type Proposal = {
   id: string;
   title: string;
@@ -461,6 +471,8 @@ export type Proposal = {
   discussion: { author: string; ai?: boolean; time: string; text: string }[];
   /** Null until the second approval; status/upstream_id stay null (not_generated) until the executor records them. */
   execution?: { execution_id: string; approved_at: string; action_kind: string; status: string | null; upstream_id: string | null; unavailable: Unavailable } | null;
+  /** PA-102: from the approval records; null while pending (also with one of two votes). */
+  decision?: ProposalDecision | null;
   /** e.g. kubernetes.deployment.rollback; null for display-only proposals (docs/api/v3-rollback.md §3). */
   action_kind?: string | null;
   rollback?: ProposalRollback | null;
@@ -922,6 +934,48 @@ export type IncidentKubernetesRevision = {
   change_cause: string | null;
   /** The window's GitLab deployment whose pipeline the change cause names; null = not deployed through GitLab (or unknown when GitLab isn't readable). */
   gitlab_deployment_id: number | null;
+  /** What `at` comes from (PA-94). */
+  time_basis: Exclude<RevisionTimeBasis, "unknown">;
+  /** The ReplicaSet's creation; for a reused ReplicaSet not when the revision took effect. */
+  created_at: string;
+  replicaset_reused: boolean;
+};
+/** How a Kubernetes revision's time is known (PA-94). */
+export type RevisionTimeBasis = "replicaset_created" | "gitlab_deployment" | "rollback_execution" | "unknown";
+export type RevisionTimeUnknownReason =
+  | "replicaset_reused"
+  | "change_cause_stale"
+  | "gitlab_deployment_not_found"
+  | "gitlab_deployment_unfinished"
+  | "gitlab_unavailable"
+  | "rollback_execution_not_found"
+  | "rollback_ledger_unavailable"
+  | "out_of_order";
+/** A revision of unknown time that took effect between not_before and not_after, an interval meeting the window: shown apart, "time unknown · between X and Y". */
+export type IncidentUntimedRevision = {
+  kind: "kubernetes_revision";
+  id: string;
+  revision: string;
+  change_cause: string | null;
+  time_unknown_reason: RevisionTimeUnknownReason;
+  not_before: string;
+  not_after: string;
+  created_at: string;
+  replicaset_reused: boolean;
+};
+/** A Kubernetes revision of the change view: `at` null means its time is unknown, bounded by not_before..not_after (PA-94). */
+export type KubernetesRevision = {
+  revision: string;
+  /** The ReplicaSet's creation; for a reused ReplicaSet not when the revision took effect. */
+  created_at: string;
+  change_cause: string | null;
+  gitlab_pipeline_id: number | null;
+  replicaset_reused: boolean;
+  at: string | null;
+  time_basis: RevisionTimeBasis;
+  time_unknown_reason: RevisionTimeUnknownReason | null;
+  not_before: string | null;
+  not_after: string | null;
 };
 export type IncidentChanges = {
   incident_id: string;
@@ -930,6 +984,8 @@ export type IncidentChanges = {
   alert_started_at: string;
   window: { start_at: string; end_at: string };
   items: (IncidentGitLabDeployment | IncidentKubernetesRevision)[];
+  /** Revisions of unknown time that may fall in the window; not on the timeline (PA-94). */
+  untimed_revisions: IncidentUntimedRevision[];
   coverage: { gitlab: "complete" | "not_configured" | "no_authorized_target" | "unavailable"; kubernetes: "history_limited" | "not_configured" | "no_authorized_target" | "unavailable" };
   note: "time_adjacent_not_causal";
   unavailable: Unavailable;
@@ -948,7 +1004,7 @@ export type GitLabChangesView = {
   merge_requests: GitLabMergeRequest[] | null;
   /** null without an alert coverage statement (coverage.alerts unknown) or permission (not_authorized). */
   alerts: { incident_id: string; title: string; href: string; started_at: string; ended_at: string | null }[] | null;
-  kubernetes_revisions: { revision: string; created_at: string; change_cause: string | null; gitlab_pipeline_id: number | null }[] | null;
+  kubernetes_revisions: KubernetesRevision[] | null;
   coverage: { gitlab: "complete"; alerts: "complete" | "unknown" | "not_authorized"; kubernetes: "history_limited" | "not_configured" | "no_authorized_target" | "unavailable" };
   captured_at: string;
   unavailable: Unavailable;
@@ -1568,4 +1624,5 @@ export type InstanceInfo = {
   other?: { label: string; url: string; domain: string };
 };
 export type LowerSource = { id: string; name: string; brand: string; env: string; env_label: string; purpose: string; credential: string };
-export type SyncItem = { id: string; kind: "runbook" | "alert_rule" | "agent_version" | "template"; kind_label: string; title: string; mr: string; author: string; meta: string; status: "pending" | "imported" | "exported" | "merged" };
+/** status verifying (kind unknown): GitLab is still processing a just-merged MR; nothing is read from it yet (PA-100). */
+export type SyncItem = { id: string; kind: "runbook" | "alert_rule" | "agent_version" | "template" | "unknown"; kind_label: string; title: string; mr: string; author: string; meta: string; status: "pending" | "imported" | "exported" | "merged" | "verifying" };

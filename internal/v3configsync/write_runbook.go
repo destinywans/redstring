@@ -168,7 +168,9 @@ func (s *Service) saveRunbookTarget(ctx context.Context, tx pgx.Tx, actor core.U
 		m.SourceInstance == "prod" || m.ApplicationID == "" {
 		return "", errInvalidManifest
 	}
-	if _, err := m.verify(m.PromotionID, s.TrustedSources); err != nil {
+	// The caller verified the source's signature; m names this instance's
+	// application (PA-100), so only the content is checked again here.
+	if _, err := m.validate(m.PromotionID); err != nil {
 		return "", errUntrusted
 	}
 	var ownerTeam string

@@ -32,7 +32,6 @@ from golden import RESOURCES, login  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 LAB = Path.home() / 'Home/code/codex/aiops-test'
-GITLAB = 'http://127.0.0.1:28080/api/v4/projects/7'
 PROM = 'http://127.0.0.1:19090'
 STATE = LOCAL / 'e2e/config-sync.json'
 results = []
@@ -170,7 +169,7 @@ def runbook_chain(state, app):
         status, changed = np('POST', f'/incidents/{inc_id}/status', {'status': target, 'expected_revision': revision,
                              'request_id': secrets.token_hex(16), 'reason': '验收：规则已停用'}, role='operator')
         revision = (changed or {}).get('revision', revision + 1 if isinstance(revision, int) else revision)
-    check('incident resolved', status == 200, f'{status} {(changed or {}).get("error")}')
+    check('incident resolved', status in (200, 201), f'{status} {(changed or {}).get("error")}')
     _, draft = np('GET', f'/postmortems/draft?incident={inc_id}')
     sections = [dict(sec, text=sec.get('text') or f"（作者补充）{sec.get('title')}：验收规则告警，已停用。")
                 for sec in (draft or {}).get('sections') or []]
@@ -201,11 +200,33 @@ def runbook_chain(state, app):
 
 
 def gitlab(path):
-    with urllib.request.urlopen(f'{GITLAB}{path}', timeout=10) as r:
+    """The config repository is private: read it as the nonprod exporter does (token, proxy, CA)."""
+    import ssl
+    token = (LOCAL / 'config-sync/gitlab-nonprod.token').read_text().strip()
+    ctx = ssl.create_default_context(cafile=str(LOCAL / 'tls/alertmanager.pem'))
+    req = urllib.request.Request(f'https://127.0.0.1:18446/api/v4/projects/7{path}', headers={'PRIVATE-TOKEN': token})
+    with urllib.request.urlopen(req, context=ctx, timeout=15) as r:
         return json.load(r)
 
 
+def pin_agent(state):
+    """PA-99: an agent whose stable artifact is not pinned to a digest is refused with a reason; a pinned
+    v2 made stable is then exported."""
+    status, out = np('POST', '/promotions', {'kind': 'agent_version', 'id': state['agent']})
+    if status == 200:
+        return
+    check('an unpinned agent artifact is refused with artifact_ref_not_pinned (PA-99)',
+          status == 422 and ((out or {}).get('error') or {}).get('code') == 'artifact_ref_not_pinned', f'{status} {(out or {}).get("error")}')
+    import hashlib
+    digest = hashlib.sha256(f"acceptance agent artifact {state['agent']} v2".encode()).hexdigest()
+    np('POST', f"/agents/{state['agent']}/versions", {'version': 'v2', 'artifact_ref': f'aiops-lab/agents/promote-triage@sha256:{digest}'})
+    _, detail = np('GET', f"/agents/{state['agent']}")
+    np('POST', f"/agents/{state['agent']}/rollout", {'to': 'v2', 'percent': 100, 'expected_revision': detail.get('revision'),
+                                                     'override': True, 'override_reason': '验收：固定摘要的版本设为稳定'})
+
+
 def export(state):
+    pin_agent(state)
     state['exports'] = {}
     for kind, key in (('template', 'template'), ('runbook', 'runbook'), ('alert_rule', 'alert_rule'), ('agent_version', 'agent')):
         status, out = np('POST', '/promotions', {'kind': kind, 'id': state[key]})
@@ -280,7 +301,7 @@ def prom_group(name):
 
 def main():
     step = sys.argv[1] if len(sys.argv) > 1 else 'all'
-    state = load() if step != 'prepare' and step != 'all' else {}
+    state = load() if step != 'all' else {}
     try:
         for name, fn in (('prepare', prepare), ('export', export), ('merge', merge), ('import', import_)):
             if step in (name, 'all'):

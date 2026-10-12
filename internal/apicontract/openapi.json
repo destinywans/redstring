@@ -22082,7 +22082,7 @@
             }
           },
           "503": {
-            "description": "Dependency unavailable",
+            "description": "Dependency unavailable, or the GitLab export result is unknown; the export record stays uncertain and the same request reconciles it. gitlab_web_url_mismatch: GitLab returned a merge request link outside gitlab.web_url (or base_url when unset); after fixing web_url the retry reuses that merge request (PA-98).",
             "content": {
               "application/json": {
                 "schema": {

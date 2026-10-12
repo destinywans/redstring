@@ -6,7 +6,7 @@
 
 可选环境变量 `AIOPS_V3_CONFIG_SYNC_CONFIG` 指向绝对路径的单个 JSON 文件。文件须为普通文件、权限 `0600`、最大 16 KiB；不设置时路由仍注册，但返回 `501 config_repository_unavailable`。占位格式分别见 [非生产示例](../examples/v3-config-sync.nonprod.json) 和 [生产示例](../examples/v3-config-sync.production.json)。`tier` 必须与当前平台实例一致。示例中的域名、项目 ID 与路径不能直接用于运行。
 
-- `gitlab` 固定 HTTPS 基址、正整数项目 ID、目标分支和提升分支前缀；仅在显式测试配置中允许 loopback HTTP。`token_file` 为绝对路径的普通 `0600` 文件。配置文件只写令牌文件路径，不写令牌。可选 `ca_file`（PA-91）用于内部 CA 签发证书的 GitLab：须为绝对路径的普通文件（非符号链接）、组和其他用户不可写、最大 1 MiB、内容为至少一张 PEM 证书，且只能配合 HTTPS；配置后该客户端只信任这份 CA（不再叠加系统根证书），仍按 `base_url` 校验主机名，只对配置提升及其派生的通知/抑制/告警规则草稿 GitLab 客户端生效，不影响进程内其他 TLS 连接。不需要时省略或留空；示例中的路径为占位。
+- `gitlab` 固定 HTTPS 基址、正整数项目 ID、目标分支和提升分支前缀；仅在显式测试配置中允许 loopback HTTP。`token_file` 为绝对路径的普通 `0600` 文件。配置文件只写令牌文件路径，不写令牌。可选 `ca_file`（PA-91）用于内部 CA 签发证书的 GitLab：须为绝对路径的普通文件（非符号链接）、组和其他用户不可写、最大 1 MiB、内容为至少一张 PEM 证书，且只能配合 HTTPS；配置后该客户端只信任这份 CA（不再叠加系统根证书），仍按 `base_url` 校验主机名，只对配置提升及其派生的通知/抑制/告警规则草稿 GitLab 客户端生效，不影响进程内其他 TLS 连接。不需要时省略或留空；示例中的路径为占位。可选 `web_url`（PA-98）是 GitLab 的 external_url，用于 API 走代理、网页链接在另一地址的部署（例如验收环境 API 为 `https://127.0.0.1:18446`、网页为 `http://127.0.0.1:28080`）：须为 `http` 或 `https`、带主机、无用户信息、查询、片段或路径。配置后 MR 链接必须与它的协议和主机一致，否则与 `base_url` 一致；链接仍不得带用户信息或片段。链接不一致时返回 `503 gitlab_web_url_mismatch`，导出记为结果未知（`v3.config_export.result_unknown`、`uncertain`）；修正 `web_url` 后用同一对象重新导出，按同一分支对账并复用已建的 MR，不再新建。生产侧读取已合并 MR 时同样返回这个错误码。
 - 非生产实例配置一个 `source_instance_id` 和 `signing_key_file`。签名密钥文件为绝对路径、普通 `0600` 文件，内容是无填充 base64url 编码的 64 字节 Ed25519 私钥；不配置 `trusted_sources`。
 - 生产实例配置 1–32 个明确来源 ID 到公钥文件绝对路径的映射，不配置签名私钥。公钥文件内容是无填充 base64url 编码的 32 字节 Ed25519 公钥，不能允许组或其他用户写入。来源信任只来自此服务端映射，不从 MR 自动发现。
 

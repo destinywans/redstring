@@ -229,6 +229,11 @@ func (s *Service) writeError(w http.ResponseWriter, r *http.Request, err error) 
 		problem(w, r, 409, "promotion_in_progress", "配置正在导出，请稍后重试", "Configuration export is in progress")
 	case errors.Is(err, store.ErrConflict), errors.Is(err, ErrConflict):
 		problem(w, r, 409, "promotion_conflict", "配置来源或目标已变化", "Configuration source or target has changed")
+	case errors.Is(err, ErrMRLinkMismatch):
+		// The MR may exist; the export stays uncertain and a retry after
+		// fixing gitlab.web_url reuses it (PA-98).
+		problem(w, r, 503, "gitlab_web_url_mismatch", "GitLab 返回的合并请求链接不在配置的网页地址下，请检查 gitlab.web_url；导出记为结果未知，修正后重试会复用同一个合并请求",
+			"GitLab returned a merge request link outside the configured web address; check gitlab.web_url. The export is recorded as unknown and a retry reuses the same merge request")
 	case errors.Is(err, errUntrusted), errors.Is(err, ErrUntrusted), errors.Is(err, errInvalidManifest):
 		problem(w, r, 503, "config_source_untrusted", "无法验证已合并配置来源", "Merged configuration provenance cannot be verified")
 	default:

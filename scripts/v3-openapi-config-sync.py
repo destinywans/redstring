@@ -19,6 +19,11 @@ v3_route('post','/promotions','Export a versioned sanitized configuration snapsh
 v3_route('post','/config-sync/{id}/import','Import a reviewed merged signed configuration snapshot',
     response=ref('V3ConfigSyncItem'),
     desc='id is mr-<positive IID>. Requires the production prod environment and a human platform administrator with global workspace.manage, rechecked inside the import transaction. The repository must prove the MR is merged with exactly one expected kind-specific changed file at its fixed merge commit; the bounded allowlisted manifest must verify against a configured trusted source public key. Import also requires current satisfied MR approval state, a distinct non-bot approver after the final diff version and before merge, and currently verifiable protected target-branch policy. API reads cannot prove the governance policy in force at merge time; deployment must retain that evidence. Template persists a sanitized canvas template; runbook persists a production governed draft without executable step content; alert_rule persists a declarative not_applied record without changing Prometheus; agent_version adds a catalog version without activating or changing rollout. Target, import ledger and success audit commit together. Repeated identical imports converge; target drift, unique conflicts and changed MR identity return 409 without partial import. Non-production and all return 409. Missing repository or trust configuration returns 501; unverifiable provenance returns 503.')
+P['/promotions']['post'].setdefault('responses',{})['503'] = {
+    'description':'Dependency unavailable, or the GitLab export result is unknown; the export record stays uncertain and the same request reconciles it. '
+                  'gitlab_web_url_mismatch: GitLab returned a merge request link outside gitlab.web_url (or base_url when unset); '
+                  'after fixing web_url the retry reuses that merge request (PA-98).',
+    'content':{'application/json':{'schema':ref('Error')}}}
 P['/promotions']['post']['responses']['422'] = {
     'description':'Invalid request, or a source object outside the export contract, refused before any export record or GitLab call (PA-96, PA-97): '
                   'template_has_description, template_retained_content, template_private_runbooks, template_structure_invalid, '

@@ -43,6 +43,9 @@ func (s *Service) exportTemplate(r *http.Request, env, templateID string) (MR, s
 		if auditErr := s.markExportUnknown(cleanupCtx, actor, record.ID, record.Attempt); auditErr != nil {
 			return MR{}, "", auditErr
 		}
+		if errors.Is(err, ErrMRLinkMismatch) {
+			return MR{}, "", ErrMRLinkMismatch
+		}
 		return MR{}, "", errUnavailable
 	}
 	if mr.IID <= 0 || mr.URL == "" || mr.SourceBranch != record.Branch ||

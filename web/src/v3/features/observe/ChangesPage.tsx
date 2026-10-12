@@ -13,6 +13,7 @@ import "./observe.css";
 import { ChipSelect, usePickLists } from "../../ui/demo";
 import { parseStamp, useWhen } from "../../ui/when";
 import { useRollbackDrawer } from "../events/RollbackProposal";
+import { useRevisionTime } from "./revisionTime";
 
 type Tab = "deployments" | "pipelines" | "merge_requests";
 type OpenRow = { pipeline_id: number; deployment_ids: number[] };
@@ -144,6 +145,7 @@ function ChangesError({ error, range, onRetry, onRange }: { error: unknown; rang
 function ChangesBody({ data, serviceName, tab, setTab, focus, onOpen }: { data: GitLabChangesView; serviceName: string | null; tab: Tab; setTab: (t: Tab) => void; focus: string | null; onOpen: (p: OpenRow) => void }) {
   const { tx } = useI18n();
   const when = useWhen();
+  const revTime = useRevisionTime();
   const start = parseStamp(data.window.start_at) ?? 0;
   const end = parseStamp(data.window.end_at) ?? start + 1;
   const pct = (iso: string | null | undefined) => Math.max(0, Math.min(100, (100 * ((parseStamp(iso) ?? end) - start)) / Math.max(1, end - start)));
@@ -168,7 +170,8 @@ function ChangesBody({ data, serviceName, tab, setTab, focus, onOpen }: { data: 
   // Markers left to right; a label that would overlap the previous one is left to the tooltip.
   const marks = [
     ...(data.deployments ?? []).map((d) => ({ key: d.id, at: pct(d.finished_at ?? d.created_at), cls: d.status === "success" ? "ok" : d.status === "failed" ? "danger" : "neutral", label: `#${d.iid}`, title: `#${d.iid} · ${statusLabel(tx, d.status)} · ${d.short_sha} · ${when.short(d.finished_at ?? d.created_at)}` })),
-    ...external.map((r) => ({ key: `rev-${r.revision}`, at: pct(r.created_at), cls: "rev", label: tx("修订 {r}", "rev {r}", { r: r.revision }), title: `${tx("集群修订 {r}", "Cluster revision {r}", { r: r.revision })} · ${r.change_cause ?? ""}` })),
+    // A revision is placed at when it took effect (`at`, PA-94); one of unknown time gets no dot.
+    ...external.filter((r) => r.at).map((r) => ({ key: `rev-${r.revision}`, at: pct(r.at), cls: "rev", label: tx("修订 {r}", "rev {r}", { r: r.revision }), title: `${tx("集群修订 {r}", "Cluster revision {r}", { r: r.revision })} · ${r.change_cause ?? ""}` })),
   ]
     .sort((a, b) => a.at - b.at)
     .map((m) => ({ ...m, show: true }));
@@ -178,9 +181,10 @@ function ChangesBody({ data, serviceName, tab, setTab, focus, onOpen }: { data: 
     if (m.show) lastShown = m.at;
   }
   // Deployments and cluster revisions not deployed through GitLab, newest first.
+  // A revision of unknown time sorts by the latest it could have taken effect.
   const deployRows: ({ at: string; d: GitLabDeployment } | { at: string; r: (typeof external)[number] })[] = [
     ...(data.deployments ?? []).map((d) => ({ at: d.finished_at ?? d.created_at, d })),
-    ...external.map((r) => ({ at: r.created_at, r })),
+    ...external.map((r) => ({ at: r.at ?? r.not_after ?? r.not_before ?? r.created_at, r })),
   ].sort((a, b) => (parseStamp(b.at) ?? 0) - (parseStamp(a.at) ?? 0));
   const statusChip = (s: string) => <Badge tone={TONE[s] ?? "neutral"}>{statusLabel(tx, s)}</Badge>;
   const user = (x: { username: string } | null) => x?.username ?? "—";
@@ -283,8 +287,14 @@ function ChangesBody({ data, serviceName, tab, setTab, focus, onOpen }: { data: 
                         <td colSpan={5}>
                           {tx("集群修订 {r} · 不是经 GitLab 部署的变更", "Cluster revision {r} · not deployed through GitLab", { r: row.r.revision })}
                           {row.r.change_cause && <span className="mono"> change-cause: {row.r.change_cause}</span>}
+                          {/* Unknown time: the interval and why; a known time not from the ReplicaSet says where it comes from. */}
+                          {row.r.at === null ? (
+                            <Muted size={11.5}> · {[revTime.between(row.r.not_before, row.r.not_after), revTime.reason(row.r.time_unknown_reason)].filter(Boolean).join(tx("，", ". "))}</Muted>
+                          ) : (
+                            revTime.basis(row.r.time_basis) && <Muted size={11.5}> · {revTime.basis(row.r.time_basis)}</Muted>
+                          )}
                         </td>
-                        <td><Muted>{when.short(row.at)}</Muted></td>
+                        <td><Muted>{row.r.at === null ? tx("时间未知", "Time unknown") : when.short(row.r.at)}</Muted></td>
                         <td>{tx("修订 {r}", "rev {r}", { r: row.r.revision })}</td>
                       </tr>
                     ),

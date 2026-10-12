@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -307,6 +308,11 @@ func (s *Service) investigationReplyTools(ctx context.Context, r *http.Request, 
 		return nil, collected, err
 	}
 	collected.application, collected.environment = target.application, env
+	// D11 §4.4: an investigation opened from an incident reads changes from
+	// before its alert started.
+	if at, ok := s.investigationAlertStart(ctx, id); ok {
+		ctx = inference.WithAlertStart(ctx, at)
+	}
 	tools, err := s.InvestigationToolsForTurn(ctx, user.ID, target.application, env, model.ID)
 	if err != nil {
 		return nil, collected, err
@@ -409,4 +415,20 @@ func persistInvestigationReplyEvidence(ctx context.Context, tx pgx.Tx, actor, ap
 		ids = append(ids, v.ID)
 	}
 	return ids, nil
+}
+
+// investigationAlertStart is when the earliest incident linked to the
+// investigation started: an alert's start, or a manual incident's creation.
+func (s *Service) investigationAlertStart(ctx context.Context, id string) (time.Time, bool) {
+	if s == nil || s.Store == nil || s.Store.DB == nil {
+		return time.Time{}, false
+	}
+	var at *time.Time
+	err := s.Store.DB.QueryRow(ctx, `SELECT min(started) FROM (
+ SELECT starts_at AS started FROM ops_incidents WHERE investigation_id=$1
+ UNION ALL SELECT created_at FROM v3_incident_cases WHERE investigation_id=$1) linked`, id).Scan(&at)
+	if err != nil || at == nil {
+		return time.Time{}, false
+	}
+	return *at, true
 }

@@ -120,3 +120,4 @@
 - 调查画布的系统提示补了一句：疑似发布导致时同时读变更，变更与告警只是时间相邻。
 - `list_services` 新增 `changes` 列：`configured`、`not_ready`（有代码项目但缺目录范围、连接器未启用、凭据引用或读取工具）或 `not_configured`；不访问 GitLab。
 
+`read_service_changes` 在从事件打开的调查里（PA-88），不带 `since`、`until` 时默认读最早关联告警开始前 2 小时到现在，最多 24 小时；工具说明里写明告警开始时间。普通对话仍默认最近 2 小时。

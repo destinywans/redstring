@@ -156,8 +156,11 @@ func (f v3ReadTools) ForTurn(ctx context.Context, ownerID, applicationID, enviro
 		tools = append(tools, tool)
 	}
 	if f.Changes != nil {
+		// D11 §4.4: in an investigation opened from an incident, the default
+		// window starts 2 hours before the alert did.
+		alertStart, _ := inference.AlertStart(ctx)
 		if tool, ok := f.Changes.EvidenceTool(v3changes.ChangesToolOptions{OwnerID: ownerID, EnvironmentID: environmentID,
-			CurrentUser: f.CurrentUser, Lookup: lookup}); ok {
+			CurrentUser: f.CurrentUser, Lookup: lookup, AlertStartedAt: alertStart}); ok {
 			tools = append(tools, tool)
 		}
 	}

@@ -77,3 +77,16 @@ S['V3AlertRuleList']['properties']['pending'] = {**v3_nullable(arr(ref('V3AlertR
 P['/alert-rules']['get']['description'] += (' D11 §11.6: with the executor wired each item carries lifecycle (active, or '
     'disable_pending_approval, disabling or needs_attention with the disable proposal and execution IDs), apart from whether '
     'the rule fires; when it cannot be read, lifecycle is omitted and unavailable names items[].lifecycle.')
+
+# PA-88: V3 opens an incident's investigation itself (the historical route is
+# no longer registered on a V3 instance).
+P['/incidents/{id}/investigation']['post']['description'] += (' V3 (PA-88): id is an alert incident or a manual '
+    'incident. Needs one selected environment and events.view on the incident (with the operator route). The investigation '
+    'already linked to the incident is reused; otherwise one is created for its service and environment (an INV- ID like the '
+    'canvas, titled after the incident, the alert summary or the manual impact as its goal, a main branch with an empty '
+    'context) and linked back; an open alert incident becomes investigating. No model is called: a model_id is refused '
+    'with 422 initial_analysis_unavailable, and the AI is asked from the canvas. In an investigation opened this way, '
+    'read_service_changes defaults to 2 hours before the earliest linked alert started until now (D11 §4.4). The '
+    'response is the incident as GET /incidents/{id} returns it, with investigation_id. Unknown or invisible incidents are 404.')
+P['/incidents/{id}/investigation']['post']['responses']['422'] = {'description':'Invalid body, or a model_id (initial_analysis_unavailable)',
+    'content':{'application/json':{'schema':ref('Error')}}}

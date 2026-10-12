@@ -97,7 +97,16 @@ export default function ConfigSyncPage() {
             )}
             {data?.items.map((raw) => {
               const it = done[raw.id] ?? raw;
-              const meta = `${it.mr} · ${it.author} · ${it.meta}`;
+              // Verifying / unverifiable rows say why on their second line (PA-100, PA-103); they never offer the import.
+              const why =
+                it.status === "unverifiable"
+                  ? it.reason === "untrusted"
+                    ? tx("合并请求核验未通过", "The merge request didn't pass verification")
+                    : tx("GitLab 暂时不可用，刷新重试", "GitLab is unavailable right now; refresh to retry")
+                  : it.status === "verifying"
+                    ? tx("GitLab 还在处理刚合并的请求，稍后刷新", "GitLab is still processing the just-merged request; refresh shortly")
+                    : null;
+              const meta = [it.mr, why, it.author, it.meta].filter(Boolean).join(" · ");
               return (
                 <div key={it.id} className="cs-row">
                   <Badge tone="accent">{it.kind_label}</Badge>

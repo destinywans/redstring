@@ -58,6 +58,10 @@ const imports = [
   { id: "cs-415", kind: "agent_version", kind_label: P("Agent 版本", "Agent version"), title: P("调查助手 v13", "Investigator v13"), mr: "!415", author: "周航", meta: P("评测通过率 94%", "94% eval pass"), status: "merged" },
   { id: "cs-418", kind: "template", kind_label: P("画布模板", "Canvas template"), title: P("发布后错误率上升 · 调查模板", "Post-release errors · investigation template"), mr: "!418", author: "张磊", meta: P("预发使用 12 次", "used 12 times in staging"), status: "merged" },
   { id: "cs-401", kind: "runbook", kind_label: "Runbook", title: P("证书到期续签", "Certificate renewal"), mr: "!401", author: "陈雨", meta: P("昨天导入", "imported yesterday"), status: "imported" },
+  // PA-100 / PA-103: candidates nothing could be read from (kind unknown); no import is offered.
+  { id: "cs-421", kind: "unknown", kind_label: P("未知类别", "Unknown kind"), title: "!421", mr: "!421", author: "", meta: "", status: "verifying", reason: "not_ready" },
+  { id: "cs-419", kind: "unknown", kind_label: P("未知类别", "Unknown kind"), title: "!419", mr: "!419", author: "", meta: "", status: "unverifiable", reason: "gitlab_unavailable" },
+  { id: "cs-417", kind: "unknown", kind_label: P("未知类别", "Unknown kind"), title: "!417", mr: "!417", author: "", meta: "", status: "unverifiable", reason: "untrusted" },
 ];
 const exportsList = [
   { id: "ex-412", kind: "runbook", kind_label: "Runbook", title: P("下游超时与重试风暴 v5", "Downstream timeouts and retry storms v5"), mr: "!412", author: "李明", meta: P("等待生产负责人审核", "awaiting production review"), status: "exported" },

@@ -1,7 +1,9 @@
 S['V3ConfigSyncItem'] = obj({
     **fieldnames('id kind_label title mr author meta'),
-    'kind':string(enum=['runbook','alert_rule','agent_version','template']),
-    'status':string(enum=['pending','imported','exported','merged'])},
+    'kind':string(enum=['runbook','alert_rule','agent_version','template','unknown'],
+        description='unknown only with status verifying'),
+    'status':string(enum=['pending','imported','exported','merged','verifying'],
+        description='verifying: a production candidate GitLab is still processing just after its merge; nothing is read from it until it verifies (PA-100)')},
     ['id','kind','kind_label','title','mr','author','meta','status'])
 S['V3ConfigSyncList'] = obj({
     'direction':string(enum=['import','export']),
@@ -27,8 +29,17 @@ P['/promotions']['post'].setdefault('responses',{})['503'] = {
 P['/promotions']['post']['responses']['422'] = {
     'description':'Invalid request, or a source object outside the export contract, refused before any export record or GitLab call (PA-96, PA-97): '
                   'template_has_description, template_retained_content, template_private_runbooks, template_structure_invalid, '
-                  'alert_rule_expression_unsafe, alert_rule_label_not_exportable, alert_rule_not_exportable or artifact_ref_not_pinned. '
+                  'alert_rule_expression_unsafe, alert_rule_label_not_exportable, alert_rule_not_exportable, artifact_ref_not_pinned, '
+                  'or application_key_missing (the application has no key to match it in production, PA-100). '
                   'An alert rule reason is given only after alert_rules.manage on its application or owner team.',
+    'content':{'application/json':{'schema':ref('Error')}}}
+P['/config-sync/{id}/import']['post']['responses']['422'] = {
+    'description':'Invalid MR id, or the import cannot map the application (PA-100): application_not_registered (production has no '
+                  'active application with the manifest\'s application_key registered in prod) or promotion_reexport_required (a schema 2 '
+                  'manifest without application_key; export the object again from non-production).',
+    'content':{'application/json':{'schema':ref('Error')}}}
+P['/config-sync/{id}/import']['post']['responses']['503'] = {
+    'description':'Dependency unavailable or the merged source cannot be verified; merge_request_not_ready while GitLab still processes a just-merged MR (retry shortly).',
     'content':{'application/json':{'schema':ref('Error')}}}
 for _method, _path in [('get','/config-sync'),('post','/promotions'),('post','/config-sync/{id}/import')]:
     P[_path][_method]['responses']['501'] = {

@@ -19,9 +19,19 @@ import (
 type PromotionSummary struct {
 	Kind, Title, SourceID, SourceVersion                           string
 	SourceEnvironment, SourceInstance, ApplicationID, SourceDigest string
+	// ApplicationKey is the application's key, which production resolves to
+	// its own application (PA-100); empty in a schema 2 manifest.
+	ApplicationKey string
 }
 
-const readManifestVersion = 2
+// readManifestVersion is the original kind envelope; readManifestKeyed (3)
+// adds application_key, which every kind export now writes (PA-100). A
+// schema 2 manifest is still read and verified, but cannot be imported: it
+// names the source instance's application ID only.
+const (
+	readManifestVersion = 2
+	readManifestKeyed   = 3
+)
 
 var (
 	versionKeyRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:+-]{0,99}$`)
@@ -44,6 +54,7 @@ type readManifestV2 struct {
 	SourceInstance    string               `json:"source_instance"`
 	SourceEnvironment string               `json:"source_environment"`
 	ApplicationID     string               `json:"application_id"`
+	ApplicationKey    string               `json:"application_key,omitempty"`
 	SourceDigest      string               `json:"source_digest"`
 	Runbook           *readRunbookSnapshot `json:"runbook,omitempty"`
 	AlertRule         *readAlertSnapshot   `json:"alert_rule,omitempty"`
@@ -149,7 +160,11 @@ func (m readManifestV2) snapshot() (any, string, error) {
 }
 
 func (m readManifestV2) validate(id string) (string, error) {
-	if m.Schema != readManifestVersion || !promotionIDRE.MatchString(id) || m.PromotionID != id ||
+	if (m.Schema != readManifestVersion || m.ApplicationKey != "") &&
+		(m.Schema != readManifestKeyed || !objectKeyRE.MatchString(m.ApplicationKey)) {
+		return "", errInvalidManifest
+	}
+	if !promotionIDRE.MatchString(id) || m.PromotionID != id ||
 		!objectKeyRE.MatchString(m.SourceID) || !versionKeyRE.MatchString(m.SourceVersion) ||
 		!objectKeyRE.MatchString(m.ApplicationID) ||
 		!sourceInstanceRE.MatchString(m.SourceInstance) || m.SourceInstance == "prod" ||
@@ -284,7 +299,7 @@ func readPromotionSummary(raw []byte, promotionID string, trusted map[string]ed2
 		}
 		return PromotionSummary{Kind: m.Kind, Title: m.Template.Name, SourceID: m.SourceID,
 			SourceEnvironment: m.SourceEnvironment, SourceInstance: m.SourceInstance, SourceDigest: m.SourceDigest}, nil
-	case readManifestVersion:
+	case readManifestVersion, readManifestKeyed:
 		var m readManifestV2
 		if !noDuplicateKeys(raw) || decodeStrict(raw, &m) != nil {
 			return PromotionSummary{}, errInvalidManifest
@@ -295,7 +310,8 @@ func readPromotionSummary(raw []byte, promotionID string, trusted map[string]ed2
 		}
 		return PromotionSummary{Kind: m.Kind, Title: title, SourceID: m.SourceID,
 			SourceVersion: m.SourceVersion, SourceEnvironment: m.SourceEnvironment,
-			SourceInstance: m.SourceInstance, ApplicationID: m.ApplicationID, SourceDigest: m.SourceDigest}, nil
+			SourceInstance: m.SourceInstance, ApplicationID: m.ApplicationID, ApplicationKey: m.ApplicationKey,
+			SourceDigest: m.SourceDigest}, nil
 	default:
 		return PromotionSummary{}, errInvalidManifest
 	}

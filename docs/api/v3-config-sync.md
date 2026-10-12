@@ -28,6 +28,9 @@
 | `alert_rule_label_not_exportable` | 标签不只是 `environment`、`application` 和 `severity`，或级别不在 `P1`–`P4`、`info`/`warning`/`critical` 之内 |
 | `alert_rule_not_exportable` | 名称、分组或持续时间超出范围 |
 | `artifact_ref_not_pinned` | Agent 稳定版本的制品引用没有固定到 `@sha256:<64 位十六进制>`；注册时不检查，目录允许标签引用 |
+| `application_key_missing` | 应用没有 key（`applications.key` 为空），生产无法对应（PA-100） |
+
+两端用应用 key 对应（PA-100）：非生产与生产是两个实例、两个数据库，应用各自登记，ID 不同（例如 checkout-api 在生产是 `f79b3ba7…`，在非生产是 `0a5cb011…`），只有应用 key（`applications.key`，唯一）相同。Runbook、告警规则、Agent 的清单从 schema 3 起带 `application_key`；生产导入时按 key 找到未归档、已登记 prod 环境的应用，目标对象、`agents.change` 等权限检查和导入审计都针对这个生产应用，来源的 `application_id` 只作为证据写进审计的 `source_application_id`。找不到时返回 `422 application_not_registered`。PA-100 之前导出的 schema 2 清单没有 key，仍可读取和核验，但导入返回 `422 promotion_reexport_required`：在非生产重新导出同一对象即可，新导出按 `export_format` 2 另建台账、分支和 MR，不会重放旧记录（旧 MR 留作历史）。生产列表里，GitLab 刚合并、尚未算出 `changes_count` 的 MR 单独标为 `status: verifying`（`kind: unknown`，不读取其内容），其余照常列出；此时导入它返回 `503 merge_request_not_ready`，稍后重试即可。其他核验失败仍让整份列表失败。
 
 模板：V3 保存模板时在首个节点记录 `private_template_v1`（`steps`、`content`、`runbooks`、`source_services`）。导出不把它写进清单：`source_services` 是本环境的服务，生产实例用模板建画布时按当时选择的服务重新核权；`steps`、`content` 只记录保存时的选择，真正保留的内容在节点里，因此只有节点仍为空白结构时才可导出；关联 Runbook 时整体拒绝，不静默丢弃。告警规则：按 D32 以绑定的 `application_label`（如 `checkout-api`）匹配规则，`prom-` ID 与规则列表一致（由应用 ID 计算）；`summary`、`description` 等注解不随提升，导出快照的注解为空，生产导入的定义同样不带注解；表达式允许花括号内标签匹配的带引号值（如 `{application="checkout-api"}`、`code=~"5.."`），其他字符串字面量仍拒绝。生产导入时不知道来源实例的 D32 标签值，`application` 标签只要求是合法对象键。
 
@@ -35,7 +38,7 @@
 
 `POST /config-sync/{id}/import` 只接受 `mr-<正整数 IID>`，要求当前人类平台管理员和全局 `workspace.manage`，远端读取后复核当前会话，并在写入事务内再次核权。服务端核对已合并 MR、固定提交与唯一预期文件、来源签名、类型白名单、独立审批及当前目标分支保护。Runbook 导入为生产应用的可审核草稿，正文为空；告警导入为 `not_applied` 的生产配置记录，不应用到 Prometheus；Agent 导入目录版本，新 Agent 默认暂停、L0，已有 Agent 不改变发布状态。目标、导入台账和成功审计在同一事务提交；重复相同导入收敛，目标已变化返回 409。当前 API 查询无法证明**合并当时**的审批/保护策略；真实配置仓库上线前仍需保留治理配置和审查证据。不可验证的来源返回 503，不会导入部分配置。
 
-数据库迁移依次使用 `120_v3_config_promotion.sql`、`121_v3_config_export_attempt_fence.sql`、`124_v3_config_sync_read_kinds.sql` 和 `125_v3_config_sync_import_targets.sql`。前三项与四类读取流程此前在一次性隔离 PostgreSQL、替身 GitLab 及定向 HTTP 测试中验证；另在本机独立私有 GitLab CE 测试项目验证适配器的 MR 创建、重复导出对账、冲突、另一账号审批合并、保护规则与合并文件读取，及只读令牌写入被拒绝。该测试项目已归档，短期令牌已撤销。CE 的 `/approvals` 响应可以省略冗余 MR 标识字段；若返回却与已验证 MR 不符仍拒绝。后三类写入和迁移 125 尚无本轮运行验证。
+数据库迁移依次使用 `120_v3_config_promotion.sql`、`121_v3_config_export_attempt_fence.sql`、`124_v3_config_sync_read_kinds.sql`、`125_v3_config_sync_import_targets.sql` 和 `179_v3_config_export_format.sql`（PA-100，导出台账加 `export_format`）。前三项与四类读取流程此前在一次性隔离 PostgreSQL、替身 GitLab 及定向 HTTP 测试中验证；另在本机独立私有 GitLab CE 测试项目验证适配器的 MR 创建、重复导出对账、冲突、另一账号审批合并、保护规则与合并文件读取，及只读令牌写入被拒绝。该测试项目已归档，短期令牌已撤销。CE 的 `/approvals` 响应可以省略冗余 MR 标识字段；若返回却与已验证 MR 不符仍拒绝。后三类写入和迁移 125 尚无本轮运行验证。
 
 新增独立来源与生产 schema 的 HTTP 往返验证：模板导出后生产才可导入，重复导入只有一条台账和成功审计，新 PG 连接能读回导入模板；预占目标或导入台账唯一冲突返回 409，事务不留下目标或成功审计。正式迁移用例在两个隔离 schema 分别运行 `Store.Migrate`，但仓库仍为内存替身，并人为设置已合并状态。真实 GitLab CE 验证使用另一组定向夹具，两组证据未构成实际部署的端到端验收。另一账号审批不证明组织独立，事后 GitLab API 不证明合并当时的保护策略；当前生产信任配置也尚无按来源环境 ID 分别限定的允许列表。
 

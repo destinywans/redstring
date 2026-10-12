@@ -26,6 +26,7 @@ type readFixtureRepository struct {
 	*fakeRepository
 	fixtures    []readFixture
 	readErr     error
+	notPrepared map[int64]bool // GitLab still processing the merge
 	tooMany     bool
 	localMerged bool
 	onLookup    func()
@@ -67,6 +68,9 @@ func (f *readFixtureRepository) ReadMergedManifest(_ context.Context, iid int64)
 	}
 	if f.readErr != nil {
 		return MR{}, "", nil, f.readErr
+	}
+	if f.notPrepared[iid] {
+		return MR{}, "", nil, ErrMRNotPrepared
 	}
 	for _, fixture := range f.fixtures {
 		if fixture.mr.IID == iid {
@@ -692,5 +696,29 @@ func TestConfigSyncReadLimitAndUnavailable(t *testing.T) {
 	noRepo := configServer(t, s, nil, "production")
 	if w := configRequest(noRepo, "GET", "/api/v1/config-sync", "prod", "admin-token", ""); w.Code != 501 || !strings.Contains(w.Body.String(), "config_repository_unavailable") {
 		t.Fatalf("missing GitLab: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// PA-100: just after a merge GitLab has not computed the MR's changes yet.
+// That one item is listed as verifying, nothing read from it; the others
+// are listed as usual, and importing it says to retry shortly.
+func TestConfigSyncListShowsUnpreparedMergeAsVerifying(t *testing.T) {
+	fixtures := fourKindFixtures(t)
+	s := seedReadFixtures(t, fixtures)
+	repo := &readFixtureRepository{fakeRepository: &fakeRepository{}, fixtures: fixtures,
+		notPrepared: map[int64]bool{fixtures[0].mr.IID: true}}
+	api := configServer(t, s, repo, "production")
+	w := configRequest(api, "GET", "/api/v1/config-sync", "prod", "admin-token", "")
+	if w.Code != 200 {
+		t.Fatalf("list: %d %s", w.Code, w.Body.String())
+	}
+	items := decodeSyncList(t, w.Body.Bytes()).Items
+	if len(items) != len(fixtures) || items[0].Status != "verifying" || items[0].Kind != "unknown" ||
+		items[0].Title == fixtures[0].title || items[1].Status != "merged" {
+		t.Fatalf("items: %+v", items)
+	}
+	w = configRequest(api, "POST", fmt.Sprintf("/api/v1/config-sync/mr-%d/import", fixtures[0].mr.IID), "prod", "admin-token", "")
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "merge_request_not_ready") {
+		t.Fatalf("import while GitLab processes: %d %s", w.Code, w.Body.String())
 	}
 }

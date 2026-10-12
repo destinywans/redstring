@@ -145,3 +145,30 @@ func TestPromotionWebURLMismatchThenRetryReusesExport(t *testing.T) {
 		t.Fatalf("ledger after retry: %d %q %v", exports, state, err)
 	}
 }
+
+// PA-100: a merged MR whose changes_count GitLab has not computed yet is
+// not verified, and says it is not ready rather than untrustworthy.
+func TestGitLabMergedNotPrepared(t *testing.T) {
+	var base string
+	count := ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		m := testMR(base, "merged")
+		m.ChangesCount = count
+		m.Author.ID = 7
+		respondJSON(w, 200, m)
+	}))
+	defer server.Close()
+	base = server.URL
+	c := clientFor(t, base)
+	if _, err := c.Merged(context.Background(), 12); !errors.Is(err, ErrMRNotPrepared) || !errors.Is(err, ErrUntrusted) {
+		t.Fatalf("unprepared merge: %v", err)
+	}
+	count = "2"
+	if _, err := c.Merged(context.Background(), 12); !errors.Is(err, ErrUntrusted) || errors.Is(err, ErrMRNotPrepared) {
+		t.Fatalf("two changed files: %v", err)
+	}
+	count = "1"
+	if _, err := c.Merged(context.Background(), 12); err != nil {
+		t.Fatalf("prepared merge: %v", err)
+	}
+}

@@ -157,7 +157,7 @@ func (r *AlertRuleResolver) Resolve(ctx context.Context, environment, observedID
 			return alertRuleCandidate{}, errUntrusted
 		}
 		snapshot, err := alertSnapshot(rule, environment, app, label, identity)
-		var refused *notExportable
+		var refused *configRefusal
 		if errors.As(err, &refused) {
 			result = alertRuleCandidate{ApplicationID: app, Refused: err}
 			continue

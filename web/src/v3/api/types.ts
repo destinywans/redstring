@@ -1612,4 +1612,5 @@ export type InstanceInfo = {
   other?: { label: string; url: string; domain: string };
 };
 export type LowerSource = { id: string; name: string; brand: string; env: string; env_label: string; purpose: string; credential: string };
-export type SyncItem = { id: string; kind: "runbook" | "alert_rule" | "agent_version" | "template"; kind_label: string; title: string; mr: string; author: string; meta: string; status: "pending" | "imported" | "exported" | "merged" };
+/** status verifying (kind unknown): GitLab is still processing a just-merged MR; nothing is read from it yet (PA-100). */
+export type SyncItem = { id: string; kind: "runbook" | "alert_rule" | "agent_version" | "template" | "unknown"; kind_label: string; title: string; mr: string; author: string; meta: string; status: "pending" | "imported" | "exported" | "merged" | "verifying" };

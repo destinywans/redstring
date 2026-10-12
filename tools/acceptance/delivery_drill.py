@@ -66,6 +66,7 @@ def changes(sid):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--skip-fix', action='store_true', help='leave the fix release to a later run')
+    ap.add_argument('--resume', action='store_true', help='keep stages 1-4 of the last report and continue from the investigation')
     ap.add_argument('--fire-timeout', type=int, default=900)
     ap.add_argument('--exec-timeout', type=int, default=1200)
     a = ap.parse_args()
@@ -73,6 +74,11 @@ def main():
     app_id = app_ids()[APP]
     sid = json.loads((LOCAL / 'rollback-services.json').read_text())['prod'][APP]
     log = {'drill': 'delivery', 'app': APP, 't0': time.time(), 'started_at': time.strftime('%Y-%m-%d %H:%M:%S'), 'checks': {}}
+    if a.resume:
+        log = json.loads(REPORT.read_text())
+        log['resumed_at'] = round(time.time() - log['t0'])
+        keep = list(log['checks'])[:list(log['checks']).index('investigation opened from the incident')]
+        log['checks'] = {k: log['checks'][k] for k in keep}
     checks = log['checks']
 
     def check(name, ok, detail=''):
@@ -83,13 +89,27 @@ def main():
     def save():
         REPORT.write_text(json.dumps(log, ensure_ascii=False, indent=2))
 
-    ready = subprocess.run(['python3', 'cluster/clock-watchdog.py', 'check'], cwd=LAB, capture_output=True, text=True, timeout=180)
-    log['lab_check'] = ready.stdout.strip().splitlines()[-3:]
-    if 'READY for drills' not in ready.stdout or 'NOT READY' in ready.stdout:
-        print(f"lab not ready, drill not started: {log['lab_check']}", flush=True)
-        save()
-        sys.exit(2)
-    log['revision_before'] = revision()
+    if a.resume:
+        bad = log['release_bad']
+        dep_ids = {str(bad['deployment'].get('id')), str(bad['deployment'].get('iid'))}
+        deployment, pipeline, sha = str(bad['deployment'].get('iid')), bad.get('pipeline'), bad.get('merge_sha') or ''
+        incident = log['incident']
+        print(f"resuming at +{log['resumed_at']}s: incident {incident}, deployment #{deployment}, revision {log['revision_bad']}", flush=True)
+    else:
+        incident = deployment = pipeline = sha = dep_ids = None
+    if not a.resume:
+        ready = subprocess.run(['python3', 'cluster/clock-watchdog.py', 'check'], cwd=LAB, capture_output=True, text=True, timeout=180)
+        log['lab_check'] = ready.stdout.strip().splitlines()[-3:]
+        if 'READY for drills' not in ready.stdout or 'NOT READY' in ready.stdout:
+            print(f"lab not ready, drill not started: {log['lab_check']}", flush=True)
+            save()
+            sys.exit(2)
+        log['revision_before'] = revision()
+        incident, deployment, pipeline, sha, dep_ids = early_stages(a, log, check, save, app_id, sid)
+    stage5(a, log, check, save, app_id, sid, incident, deployment, pipeline, sha, dep_ids)
+
+
+def early_stages(a, log, check, save, app_id, sid):
 
     # 1. Bad version through GitLab.
     print(f"{log['started_at']} releasing the bad version through GitLab (revision before {log['revision_before']})…", flush=True)
@@ -142,10 +162,21 @@ def main():
           json.dumps(rev, ensure_ascii=False)[:200])
     check('incident changes coverage', (around or {}).get('coverage', {}).get('gitlab') == 'complete', (around or {}).get('coverage'))
 
-    # 5. Investigation from the incident.
+    return incident, deployment, pipeline, sha, dep_ids
+
+
+def stage5(a, log, check, save, app_id, sid, incident, deployment, pipeline, sha, dep_ids):
+    # 5. Investigation from the incident (the incident page's button); a plain investigation for the
+    # service if that is refused, so the rest of the chain is still exercised.
     status, inc = op('POST', f'/incidents/{incident}/investigation', {})
     inv = (inc or {}).get('investigation_id')
-    check('investigation opened from the incident', status == 200 and inv, f'{status} {inv}')
+    check('investigation opened from the incident', status == 200 and inv, f'{status} {inv} {(inc or {}).get("error")}')
+    if not inv:
+        status, created = op('POST', '/canvases', {'title': 'D11 演练：checkout-api 5xx 升高', 'kind': 'investigation', 'template_id': None,
+                                                   'goal': 'checkout-api 5xx 升高，LabHigh5xxRate 触发', 'services': [app_id], 'ai_draft': False})
+        inv = (created or {}).get('id')
+        log['investigation_fallback'] = {'status': status, 'id': inv}
+        print(f'  fallback investigation {inv} ({status})', flush=True)
     _, graph = op('GET', f'/investigations/{inv}/canvas')
     root = next((n['id'] for n in graph.get('nodes', []) if n.get('kind') == 'root'), (graph.get('nodes') or [{}])[0].get('id'))
     question = (f'{APP} 的 5xx 升高并触发了 LabHigh5xxRate。请用只读工具查看错误率、日志、Kubernetes 修订和告警前后的变更'
@@ -196,10 +227,11 @@ def main():
     r = subprocess.run(['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', 'golden-approval.spec.ts'], cwd=ROOT / 'web',
                        env={**__import__('os').environ, 'GOLDEN_PROPOSAL': pid or '', 'GOLDEN_INSTANCE': 'prod', 'GOLDEN_ENV': 'prod'},
                        capture_output=True, text=True, timeout=900)
-    check('two approvers approve with passkeys', r.returncode == 0, ' | '.join((r.stdout + r.stderr).strip().splitlines()[-3:]))
+    check('two approvers approve with passkeys', r.returncode == 0 and ' passed' in r.stdout and pid,
+          ' | '.join((r.stdout + r.stderr).strip().splitlines()[-3:]))
     log['approved_at'] = round(time.time() - log['t0'])
     eid, ex, started = None, {}, time.time()
-    while time.time() - started < a.exec_timeout:
+    while pid and time.time() - started < a.exec_timeout:
         _, detail = op('GET', f'/proposals/{pid}')
         eid = ((detail or {}).get('execution') or {}).get('execution_id') or eid
         if eid:
@@ -232,6 +264,7 @@ def main():
         time.sleep(180)
         check('no LabHigh5xxRate after the fix', not prom_alerts(ALERTS, [APP]), prom_alerts(ALERTS, [APP]))
     log['revision_final'] = revision()
+    checks = log['checks']
     passed = sum(c['ok'] for c in checks.values())
     print(f'{passed}/{len(checks)} checks passed')
     save()

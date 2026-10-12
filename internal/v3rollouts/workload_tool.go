@@ -34,8 +34,16 @@ type WorkloadEvidence struct {
 	Rollout         WorkloadRollout    `json:"rollout"`
 	Revisions       []WorkloadRevision `json:"revisions"`
 	Rollback        WorkloadRollback   `json:"rollback"`
-	CapturedAt      time.Time          `json:"captured_at"`
+	// ChangesBasis says how to read revisions[].changes (PA-89): a model
+	// took from for the revision's own value and doubted the target.
+	ChangesBasis string    `json:"changes_basis"`
+	CapturedAt   time.Time `json:"captured_at"`
 }
+
+// workloadChangesBasis is the evidence's own reading note for changes.
+const workloadChangesBasis = "Each revision's changes[] describe rolling back to that revision from the current one: from is the " +
+	"current revision's value (so it is the same for every revision) and to is that revision's value. A revision's own images and " +
+	"resources are in its containers[]. The current revision has no changes."
 
 type WorkloadRollout struct {
 	Desired     int32   `json:"desired"`
@@ -106,7 +114,7 @@ func (s *Service) ReadWorkload(ctx context.Context, user core.User, app, env str
 	out := WorkloadEvidence{ServiceID: ServiceID(app, env), EnvironmentID: env, Namespace: in.Workload.Scope.Namespace,
 		Deployment: in.Workload.Scope.Deployment, CurrentRevision: d.Revision(), Paused: d.Spec.Paused,
 		Rollout:   WorkloadRollout{Desired: d.Desired(), Updated: d.Status.UpdatedReplicas, Available: d.Status.AvailableReplicas},
-		Revisions: []WorkloadRevision{}, CapturedAt: s.now()}
+		Revisions: []WorkloadRevision{}, ChangesBasis: workloadChangesBasis, CapturedAt: s.now()}
 	for _, c := range d.Status.Conditions {
 		if c.Type == "Progressing" && c.Reason != "" {
 			reason := c.Reason
@@ -173,7 +181,9 @@ func (s *Service) EvidenceTool(opts WorkloadToolOptions) (inference.EvidenceTool
 		Name: WorkloadToolName,
 		Description: "Read the Kubernetes Deployment of a registered service in this conversation's environment: current revision, " +
 			"rollout progress and the recent ReplicaSet revisions, each with what rolling back to it would change (images, resources " +
-			"and the names of changed environment variables; values are never shown), plus whether a rollback is possible " +
+			"and the names of changed environment variables; values are never shown): in changes[], from is always the current " +
+			"revision's value and to is that revision's, while the revision's own images are in its containers[]. It also says " +
+			"whether a rollback is possible " +
 			"(rollback.blocked_reason null) and its verification thresholds. Read-only: it cannot roll back; a person proposes a " +
 			"rollback. Input: the exact service key or JSON {\"service\":\"key\"}. Errors start with a code: unknown_service, " +
 			"not_configured (no workload registered for the service), source_unavailable (cluster or credential unavailable; retry later).",

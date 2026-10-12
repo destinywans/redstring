@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -94,7 +95,8 @@ func TestInvestigationRollbackSuggestion(t *testing.T) {
 					}
 					return c.output, nil
 				}
-				if req.MaxToolCalls != 6 || req.MaxCalls != 7 || len(req.Tools) != 2 {
+				// PA-89: 8 evidence reads; the runtime caps model calls at 8.
+				if req.MaxToolCalls != 8 || req.MaxCalls != 9 || len(req.Tools) != 2 {
 					return "", fmt.Errorf("budget %d/%d tools %d", req.MaxToolCalls, req.MaxCalls, len(req.Tools))
 				}
 				reads := []inference.EvidenceTool{req.Tools[0]}
@@ -154,7 +156,8 @@ func TestInvestigationRollbackSuggestion(t *testing.T) {
 				if !errors.Is(err, pgx.ErrNoRows) {
 					t.Fatalf("audit without a suggestion step: %s %v", outcome, err)
 				}
-			} else if err != nil || outcome != c.wantOutcome || (c.name == "target out of range" && reason != "target_not_candidate") {
+			} else if err != nil || outcome != c.wantOutcome || (c.name == "target out of range" && reason != "target_not_candidate") ||
+				(c.name == "model fails" && reason != "model_error") {
 				t.Fatalf("audit: %s %s %v", outcome, reason, err)
 			}
 			if !c.wantCard {
@@ -274,4 +277,61 @@ func suggestionAPI(t *testing.T, st *store.Store, svc *Service) *httpapi.Server 
 		t.Fatal(err)
 	}
 	return api
+}
+
+// PA-89: an unusable suggestion says why; a JSON object in a long or cut-off
+// output is still read.
+func TestSuggestionFromOutput(t *testing.T) {
+	w := workloadEvidence{ServiceID: "svc", Namespace: "lab", Deployment: "checkout", CurrentRevision: "63",
+		Revisions: []workloadRevision{{Revision: "63", Current: true}, {Revision: "62"}}}
+	valid := `{"suggest":true,"target_revision":"62","reasons":[{"text":"63 上线后 5xx 升高","cites":[1]}]}`
+	for name, c := range map[string]struct {
+		output          string
+		err             error
+		outcome, reason string
+	}{
+		"valid":                {valid, nil, "suggested", ""},
+		"timeout":              {"", context.DeadlineExceeded, "unavailable", "timeout"},
+		"canceled":             {"", context.Canceled, "unavailable", "canceled"},
+		"model error":          {"", errors.New("provider 500"), "unavailable", "model_error"},
+		"cut with json":        {valid, inference.ErrOutputTruncated, "suggested", ""},
+		"cut without json":     {`{"suggest":true,"target_revision":"6`, inference.ErrOutputTruncated, "unavailable", "output_limit"},
+		"long with json":       {strings.Repeat("分析", 3000) + valid, nil, "suggested", ""},
+		"long without json":    {strings.Repeat("分析", 3000), nil, "unavailable", "oversized_output"},
+		"cut, wrong candidate": {`{"suggest":true,"target_revision":"10","reasons":[{"text":"x","cites":[1]}]}`, inference.ErrOutputTruncated, "rejected", "target_not_candidate"},
+	} {
+		got := suggestionFromOutput(c.output, c.err, w, 3)
+		if got.Outcome != c.outcome || got.Reason != c.reason {
+			t.Errorf("%s: %s/%s, want %s/%s", name, got.Outcome, got.Reason, c.outcome, c.reason)
+		}
+	}
+}
+
+type deadlineRunner struct{ err error }
+
+func (*deadlineRunner) Models() []inference.Model { return []inference.Model{{ID: "m"}} }
+
+func (r *deadlineRunner) Run(ctx context.Context, _ inference.Request, _ func(inference.Event) error) (string, error) {
+	r.err = ctx.Err()
+	return `{"suggest":false}`, ctx.Err()
+}
+
+// PA-89: the step has its own time budget, not what is left of the reply's,
+// and still stops when the reply is cancelled.
+func TestSuggestionStepOutlivesTheReplyDeadline(t *testing.T) {
+	w := workloadEvidence{ServiceID: "svc", CurrentRevision: "63", Revisions: []workloadRevision{{Revision: "63", Current: true}, {Revision: "62"}}}
+	runner := &deadlineRunner{}
+	s := &Service{Runtime: runner}
+	expired, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	if got := s.suggestRollback(expired, inference.Model{ID: "m"}, "", "INR-1", "b", "prod", false, "answer", w, nil); runner.err != nil ||
+		got.Outcome != "declined" {
+		t.Fatalf("after the reply deadline: %+v %v", got, runner.err)
+	}
+	stopped, stop := context.WithCancel(context.Background())
+	stop()
+	if got := s.suggestRollback(stopped, inference.Model{ID: "m"}, "", "INR-1", "b", "prod", false, "answer", w, nil); runner.err == nil ||
+		got.Outcome != "unavailable" || got.Reason != "canceled" {
+		t.Fatalf("a cancelled reply: %+v %v", got, runner.err)
+	}
 }

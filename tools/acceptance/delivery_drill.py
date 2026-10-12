@@ -202,7 +202,7 @@ def stage5(a, log, check, save, app_id, sid, incident, deployment, pipeline, sha
           [e.get('title') for e in cited])
     check('the changes evidence holds this deployment', any('Changes only, not health' in b and sha[:8] in b for b in bodies), sha[:8])
     check('AI read the workload revisions (read_service_workload)', any('current_revision' in b for b in bodies), '')
-    check('answer cites the deployment or its pipeline', any(t in answer for t in (*(f'#{i}' for i in dep_ids), str(pipeline), '!7', sha[:8]))
+    check('answer cites the deployment or its pipeline', any(t in answer for t in (*(f'#{i}' for i in dep_ids), str(pipeline), f"!{log['release_bad'].get('mr')}", sha[:8]))
           if answer else False, answer[:200])
     sug = (reply or {}).get('rollback_suggestion') or {}
     check('AI suggests the revision before the deployment', str(sug.get('target_revision')) == str(log['revision_before']),

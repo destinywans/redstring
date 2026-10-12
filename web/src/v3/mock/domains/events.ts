@@ -391,8 +391,20 @@ const proposal = {
   ],
 };
 // PRP-RB* / EXE-RB* are the sample rollback proposal and executions (docs/api/v3-rollback.md).
+// D37: the review page after the decision. PRP-90 executed with no approver list (the audit log has it), PRP-91
+// rejected with a decision record, PRP-94 rejected without one, PRP-92 expired.
+const DECIDED: Record<string, Record<string, unknown>> = {
+  "PRP-90": { status: "executed", execution: { execution_id: "EXE-90a", approved_at: at("14:19"), action_kind: "configcenter.patch", status: "succeeded", upstream_id: "cfg-rev-0f6a2c", unavailable: {} } },
+  "PRP-91": { status: "rejected", decision: { state: "rejected", decided_at: at("11:03"), approvers: [], rejected_by: { id: "u-li", name: "李明", at: at("11:03") } } },
+  "PRP-94": { status: "rejected" },
+  "PRP-92": { status: "expired" },
+};
 mock("GET", "/proposals/:id", ({ params }) =>
-  params.id.startsWith("PRP-RB") ? rollbackProposal(params.id) : isAlertRuleProposal(params.id) ? alertRuleProposal(params.id) : { ...proposal, id: params.id, action_kind: "configcenter.patch", rollback: null, alert_rule: null },
+  params.id.startsWith("PRP-RB")
+    ? rollbackProposal(params.id)
+    : isAlertRuleProposal(params.id)
+      ? alertRuleProposal(params.id)
+      : { ...proposal, id: params.id, action_kind: "configcenter.patch", rollback: null, alert_rule: null, ...(DECIDED[params.id] ?? {}) },
 );
 mock("POST", "/proposals/:id/approve", () => ({ execution_id: "EXE-51" }));
 mock("POST", "/proposals/:id/reject", () => ({ ok: true }));

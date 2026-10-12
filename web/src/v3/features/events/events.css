@@ -816,3 +816,74 @@
   font-family: var(--mono);
   font-size: var(--fs-cap);
 }
+
+/* ---------- D37: review page after the decision ---------- */
+.rv-banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: var(--fs-sub);
+}
+.rv-banner.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.rv-banner.danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.rv-banner.mute {
+  background: var(--sunken);
+  color: var(--muted);
+}
+.rv-banner > svg {
+  flex: none;
+}
+.rv-banner .t {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--text);
+}
+.rv-banner .t b {
+  font-weight: 600;
+}
+.rv-fold {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.rv-fold summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--fs-sub);
+}
+.rv-fold[open] summary {
+  margin-bottom: 8px;
+}
+.rv-frozen {
+  color: var(--muted);
+  font-size: var(--fs-sub);
+}
+.rv-ck {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: var(--sunken);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.rv-ck .box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border-radius: 4px;
+  background: var(--ok);
+  color: #fff;
+}

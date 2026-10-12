@@ -11,6 +11,7 @@ import { useI18n } from "../../i18n";
 import { PasskeyApproval } from "./PasskeyApproval";
 import { RollbackReviewCards } from "./RollbackReview";
 import { AlertRuleReviewCards } from "./AlertRuleReview";
+import { ReviewDecision } from "./ReviewDecision";
 import { usePermission, Gated } from "../../ui/permission";
 import "./events.css";
 
@@ -72,6 +73,32 @@ export default function ReviewPage() {
     if (s === "needs_attention") return ["warn", tx("需要人工处理", "Needs attention")];
     return ["accent", tx("执行中", "Executing")];
   };
+  // The execution box: shown while waiting for the executor and in the decision card.
+  const execBox = p.execution && (
+    <Col gap={6} className="anim-fade" style={{ padding: "10px 12px", borderRadius: 8, background: "var(--sunken)" }}>
+      <Row gap={8}>
+        <Icon name="play" size={14} color="var(--accent-text)" />
+        <b style={{ fontSize: "var(--fs-sm)" }}>{tx("执行", "Execution")}</b>
+        <Spacer />
+        {p.execution.status ? (
+          <Badge tone={execStatus(p.execution.status)[0]}>{execStatus(p.execution.status)[1]}</Badge>
+        ) : (
+          <Row gap={6}>
+            <span className="v3-spinner spin" style={{ color: "var(--accent)" }} />
+            <Muted size={11.5}>{tx("等待执行器记录…", "Waiting for the executor to record it…")}</Muted>
+          </Row>
+        )}
+      </Row>
+      <KV k={tx("批准于", "Approved")} kw={64}>{when(p.execution.approved_at)}</KV>
+      <KV k={tx("执行 ID", "Execution")} kw={64}><span className="mono" style={{ overflowWrap: "anywhere" }}>{p.execution.execution_id}</span></KV>
+      {(p.rollback || p.alert_rule) && (
+        <Btn h={26} icon="play" style={{ alignSelf: "flex-start" }} to={`/executions/${p.execution.execution_id}`}>
+          {tx("查看执行", "View execution")}
+        </Btn>
+      )}
+      {p.execution.upstream_id && <KV k={tx("上游 ID", "Upstream ID")} kw={64}><span className="mono">{p.execution.upstream_id}</span></KV>}
+    </Col>
+  );
   return (
     <Page
       crumbs={[tx("事件收件箱", "Inbox"), p.title]}
@@ -155,81 +182,62 @@ export default function ReviewPage() {
           )}
         </Col>
         <Card className="approve-card">
-          <Col gap={14} style={{ padding: 16 }}>
-            <Row gap={8}>
-              <Icon name="shield" size={16} color="var(--accent-text)" />
-              <h2 style={{ fontSize: "var(--fs-lg)", fontWeight: 600 }}>{tx("复核并批准", "Review & approve")}</h2>
-            </Row>
-            <fieldset className="checklist">
-              <legend>{tx("核对清单（{n} 项都勾选后可批准）", "Checklist ({n} items required)", { n: p.checklist.length })}</legend>
-              {p.checklist.map((c, i) => (
-                <label key={c} className={checks.has(i) ? "on" : ""}>
-                  <input
-                    type="checkbox"
-                    checked={checks.has(i)}
-                    onChange={() =>
-                      setChecks((s) => {
-                        const n = new Set(s);
-                        if (n.has(i)) n.delete(i);
-                        else n.add(i);
-                        return n;
-                      })
-                    }
-                  />
-                  <span>{c}</span>
-                </label>
-              ))}
-            </fieldset>
-            <Col gap={4}>
-              <Muted>{tx("审批要求", "Requirement")}</Muted>
-              <span style={{ fontSize: "var(--fs-sm)" }}>{p.requirement}</span>
-            </Col>
-            <label className="v3-field">
-              <span className="label">{tx("备注（可选）", "Note (optional)")}</span>
-              <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tx("写给执行记录和报告的说明…", "A note for the execution record and report…")} style={{ minHeight: 60 }} />
-            </label>
-            <Row gap={8}>
-              <Gated reason={decideBlocked} grow={1}>
-                <Btn kind="danger" h={32} style={{ flexGrow: 1 }} onClick={() => setRejecting(true)}>
-                  {tx("拒绝", "Reject")}
-                </Btn>
-              </Gated>
-              <Gated reason={decideBlocked} grow={2}>
-                <Btn kind="primary" icon="key" h={32} style={{ flexGrow: 2 }} disabled={!all} onClick={approve} title={all ? undefined : tx("先完成核对清单", "Complete the checklist first")}>
-                  {tx("用通行密钥批准", "Approve with a passkey")}
-                </Btn>
-              </Gated>
-            </Row>
-            <Row gap={8} align="flex-start">
-              <Icon name="shield" size={14} color="var(--muted)" style={{ marginTop: 1 }} />
-              <Muted>{tx("批准后由独立执行器执行，AI 自身没有写权限；批准记录写入审计日志。", "An independent executor runs it after approval; the AI has no write access. Approvals are audited.")}</Muted>
-            </Row>
-            {p.execution && (
-              <Col gap={6} className="anim-fade" style={{ padding: "10px 12px", borderRadius: 8, background: "var(--sunken)" }}>
-                <Row gap={8}>
-                  <Icon name="play" size={14} color="var(--accent-text)" />
-                  <b style={{ fontSize: "var(--fs-sm)" }}>{tx("执行", "Execution")}</b>
-                  <Spacer />
-                  {p.execution.status ? (
-                    <Badge tone={execStatus(p.execution.status)[0]}>{execStatus(p.execution.status)[1]}</Badge>
-                  ) : (
-                    <Row gap={6}>
-                      <span className="v3-spinner spin" style={{ color: "var(--accent)" }} />
-                      <Muted size={11.5}>{tx("等待执行器记录…", "Waiting for the executor to record it…")}</Muted>
-                    </Row>
-                  )}
-                </Row>
-                <KV k={tx("批准于", "Approved")} kw={64}>{when(p.execution.approved_at)}</KV>
-                <KV k={tx("执行 ID", "Execution")} kw={64}><span className="mono">{p.execution.execution_id}</span></KV>
-                {(p.rollback || p.alert_rule) && (
-                  <Btn h={26} icon="play" style={{ alignSelf: "flex-start" }} to={`/executions/${p.execution.execution_id}`}>
-                    {tx("查看执行", "View execution")}
-                  </Btn>
-                )}
-                {p.execution.upstream_id && <KV k={tx("上游 ID", "Upstream ID")} kw={64}><span className="mono">{p.execution.upstream_id}</span></KV>}
+          {/* Decided proposals show the outcome instead of the review form (D37, option A). */}
+          {p.status !== "pending" ? (
+            <ReviewDecision p={p} execBox={execBox} />
+          ) : (
+            <Col gap={14} style={{ padding: 16 }}>
+              <Row gap={8}>
+                <Icon name="shield" size={16} color="var(--accent-text)" />
+                <h2 style={{ fontSize: "var(--fs-lg)", fontWeight: 600 }}>{tx("复核并批准", "Review & approve")}</h2>
+              </Row>
+              <fieldset className="checklist">
+                <legend>{tx("核对清单（{n} 项都勾选后可批准）", "Checklist ({n} items required)", { n: p.checklist.length })}</legend>
+                {p.checklist.map((c, i) => (
+                  <label key={c} className={checks.has(i) ? "on" : ""}>
+                    <input
+                      type="checkbox"
+                      checked={checks.has(i)}
+                      onChange={() =>
+                        setChecks((s) => {
+                          const n = new Set(s);
+                          if (n.has(i)) n.delete(i);
+                          else n.add(i);
+                          return n;
+                        })
+                      }
+                    />
+                    <span>{c}</span>
+                  </label>
+                ))}
+              </fieldset>
+              <Col gap={4}>
+                <Muted>{tx("审批要求", "Requirement")}</Muted>
+                <span style={{ fontSize: "var(--fs-sm)" }}>{p.requirement}</span>
               </Col>
-            )}
-          </Col>
+              <label className="v3-field">
+                <span className="label">{tx("备注（可选）", "Note (optional)")}</span>
+                <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tx("写给执行记录和报告的说明…", "A note for the execution record and report…")} style={{ minHeight: 60 }} />
+              </label>
+              <Row gap={8}>
+                <Gated reason={decideBlocked} grow={1}>
+                  <Btn kind="danger" h={32} style={{ flexGrow: 1 }} onClick={() => setRejecting(true)}>
+                    {tx("拒绝", "Reject")}
+                  </Btn>
+                </Gated>
+                <Gated reason={decideBlocked} grow={2}>
+                  <Btn kind="primary" icon="key" h={32} style={{ flexGrow: 2 }} disabled={!all} onClick={approve} title={all ? undefined : tx("先完成核对清单", "Complete the checklist first")}>
+                    {tx("用通行密钥批准", "Approve with a passkey")}
+                  </Btn>
+                </Gated>
+              </Row>
+              <Row gap={8} align="flex-start">
+                <Icon name="shield" size={14} color="var(--muted)" style={{ marginTop: 1 }} />
+                <Muted>{tx("批准后由独立执行器执行，AI 自身没有写权限；批准记录写入审计日志。", "An independent executor runs it after approval; the AI has no write access. Approvals are audited.")}</Muted>
+              </Row>
+              {execBox}
+            </Col>
+          )}
           <Col gap={12} style={{ padding: 16, borderTop: "1px solid var(--border)" }}>
             <Row gap={8}>
               <h3 style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>{tx("讨论", "Discussion")}</h3>

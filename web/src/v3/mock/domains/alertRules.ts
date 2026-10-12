@@ -83,7 +83,9 @@ export function alertRuleProposal(id: string) {
       : [P("规则和整文件差异我都看过了", "I've read the rule and the whole-file difference"), P("目标仓库、分支、文件正确", "Repository, branch and file are right"), P("停用后这类问题仍有其他规则或人工覆盖", "After disabling, other rules or people still cover this kind of problem")],
     requirement: P("需要两位非发起人用通行密钥批准，生产和非生产都一样。", "Two people other than the proposer approve with a passkey, in production and non-production alike."),
     discussion: [],
-    execution: spec.execution ? { execution_id: spec.execution, approved_at: at("14:29"), action_kind: `prometheus.alert_rule.${spec.op}`, status: spec.status === "executed" ? "succeeded" : "executing", upstream_id: null, unavailable: {} } : null,
+    // PRP-117 also carries the D37 decision record (the others take approvers from the execution).
+    decision: id === "PRP-117" ? { state: "approved", decided_at: at("11:03"), approvers: [{ id: "u-li", name: "李明", method: "passkey", at: at("11:02") }, { id: "u-zhou", name: "周航", method: "passkey", at: at("11:03") }], rejected_by: null } : undefined,
+    execution: spec.execution ? { execution_id: spec.execution, approved_at: at("14:29"), action_kind: `prometheus.alert_rule.${spec.op}`, status: spec.status === "executed" ? (spec.op === "enable" ? "enabled" : "disabled") : "executing", upstream_id: null, unavailable: {} } : null,
     action_kind: `prometheus.alert_rule.${spec.op}`,
     rollback: null,
     alert_rule: {

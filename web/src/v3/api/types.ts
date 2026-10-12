@@ -466,6 +466,13 @@ export type Proposal = {
   rollback?: ProposalRollback | null;
   /** D11 §11.4: set for prometheus.alert_rule.enable / .disable, null otherwise. */
   alert_rule?: ProposalAlertRule | null;
+  /** D37: who decided and when, for every kind; optional until the server sends it. */
+  decision?: {
+    state: "approved" | "rejected" | "expired";
+    decided_at: string;
+    approvers: { id: string; name: string; method: "passkey"; at: string }[];
+    rejected_by: { id: string; name: string; at: string } | null;
+  } | null;
 };
 
 /* ---------------- Alert rule enable / disable through GitOps (D11 §11.4–11.5) ---------------- */

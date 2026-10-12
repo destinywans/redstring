@@ -97,7 +97,10 @@ export function ReviewDecision({ p, execBox }: { p: Proposal; execBox: ReactNode
   return (
     <Col gap={14} style={{ padding: 16 }}>
       {head(<Badge tone={tone}>{tx("已批准 {n}/{n}", "Approved {n}/{n}", { n: count })}</Badge>)}
-      {finished || !p.execution
+      {p.decision?.revoked
+        ? // An approval withdrawn after it was given: the approved card, saying who withdrew it and that the execution was refused.
+          banner("ok", "check", tx("两人已用通行密钥批准", "Two people approved with passkeys"), tx("{n} 在 {t} 撤回了批准，执行被拒绝。", "{n} withdrew the approval at {t}, so the execution was refused.", { n: p.decision.revoked.name, t: when.at(p.decision.revoked.at) ?? "—" }))
+        : finished || !p.execution
         ? banner("ok", "check", tx("两人已用通行密钥批准，执行器已执行", "Two people approved with passkeys and the executor ran it"), approvers ? tx("不需要再操作。之后的状态看执行记录。", "Nothing more to do. Follow the execution record from here.") : tx("批准人记录在审计日志里。", "The approvers are recorded in the audit log."))
         : // Not covered by the board: approved while the execution is still running or didn't succeed — only say what is true.
           banner("ok", "check", tx("两人已用通行密钥批准", "Two people approved with passkeys"), approvers ? tx("执行状态看下方执行记录。", "See the execution below for its state.") : tx("批准人记录在审计日志里；执行状态看下方执行记录。", "The approvers are recorded in the audit log; see the execution below for its state."))}

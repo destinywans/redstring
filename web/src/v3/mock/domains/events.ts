@@ -186,7 +186,7 @@ mock("GET", "/incidents/:id", ({ params }) => {
 mock("POST", "/incidents/:id/timeline", ({ body }) => ({ ok: true, ...(body as object) }));
 // D11 §11.3: changes around an incident's start. One incident per coverage case (sample data).
 const SHA = (short: string) => `${short}${"0".repeat(40 - short.length)}`;
-const INCIDENT_CHANGES: Record<string, { service: string; start: string; gitlab: string; kubernetes: string; items: (min: number) => Record<string, unknown>[] }> = {
+const INCIDENT_CHANGES: Record<string, { service: string; start: string; gitlab: string; kubernetes: string; items: (min: number) => Record<string, unknown>[]; untimed?: { revision: string; change_cause: string | null; reason: string; from: number; to: number }[] }> = {
   "INC-1042": {
     service: "checkout-api", start: at("14:05"), gitlab: "complete", kubernetes: "history_limited",
     items: () => [
@@ -194,10 +194,15 @@ const INCIDENT_CHANGES: Record<string, { service: string; start: string; gitlab:
       { kind: "kubernetes_revision", id: "kubernetes:aiops-lab/checkout-api:7", offset_seconds: -90, revision: "7", change_cause: "gitlab pipeline 8812", gitlab_deployment_id: 103 },
       { kind: "kubernetes_revision", id: "kubernetes:aiops-lab/checkout-api:8", offset_seconds: 540, revision: "8", change_cause: "lab drill bad-release", gitlab_deployment_id: null },
     ],
+    // PA-94: a reused ReplicaSet with no usable change-cause; between 40 and 5 minutes before the alert.
+    untimed: [{ revision: "6", change_cause: null, reason: "replicaset_reused", from: -40, to: -5 }],
   },
   "INC-1041": {
     service: "payment-gateway", start: at("12:50"), gitlab: "unavailable", kubernetes: "history_limited",
-    items: () => [{ kind: "kubernetes_revision", id: "kubernetes:pay/payment-gateway:14", offset_seconds: -360, revision: "14", change_cause: null, gitlab_deployment_id: null }],
+    // Revision 14's time comes from the product's rollback execution (its ReplicaSet was reused); 13 can't be dated
+    // while GitLab is unreadable.
+    items: () => [{ kind: "kubernetes_revision", id: "kubernetes:pay/payment-gateway:14", offset_seconds: -360, revision: "14", change_cause: "aiops rollback to revision 12 (execution EXE-RB1)", gitlab_deployment_id: null, time_basis: "rollback_execution", replicaset_reused: true }],
+    untimed: [{ revision: "13", change_cause: "gitlab pipeline 4410 77c0e4b0", reason: "gitlab_unavailable", from: -55, to: -6 }],
   },
   "INC-1037": { service: "order-service", start: at("16:20", -1), gitlab: "not_configured", kubernetes: "history_limited", items: () => [] },
   "INC-1033": { service: "search-api", start: at("10:30", -23), gitlab: "complete", kubernetes: "history_limited", items: () => [] },
@@ -229,7 +234,7 @@ mock("GET", "/incidents/:id/changes", ({ params, query }) => {
     items: items
       .filter((i) => Date.parse(i.at) >= start - min * 60_000 && Date.parse(i.at) <= end)
       .map((i) => ((i as Record<string, unknown>).kind === "kubernetes_revision" ? { time_basis: "replicaset_created", created_at: i.at, replicaset_reused: false, ...i } : i)),
-    untimed_revisions: [],
+    untimed_revisions: (c.untimed ?? []).map((u) => ({ kind: "kubernetes_revision", id: `kubernetes:${c.service}:${u.revision}`, revision: u.revision, change_cause: u.change_cause, time_unknown_reason: u.reason, not_before: iso(start + u.from * 60_000), not_after: iso(start + u.to * 60_000), created_at: at("10:42"), replicaset_reused: true })),
     coverage: { gitlab: c.gitlab, kubernetes: c.kubernetes },
     note: "time_adjacent_not_causal",
     unavailable: c.gitlab === "unavailable" ? { "coverage.gitlab": "unavailable" } : {},
@@ -398,6 +403,8 @@ const DECIDED: Record<string, Record<string, unknown>> = {
   "PRP-91": { status: "rejected", decision: { state: "rejected", decided_at: at("11:03"), approvers: [], rejected_by: { id: "u-li", name: "李明", at: at("11:03") } } },
   "PRP-94": { status: "rejected" },
   "PRP-92": { status: "expired" },
+  // Approved, then one approver withdrew the approval: the execution was refused.
+  "PRP-95": { status: "approved", decision: { state: "approved", decided_at: at("10:20"), approvers: [{ id: "u-li", name: "李明", method: "passkey", at: at("10:18") }, { id: "u-zhou", name: "周航", method: "passkey", at: at("10:20") }], rejected_by: null, revoked: { id: "u-zhou", name: "周航", at: at("10:24") } } },
 };
 mock("GET", "/proposals/:id", ({ params }) =>
   params.id.startsWith("PRP-RB")

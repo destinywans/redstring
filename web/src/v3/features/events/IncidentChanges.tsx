@@ -5,6 +5,7 @@ import type { IncidentChanges as View, IncidentGitLabDeployment, IncidentKuberne
 import { Brand, Btn, Col, Icon, IconBtn, Mono, Muted, Panel, Row, Segmented, Skeleton, cx } from "../../ui/core";
 import { useI18n } from "../../i18n";
 import { useWhen } from "../../ui/when";
+import { useRevisionTime } from "../observe/revisionTime";
 
 type Before = "60m" | "120m";
 type Item = IncidentGitLabDeployment | IncidentKubernetesRevision;
@@ -21,6 +22,7 @@ export function IncidentChanges({ incidentId }: { incidentId: string }) {
   const { tx } = useI18n();
   const when = useWhen();
   const nav = useNavigate();
+  const revTime = useRevisionTime();
   const [before, setBefore] = useState<Before>("60m");
   const { data, error, isLoading, refetch } = useGet<View>(`/incidents/${incidentId}/changes`, { before, after: "15m" });
   const err = error instanceof ApiError ? error : null;
@@ -73,6 +75,9 @@ export function IncidentChanges({ incidentId }: { incidentId: string }) {
     const deploys = data.items.filter((i): i is IncidentGitLabDeployment => i.kind === "gitlab_deployment");
     const listed = new Set(deploys.map(deploymentId));
     const rows: Item[] = data.items.filter((i) => i.kind === "gitlab_deployment" || i.gitlab_deployment_id === null || !listed.has(i.gitlab_deployment_id));
+    // Revisions of unknown time that may fall in the window (PA-94): listed after the others, never on the strip.
+    const untimed = data.untimed_revisions ?? [];
+    const listedAny = rows.length > 0 || untimed.length > 0;
     const t0 = Date.parse(data.window.start_at);
     const t1 = Date.parse(data.window.end_at);
     const alertAt = Date.parse(data.alert_started_at);
@@ -92,7 +97,10 @@ export function IncidentChanges({ incidentId }: { incidentId: string }) {
     const gitlabNote = { complete: tx("GitLab 部署对这个环境是完整的", "GitLab deployments are complete for this environment"), not_configured: tx("这个服务没有确认代码项目，没有列出 GitLab 部署", "The service has no confirmed code project, so GitLab deployments aren't listed"), no_authorized_target: tx("你看不到这个服务的 GitLab 项目，没有列出 GitLab 部署", "You can't see the service's GitLab project, so GitLab deployments aren't listed"), unavailable: null }[coverage.gitlab];
     const k8sNote = { history_limited: tx("集群修订只覆盖 ReplicaSet 保留的历史", "Cluster revisions only cover the history ReplicaSets keep"), not_configured: tx("这个服务没有登记工作负载，没有列出集群修订", "The service has no registered workload, so cluster revisions aren't listed"), no_authorized_target: tx("你看不到这个服务的集群资源，没有列出集群修订", "You can't see the service's cluster resources, so cluster revisions aren't listed"), unavailable: tx("集群现在读不到，没有列出集群修订", "The cluster can't be read right now, so cluster revisions aren't listed") }[coverage.kubernetes];
     const ask = () => {
-      const list = rows.map((i) => (i.kind === "gitlab_deployment" ? tx("GitLab 部署 {sha}（{o}）", "GitLab deployment {sha} ({o})", { sha: i.short_sha, o: offset(i.offset_seconds) }) : tx("集群修订 {r}（{o}，{s}）", "cluster revision {r} ({o}, {s})", { r: i.revision, o: offset(i.offset_seconds), s: revSource(i) })));
+      const list = [
+        ...rows.map((i) => (i.kind === "gitlab_deployment" ? tx("GitLab 部署 {sha}（{o}）", "GitLab deployment {sha} ({o})", { sha: i.short_sha, o: offset(i.offset_seconds) }) : tx("集群修订 {r}（{o}，{s}）", "cluster revision {r} ({o}, {s})", { r: i.revision, o: offset(i.offset_seconds), s: revSource(i) }))),
+        ...untimed.map((u) => tx("集群修订 {r}（{t}）", "cluster revision {r} ({t})", { r: u.revision, t: revTime.between(u.not_before, u.not_after) })),
+      ];
       nav(`/conversations/new?q=${encodeURIComponent(tx("{id} 告警前后有这些变更：{list}。只是时间相邻，它们和这次告警有没有关系？", "{id} had these changes around the alert: {list}. They're only adjacent in time; are they related to it?", { id: incidentId, list: list.join(tx("；", "; ")) }))}`);
     };
     body = (
@@ -104,25 +112,29 @@ export function IncidentChanges({ incidentId }: { incidentId: string }) {
               {tx("GitLab 现在读不到，", "GitLab can't be read right now, so ")}
               <b>{tx("不能确定", "it's unknown")}</b>
               {tx("这段时间有没有部署。", " whether anything was deployed in this window.")}
-              {rows.length > 0 && tx("集群修订照常列出：", " Cluster revisions are listed as usual:")}
+              {listedAny && tx("集群修订照常列出：", " Cluster revisions are listed as usual:")}
             </span>
           </Row>
         )}
-        {rows.length > 0 ? (
+        {listedAny ? (
           <>
-            <div className="ich-strip" aria-hidden="true">
-              <div className="base" />
-              <span className="zero" style={{ left: pos(alertAt) }} data-l={tx("告警开始", "Alert start")} />
-              {rows.map((i) => (
-                <span key={i.id} className={cx("m", markTone(i))} style={{ left: pos(Date.parse(i.at)) }} title={`${when.clock(i.at) ?? ""} · ${offset(i.offset_seconds)}`} />
-              ))}
-            </div>
-            <div className="ich-axis" aria-hidden="true">
-              <span style={{ left: 0 }}>{tx("−{m} 分钟", "−{m} min", { m: beforeMin })}</span>
-              <span style={{ left: pos(alertAt + (t0 - alertAt) / 2) }}>−{Math.round(beforeMin / 2)}</span>
-              <span style={{ left: pos(alertAt) }}>0</span>
-              {afterMin > 0 && <span style={{ left: "100%" }}>+{afterMin}</span>}
-            </div>
+            {rows.length > 0 && (
+              <>
+                <div className="ich-strip" aria-hidden="true">
+                  <div className="base" />
+                  <span className="zero" style={{ left: pos(alertAt) }} data-l={tx("告警开始", "Alert start")} />
+                  {rows.map((i) => (
+                    <span key={i.id} className={cx("m", markTone(i))} style={{ left: pos(Date.parse(i.at)) }} title={`${when.clock(i.at) ?? ""} · ${offset(i.offset_seconds)}`} />
+                  ))}
+                </div>
+                <div className="ich-axis" aria-hidden="true">
+                  <span style={{ left: 0 }}>{tx("−{m} 分钟", "−{m} min", { m: beforeMin })}</span>
+                  <span style={{ left: pos(alertAt + (t0 - alertAt) / 2) }}>−{Math.round(beforeMin / 2)}</span>
+                  <span style={{ left: pos(alertAt) }}>0</span>
+                  {afterMin > 0 && <span style={{ left: "100%" }}>+{afterMin}</span>}
+                </div>
+              </>
+            )}
             <div className="ich-list">
               {rows.map((i) =>
                 i.kind === "gitlab_deployment" ? (
@@ -156,6 +168,7 @@ export function IncidentChanges({ incidentId }: { incidentId: string }) {
                         <Row gap={10} wrap className="s">
                           <span>{revSource(i)}</span>
                           {i.change_cause && <span className="mono ellipsis">change-cause: {i.change_cause}</span>}
+                          {revTime.basis(i.time_basis) && <span>{revTime.basis(i.time_basis)}</span>}
                         </Row>
                       </Col>
                       <span className="off">{offset(i.offset_seconds)}</span>
@@ -163,6 +176,22 @@ export function IncidentChanges({ incidentId }: { incidentId: string }) {
                   </div>
                 ),
               )}
+              {untimed.map((u) => (
+                <div key={u.id} className="ich-row">
+                  <div className="ich-main">
+                    <Brand name="kubernetes" size={20} />
+                    <Col gap={2} grow style={{ minWidth: 0 }}>
+                      <span className="t">{tx("集群修订 {r}", "Cluster revision {r}", { r: u.revision })}</span>
+                      <Row gap={10} wrap className="s">
+                        <span>{revTime.between(u.not_before, u.not_after)}</span>
+                        <span>{revTime.reason(u.time_unknown_reason)}</span>
+                        {u.change_cause && <span className="mono ellipsis">change-cause: {u.change_cause}</span>}
+                      </Row>
+                    </Col>
+                    <span className="off">{tx("时间未知", "Time unknown")}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           </>
         ) : coverage.gitlab === "complete" && coverage.kubernetes === "history_limited" ? (
@@ -185,7 +214,7 @@ export function IncidentChanges({ incidentId }: { incidentId: string }) {
           </span>
         </Row>
         <Row gap={8}>
-          {rows.length > 0 && (
+          {listedAny && (
             <Btn h={28} kind="primary" icon="branch" onClick={ask}>
               {tx("带入调查", "Bring into investigation")}
             </Btn>

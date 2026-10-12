@@ -350,6 +350,10 @@ mock("GET", "/changes", ({ query }) => {
     deployments, pipelines, merge_requests: mergeRequests,
     alerts: [{ incident_id: "INC-1042", title: P("checkout-api 5xx 升高", "checkout-api 5xx rising"), href: "/incidents/INC-1042", started_at: at("14:05"), ended_at: at("14:22") }],
     kubernetes_revisions: [
+      // Reused ReplicaSets (PA-94): revision 10 can't be dated (shown "time unknown · between …", no dot); revision 9's
+      // time comes from the product's rollback execution, not the ReplicaSet's old creation time.
+      { revision: "10", created_at: at("10:42"), change_cause: null, gitlab_pipeline_id: null, replicaset_reused: true, at: null, time_basis: "unknown", time_unknown_reason: "replicaset_reused", not_before: at("14:26"), not_after: at("14:31") },
+      { revision: "9", created_at: at("10:42"), change_cause: "aiops rollback to revision 6 (execution EXE-RB2)", gitlab_pipeline_id: null, replicaset_reused: true, at: at("14:26"), time_basis: "rollback_execution", time_unknown_reason: null, not_before: null, not_after: null },
       { revision: "8", created_at: at("14:20"), change_cause: "lab drill bad-release", gitlab_pipeline_id: null, replicaset_reused: false, at: at("14:20"), time_basis: "replicaset_created", time_unknown_reason: null, not_before: null, not_after: null },
       { revision: "7", created_at: at("14:03"), change_cause: "gitlab pipeline 8812 a3f9c21b", gitlab_pipeline_id: 8812, replicaset_reused: false, at: at("14:03"), time_basis: "replicaset_created", time_unknown_reason: null, not_before: null, not_after: null },
     ],

@@ -28,11 +28,16 @@ type fakeRulesRepo struct {
 	mrs       []map[string]any
 	protected bool
 	failMerge int // HTTP status to answer PUT merge with (merging anyway when 502)
-	mergeSHA  string
-	writes    int
-	requests  int
-	server    *httptest.Server
-	seq       int
+	// unpreparedReads is how many reads of a new MR see it unprepared, as
+	// GitLab prepares the diff asynchronously: changes_count and diff_refs
+	// null, no prepared_at and no diffs yet.
+	unpreparedReads int
+	mrReads         int
+	mergeSHA        string
+	writes          int
+	requests        int
+	server          *httptest.Server
+	seq             int
 }
 
 const filePullPath = "rules/test/app.yml"
@@ -165,7 +170,8 @@ func (f *fakeRulesRepo) serve(w http.ResponseWriter, r *http.Request) {
 		reply(200, list)
 	case r.Method == http.MethodPost && p == root+"/merge_requests":
 		iid := int64(len(f.mrs) + 1)
-		m := map[string]any{"iid": iid, "state": "opened", "source_branch": body["source_branch"], "target_branch": body["target_branch"]}
+		m := map[string]any{"iid": iid, "state": "opened", "source_branch": body["source_branch"], "target_branch": body["target_branch"],
+			"unprepared": f.unpreparedReads}
 		f.mrs = append(f.mrs, m)
 		reply(201, f.view(m))
 	case strings.HasPrefix(p, root+"/merge_requests/"):
@@ -178,8 +184,16 @@ func (f *fakeRulesRepo) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		switch {
 		case len(rest) == 1:
+			f.mrReads++
 			reply(200, f.view(m))
+			if n, _ := m["unprepared"].(int); n > 0 {
+				m["unprepared"] = n - 1
+			}
 		case rest[1] == "diffs":
+			if n, _ := m["unprepared"].(int); n > 0 {
+				reply(200, []any{})
+				return
+			}
 			reply(200, []any{map[string]any{"old_path": filePullPath, "new_path": filePullPath}})
 		case rest[1] == "merge" && r.Method == http.MethodPut:
 			head := f.branches[m["source_branch"].(string)]
@@ -216,6 +230,11 @@ func (f *fakeRulesRepo) view(m map[string]any) map[string]any {
 		"diff_refs": map[string]any{"start_sha": f.parents[head], "head_sha": head}}
 	if at, ok := m["merged_at"]; ok {
 		out["merged_at"] = at
+	}
+	if n, _ := m["unprepared"].(int); n > 0 {
+		out["changes_count"], out["diff_refs"] = nil, nil
+	} else {
+		out["prepared_at"] = time.Now().UTC()
 	}
 	return out
 }
@@ -414,5 +433,39 @@ func TestFilePullConfiguration(t *testing.T) {
 	failing.tokenSource = func(context.Context) (string, error) { return "two words", nil }
 	if _, _, _, err := failing.request(context.Background(), http.MethodGet, "/api/v4/projects/6", nil, nil); !errors.Is(err, errGitOpsCredential) {
 		t.Fatalf("malformed token: %v", err)
+	}
+}
+
+// GitLab prepares a new MR's diff asynchronously. Prepare waits for it
+// (bounded) instead of reporting an uncertain result, and still checks the
+// exact diff; only a timeout is uncertain, and the same MR is found later.
+func TestFilePullPrepareWaitsForTheMRDiff(t *testing.T) {
+	ctx := context.Background()
+	repo := newFakeRulesRepo(t, filePullBase)
+	a := newFilePullApplier(t, repo)
+	a.mrPreparePoll = 10 * time.Millisecond
+	in := filePullIntent(t, a, "PreparedLater")
+	repo.unpreparedReads = 3
+	execution := strings.Repeat("4", 32)
+	receipt, err := a.Prepare(ctx, in, filePullApproval, execution)
+	if err != nil || receipt.State != "opened" || receipt.MR != 1 || repo.mrReads < 4 {
+		t.Fatalf("prepare across the diff preparation: %+v %v reads=%d", receipt, err, repo.mrReads)
+	}
+	// Not prepared within the wait: uncertain, nothing else written, and the
+	// same MR is found once GitLab is done.
+	in = filePullIntent(t, a, "PreparedTooLate")
+	repo.unpreparedReads = 1 << 20
+	a.mrPrepareWait = 80 * time.Millisecond
+	execution = strings.Repeat("5", 32)
+	if _, err := a.Prepare(ctx, in, filePullApproval, execution); err == nil {
+		t.Fatal("an unprepared MR was accepted")
+	} else if _, refused := MergeRefusal(err); refused {
+		t.Fatalf("a slow preparation is a refusal: %v", err)
+	}
+	repo.mrs[1]["unprepared"] = 0
+	writes := repo.writes
+	found, ok, err := a.Lookup(ctx, in, execution)
+	if err != nil || !ok || found.MR != 2 || repo.writes != writes {
+		t.Fatalf("lookup after the preparation: %+v %v %v", found, ok, err)
 	}
 }

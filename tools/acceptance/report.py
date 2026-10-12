@@ -27,18 +27,30 @@ STATUS_OVERRIDES = {
     'PA-05': 'verified', 'PA-08': 'verified', 'PA-09': 'verified', 'PA-12': 'verified', 'PA-19': 'verified', 'PA-68': 'verified',
     'PA-21': 'verified', 'PA-43': 'verified', 'PA-84': 'verified', 'PA-85': 'verified', 'PA-86': 'verified', 'PA-87': 'verified', 'PA-83': 'verified', 'PA-67': 'verified', 'PA-72': 'verified', 'PA-73': 'verified', 'PA-74': 'verified',
     'PA-78': 'verified', 'PA-79': 'verified', 'PA-80': 'verified', 'PA-81': 'verified', 'PA-82': 'verified',
+    'PA-88': 'verified', 'PA-89': 'verified', 'PA-90': 'verified',
 }
 STATUS_LABEL = {'verified': '已验证', 'partial': '部分完成', 'open': '处理中', 'later': '后续轮次', 'gap': '缺能力'}
 
 PHASES = [
     ('0', '环境与数据接入', 'done', '两个独立实例（生产级、非生产级）、独立 PG、TLS 代理、四个角色账号；Prometheus、Loki、Tempo、Alertmanager、Kubernetes 清单与 DeepSeek 接入。'),
     ('1', '全页面对拍', 'done', '54 个静态路由 × 2 实例 × 中英文/深浅色共 216 次加载。首轮 0 页干净，修复后 210–212 页干净；剩余为预期的“配置仓库未接入”和 PA-70。'),
-    ('2', '黄金路径', 'done', '登录与会话、告警闭环、调查画布、对话、知识、Agent 运行台、集成中心、设置均端到端走通；变更与发布按 D11 记为缺来源。'),
+    ('2', '黄金路径', 'done', '登录与会话、告警闭环、调查画布、对话、知识、Agent 运行台、集成中心、设置均端到端走通；变更与发布当时按 D11 记为缺来源，已在阶段 8 补齐。'),
     ('3', '权限、隔离、故障、边界', 'done', '权限矩阵 130 条路由 × 4 角色 0 不一致；环境隔离 25/25；输入边界 12/12；登录与会话 10/10；五个数据源停机与四类产品故障都明确降级并自动恢复。'),
     ('4', '实验集群故障演练', 'done', '坏发布、重试风暴、Pod OOM、Pod 崩溃、消费者停止、节点压力六个场景：注入 → 告警 → 产品 → AI 取证 → 恢复，修复后重跑。'),
     ('5', '修复后全量回归', 'done', '基线、第二轮与回滚部署后的回归均已完成；最终一轮见下方“回归”数字。'),
     ('6', 'Kubernetes 回滚闭环', 'done', '下一轮第一段（用户 10-10 批准）：实验 Vault 凭据、独立执行器、两人通行密钥批准、恢复验证、AI 回滚建议与画布卡片；prod 端到端与 nonprod 五个失败与边界场景都通过。实验虚拟机时钟跳变（D12、D16）查明为 guest 内核缺少计数器倒退保护，经用户批准换为 HWE 7.0.0-38 并加自动修复守护，换后复验 23/23。'),
     ('7', '统一来源登记第二阶段', 'done', '用户 10-10 批准，逐个读取方切换（覆盖度、服务映射、日志、链路、AI 指标工具、映射写入、能力标签），每步先 nonprod 后 prod、切换前后对照；之后缺省改为 unified 并删除开关，回退演练、回滚演练 23/23 与完整回归 15/15 均通过；期间修复链路页 PA-78～82。P4 清理（用户 10-10 批准）已完成：旧回滚计划到期迁移、V3 实例下线旧动作路由、取消 legacy/compare 模式、V3 不再读遥测文件与旧 Kubernetes 登记；部署后回滚演练 23/23、完整回归 15/15。'),
+    ('8', 'D11 交付链路', 'done', '用户 10-11 批准设计与设计图：实验 GitLab 经 TLS 代理接入两个实例，“变更与发布”和事件“告警前后变更”按服务读部署、流水线、合并请求并对上集群修订；AI 新增 `read_service_changes`；“启用告警规则”改由独立执行器在两人通行密钥批准后提交、fast-forward 合并、经 git-sync 与 Prometheus 自动重载生效并读回，另做停用。完整发布演练第 2 轮 24/24（坏版本经 GitLab 上线 → 告警 → 事件列出部署 → 从事件发起调查 → AI 建议回滚 → 执行器回滚 → 经 GitLab 修复）；反例逐项符合设计。期间修复 PA-88～90。'),
+]
+
+# D11 delivery chain (design docs/plans/2026-10-11-d11-delivery-chain.md §9): report file, scenario, expected.
+D11 = [
+    ('alert-rule-prod.json', 'prod · 启用与停用告警规则', '提案 → 两人通行密钥批准 → 执行器提交并合并 → Prometheus 读回 → 告警进入 prod 并归 checkout-api → 停用后规则消失、告警恢复'),
+    ('alert-rule-nonprod.json', 'nonprod · 启用与停用告警规则', '同上（test 环境告警按设计由 Alertmanager 丢弃）；每轮回归都跑'),
+    ('delivery-prod-round1.json', 'prod · 完整发布演练（第 1 轮）', '发现 PA-88（从事件发起调查 501）、PA-89（AI 未给结构化建议）与实验修复发布失败'),
+    ('delivery-prod.json', 'prod · 完整发布演练（第 2 轮）', '坏版本经 GitLab 上线 → 告警 → 事件列出部署 → 从事件发起调查 → AI 读变更与修订并建议回滚 → 两人批准回滚 → 经 GitLab 修复'),
+    ('d11-negatives-changes.json', 'prod · 变更来源反例', 'GitLab 暂停 503 source_unavailable、AI 如实说明源不可用；Vault 键失效 credential_unavailable；非 GitLab 变更无流水线'),
+    ('d11-negatives-rules.json', 'nonprod · 告警规则反例', '单票、发起人、API 令牌不能批准；main 前移 needs_attention 不写入；同步停止加载超时后重新核对；GitLab 中途断开只读对账、只一个 MR'),
 ]
 
 # Rollback drills (PA-08/72/73): report file, scenario, what should happen.
@@ -62,9 +74,10 @@ DRILLS = [
 ]
 
 LATER = [
-    ('性能压测与连续 24 小时运行', '计划阶段即后置。'),
-    ('旧时间文字字段清理（PA-83，D24）', '前端已改读结构化时间；旧的文字字段下一轮删除，删除前后端先给首页最近动态补结构化环境字段。'),
-    ('变更与发布、启用告警规则（D11）', '实验 GitLab 交付链路已就绪，产品侧接入留到后续。'),
+    ('性能压测与连续 24 小时运行', '计划阶段即后置，下一轮。'),
+    ('部署到现有业务库', '需要用户另行授权。'),
+    ('已批准提案的审阅页状态（待设计）', '四类提案共用的审阅页在批准后仍显示批准表单；设计稿只画了待批准状态，改动需先出设计图。'),
+    ('比只读更小的成员角色（观察）', '受邀成员都带旧版只读角色（含连接器查看），自定义角色只能叠加；“只看服务不看连接器”需另行设计。'),
 ]
 
 RERUN = [
@@ -267,7 +280,7 @@ footer {{ color: var(--muted); font-size: 13px; }}
     p.append(f'''<header>
   <div class="brand"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" fill="var(--thread)"/></svg>Redstring · AIOps</div>
   <h1>生产验收报告</h1>
-  <div class="meta"><span>2026-10-09 至 10-10</span><span>分支 <code>{esc(branch)}</code></span><span>提交 <code>{esc(commit)}</code></span><span>实验集群 <code>aiops-vm-cluster</code>（三台 Lima 虚拟机）</span></div>
+  <div class="meta"><span>2026-10-09 至 10-12</span><span>分支 <code>{esc(branch)}</code></span><span>提交 <code>{esc(commit)}</code></span><span>实验集群 <code>aiops-vm-cluster</code>（三台 Lima 虚拟机）</span></div>
 </header>''')
 
     open_p01 = sev_open['P0'] + sev_open['P1']
@@ -324,6 +337,20 @@ footer {{ color: var(--muted); font-size: 13px; }}
         ok = sum(1 for c in d.get('checks', {}).values() if c.get('ok'))
         p.append(f'<tr><td>{esc(name)}</td><td>{esc(expect)}</td><td><code>{esc(state)}</code></td>'
                  f'<td class="num">{ok}/{len(d.get("checks", {}))}</td></tr>')
+    p.append('</tbody></table></div></section>')
+
+    # D11
+    p.append('<section><h2>D11 交付链路</h2><p class="note">实验 GitLab（aiops-lab/checkout-api、aiops-lab/prometheus-rules）与 aiops-vm-cluster；'
+             '规则写入只经独立执行器和两人通行密钥批准；结果取自 <code>.local/acceptance/e2e/drills/</code>。</p><div class="panel scroll"><table><thead><tr>'
+             '<th>场景</th><th>应有结果</th><th>检查</th></tr></thead><tbody>')
+    for fname, name, expect in D11:
+        d = load(E2E / 'drills' / fname)
+        if not d:
+            p.append(f'<tr><td>{esc(name)}</td><td>{esc(expect)}</td><td>未运行</td></tr>')
+            continue
+        items = list(d['checks'].values()) if isinstance(d.get('checks'), dict) else d.get('results') or []
+        ok = sum(1 for c in items if c.get('ok'))
+        p.append(f'<tr><td>{esc(name)}</td><td>{esc(expect)}</td><td class="num">{ok}/{len(items)}</td></tr>')
     p.append('</tbody></table></div></section>')
 
     # Phase 3
@@ -394,7 +421,8 @@ VERDICT = ('本轮在两个独立验收实例和三节点实验集群上完成�
            '权限矩阵与环境隔离没有越权。下一轮第一段的 Kubernetes 回滚闭环也已在实验集群上验证：AI 读修订并建议、人从画布提交、'
            '两人通行密钥批准、独立执行器写入并验证恢复，五个失败与边界场景都按设计停下、没有误写。'
            '统一来源登记第二阶段也已完成：集成中心登记的连接器成为服务映射、日志、链路、AI 取证和回滚的唯一来源，缺省改为 unified 后回滚演练与完整回归均通过。'
-           'P4 清理也已完成，V3 实例只读统一登记。性能与 24 小时稳定性、交付链路放到后续。')
+           'P4 清理也已完成，V3 实例只读统一登记。D11 交付链路也已接通：GitLab 变更与集群修订对上，告警前后变更进入事件与 AI 取证，'
+           '告警规则经独立执行器启用与停用，完整发布演练从坏版本上线到回滚、修复全程通过。性能与 24 小时稳定性放到下一轮。')
 
 
 def main():

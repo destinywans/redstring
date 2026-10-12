@@ -1,4 +1,6 @@
-**当前验收：[CP-324](CHECKPOINT.md#cp-324-current)，2026-10-11。生产验收本轮完成：Kubernetes 回滚闭环、统一来源登记第二阶段与 P4 清理在两个验收实例上验收，登记 PA-01～PA-87 全部验证，最终回归 16/16、prod 回滚演练 23/23；用户离开期间的决定 D22～D29 待审阅；全部只在本地，未推送。见[验收登记](docs/releases/2026-10-09-production-acceptance.md)。**
+**当前验收：[CP-325](CHECKPOINT.md#cp-325-current)，2026-10-12。D11 交付链路完成：GitLab 变更与集群修订、事件告警前后变更、AI 变更取证、告警规则执行器启用与停用在两个验收实例上验收；prod 完整发布演练 24/24，PA-01～PA-90 全部验证，最终回归 18/18。见[验收登记](docs/releases/2026-10-09-production-acceptance.md)。**
+
+**此前验收：[CP-324](CHECKPOINT.md#cp-324-current)，2026-10-11。生产验收本轮完成：Kubernetes 回滚闭环、统一来源登记第二阶段与 P4 清理在两个验收实例上验收，登记 PA-01～PA-87 全部验证，最终回归 16/16、prod 回滚演练 23/23；用户离开期间的决定 D22～D29 待审阅；全部只在本地，未推送。见[验收登记](docs/releases/2026-10-09-production-acceptance.md)。**
 
 **当前交付：[CP-321](CHECKPOINT.md#cp-321-current)，2026-10-07。WAN-245～248 已对齐 V3 v1.1 后端：32 个新增端点与服务端筛选接线，27 个有持久化/真实读取，5 个可信业务来源缺口按用户确认明确 503；隔离 PG/race 与正式启动组装六子例通过，460 操作契约检查通过。原 166 项状态不升级。见[范围](docs/plans/2026-10-07-v3-page-interactions.md)和[交付记录](docs/releases/2026-10-07-v3-page-interactions.md)。前端、现有库迁移、部署、真实外部和全链/性能24h仍待。**
 

@@ -1,4 +1,16 @@
-**最新验收：[CP-324](#cp-324-current)，2026-10-11 (+08)。Kubernetes 回滚闭环、统一来源登记第二阶段与 P4 清理都已在两个验收实例上完成并验收；登记 87 条全部验证（PA-01～PA-87），最终回归 16/16（含新加的链路视图检查），prod 回滚演练 23/23。用户离开期间自行做出的决定 D22～D29 待用户审阅。报告 https://claude.ai/artifact/CD6jdw84V8stiLQRsqvjHt 。**
+**最新验收：[CP-325](#cp-325-current)，2026-10-12 (+08)。D11 交付链路在两个验收实例上完成：实验 GitLab 的变更与集群修订对上，事件“告警前后变更”与 AI `read_service_changes` 接通，告警规则由独立执行器启用与停用；prod 完整发布演练第 2 轮 24/24、反例全部符合设计；本轮新登记 PA-88～90 均已修复验证，登记 90 条全部验证，最终回归 18/18。报告 https://claude.ai/artifact/CD6jdw84V8stiLQRsqvjHt 。**
+
+<a id="cp-325-current"></a>
+## CP-325 · 生产验收：D11 交付链路
+
+- 设计与批准：`docs/plans/2026-10-11-d11-delivery-chain.md`（v2，用户 10-11 批准十项推荐、执行器自行合并、git-sync + 自动重载、不做人工审阅界面）与设计图 https://claude.ai/artifact/MqbxiEWVZsWtJeQz2dgu5c ；执行器验收配置 `docs/plans/2026-10-11-d11-executor-acceptance-config.md`。登记 `docs/releases/2026-10-09-production-acceptance.md`（PA-01～PA-90、D1～D34）。
+- 部署：迁移 174–178 已在两个验收库执行（现有业务库未执行）；集成分支最终 f6ff93e 已部署并推送。后端 PA-88（9f5ee07，V3 从事件发起调查）、PA-89（0021bfe，画布取证 6→8 先读告警指标、回答控长、建议步骤记录原因，D34）、PA-90（8179c7f，加载超时带重载状态、时间线保留异常与重新核对）、执行器建 MR 后等待 GitLab 差异（b579c61）；前端结构化视图（0ecc435）、规则列表真实模式不再崩溃（0ec6b62）、时间线步骤原因（f6ff93e）。
+- 验收：告警规则闭环 nonprod 17/17、prod 19/19（告警进入 prod 并归 checkout-api、停用后恢复）；完整发布演练第 1 轮发现 PA-88、PA-89 与实验修复发布失败，第 2 轮 24/24（`drills/delivery-prod.json`）；反例 changes 11/11、rules 19/19；最终回归 18/18（`regress-d11-final.json`，回归新增 nonprod 告警规则闭环）。“撤销 `connectors.view` 得 403”在当前权限模型下无法在实例上构造，由后端隔离测试覆盖。
+- 验收工具（`tools/acceptance/`）：`gitlab_setup.py`、`alert_rule_loop.py`、`delivery_drill.py`（`--resume`）、`d11_negatives.py`（changes/rules）、`credentials.py`（D31）、`trace_views.py`（D28）、`regress.py`、`report.py`（阶段 8 与 D11 表）。
+- 实验（aiops-test，本地提交未推送）：`delivery/d11.py` 的 `release-bad`/`release-fix`/`bad-version --again`（57b20af、919516e），kind 重启后先探测 Pod DNS（123880d）、按部署镜像判定发布（993f74d），D33 告警环境改写（e7de5ad）。回滚写令牌 10-12 01:27Z 轮换（24 小时，到期前须 `enterprise/vault.py rotate-rollback`），读令牌到 10-18，GitLab 管理员令牌 10-20。
+- 待定：已批准提案的审阅页右栏仍显示批准表单（四类提案共用，需设计图）；成员无法低于只读权限（观察）；性能与 24 小时稳定性下一轮；部署到现有业务库需另行授权。
+
+**此前验收：[CP-324](#cp-324-current)，2026-10-11 (+08)。Kubernetes 回滚闭环、统一来源登记第二阶段与 P4 清理都已在两个验收实例上完成并验收；登记 87 条全部验证（PA-01～PA-87），最终回归 16/16（含新加的链路视图检查），prod 回滚演练 23/23。用户离开期间自行做出的决定 D22～D29 待用户审阅。报告 https://claude.ai/artifact/CD6jdw84V8stiLQRsqvjHt 。**
 
 <a id="cp-324-current"></a>
 ## CP-324 · 生产验收：回滚闭环、统一来源登记第二阶段与 P4

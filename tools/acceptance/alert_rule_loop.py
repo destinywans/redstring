@@ -20,6 +20,7 @@ import secrets
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from api import LOCAL, call  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 ENV = {'prod': 'prod', 'nonprod': 'test'}
 PROM = 'http://127.0.0.1:19090'
+GITLAB = 'http://127.0.0.1:28080/api/v4/projects/6'
 EXPR = 'sum by (cluster) (rate(lab_http_requests_total{application="checkout-api"}[2m])) > 0'
 TERMINAL = ('failed', 'needs_attention', 'stale_remote', 'pending_review', 'rejected')
 results = []
@@ -116,6 +118,9 @@ def main():
     _, prop = op('GET', f'/proposals/{pid}')
     check('review content carries the scope labels (D32)', 'Scope labels: environment=' in json.dumps(prop, ensure_ascii=False),
           json.dumps(prop, ensure_ascii=False)[:200])
+    _, listing = op('GET', '/alert-rules')
+    pending = [x for x in (listing or {}).get('pending') or [] if pid in json.dumps(x)]
+    check('the rule list shows the enable as pending (§9.2 3.6)', pending, json.dumps(pending[:1], ensure_ascii=False)[:200])
     ok, tail = approve(inst, env, pid)
     check('two approvers approve with passkeys', ok, tail)
     approved = time.time()
@@ -136,6 +141,7 @@ def main():
     _, listing = op('GET', '/alert-rules')
     row = next((x for x in (listing or {}).get('items') or [] if x.get('name') == name), None)
     check('the rule is in the product rule list', row, json.dumps(row, ensure_ascii=False)[:200])
+    gitlab_and_audit(op, prop, ex, eid, pid)
     alert = None
     if inst == 'prod':
         # Groups carry the application and local fingerprint, not the provider's alert name, so the
@@ -169,6 +175,37 @@ def main():
             log['alert_resolved_s'] = round(time.time() - t0)
             check('its alert resolves after the rule is disabled', state == 'resolved', f'{state} after {round(time.time() - started)}s')
     finish(inst, log)
+
+
+def gitlab_and_audit(op, prop, ex, eid, pid):
+    """§9.2 3.4 and 3.6: the merged MR names the execution, main holds exactly the approved file, and
+    the audit log shows the request and the executor's steps in this environment."""
+    repo = ex.get('repository') or {}
+    try:
+        with urllib.request.urlopen(f"{GITLAB}/merge_requests/{repo.get('mr_iid')}", timeout=10) as r:
+            mr = json.load(r)
+        check('the GitLab MR is merged, names the execution and matches the merge', mr.get('state') == 'merged'
+              and eid in (mr.get('description') or '') and repo.get('merged_sha') in (mr.get('merge_commit_sha'), mr.get('sha')),
+              f"!{mr.get('iid')} {mr.get('state')} {(mr.get('merge_commit_sha') or mr.get('sha') or '')[:8]}")
+        path = urllib.parse.quote(repo.get('path') or '', safe='')
+        with urllib.request.urlopen(f"{GITLAB}/repository/files/{path}/raw?ref={repo.get('merged_sha')}", timeout=10) as r:
+            merged = r.read().decode()
+        approved = '\n'.join(x['text'] for x in ((prop.get('alert_rule') or {}).get('change') or {}).get('lines') or [] if x.get('op') in (' ', '+'))
+        check('main holds exactly the approved file', merged.rstrip('\n') == approved.rstrip('\n'),
+              f'{len(merged)} bytes merged, {len(approved)} approved')
+    except OSError as e:
+        check('the GitLab MR is merged, names the execution and matches the merge', False, e)
+    started, actions = time.time(), set()
+    while time.time() - started < 30:
+        _, audit = op('GET', f'/audit?range=24h&q={pid}', role='admin')
+        actions = {i.get('action') for i in (audit or {}).get('items') or []}
+        _, audit = op('GET', f'/audit?range=24h&q={eid}', role='admin')
+        actions |= {i.get('action') for i in (audit or {}).get('items') or []}
+        if {'v3.alert_rule.enable_requested', 'v3.alert_rule.enable.prepare', 'v3.alert_rule.enable.observed'} <= actions:
+            break
+        time.sleep(5)
+    check('the audit log shows the request and the executor steps (PA-93)',
+          {'v3.alert_rule.enable_requested', 'v3.alert_rule.enable.prepare', 'v3.alert_rule.enable.observed'} <= actions, sorted(a for a in actions if a))
 
 
 def finish(inst, log):

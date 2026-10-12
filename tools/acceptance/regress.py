@@ -94,6 +94,8 @@ def main():
     # D11: enable and disable one rule through the GitOps executor on nonprod (its alert is dropped by
     # design), so every regression exercises the executor, GitLab and the rule loading path.
     results.append(run('alert rule loop nonprod', ['python3', 'tools/acceptance/alert_rule_loop.py', 'nonprod'], parse=passed_line))
+    # D11 §9.1 step 3: the product's GitLab deployments, pipelines and MRs equal GitLab's, item by item.
+    results.append(run('gitlab changes compare', ['python3', 'tools/acceptance/gitlab_compare.py', 'all'], parse=passed_line))
     if a.with_golden_api:
         for path in ('canvas', 'conversation', 'settings', 'agents'):
             results.append(run(f'golden {path}', ['python3', 'tools/acceptance/golden.py', path]))

@@ -105,6 +105,9 @@
 | PA-88 | P1 | V3 未实现“从事件发起调查”：`POST /incidents/{id}/investigation` 返回 501 `v3_not_implemented`（路由只在旧版 `internal/operations`，契约有），而 V3 事件页“发起调查”按钮正调它，真实模式点了只提示不可用；调查无法关联事件，`investigation_id` 始终为空，D11 §4.4 按告警开始取变更窗口、§9.1 4.5“从告警组发起调查”都落空。D11 完整演练（10-12）发现 | 已交后端：V3 实现创建或复用、带事件服务与环境、回写 `investigation_id`，不带 `model_id` 不调模型 |
 | PA-89 | P2 | D11 演练画布 AI（DeepSeek 58 秒）回答对上了 MR !7、部署 #8、流水线 55、修订 63，正文建议回到 62，但：① 画布 6 次取证用在 p95、重启、日志、工作负载、变更、知识，告警依据的 `error_rate`、请求量、实例数都没读到；② 回答撞模型输出上限被截断；③ 没有结构化回滚建议（PA-72 回归），`rollback_suggestion` 为空且建议步骤结果无处可查；④ 把工作负载证据 `changes[].from`（当前修订的值）误读为“自相矛盾” | 已交后端（排在 PA-88 后）：建议画布取证上限 6→8 并先读告警指标、查输出上限、记录建议步骤结果、写清 `changes` 语义 |
 | PA-90 | P3 | D11 告警规则执行器两处未达设计：① 规则同步停止导致加载超时时进入 `needs_attention`/`load_timeout`，但 `readback.reload` 为空，没有按设计读 `prometheus_config_last_reload_successful` 与最近成功重载时间写进失败原因；② “重新核对”记为 `enabled` 后，步骤时间线从 `loading` 直接到 `enabled`，中间的 `needs_attention` 与人工重新核对没有留下（`uncertain` 会记入）。样例 nonprod 执行 `5fad8ef7…` | 后端已修（8179c7f，10-12 11:00 部署 424d126）：超时读 Prometheus 重载状态写入 `readback.reload` 与失败原因，步骤带 `reason`，人工重新核对记为 `recheck(manual)`；nonprod 反例复跑 19/19。前端显示新步骤与原因已交前端 |
+| PA-91 | P2 | 配置提升的 GitLab 客户端（`internal/v3configsync/gitlab.go`）HTTPS 只信任系统根证书，配置只有 `allow_loopback_http`，用企业内部 CA 的 GitLab 配置仓库接不进来（同类问题 PA-28、4e360d5 已在 Alertmanager 与 GitLab 连接器修过）。配置提升接实验配置仓库时发现（2026-10-12） | 已交后端：`gitlab.ca_file`（绝对路径、PEM、只对该客户端生效、仍校验主机名） |
+| PA-92 | P3 | 对话回答开头带一句中文过程话（prod 对话 `16ff402c…` 首句“我先确认服务键与可读来源。”再接结论），PA-77 只处理了英文工具前言。D11 反例中发现 | 已交后端：中文同样处理，不误删正常首句 |
+| PA-93 | P2 | 两类关键动作的审计在产品审计日志里看不到：审计视图按设计略过 `changes` 里没有环境的应用级记录，而告警规则执行器（`v3.alert_rule.enable.prepare`/`execution_state`/`observed`、`execution.rechecked`）与画布 AI 回复（`v3.investigation_canvas.reply_started`/`reply_completed`）写审计时都没带环境，3 天内两库这些记录 100% 不可见；`GET /audit?q=alert_rule` 只查得到提交请求，查不到执行器合并 main 与生效。回滚执行器正常。补告警规则闭环的审计检查时发现（2026-10-12） | 已交后端：写入带 `environment_id` 并排查其余写审计处；已有记录在哈希链上不改，文档说明 |
 
 ### PA-05/PA-16 五个读接口
 
@@ -169,6 +172,10 @@
 | D32 | 10-11 22:15 | 产品建的告警规则：`application` 标签与告警摄取实际使用的标识一致（后端核对，预期为应用 key，经实例应用绑定换算，规则列表照此显示），并补“启用的规则 → 告警摄取 → 对上服务”的端到端测试；规则一律带环境标签，实验 Alertmanager 按它分流，test 规则的告警不进 prod 实例 | 后端发现产品要求规则标应用 ID，而实验告警与摄取用 key，按 ID 建的规则触发后可能对不上服务；且 test 组规则带集群标签会被送进 prod 实例，破坏环境隔离 |
 | D33 | 10-11 22:40 | 实验 Prometheus 告警重标记新增一条：`cluster="aiops-vm-cluster"` 且 `environment="lab"` 时改写为 `environment="prod"`（用户此前约定不动的告警重标记，这次只加这一条）；Alertmanager 送 prod 实例的路由加 `redstring_env="prod"`、`environment=~"prod\|"`，`dev/test/staging` 送丢弃接收器 | D32 部署后才发现实验 VM 告警继承了指标的 `environment="lab"`，prod 实例的环境一致性检查会把它们全部拒收，告警闭环与回滚演练会断；在告警层把实验集群标准化为 prod 与“实验集群扮演生产”的设定一致，产品不必为 lab 开例外，test 规则的告警仍被丢弃。实验会话给出的 A（产品接受 lab）、C（实验告警不再送 prod）未采用 |
 | D34 | 10-12 10:05 | 画布每次回复的取证上限 6 → 8，系统提示要求先读告警对应的指标（error_rate，再 request_rate、instances_up）；回答控制在约 2000 字；回滚建议步骤单独 45 秒预算并记录不可用原因（后端 0021bfe） | D11 加入 `read_service_changes` 后，6 次在 D11 演练中被延迟、重启、日志、工作负载、变更、知识用完，告警依据的错误率反而没读到；运行时本就允许 8 次模型调用，上调不改变只读边界与审批 |
+| D35 | 10-12 11:45 | （用户授权自行决定）本轮补上“配置提升”真实验收：实验 GitLab 新建配置仓库 `aiops-lab/redstring-config`（main 禁止推送与强推、合并需 Developer 以上、lab-maintainer 人工审批），nonprod 导出四类配置开 MR，审批合并后 prod 导入 | 后端四类导出/导入早已实现但从未接过真实仓库（对拍唯一失败接口组即 `/config-sync` 501 `config_repository_unavailable`），实验 GitLab 现已就绪；用户要求本轮除性能与 24 小时外全部收尾 |
+| D36 | 10-12 11:45 | （用户授权自行决定）配置仓库走验收 TLS 代理 `https://127.0.0.1:18446` 加私有 CA，不用 `allow_loopback_http` 的明文回环；为此后端补 `ca_file`（PA-91） | prod 实例按生产级别配置，明文回环只是测试开关；与 Alertmanager、GitLab 连接器的私有 CA 做法一致 |
+| D37 | 10-12 11:45 | （用户授权自行决定）“已批准提案的审阅页右栏仍显示批准表单”出设计图并选定推荐方案，但不实现，留待用户审阅 | 属界面改动，按约定须用户先确认设计图；不影响功能（批准与执行都正确） |
+| D38 | 10-12 11:45 | （用户授权自行决定）“成员无法低于只读权限”本轮不改，记为下一轮权限模型设计输入 | 受邀成员带旧版只读角色是邀请安全设计的一部分（PA-17），改动涉及邀请与角色模型，超出本轮验收范围；当前无越权，只是无法表达更小的角色 |
 | D5 | 10-10 00:53 | 节点压力重跑时问题里故意不写服务名 | 验证 PA-50 的服务发现，真实值班提问常常只给告警名 |
 
 ### 进展

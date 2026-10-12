@@ -252,6 +252,34 @@ const RULES = [
 mock("GET", "/alert-rules", () => ({ items: RULES, counts: { all: 27, firing: 4, scheduled: 2 }, empty_reason: null, unavailable: {}, pending: RULE_PENDING }));
 mock("GET", "/alert-rules/:id", ({ params }) => {
   const r = RULES.find((x) => x.id === params.id) ?? RULES[0];
+  // Rule-repository rules come back as the real API reads them from the Prometheus file: partial, the editor,
+  // notification and AI fields null and listed in `unavailable`.
+  if (r.id.startsWith("r-gl-")) {
+    const name = String(r.name);
+    return {
+      ...r,
+      environment_id: "prod",
+      application_id: "checkout-api",
+      datasource: "Prometheus · prod",
+      query_ref: null,
+      expr: name === "CheckoutHigh5xx" ? 'sum(rate(http_requests_total{service="checkout-api",code=~"5.."}[5m]))\n  / sum(rate(http_requests_total{service="checkout-api"}[5m])) > 0.02' : `${name.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase()).slice(1)}_total > 0`,
+      for_seconds: 300,
+      preview: null,
+      condition: null,
+      evaluation: null,
+      evaluation_interval_seconds: 15,
+      evaluation_ms: 3,
+      labels: [{ k: "application", v: "checkout-api" }, { k: "environment", v: "prod" }, { k: "severity", v: "P2" }],
+      annotations: { summary: `${name} (checkout-api)` },
+      annotation: `${name} (checkout-api)`,
+      runbook: null,
+      route_path: null,
+      ai_triage: null,
+      last_eval: at("14:31:02"),
+      partial: true,
+      unavailable: ["query_ref", "preview", "condition", "evaluation", "runbook", "route_path", "ai_triage"],
+    };
+  }
   return {
     ...r,
     datasource: P("Prometheus · 生产", "Prometheus · prod"),
@@ -266,7 +294,10 @@ mock("GET", "/alert-rules/:id", ({ params }) => {
     runbook: P("发布回滚规范 v5", "Release rollback v5"),
     route_path: [P("生产", "prod"), P("交易平台", "trading"), "P1"],
     ai_triage: { enabled: true, template: P("发布后错误率上升", "Post-release errors") },
-    last_eval: P("最近评估 14:31:00 · 用时 42 ms", "Last evaluated 14:31:00 · 42 ms"),
+    for_seconds: 300,
+    evaluation_interval_seconds: 30,
+    evaluation_ms: 42,
+    last_eval: at("14:31:00"),
   };
 });
 mock("POST", "/alert-rules/:id/dry-run", () => ({ would_fire: 3, windows: [P("14:05 – 14:24", "14:05 – 14:24")] }));

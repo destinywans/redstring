@@ -110,6 +110,8 @@ const EXECS: Record<string, Exec> = {
   "EXE-98": { proposal: "PRP-103", op: "disable", state: "needs_attention", steps: [["reserved", "13:50:02"], ["committing", "13:50:05"], ["merging", "13:50:08"], ["needs_attention", "13:52:40"]], mr: true, readback: pendingReadback, failure: { code: "mr_closed", message: "merge request closed by a user" } },
   "EXE-97": { proposal: "PRP-104", op: "disable", state: "disabled", steps: [["reserved", "13:10:02"], ["committing", "13:10:05"], ["merging", "13:10:08"], ["merged", "13:10:12"], ["loading", "13:10:13"], ["disabled", "13:10:51"]], mr: true, merged: true, readback: { state: "absent", checked_at: at("13:10:51"), first_seen_at: null, health: null, last_evaluation_at: null, last_error: null, reload: { last_successful: true, last_success_at: at("13:10:40") } } },
 };
+// A real-length hex ID (as the server issues them) for the long-ID layout.
+EXECS["b85115ba94f5fc6768d58d5fe6d37e21"] = EXECS["EXE-91"];
 export const isAlertRuleExecution = (id: string) => id in EXECS;
 
 export function alertRuleExecution(id: string) {

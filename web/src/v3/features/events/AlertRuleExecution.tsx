@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { AlertRuleExecState, AlertRuleExecutionDetail, ExecutionAlertRule, Proposal, Tone } from "../../api/types";
-import { Avatar, Badge, Btn, Card, CardHead, Col, Icon, KV, Muted, Row, Spacer, TextLink, cx } from "../../ui/core";
+import { Avatar, Badge, Btn, Card, CardHead, Col, Icon, IconBtn, KV, Muted, Row, Spacer, TextLink, cx } from "../../ui/core";
+import { copyText } from "../../ui/demo";
 import { toast } from "../../ui/overlays";
 import { Gate } from "../../ui/permission";
 import { useI18n } from "../../i18n";
@@ -255,7 +256,13 @@ export function AlertRuleExecutionPage({ id }: { id: string }) {
                     </Row>
                   ))}
                   <KV k={tx("执行编号", "Execution")} kw={64}>
-                    <span className="mono">{e.id}</span>
+                    <Row gap={4} style={{ minWidth: 0 }}>
+                      {/* Long hex IDs are cut with an ellipsis; the full ID is in the title and the copy button. */}
+                      <span className="mono ellipsis" title={e.id}>
+                        {e.id}
+                      </span>
+                      <IconBtn icon="copy" size={22} label={tx("复制执行编号", "Copy execution ID")} onClick={() => copyText(e.id, tx("已复制执行编号", "Execution ID copied"))} />
+                    </Row>
                   </KV>
                 </Col>
               </Card>

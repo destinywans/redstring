@@ -276,7 +276,57 @@ func (a *GitOpsAlertRuleApplier) Prepare(ctx context.Context, in AlertRuleEnable
 	if err := a.validMR(b, branch, created); err != nil {
 		return AlertRuleDeploymentReceipt{}, err
 	}
+	// GitLab prepares a new MR's diff asynchronously: until it is done,
+	// changes_count and diff_refs are null. That is waiting, not an
+	// uncertain result, so wait a bounded time before the exact checks,
+	// which are unchanged; only a timeout leaves the result uncertain.
+	if err := a.awaitMRPrepared(ctx, b, created.IID, branch); err != nil {
+		return AlertRuleDeploymentReceipt{}, err
+	}
 	return a.LookupReceipt(ctx, in, executionID)
+}
+
+const (
+	defaultMRPrepareWait = 15 * time.Second
+	defaultMRPreparePoll = 500 * time.Millisecond
+)
+
+// mrPrepared reports that GitLab has prepared the MR's diff: the fields the
+// exact checks read are present.
+func mrPrepared(m enableGitMRWire) bool {
+	return m.ChangesCount != "" && m.DiffRefs.HeadSHA != ""
+}
+
+// awaitMRPrepared re-reads a just-created MR until GitLab has prepared its
+// diff, for at most the prepare wait (15 seconds by default).
+func (a *GitOpsAlertRuleApplier) awaitMRPrepared(ctx context.Context, b AlertRuleGitOpsBinding, iid int64, branch string) error {
+	wait, poll := a.mrPrepareWait, a.mrPreparePoll
+	if wait <= 0 {
+		wait = defaultMRPrepareWait
+	}
+	if poll <= 0 {
+		poll = defaultMRPreparePoll
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		m, err := a.mrByIID(ctx, b, iid, branch)
+		if err != nil {
+			return err
+		}
+		if mrPrepared(m) {
+			return nil
+		}
+		if !time.Now().Add(poll).Before(deadline) {
+			return errors.New("GitOps MR diff not prepared in time")
+		}
+		timer := time.NewTimer(poll)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 func (a *GitOpsAlertRuleApplier) LookupReceipt(ctx context.Context, in AlertRuleEnableIntent, id string) (AlertRuleDeploymentReceipt, error) {

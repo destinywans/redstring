@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -83,6 +84,9 @@ type GitOpsAlertRuleApplier struct {
 	argo     enableGitOpsHTTP
 	web      *url.URL
 	bindings map[string]AlertRuleGitOpsBinding
+	// mrPrepareWait and mrPreparePoll bound the wait for GitLab to prepare a
+	// new MR's diff; zero means 15 seconds and 500 ms.
+	mrPrepareWait, mrPreparePoll time.Duration
 }
 
 func NewGitOpsAlertRuleApplier(config AlertRuleGitOpsConfig) (*GitOpsAlertRuleApplier, error) {

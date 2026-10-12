@@ -98,9 +98,11 @@ func loadedGroup(f recoveryFixture, health string, evaluated time.Time) fakeSour
 }
 
 func TestFilePullExecutionMergesThenReadsBack(t *testing.T) {
-	f, repo, _ := filePullExecution(t, false, "")
+	f, repo, applier := filePullExecution(t, false, "")
 	ctx := t.Context()
 	base := repo.branches["main"]
+	// GitLab prepares the new MR's diff after a moment: no uncertain detour.
+	repo.unpreparedReads, applier.mrPreparePoll = 2, 10*time.Millisecond
 	result, err := f.s.ExecuteApproved(ctx, f.id)
 	if err != nil || result.Status != "merged" || result.Deployment == nil || result.Deployment.State != "merged" {
 		t.Fatalf("execute: %+v %v", result, err)

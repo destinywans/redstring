@@ -106,7 +106,7 @@ def main():
             'mode': 'enabled', 'investigation_id': inv}
     status, r = op('POST', '/alert-rules', body, key=False)
     check('enable without Idempotency-Key is refused (422 idempotency_key_required)',
-          status == 422 and (r or {}).get('code') == 'idempotency_key_required', f'{status} {(r or {}).get("code")}')
+          status == 422 and ((r or {}).get('error') or {}).get('code') == 'idempotency_key_required', f'{status} {(r or {}).get("error")}')
     key = secrets.token_hex(16)
     status, r = op('POST', '/alert-rules', body, key=key)
     pid = (r or {}).get('proposal_id') or (r or {}).get('id')
@@ -136,18 +136,38 @@ def main():
     _, listing = op('GET', '/alert-rules')
     row = next((x for x in (listing or {}).get('items') or [] if x.get('name') == name), None)
     check('the rule is in the product rule list', row, json.dumps(row, ensure_ascii=False)[:200])
+    alert = None
     if inst == 'prod':
-        started = time.time()
-        while time.time() - started < 300:
-            _, groups = op('GET', '/alert-groups')
-            hit = [g for g in (groups or {}).get('items') or [] if name in json.dumps(g, ensure_ascii=False)]
-            if hit:
-                break
-            time.sleep(15)
-        check('its alert reaches the prod instance and maps to checkout-api', hit,
-              json.dumps(hit[:1], ensure_ascii=False)[:200] if hit else 'not within 5 min')
+        # Groups carry the application and local fingerprint, not the provider's alert name, so the
+        # alert is found by title in the inbox and its group by instance ID.
+        started, hit = time.time(), None
+        while time.time() - started < 300 and not hit:
+            _, inbox = op('GET', '/inbox')
+            alert = next((x.get('alert_id') for x in (inbox or {}).get('items') or [] if x.get('title') == name), None)
+            if alert:
+                _, groups = op('GET', '/alert-groups')
+                hit = next((g for g in (groups or {}).get('items') or []
+                            if any(i.get('id') == alert for i in g.get('instances') or [])), None)
+            if not hit:
+                time.sleep(15)
+        log.update(alert_id=alert, alert_seen_s=round(time.time() - t0))
+        checkout = json.loads((LOCAL / inst / 'alertmanager.json').read_text())['environments'][env]['application_bindings']['checkout-api']
+        check('its alert reaches the prod instance and maps to checkout-api',
+              hit and hit.get('service') == checkout and hit.get('environment_key') == env,
+              json.dumps({k: (hit or {}).get(k) for k in ('id', 'service', 'environment_key', 'state', 'since')}) if hit else 'not within 5 min')
     if not (a.keep or not row):
         disable(op, inst, env, row, inv, group, a.timeout, t0, log)
+        if alert:
+            # Prometheus sends no resolve for a removed rule; Alertmanager lets the alert expire.
+            started, state = time.time(), None
+            while time.time() - started < 600:
+                _, detail = op('GET', f'/alerts/{alert}')
+                state = (detail or {}).get('state')
+                if state == 'resolved':
+                    break
+                time.sleep(20)
+            log['alert_resolved_s'] = round(time.time() - t0)
+            check('its alert resolves after the rule is disabled', state == 'resolved', f'{state} after {round(time.time() - started)}s')
     finish(inst, log)
 
 

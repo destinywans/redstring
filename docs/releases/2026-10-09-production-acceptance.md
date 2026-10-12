@@ -110,6 +110,10 @@
 | PA-93 | P2 | 两类关键动作的审计在产品审计日志里看不到：审计视图按设计略过 `changes` 里没有环境的应用级记录，而告警规则执行器（`v3.alert_rule.enable.prepare`/`execution_state`/`observed`、`execution.rechecked`）与画布 AI 回复（`v3.investigation_canvas.reply_started`/`reply_completed`）写审计时都没带环境，3 天内两库这些记录 100% 不可见；`GET /audit?q=alert_rule` 只查得到提交请求，查不到执行器合并 main 与生效。回滚执行器正常。补告警规则闭环的审计检查时发现（2026-10-12） | 已交后端：写入带 `environment_id` 并排查其余写审计处；已有记录在哈希链上不改，文档说明 |
 | PA-94 | P2 | Kubernetes 修订时间取 ReplicaSet 的 `creationTimestamp`；回到旧模板时 Kubernetes 复用旧 RS、只改修订号，时间就早于实际变更：prod checkout-api 修订 70（RS 建于 10-11 12:37:30Z，`revision-history` 62,64,66,68）实际 10-12 约 02:40Z 生效，变更页排在 10-11 20:37；第 2 轮演练坏修订 65 显示 01:35:11Z（实际 02:18Z）；回滚执行器产生的修订同样被排到一天前，事件“告警前后变更”因此漏掉告警后的回滚（第 2 轮事件页可见），AI 证据的修订时间同错。Kubernetes 不记录修订号变化时间，RS 的 `managedFields` 时间会被扩缩容刷新，不能直接用 | 已交后端：先出设计（建议按 GitLab 部署时间、产品回滚执行时间、否则标未知并注明依据） |
 | PA-95 | P3 | 流水线详情与列表对 MR 推导不一致：prod 流水线 59（main，由 !9 合并）在 `/changes` 列表为 `merge_request_iid: 9`，`/changes/pipelines/59` 为 null，变更页抽屉显示“合并请求 —”而同页列表显示 !9。列表推导经 `gitlab_compare.py` 独立核对正确 | 已交后端 |
+| PA-96 | P2 | V3 保存的画布模板一个都导不出去：配置提升用严格解码读模板节点，V3 `POST /canvas-templates` 存的节点带 `private_template_v1`（保存时的保留选项），`TemplateNode` 不认识，报“清单无效”并以 503 `config_source_untrusted`（“无法验证已合并配置来源”）返回，状态码与文案都不对。配置提升首次接真实仓库时发现（2026-10-12） | 已交后端 |
+| PA-97 | P2 | 产品自己写出的告警规则基本都导不出去：① 导出要求规则 `application` 标签等于应用 ID，而 D32 后规则用应用 key（`checkout-api`），永远对不上，返回 404；② 带注解的规则整条拒绝（文档写的是导出时不带注解），执行器写出的规则都带 summary；③ 表达式里所有带引号的字面量都拒绝，而 PromQL 标签匹配必然带引号 | 已交后端：①按 D32 对应 key；建议②去掉注解、③放行安全字符的标签匹配值 |
+| PA-98 | P2 | 配置提升的 GitLab 客户端要求 MR 链接与 API 地址同主机：经代理访问时（API `https://127.0.0.1:18446`，GitLab external_url `http://127.0.0.1:28080`）成功建出的 MR !1 被判不可信，导出记为“结果不明”并返回笼统的 503 `config_sync_unavailable`。告警规则执行器已支持单独的网页地址 | 已交后端：可选 `gitlab.web_url`、准确错误码、重导时复用同一 MR |
+| PA-99 | P3 | Agent 导出要求制品引用固定到 `@sha256:<64 位十六进制>`，不满足时只返回 422“配置提升请求无效”不说原因；注册版本时不提示 | 已交后端 |
 
 ### PA-05/PA-16 五个读接口
 

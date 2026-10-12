@@ -488,8 +488,12 @@ export type ExecutionAlertRule = {
   proposal_id: string;
   operation: "enable" | "disable";
   state: AlertRuleExecState;
-  /** Every recorded step in order, retries included (e.g. committing → uncertain → committing). */
-  steps: { state: AlertRuleExecState | "pending_review"; at: string }[];
+  /**
+   * Every recorded step in order, retries included (committing → uncertain → committing). PA-90: `reason` is the
+   * failure code of needs_attention / failed, what left uncertain unknown (prepare_unknown, merge_unknown,
+   * merge_unavailable, reconciliation_unavailable), "manual" for a person's recheck; null otherwise.
+   */
+  steps: { state: AlertRuleExecState | "pending_review" | "recheck"; at: string; reason?: string | null }[];
   repository: { project_id: string; project_path: string; source_branch: string; target_branch: string; path: string; commit_sha: string | null; mr_iid: number | null; mr_url: string | null; merged_sha: string | null; merged_at: string | null };
   readback: {
     state: "pending" | "loaded" | "absent" | "mismatch" | "error" | "timeout";
@@ -498,8 +502,8 @@ export type ExecutionAlertRule = {
     health: string | null;
     last_evaluation_at: string | null;
     last_error: string | null;
-    /** Always null from the server so far. */
-    reload: { last_successful: boolean | null; last_success_at: string | null } | null;
+    /** PA-90: Prometheus's own reload status read on a load timeout, or why it couldn't be read. */
+    reload: { last_successful: boolean | null; last_success_at: string | null; unavailable?: "not_found" | "ambiguous" | "source_unavailable" | "not_connected" | null } | null;
   };
   failure: { code: AlertRuleFailureCode | (string & {}); message: string } | null;
   /** Not in the contract (the recheck returns it); the sample sets it. */

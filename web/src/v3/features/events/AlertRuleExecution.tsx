@@ -56,15 +56,25 @@ export function AlertRuleExecutionPage({ id }: { id: string }) {
         return ["accent", tx("执行中", "Executing")];
     }
   })();
-  const failureText = (): string => {
-    switch (code) {
+  // A failure code in words: the execution's, or a timeline step's reason (PA-90).
+  const failureText = (stepCode?: string | null): string => {
+    const c = stepCode ?? code;
+    switch (c) {
       case "stale_base":
         return tx("提交前发现 {b} 已有新提交，不是批准时的 {base}。执行器没有写 {b}。", "Before committing, {b} had a new commit, not {base} from the approval. The executor didn't write {b}.", { b: target, base: short(p?.alert_rule?.repository.base_sha ?? null) ?? tx("基础提交", "the base commit") });
       case "load_timeout": {
         const reload = ar.readback.reload;
         const base = tx("规则仓库已合并，但 {m} 分钟内没读到这条规则", "The rule repository is merged, but the rule wasn't read back within {m} min", { m: timeoutMin });
-        if (reload?.last_successful === false)
-          return base + tx("：Prometheus 最近一次重载失败（上次成功 {t}）。", ": Prometheus's last reload failed (last success {t}).", { t: when.clock(reload.last_success_at) ?? "—" });
+        const t = when.clock(reload?.last_success_at ?? null) ?? "—";
+        if (reload?.unavailable)
+          return (
+            base +
+            tx("；Prometheus 的重载状态读不到（{r}）。", "; Prometheus's reload status couldn't be read ({r}).", {
+              r: ({ not_found: tx("没有这项指标", "no such metric"), ambiguous: tx("有多个来源，无法确定", "more than one source"), source_unavailable: tx("Prometheus 读不到", "Prometheus unreachable"), not_connected: tx("没有连接", "not connected") } as Record<string, string>)[reload.unavailable] ?? reload.unavailable,
+            })
+          );
+        if (reload?.last_successful === false) return base + tx("：Prometheus 最近一次重载失败（上次成功 {t}）。", ": Prometheus's last reload failed (last success {t}).", { t });
+        if (reload?.last_successful === true) return base + tx("；Prometheus 最近一次重载成功（{t}）。", "; Prometheus's last reload succeeded ({t}).", { t });
         return base + tx("。", ".");
       }
       case "rule_health_error":
@@ -86,6 +96,8 @@ export function AlertRuleExecutionPage({ id }: { id: string }) {
       case "source_changed":
         return tx("写入前规则组或要停用的规则变了，执行器没有写。", "The rule group or the observed rule changed before the write; the executor didn't write.");
       default:
+        // A step reason the page doesn't know yet is shown as recorded.
+        if (stepCode) return tx("执行器记录的原因：{r}", "Reason recorded by the executor: {r}", { r: stepCode });
         return ar.readback.state === "mismatch" ? tx("读回的规则组和合并后的文件不一致。", "The rule group read back doesn't match the merged file.") : (ar.failure?.message ?? tx("执行器没有给出原因。", "The executor gave no reason."));
     }
   };
@@ -210,7 +222,7 @@ export function AlertRuleExecutionPage({ id }: { id: string }) {
         <div className="ar-cols">
           <Card>
             <CardHead title={tx("执行时间线", "Execution timeline")} icon="activity" />
-            <Timeline ar={ar} timeoutMin={timeoutMin} failure={failureText} updatedAt={e.updated_at} />
+            <Timeline ar={ar} timeoutMin={timeoutMin} failure={failureText} />
           </Card>
           <Col gap={16}>
             <Card>
@@ -293,108 +305,104 @@ function ReadbackText({ ar }: { ar: ExecutionAlertRule }) {
   }
 }
 
-type TlRow = { key: string; title: string; code: string; desc: string; at: string | null; tone: "done" | "now" | "att" | "unsure" | "bad" | "todo" };
-/** Where a step sits on the happy path; later ones are listed greyed while the execution runs. */
-const ORDER: Record<string, number> = { reserved: 0, committing: 1, merging: 2, pending_review: 2, merged: 3, loading: 4, enabled: 5, disabled: 5 };
+type TlRow = { key: string; title: string; code: string; desc: string; at: string | null; tone: "done" | "now" | "att" | "unsure" | "bad" };
 
 /**
- * Every recorded step, in order: a retry (uncertain → committing again) shows as its own rows, never folded away.
- * Only a merging step directly followed by merged shares a row, as on the board. When the page's state isn't the
- * last step (a load timeout is reported on the loading step), a row for the state closes the list.
+ * The recorded steps, exactly in order and nothing added: a retry (uncertain → committing again), a load timeout
+ * (needs_attention with reason load_timeout) and a person's recheck each stay their own row, also after recovery.
+ * Only a merging step directly followed by merged shares a row, as on the approved board. Each step's own `reason`
+ * explains it (PA-90).
  */
-function Timeline({ ar, timeoutMin, failure, updatedAt }: { ar: ExecutionAlertRule; timeoutMin: number; failure: () => string; updatedAt?: string }) {
+function Timeline({ ar, timeoutMin, failure }: { ar: ExecutionAlertRule; timeoutMin: number; failure: (code?: string | null) => string }) {
   const { tx } = useI18n();
   const when = useWhen();
   const enable = ar.operation === "enable";
   const repo = ar.repository;
   const steps = ar.steps;
   const terminal = TERMINAL.includes(ar.state);
-  const lastOf = (state: string) => steps.map((x) => x.state).lastIndexOf(state as AlertRuleExecState);
+  const lastOf = (state: string) => steps.map((x) => x.state as string).lastIndexOf(state);
   const firstOf = (state: string) => steps.findIndex((x) => x.state === state);
-  const loaded = ar.readback.first_seen_at !== null || ar.state === "enabled" || ar.state === "disabled";
-  const TITLE: Record<string, string> = {
-    reserved: tx("已领取", "Claimed"),
-    committing: tx("提交", "Commit"),
-    uncertain: tx("结果不明", "Outcome unknown"),
-    merging: tx("合并中", "Merging"),
-    pending_review: tx("等待合并", "Awaiting merge"),
-    merged: tx("已合并", "Merged"),
-    loading: loaded ? (enable ? tx("已加载", "Loaded") : tx("已重载", "Reloaded")) : tx("加载中", "Loading"),
-    enabled: tx("已生效", "In effect"),
-    disabled: tx("已停用", "Disabled"),
-    failed: ar.failure?.code === "rule_health_error" ? tx("求值出错", "Evaluation error") : tx("失败", "Failed"),
-    needs_attention: ar.failure?.code === "load_timeout" ? tx("加载超时", "Load timed out") : tx("需要处理", "Needs attention"),
+  // A loading step counts as loaded when the next recorded step shows Prometheus had the rule (or dropped it).
+  const loadedAfter = (i: number) => {
+    const next = steps[i + 1];
+    if (!next) return ar.readback.first_seen_at !== null || ar.state === "enabled" || ar.state === "disabled";
+    return next.state === "enabled" || next.state === "disabled" || (next.state === "failed" && next.reason === "rule_health_error");
   };
-  const descOf = (state: string, i: number, current: boolean): string => {
+  const uncertainText = (reason: string | null | undefined, current: boolean) => {
+    const what =
+      reason === "prepare_unknown"
+        ? tx("提交的结果不明", "The commit's outcome is unknown")
+        : reason === "merge_unknown" || reason === "merge_unavailable"
+          ? repo.mr_iid
+            ? tx("合并请求 !{m} 的结果不明", "Merge request !{m}'s outcome is unknown", { m: repo.mr_iid })
+            : tx("合并的结果不明", "The merge's outcome is unknown")
+          : reason === "reconciliation_unavailable"
+            ? tx("对账时 GitLab 读不到", "GitLab couldn't be read while reconciling")
+            : tx("上一步的请求结果不明", "The last request's outcome is unknown");
+    return current
+      ? tx("{w}，正在只读对账：先查分支，再查 MR 和 {b} 的头。不会再建第二个 MR。", "{w}; reconciling read-only: the branch first, then the MR and the head of {b}. No second MR is opened.", { w: what, b: repo.target_branch })
+      : tx("{w}，只读对账后继续", "{w}; it continued after a read-only reconcile", { w: what });
+  };
+  const rowFor = (state: string, reason: string | null | undefined, i: number, current: boolean): Omit<TlRow, "key" | "at" | "code"> => {
     const latest = i === lastOf(state);
     const retry = i > firstOf(state);
+    const tone: TlRow["tone"] = state === "failed" ? "bad" : state === "needs_attention" ? "att" : state === "uncertain" ? (current ? "att" : "unsure") : current && !terminal ? "now" : "done";
     switch (state) {
       case "reserved":
-        return tx("两票批准重验通过，绑定的指纹一致", "Both approvals rechecked; the bound fingerprint matches");
-      case "committing":
-        if (latest && repo.commit_sha) return (retry ? tx("对账后重新提交 · ", "Committed again after reconciling · ") : "") + tx("分支 {b} · 提交 {s}", "Branch {b} · commit {s}", { b: repo.source_branch, s: short(repo.commit_sha) ?? "—" });
-        return retry ? tx("对账后重新提交到分支 {b}", "Committing again to branch {b} after reconciling", { b: repo.source_branch }) : tx("在分支 {b} 上提交", "Committing on branch {b}", { b: repo.source_branch });
+        return { title: tx("已领取", "Claimed"), desc: tx("两票批准重验通过，绑定的指纹一致", "Both approvals rechecked; the bound fingerprint matches"), tone };
+      case "committing": {
+        const next = steps[i + 1];
+        const title = retry ? tx("重新提交", "Commit again") : next?.state === "uncertain" ? tx("提交", "Commit") : tx("已提交", "Committed");
+        const desc =
+          latest && repo.commit_sha
+            ? (retry ? tx("对账后重新提交 · ", "Committed again after reconciling · ") : "") + tx("分支 {b} · 提交 {s}", "Branch {b} · commit {s}", { b: repo.source_branch, s: short(repo.commit_sha) ?? "—" })
+            : retry
+              ? tx("对账后重新提交到分支 {b}", "Committing again to branch {b} after reconciling", { b: repo.source_branch })
+              : tx("在分支 {b} 上提交", "Committing on branch {b}", { b: repo.source_branch });
+        return { title, desc, tone };
+      }
       case "uncertain":
-        return current
-          ? repo.mr_iid
-            ? tx("合并请求 !{m} 的请求超时，正在只读对账：先查分支，再查 MR 和 {b} 的头。不会再建第二个 MR。", "The request for merge request !{m} timed out; reconciling read-only: the branch first, then the MR and the head of {b}. No second MR is opened.", { m: repo.mr_iid, b: repo.target_branch })
-            : tx("上一步的请求结果不明，正在只读对账：先查分支，再查 MR 和 {b} 的头。", "The last request's outcome is unknown; reconciling read-only: the branch first, then the MR and the head of {b}.", { b: repo.target_branch })
-          : tx("上一步的请求结果不明，只读对账后继续", "The last request's outcome was unknown; it continued after a read-only reconcile");
+        return { title: tx("结果不明", "Outcome unknown"), desc: uncertainText(reason, current), tone };
       case "merging":
       case "pending_review":
-        return latest && repo.mr_iid ? tx("MR !{m} 等待 fast-forward 合并", "MR !{m} waiting for a fast-forward merge", { m: repo.mr_iid }) : tx("正在建合并请求", "Opening the merge request");
+        return { title: state === "merging" ? tx("合并中", "Merging") : tx("等待合并", "Awaiting merge"), desc: latest && repo.mr_iid ? tx("MR !{m} 等待 fast-forward 合并", "MR !{m} waiting for a fast-forward merge", { m: repo.mr_iid }) : tx("正在建合并请求", "Opening the merge request"), tone };
       case "merged":
-        return tx("MR !{m} 合并 · {b} = {s} · 文件摘要与批准一致", "MR !{m} merged · {b} = {s} · file digest matches the approval", { m: repo.mr_iid ?? "—", b: repo.target_branch, s: short(repo.merged_sha) ?? "—" });
+        return { title: tx("已合并", "Merged"), desc: tx("MR !{m} 合并 · {b} = {s} · 文件摘要与批准一致", "MR !{m} merged · {b} = {s} · file digest matches the approval", { m: repo.mr_iid ?? "—", b: repo.target_branch, s: short(repo.merged_sha) ?? "—" }), tone };
       case "loading":
-        if (loaded) return enable ? tx("Prometheus 已读到这条规则", "Prometheus has read the rule") : tx("Prometheus 已重载", "Prometheus has reloaded");
-        return enable
-          ? tx("等 Prometheus 加载，{m} 分钟内读回一致才算生效", "Waiting for Prometheus to load it; in effect only if the readback matches within {m} min", { m: timeoutMin })
-          : tx("等 Prometheus 重载，{m} 分钟内读不到这条规则才算停用", "Waiting for Prometheus to reload; disabled only when the rule is gone within {m} min", { m: timeoutMin });
+        if (loadedAfter(i)) return { title: enable ? tx("已加载", "Loaded") : tx("已重载", "Reloaded"), desc: enable ? tx("Prometheus 已读到这条规则", "Prometheus has read the rule") : tx("Prometheus 已重载", "Prometheus has reloaded"), tone };
+        return {
+          title: tx("加载中", "Loading"),
+          desc: enable
+            ? tx("等 Prometheus 加载，{m} 分钟内读回一致才算生效", "Waiting for Prometheus to load it; in effect only if the readback matches within {m} min", { m: timeoutMin })
+            : tx("等 Prometheus 重载，{m} 分钟内读不到这条规则才算停用", "Waiting for Prometheus to reload; disabled only when the rule is gone within {m} min", { m: timeoutMin }),
+          tone,
+        };
       case "enabled":
-        return tx("读回逐字段一致 · health={h} · 最近求值 {t}", "Readback matches field by field · health={h} · last evaluation {t}", { h: ar.readback.health ?? "—", t: when.clock(ar.readback.last_evaluation_at) ?? "—" });
+        return { title: tx("已生效", "In effect"), desc: tx("读回逐字段一致 · health={h} · 最近求值 {t}", "Readback matches field by field · health={h} · last evaluation {t}", { h: ar.readback.health ?? "—", t: when.clock(ar.readback.last_evaluation_at) ?? "—" }), tone };
       case "disabled":
-        return tx("读回：规则组里已经没有这条规则", "Readback: the rule is gone from its group");
+        return { title: tx("已停用", "Disabled"), desc: tx("读回：规则组里已经没有这条规则", "Readback: the rule is gone from its group"), tone };
+      case "recheck":
+        return { title: tx("重新核对", "Recheck"), desc: reason === "manual" ? tx("人工 · 只读读回一次，不写 GitLab", "Manual · one read-only readback, nothing written to GitLab") : reason ?? "", tone };
       case "failed":
+        return { title: reason === "rule_health_error" || (!reason && ar.failure?.code === "rule_health_error") ? tx("求值出错", "Evaluation error") : tx("失败", "Failed"), desc: failure(reason), tone };
       case "needs_attention":
-        return failure();
+        return { title: (reason ?? ar.failure?.code) === "load_timeout" ? tx("加载超时", "Load timed out") : tx("需要处理", "Needs attention"), desc: failure(reason), tone };
       default:
-        return "";
+        return { title: state, desc: reason ?? "", tone };
     }
-  };
-  const toneOf = (state: string, current: boolean): TlRow["tone"] => {
-    if (state === "failed") return "bad";
-    if (state === "needs_attention") return "att";
-    if (state === "uncertain") return current ? "att" : "unsure";
-    if (!current || terminal) return "done";
-    return "now";
   };
   const rows: TlRow[] = [];
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     const next = steps[i + 1];
-    const current = i === steps.length - 1 && s.state === ar.state;
     if ((s.state === "merging" || s.state === "pending_review") && next?.state === "merged") {
       const cur = i + 1 === steps.length - 1 && ar.state === "merged";
-      rows.push({ key: `${i}`, title: TITLE.merged, code: `${s.state} → merged`, desc: descOf("merged", i + 1, cur), at: next.at, tone: toneOf("merged", cur) });
+      rows.push({ key: `${i}`, code: `${s.state} → merged`, at: next.at, ...rowFor("merged", next.reason, i + 1, cur) });
       i++;
       continue;
     }
-    const retry = s.state === "committing" && i > firstOf("committing");
-    // A commit attempt whose outcome turned out unknown is an attempt, not "committed".
-    const commitTitle = retry ? tx("重新提交", "Commit again") : next?.state === "uncertain" ? tx("提交", "Commit") : tx("已提交", "Committed");
-    rows.push({ key: `${i}`, title: s.state === "committing" ? commitTitle : TITLE[s.state] ?? s.state, code: s.state, desc: descOf(s.state, i, current), at: s.at, tone: toneOf(s.state, current) });
-  }
-  const last = steps.at(-1);
-  if (last && last.state !== ar.state) {
-    // The view's state differs from the last recorded step (e.g. a load timeout on the loading step).
-    rows.push({ key: "state", title: TITLE[ar.state] ?? ar.state, code: `${last.state} → ${ar.state}`, desc: descOf(ar.state, steps.length, true), at: updatedAt ?? null, tone: toneOf(ar.state, true) });
-  }
-  if (!terminal && ar.state !== "uncertain") {
-    const end = enable ? "enabled" : "disabled";
-    const reached = ORDER[ar.state] ?? -1;
-    for (const k of ["reserved", "committing", "merged", "loading", end])
-      if (ORDER[k] > reached)
-        rows.push({ key: `todo-${k}`, title: { reserved: tx("领取", "Claim"), committing: tx("提交", "Commit"), merged: tx("合并", "Merge"), loading: tx("加载", "Load"), enabled: tx("生效", "In effect"), disabled: tx("停用", "Disabled") }[k] ?? k, code: k, desc: "", at: null, tone: "todo" });
+    const current = i === steps.length - 1;
+    rows.push({ key: `${i}`, code: s.reason ? `${s.state} · ${s.reason}` : s.state, at: s.at, ...rowFor(s.state, s.reason, i, current) });
   }
   return (
     <ol className="ar-tl" aria-label={tx("执行进度", "Execution progress")}>

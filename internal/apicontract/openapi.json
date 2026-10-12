@@ -22072,7 +22072,7 @@
             }
           },
           "422": {
-            "description": "Invalid input",
+            "description": "Invalid request, or a source object outside the export contract, refused before any export record or GitLab call (PA-96, PA-97): template_has_description, template_retained_content, template_private_runbooks, template_structure_invalid, alert_rule_expression_unsafe, alert_rule_label_not_exportable, alert_rule_not_exportable or artifact_ref_not_pinned. An alert rule reason is given only after alert_rules.manage on its application or owner team.",
             "content": {
               "application/json": {
                 "schema": {

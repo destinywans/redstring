@@ -16,6 +16,21 @@
 
 `POST /promotions` 在单个非生产环境接受四类对象 ID。模板沿用本人所有权及 `canvas.change`；Runbook 读取当前已发布版本并要求应用与所属团队的 `knowledge.manage`；告警规则从受信 Prometheus 来源及精确规则组绑定读取，要求应用或所属团队的 `alert_rules.manage`；Agent 读取当前稳定目录版本并要求 `agents.change`。后三类清单明确记录来源对象版本、来源实例/环境、应用、净化快照摘要和 Ed25519 签名。Runbook 仅保留标题、触发提示及步骤结构，不带正文、代码、工具或连接器；告警仅保留受限表达式、时长与允许的标签，不带注解或运行态；Agent 仅保留名称、版本和摘要固定的制品引用，不带提示词或工具。制品引用不证明远端字节或仓库真实性。自由文本虽受限，仍须在 MR 中人工检查敏感内容。模板清单仍含用户提交的名称、模板类型和净化图结构；前端可能默认取源画布标题，导出前须检查。导出记录保存在 `v3_config_exports`；相同来源摘要复用固定身份。远端结果不确定时返回 503，不能把本地预留记录视为已建 MR。租约代次阻止过期请求修改后来请求的记录和审计；租约过期后仍可能发生同一远端身份的并发写入并产生需重试对账的冲突。
 
+导出前校验（PA-96、PA-97）：来源对象超出导出契约时，在预留导出记录和访问 GitLab 之前返回 `422`，错误码说明原因，不再报成 `503 config_source_untrusted`。告警规则的原因只在调用方通过该规则应用（或所属团队）的 `alert_rules.manage` 之后给出，否则仍是授权错误。
+
+| 错误码 | 原因 |
+| --- | --- |
+| `template_has_description` | 模板带说明文字；清单只携带结构 |
+| `template_retained_content` | 模板保留了节点标题、步骤或内容（保存时勾选了保留步骤/内容且源画布有这些内容） |
+| `template_private_runbooks` | 模板关联了本实例的 Runbook 版本，生产实例无法对应 |
+| `template_structure_invalid` | 节点、连线或 `private_template_v1` 有导出契约以外的字段或取值 |
+| `alert_rule_expression_unsafe` | 表达式含标签匹配值以外的字符串字面量，或匹配值不只由 `[A-Za-z0-9._:-]` 组成，或匹配的标签名像凭据（token、secret、password、credential、api_key、auth） |
+| `alert_rule_label_not_exportable` | 标签不只是 `environment`、`application` 和 `severity`，或级别不在 `P1`–`P4`、`info`/`warning`/`critical` 之内 |
+| `alert_rule_not_exportable` | 名称、分组或持续时间超出范围 |
+| `artifact_ref_not_pinned` | Agent 稳定版本的制品引用没有固定到 `@sha256:<64 位十六进制>`；注册时不检查，目录允许标签引用 |
+
+模板：V3 保存模板时在首个节点记录 `private_template_v1`（`steps`、`content`、`runbooks`、`source_services`）。导出不把它写进清单：`source_services` 是本环境的服务，生产实例用模板建画布时按当时选择的服务重新核权；`steps`、`content` 只记录保存时的选择，真正保留的内容在节点里，因此只有节点仍为空白结构时才可导出；关联 Runbook 时整体拒绝，不静默丢弃。告警规则：按 D32 以绑定的 `application_label`（如 `checkout-api`）匹配规则，`prom-` ID 与规则列表一致（由应用 ID 计算）；`summary`、`description` 等注解不随提升，导出快照的注解为空，生产导入的定义同样不带注解；表达式允许花括号内标签匹配的带引号值（如 `{application="checkout-api"}`、`code=~"5.."`），其他字符串字面量仍拒绝。生产导入时不知道来源实例的 D32 标签值，`application` 标签只要求是合法对象键。
+
 `GET /config-sync` 两端最多列 100 条。非生产只列当前操作者在有权环境导出的签名记录，远端查询后重核当前对象/团队或应用权限与来源版本；生产要求当前人类平台管理员及全局 `workspace.manage`，逐项验证已合并 MR 的固定提交、唯一预期文件、签名清单、导入台账、目标记录和成功审计，远端读取后再核授权与当前会话。四类均可在目标及证据相符时显示 `imported`；`merged` 只证明当前已验证的来源状态。本读取不能证明**合并当时**的审批/保护策略。不可验证的来源返回 503，不给部分清单；超过上限返回 413。冻结页面只在 `pending` 时显示导入动作，而生产读取返回 `merged`，须另行对齐。
 
 `POST /config-sync/{id}/import` 只接受 `mr-<正整数 IID>`，要求当前人类平台管理员和全局 `workspace.manage`，远端读取后复核当前会话，并在写入事务内再次核权。服务端核对已合并 MR、固定提交与唯一预期文件、来源签名、类型白名单、独立审批及当前目标分支保护。Runbook 导入为生产应用的可审核草稿，正文为空；告警导入为 `not_applied` 的生产配置记录，不应用到 Prometheus；Agent 导入目录版本，新 Agent 默认暂停、L0，已有 Agent 不改变发布状态。目标、导入台账和成功审计在同一事务提交；重复相同导入收敛，目标已变化返回 409。当前 API 查询无法证明**合并当时**的审批/保护策略；真实配置仓库上线前仍需保留治理配置和审查证据。不可验证的来源返回 503，不会导入部分配置。

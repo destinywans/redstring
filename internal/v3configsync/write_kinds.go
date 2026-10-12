@@ -199,6 +199,9 @@ func (s *Service) reserveKindExport(ctx context.Context, actor core.User, kind, 
 	if err != nil {
 		return exportRecord{}, "", err
 	}
+	if alertCandidate.Refused != nil {
+		return exportRecord{}, "", alertCandidate.Refused
+	}
 	snapshot, _, err := m.snapshot()
 	if err != nil {
 		return exportRecord{}, "", errInvalidManifest

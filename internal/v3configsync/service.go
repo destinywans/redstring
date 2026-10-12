@@ -188,8 +188,29 @@ var (
 	errKindSourceUnavailable = errors.New("configuration kind source unavailable")
 )
 
+// notExportable is a source object the export contract cannot carry. It is
+// refused before anything is reserved or written, with a code naming why
+// (PA-96, PA-97), not reported as an untrusted merged source.
+type notExportable struct{ code, zh, en string }
+
+func (e *notExportable) Error() string { return "configuration source not exportable: " + e.code }
+
+var (
+	errTemplateDescription   = &notExportable{"template_has_description", "模板带说明文字，配置提升只携带结构", "The template has a description; promotion carries structure only"}
+	errTemplateContent       = &notExportable{"template_retained_content", "模板保留了节点标题、步骤或内容，配置提升只携带结构", "The template keeps node titles, steps or content; promotion carries structure only"}
+	errTemplateRunbooks      = &notExportable{"template_private_runbooks", "模板关联了本实例的 Runbook，无法随配置提升", "The template links this instance's Runbooks, which cannot be promoted with it"}
+	errTemplateStructure     = &notExportable{"template_structure_invalid", "模板结构不在配置提升支持的范围内", "The template structure is outside what promotion supports"}
+	errAlertRuleExpression   = &notExportable{"alert_rule_expression_unsafe", "告警表达式含不能提升的字符串字面量或字符", "The alert expression has string literals or characters that cannot be promoted"}
+	errAlertRuleLabels       = &notExportable{"alert_rule_label_not_exportable", "告警规则带有不能提升的标签或级别", "The alert rule has labels or a severity that cannot be promoted"}
+	errAlertRuleShape        = &notExportable{"alert_rule_not_exportable", "告警规则名称、分组或持续时间超出配置提升的范围", "The alert rule name, group or duration is outside what promotion supports"}
+	errAgentArtifactUnpinned = &notExportable{"artifact_ref_not_pinned", "Agent 稳定版本的制品引用没有固定到 @sha256 摘要", "The Agent's stable version artifact is not pinned to an @sha256 digest"}
+)
+
 func (s *Service) writeError(w http.ResponseWriter, r *http.Request, err error) {
+	var refused *notExportable
 	switch {
+	case errors.As(err, &refused):
+		problem(w, r, 422, refused.code, refused.zh, refused.en)
 	case errors.Is(err, errListSessionRevoked):
 		problem(w, r, 401, "unauthorized", "请重新登录", "Sign in again")
 	case errors.Is(err, errKindSourceUnavailable):

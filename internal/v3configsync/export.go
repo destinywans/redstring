@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -99,18 +100,15 @@ func (s *Service) reserveExport(ctx context.Context, actor core.User, env, templ
 	// structure. A nonempty description or richer node payload is outside the
 	// export contract and must be rejected, not silently copied.
 	if description != "" {
-		return exportRecord{}, errInvalidManifest
+		return exportRecord{}, errTemplateDescription
 	}
-	template := Template{Kind: kind, Name: name}
-	if err = decodeStrict(nodes, &template.Nodes); err != nil {
-		return exportRecord{}, errInvalidManifest
-	}
-	if err = decodeStrict(edges, &template.Edges); err != nil {
-		return exportRecord{}, errInvalidManifest
+	template, err := exportableTemplate(kind, name, nodes, edges)
+	if err != nil {
+		return exportRecord{}, err
 	}
 	digest, err := templateDigest(template)
 	if err != nil {
-		return exportRecord{}, err
+		return exportRecord{}, errTemplateStructure
 	}
 	newID := store.ID()
 	manifest := Manifest{Schema: manifestVersion, PromotionID: newID, Kind: "template",
@@ -249,4 +247,68 @@ func (s *Service) finishExport(ctx context.Context, actor core.User, id string, 
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// privateTemplateMetadata is what V3 template saving records on the first
+// node as private_template_v1: which parts the owner kept, the Runbooks it
+// links on this instance, and the source canvas's services.
+type privateTemplateMetadata struct {
+	Steps          bool              `json:"steps,omitempty"`
+	Content        bool              `json:"content,omitempty"`
+	Runbooks       []json.RawMessage `json:"runbooks,omitempty"`
+	SourceServices []string          `json:"source_services"`
+}
+
+// exportableTemplate reads a saved V3 template as the promotion manifest's
+// structure (PA-96). Its private_template_v1 record is not part of the
+// manifest: source_services are this environment's services, checked again
+// against the target's when a canvas is created, and the steps and content
+// flags only say what the owner chose to keep. What was actually kept is in
+// the nodes, so retained titles, steps or content are refused, as are linked
+// Runbooks, which name this instance's Runbook versions. Any other field is
+// refused rather than dropped.
+func exportableTemplate(kind, name string, rawNodes, rawEdges []byte) (Template, error) {
+	template := Template{Kind: kind, Name: name}
+	var nodes []json.RawMessage
+	if decodeStrict(rawNodes, &nodes) != nil {
+		return Template{}, errTemplateStructure
+	}
+	template.Nodes = make([]TemplateNode, 0, len(nodes))
+	for i, raw := range nodes {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(raw, &fields) != nil {
+			return Template{}, errTemplateStructure
+		}
+		if private, present := fields["private_template_v1"]; present {
+			var metadata privateTemplateMetadata
+			if i != 0 || decodeStrict(private, &metadata) != nil || metadata.SourceServices == nil {
+				return Template{}, errTemplateStructure
+			}
+			if len(metadata.Runbooks) != 0 {
+				return Template{}, errTemplateRunbooks
+			}
+			delete(fields, "private_template_v1")
+			var err error
+			if raw, err = json.Marshal(fields); err != nil {
+				return Template{}, errTemplateStructure
+			}
+		}
+		var node TemplateNode
+		if decodeStrict(raw, &node) != nil {
+			return Template{}, errTemplateStructure
+		}
+		template.Nodes = append(template.Nodes, node)
+	}
+	if decodeStrict(rawEdges, &template.Edges) != nil {
+		return Template{}, errTemplateStructure
+	}
+	if !validTemplate(template) {
+		for i, n := range template.Nodes {
+			if n.Title != fmt.Sprintf("节点 %d", i+1) || n.Sub != "" || len(n.Blocks) != 0 {
+				return Template{}, errTemplateContent
+			}
+		}
+		return Template{}, errTemplateStructure
+	}
+	return template, nil
 }

@@ -69,8 +69,9 @@ func readFilePullRow(t *testing.T, f recoveryFixture) filePullRow {
 		t.Fatal(err)
 	}
 	var timeline []struct {
-		State string    `json:"state"`
-		At    time.Time `json:"at"`
+		State  string    `json:"state"`
+		At     time.Time `json:"at"`
+		Reason string    `json:"reason"`
 	}
 	if json.Unmarshal(readback, &row.Readback) != nil || json.Unmarshal(steps, &timeline) != nil || json.Unmarshal(deployment, &row.Deployment) != nil {
 		t.Fatalf("row JSON: %s %s %s", readback, steps, deployment)
@@ -78,6 +79,10 @@ func readFilePullRow(t *testing.T, f recoveryFixture) filePullRow {
 	for _, step := range timeline {
 		if step.At.IsZero() {
 			t.Fatalf("step without time: %s", steps)
+		}
+		// A step with a reason reads state(reason) (PA-90).
+		if step.Reason != "" {
+			step.State += "(" + step.Reason + ")"
 		}
 		row.Steps = append(row.Steps, step.State)
 	}
@@ -216,7 +221,7 @@ func TestFilePullExecutionFailuresNeedAttention(t *testing.T) {
 		}
 		row := readFilePullRow(t, f)
 		if row.State != "stale_remote" || row.Failure != "merge_refused" || row.Deployment.State != "opened" || row.Deployment.MR != 1 ||
-			repo.branches["main"] != base || strings.Join(row.Steps, ",") != "reserved,committing,merging,needs_attention" {
+			repo.branches["main"] != base || strings.Join(row.Steps, ",") != "reserved,committing,merging,needs_attention(merge_refused)" {
 			t.Fatalf("refused row: %+v", row)
 		}
 	})
@@ -358,5 +363,84 @@ func TestFilePullRecheckRecordsLateLoad(t *testing.T) {
 	}
 	if _, err := f.s.recheckExecution(ctx, "test", actor, f.execution); !errors.As(err, &p) || p.status != 409 {
 		t.Fatalf("needs attention: %v", err)
+	}
+}
+
+// reloadingSource is a rule source that also reports Prometheus's reloads.
+type reloadingSource struct {
+	fakeSource
+	status ReloadStatus
+	err    error
+}
+
+func (s reloadingSource) ReloadStatus(context.Context, string) (ReloadStatus, error) {
+	return s.status, s.err
+}
+
+// PA-90: a load timeout is a step with its reason and Prometheus's reload
+// status, and a person's recheck is a step before what it finds.
+func TestFilePullLoadTimeoutTimeline(t *testing.T) {
+	ctx := t.Context()
+	f, _, _ := filePullExecution(t, false, "")
+	if result, err := f.s.ExecuteApproved(ctx, f.id); err != nil || result.Status != "merged" {
+		t.Fatalf("execute: %+v %v", result, err)
+	}
+	reloaded := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	succeeded := true
+	f.s.Reader.Source = reloadingSource{status: ReloadStatus{LastSuccessful: &succeeded, LastSuccessAt: &reloaded}}
+	if result, err := f.s.ObserveEnabled(ctx, f.id); err != nil || result.Status != "awaiting_provider" {
+		t.Fatalf("loading: %+v %v", result, err)
+	}
+	if _, err := f.db.Exec(ctx, `UPDATE v3_alert_rule_enable_executions SET deployment=jsonb_set(deployment,'{merged_at}',
+ to_jsonb(to_char(clock_timestamp() AT TIME ZONE 'UTC' - interval '10 minutes','YYYY-MM-DD"T"HH24:MI:SS"Z"'))) WHERE proposal_id=$1`, f.id); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if result, err := f.s.ObserveEnabled(ctx, f.id); err != nil || result.Status != "awaiting_provider" {
+			t.Fatalf("timeout: %+v %v", result, err)
+		}
+	}
+	row := readFilePullRow(t, f)
+	if strings.Join(row.Steps, ",") != "reserved,committing,merging,merged,loading,needs_attention(load_timeout)" ||
+		row.Readback.Reload == nil || row.Readback.Reload.LastSuccessful == nil || !*row.Readback.Reload.LastSuccessful ||
+		!row.Readback.Reload.LastSuccessAt.Equal(reloaded) {
+		t.Fatalf("timeout row: %+v %+v", row.Steps, row.Readback.Reload)
+	}
+	var actor core.User
+	if err := f.db.QueryRow(ctx, `SELECT creator_id FROM v3_proposal_actions WHERE proposal_id=$1`, f.id).Scan(&actor.ID); err != nil {
+		t.Fatal(err)
+	}
+	status, body, _ := f.s.executionView(ctx, []string{"test"}, actor, f.execution)
+	raw, _ := json.Marshal(body)
+	if status != 200 || !strings.Contains(string(raw), `"state":"needs_attention"`) ||
+		!strings.Contains(string(raw), `"reason":"load_timeout"`) ||
+		!strings.Contains(string(raw), `"reload":{"last_success_at":"`+reloaded.Format(time.RFC3339)+`","last_successful":true,"unavailable":null}`) ||
+		!strings.Contains(string(raw), "last configuration reload succeeded, so the merged file has not reached it") {
+		t.Fatalf("view: %d %s", status, raw)
+	}
+	// Still not loaded at the first recheck; loaded at the second.
+	if result, err := f.s.recheckExecution(ctx, "test", actor, f.execution); err != nil || result.Status != "awaiting_provider" {
+		t.Fatalf("recheck: %+v %v", result, err)
+	}
+	f.s.Reader.Source = reloadingSource{fakeSource: loadedGroup(f, "ok", time.Now())}
+	if result, err := f.s.recheckExecution(ctx, "test", actor, f.execution); err != nil || result.Status != "enabled" {
+		t.Fatalf("second recheck: %+v %v", result, err)
+	}
+	row = readFilePullRow(t, f)
+	if strings.Join(row.Steps, ",") != "reserved,committing,merging,merged,loading,needs_attention(load_timeout),recheck(manual),"+
+		"needs_attention(load_timeout),recheck(manual),enabled" || row.Readback.Reload != nil || row.Failure != "" {
+		t.Fatalf("recovered row: %+v", row)
+	}
+	var rechecks int
+	if err := f.db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='v3.alert_rule.execution.rechecked' AND target=$1`, f.id).Scan(&rechecks); err != nil || rechecks != 2 {
+		t.Fatalf("recheck audit: %d %v", rechecks, err)
+	}
+	// Unreadable reload metrics are said so.
+	if got := failureMessage("load_timeout", &enableReload{Unavailable: "not_found"}); !strings.Contains(got, "could not be read (not_found)") {
+		t.Fatal(got)
+	}
+	failed := false
+	if got := failureMessage("load_timeout", &enableReload{LastSuccessful: &failed}); !strings.Contains(got, "last configuration reload failed") {
+		t.Fatal(got)
 	}
 }

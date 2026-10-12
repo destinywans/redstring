@@ -4584,7 +4584,7 @@
       "get": {
         "summary": "Read persisted execution and recovery evidence",
         "operationId": "get_executions_id",
-        "description": "Minimum role: viewer with scoped proposals.view. V3 instance and environment scope apply. Reads the legacy execution, its approved action plan and investigation, up to 100 persisted events, optional recovery summary and optional closed report. Current application, environment and owner-team grants are checked. status_source distinguishes the authoritative legacy status from any missing derived evidence. proposal_id is null because no V3 proposal link exists. Steps contain persisted event sequence, type and timestamp only; an editorial timeline is not fabricated. Chart arrays, thresholds, report severity and action items have no producer and are null with missing reasons. A succeeded status is the legacy executor result and is not by itself proof that a report exists or is published. The frozen frontend Execution DTO expects populated mock fields and requires a null-aware adapter. A V3 rollback execution (kind kubernetes.deployment.rollback) is projected from the rollout ledger with its timeline, rollout readback and verification samples (PA-08). An alert rule enable or disable execution (D11 §11.5, kind prometheus.alert_rule.enable or .disable) is projected from the executor ledger: state (exporting is committing, or merging once the MR exists; awaiting_provider is loading, or needs_attention after load_timeout; stale_remote is needs_attention), the step timeline, the commit, MR and merge, the last Prometheus readback and the failure code. Fields of steps not reached yet are null; readback.reload is always null (not read yet). It needs proposals.view on the application or its owner team.",
+        "description": "Minimum role: viewer with scoped proposals.view. V3 instance and environment scope apply. Reads the legacy execution, its approved action plan and investigation, up to 100 persisted events, optional recovery summary and optional closed report. Current application, environment and owner-team grants are checked. status_source distinguishes the authoritative legacy status from any missing derived evidence. proposal_id is null because no V3 proposal link exists. Steps contain persisted event sequence, type and timestamp only; an editorial timeline is not fabricated. Chart arrays, thresholds, report severity and action items have no producer and are null with missing reasons. A succeeded status is the legacy executor result and is not by itself proof that a report exists or is published. The frozen frontend Execution DTO expects populated mock fields and requires a null-aware adapter. A V3 rollback execution (kind kubernetes.deployment.rollback) is projected from the rollout ledger with its timeline, rollout readback and verification samples (PA-08). An alert rule enable or disable execution (D11 §11.5, kind prometheus.alert_rule.enable or .disable) is projected from the executor ledger: state (exporting is committing, or merging once the MR exists; awaiting_provider is loading, or needs_attention after load_timeout; stale_remote is needs_attention), the step timeline, the commit, MR and merge, the last Prometheus readback and the failure code. Fields of steps not reached yet are null; readback.reload is set while a load has timed out: the last configuration reload of Prometheus (prometheus_config_last_reload_successful and its last success time, or why they could not be read), also named in the load_timeout failure message (PA-90). Each step may carry a reason; a load timeout is a needs_attention step and a manual recheck a recheck step, so recovery keeps both on the timeline. It needs proposals.view on the application or its owner team.",
         "responses": {
           "200": {
             "description": "Success",
@@ -93069,18 +93069,27 @@
                         "failed",
                         "needs_attention",
                         "uncertain",
-                        "pending_review"
+                        "pending_review",
+                        "recheck"
                       ]
                     },
                     "at": {
                       "type": "string",
                       "format": "date-time"
+                    },
+                    "reason": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "PA-90: the failure code of needs_attention and failed, what left uncertain unknown, manual for a recheck; null otherwise"
                     }
                   },
                   "additionalProperties": false,
                   "required": [
                     "state",
-                    "at"
+                    "at",
+                    "reason"
                   ]
                 }
               },
@@ -93199,7 +93208,48 @@
                     ]
                   },
                   "reload": {
-                    "type": "null"
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "last_successful": {
+                            "type": [
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          "last_success_at": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "format": "date-time"
+                          },
+                          "unavailable": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "enum": [
+                              null,
+                              "not_found",
+                              "ambiguous",
+                              "source_unavailable",
+                              "not_connected"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "last_successful",
+                          "last_success_at",
+                          "unavailable"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "additionalProperties": false,

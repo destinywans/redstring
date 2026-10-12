@@ -283,7 +283,7 @@
   position: absolute;
   left: 50%;
   top: 16px;
-  transform: translateX(-50%);
+  translate: -50% 0;
   padding: 6px 12px;
   border-radius: 8px;
   background: var(--accent);
@@ -372,7 +372,7 @@
   position: absolute;
   left: 50%;
   top: 40px;
-  transform: translateX(-50%);
+  translate: -50% 0;
   width: min(640px, calc(100% - 40px));
   z-index: 5;
   border-radius: 12px;

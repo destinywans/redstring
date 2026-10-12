@@ -56,7 +56,8 @@ func TestWorkloadToolForTheModel(t *testing.T) {
 	}
 	if w.CurrentRevision != "2" || len(w.Revisions) != 2 || !w.Revisions[0].Current || w.Revisions[1].Revision != "1" ||
 		len(w.Revisions[1].Changes) != 1 || w.Revisions[1].Changes[0].From != nil || w.Rollback.BlockedReason != nil ||
-		w.Rollback.ObservationSeconds == nil || *w.Rollback.ObservationSeconds != 180 {
+		w.Rollback.ObservationSeconds == nil || *w.Rollback.ObservationSeconds != 180 ||
+		!strings.Contains(w.ChangesBasis, "from is the current revision's value") {
 		t.Fatalf("workload evidence: %+v", w)
 	}
 	if _, err := tool.Read(t.Context(), "other-service"); inference.ToolErrorCode(err) != inference.ToolUnknownService {

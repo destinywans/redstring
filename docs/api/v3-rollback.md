@@ -247,7 +247,8 @@
   - `unknown_service`；
   - `not_configured`：没有工作负载目标或目录范围；
   - `source_unavailable`：读凭据读不到或集群读不到，dev 模式 Vault 为空时也是这个。
-- **取证预算**：画布每次回复最多 6 次取证、7 次模型调用。这个工具计 1 次，同一输入重复调用不计数。
+- **取证预算**：画布每次回复最多 8 次取证（PA-89，原为 6）；模型调用受运行时上限 8 次约束，所以第 8 次取证要求模型在同一轮里并行调用。这个工具计 1 次，同一输入重复调用不计数。
+- **`changes` 的读法**（PA-89）：每个修订的 `changes[]` 描述“从当前修订回到该修订”的变化，`from` 恒为当前修订的值，`to` 为该修订的值；修订自己的镜像与资源在 `containers[]`。证据里的 `changes_basis` 和工具说明都写明这一点，避免模型把 `from` 当成该修订自己的镜像而怀疑回滚目标。
 
 ### 建议的生成与字段
 
@@ -259,7 +260,7 @@
   - 目标必须是证据里的非当前修订，否则没有建议；
   - 理由 1–3 条，每条不超过 200 字，超长的整条丢弃；
   - `cites` 只保留本次回复证据范围内的编号。
-- **结果**：抽取失败或校验不通过时 `rollback_suggestion` 为 `null`，回复照常成功。审计 `v3.ai.rollback_suggested` 记录结果：`suggested`、`declined`、`rejected` 或 `unavailable`。
+- **结果**：抽取失败或校验不通过时 `rollback_suggestion` 为 `null`，回复照常成功。审计 `v3.ai.rollback_suggested` 记录结果：`suggested`、`declined`、`rejected` 或 `unavailable`，`reason` 写明原因：`rejected` 为 `invalid_output`、`target_not_candidate`、`no_valid_reason`，`unavailable` 为 `timeout`、`canceled`、`output_limit`、`oversized_output`、`model_error`（PA-89）。服务日志也记一条 `V3 investigation rollback suggestion`。这一步有自己的 45 秒预算，不再只用回复 90 秒里剩下的时间；回复被取消时它也停止。输出超长或被截断时，只要其中有可用的 JSON 对象仍会采用。
 - **出现位置**：
   - `POST /investigations/{id}/nodes/{node}/messages` 返回 `{ summary, rollback_suggestion }`；
   - `GET /investigations/{id}/canvas` 的每个节点带 `rollback_suggestion`：该分支最近一次建议，没有则为 `null`。

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -25,7 +27,7 @@ const (
 	changesToolName          = "read_service_changes"
 	maxSuggestionReasons     = 3
 	maxSuggestionReasonRunes = 200
-	suggestionTimeoutSeconds = 30
+	suggestionTimeoutSeconds = 45
 	maxSuggestionEvidence    = 4 << 10
 	maxSuggestionAnswer      = 8 << 10
 	maxSuggestionOutput      = 8 << 10
@@ -75,9 +77,12 @@ type rollbackSuggestion struct {
 // suggestionOutcome is what the step decided, for the reply and its audit.
 // Outcome is "" when the step did not run.
 type suggestionOutcome struct {
-	Suggestion     *rollbackSuggestion
-	Outcome        string // suggested, declined, rejected, unavailable
-	Reason         string // why a suggestion was rejected
+	Suggestion *rollbackSuggestion
+	Outcome    string // suggested, declined, rejected, unavailable
+	// Reason says why a suggestion was rejected (invalid_output,
+	// target_not_candidate, no_valid_reason) or unavailable (timeout,
+	// canceled, output_limit, oversized_output, model_error) (PA-89).
+	Reason         string
 	TargetRevision string
 }
 
@@ -131,15 +136,54 @@ func (s *Service) suggestRollback(ctx context.Context, model inference.Model, re
 	} else {
 		prompt.WriteString("Write the reasons in Simplified Chinese.")
 	}
-	output, err := s.Runtime.Run(ctx, inference.Request{RunID: replyID, AttemptID: replyID + "-suggestion", BranchID: branchID,
+	// PA-89: the step has its own time budget instead of what is left of the
+	// reply's, and still stops when the reply is cancelled.
+	stepCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), suggestionTimeoutSeconds*time.Second)
+	defer cancel()
+	stopIfCancelled := func() {
+		if err := ctx.Err(); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+			cancel()
+		}
+	}
+	stopIfCancelled()
+	stopAfter := context.AfterFunc(ctx, stopIfCancelled)
+	defer stopAfter()
+	output, err := s.Runtime.Run(stepCtx, inference.Request{RunID: replyID, AttemptID: replyID + "-suggestion", BranchID: branchID,
 		EnvironmentID: env, ModelID: model.ID, Reasoning: reasoning, MaxCalls: 1, MaxToolCalls: 1,
 		TimeoutSeconds: suggestionTimeoutSeconds, Language: replyLanguage(english),
 		Messages: []inference.Message{{Role: "system", Content: suggestionSystem}, {Role: "user", Content: prompt.String()}},
 	}, func(inference.Event) error { return nil })
-	if err != nil || len(output) > maxSuggestionOutput {
-		return suggestionOutcome{Outcome: "unavailable"}
+	outcome := suggestionFromOutput(output, err, w, len(evidence))
+	slog.Info("V3 investigation rollback suggestion", "reply_id", replyID, "outcome", outcome.Outcome, "reason", outcome.Reason,
+		"target_revision", outcome.TargetRevision)
+	return outcome
+}
+
+// suggestionFromOutput decides the step from the model's output. A JSON
+// object in an output that is too long, or cut at the output limit, is still
+// read; only no usable output is unavailable, with the reason.
+func suggestionFromOutput(output string, err error, w workloadEvidence, evidenceCount int) suggestionOutcome {
+	reason := ""
+	switch {
+	case err == nil && len(output) <= maxSuggestionOutput:
+		return validateSuggestion(output, w, evidenceCount)
+	case err == nil:
+		reason = "oversized_output"
+	case errors.Is(err, inference.ErrOutputTruncated):
+		reason = "output_limit"
+	case errors.Is(err, context.DeadlineExceeded):
+		return suggestionOutcome{Outcome: "unavailable", Reason: "timeout"}
+	case errors.Is(err, context.Canceled):
+		return suggestionOutcome{Outcome: "unavailable", Reason: "canceled"}
+	default:
+		return suggestionOutcome{Outcome: "unavailable", Reason: "model_error"}
 	}
-	return validateSuggestion(output, w, len(evidence))
+	if strings.Contains(output, "{") && strings.Contains(output, "}") {
+		if outcome := validateSuggestion(output, w, evidenceCount); outcome.Reason != "invalid_output" {
+			return outcome
+		}
+	}
+	return suggestionOutcome{Outcome: "unavailable", Reason: reason}
 }
 
 // validateSuggestion keeps only what the evidence supports: the target must

@@ -21,9 +21,12 @@ import (
 
 // maxInvestigationToolCalls bounds the evidence reads of one reply, and
 // maxInvestigationTools the distinct tools offered (PA-72: 4 → 6, so a
-// release question can read profile, metrics, logs and the workload).
+// release question can read profile, metrics, logs and the workload). PA-89:
+// with read_service_changes six reads crowded out the alert's own metrics,
+// so a reply may read 8 times. The runtime still allows at most 8 model
+// calls, so the eighth read needs the model to batch tool calls in a round.
 const (
-	maxInvestigationToolCalls = 6
+	maxInvestigationToolCalls = 8
 	maxInvestigationTools     = 6
 )
 

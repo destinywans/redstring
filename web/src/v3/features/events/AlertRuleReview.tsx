@@ -10,8 +10,10 @@ import { useI18n } from "../../i18n";
 export function AlertRuleReviewCards({ p, ar }: { p: Proposal; ar: ProposalAlertRule }) {
   const { tx } = useI18n();
   const repo = ar.repository;
-  const added = ar.change.lines.filter((l) => l.op === "+").length;
-  const removed = ar.change.lines.filter((l) => l.op === "-").length;
+  const lines = ar.change?.lines ?? [];
+  const added = lines.filter((l) => l.op === "+").length;
+  const removed = lines.filter((l) => l.op === "-").length;
+  const project = repo.project_path ?? tx("项目 {id}", "Project {id}", { id: repo.project_id });
   const minutes = Math.round(ar.prometheus.readback_timeout_seconds / 60);
   const kw = 76;
   return (
@@ -61,9 +63,13 @@ export function AlertRuleReviewCards({ p, ar }: { p: Proposal; ar: ProposalAlert
         />
         <Col gap={10} style={{ padding: "14px 16px" }}>
           <KV k={tx("仓库", "Repository")} kw={kw}>
-            <TextLink icon="external" onClick={() => window.open(repo.web_url, "_blank", "noopener")}>
-              {repo.project_path}
-            </TextLink>
+            {repo.web_url ? (
+              <TextLink icon="external" onClick={() => window.open(repo.web_url!, "_blank", "noopener")}>
+                {project}
+              </TextLink>
+            ) : (
+              <span className="mono">{project}</span>
+            )}
           </KV>
           <KV k={tx("分支", "Branch")} kw={kw}>
             <span>
@@ -85,7 +91,7 @@ export function AlertRuleReviewCards({ p, ar }: { p: Proposal; ar: ProposalAlert
           </KV>
           <KV k={tx("合并与加载", "Merge & load")} kw={kw}>
             <span style={{ fontSize: "var(--fs-sm)" }}>
-              {ar.merge.by === "executor" ? tx("两人批准后由执行器自行合并；", "After two approvals the executor merges it itself; ") : null}
+              {ar.merge.by === "executor" ? tx("两人批准后由执行器自行合并；", "After two approvals the executor merges it itself; ") : tx("两人批准后由人在 GitLab 里合并请求；", "After two approvals a person merges the request in GitLab; ")}
               {ar.operation === "enable"
                 ? tx("Prometheus 加载后，{m} 分钟内读回一致才算生效。", "once Prometheus loads it, it counts as in effect only if the readback matches within {m} min.", { m: minutes })
                 : tx("Prometheus 重载后，{m} 分钟内读不到这条规则才算停用。", "once Prometheus reloads, it counts as disabled only when the rule is gone within {m} min.", { m: minutes })}
@@ -98,29 +104,48 @@ export function AlertRuleReviewCards({ p, ar }: { p: Proposal; ar: ProposalAlert
           title={tx("整文件差异", "Whole-file difference")}
           icon="code"
           right={
-            <Muted size={11.5}>
-              {added > 0 && `+${added}`}
-              {added > 0 && removed > 0 && " "}
-              {removed > 0 && `−${removed}`} {tx("行", "lines")}
-            </Muted>
+            ar.change && (
+              <Muted size={11.5}>
+                {added > 0 && `+${added}`}
+                {added > 0 && removed > 0 && " "}
+                {removed > 0 && `−${removed}`} {tx("行", "lines")}
+              </Muted>
+            )
           }
         />
         <Col gap={8} style={{ padding: "14px 16px" }}>
-          <div className="review-diff">
-            <div className="path">{repo.path}</div>
-            {ar.change.lines.map((l, i) => (
-              <div key={i} className={l.op === "-" ? "del" : l.op === "+" ? "add" : ""}>
-                {l.op}
-                {l.text}
+          {ar.change ? (
+            <>
+              <div className="review-diff">
+                <div className="path">{repo.path}</div>
+                {lines.map((l, i) => (
+                  <div key={i} className={l.op === "-" ? "del" : l.op === "+" ? "add" : ""}>
+                    {l.op}
+                    {l.text}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <Row gap={6} align="flex-start">
-            <Icon name="lock" size={12} color="var(--faint)" style={{ marginTop: 2 }} />
-            <Muted size={11.5}>
-              {tx("只改这些行，其余字节不变；执行前核对文件摘要 {d}，与批准时不一致就停下。", "Only these lines change and every other byte stays; the executor checks file digest {d} first and stops if it differs from the approved one.", { d: `${ar.change.content_sha256.slice(0, 12)}…` })}
-            </Muted>
-          </Row>
+              <Row gap={6} align="flex-start">
+                <Icon name="lock" size={12} color="var(--faint)" style={{ marginTop: 2 }} />
+                <Muted size={11.5}>
+                  {tx("只改这些行，其余字节不变；执行前核对文件摘要 {d}，与批准时不一致就停下。", "Only these lines change and every other byte stays; the executor checks file digest {d} first and stops if it differs from the approved one.", { d: `${ar.change.content_sha256.slice(0, 12)}…` })}
+                </Muted>
+              </Row>
+            </>
+          ) : (
+            // No difference was recorded with this proposal: the reviewed record (generic content) still stands.
+            <>
+              <Muted size={12}>{tx("这份提案没有记录整文件差异。下面是提案的审阅内容，批准仍以它和执行前的文件摘要核对为准。", "No whole-file difference was recorded with this proposal. Below is its reviewed content; approval still rests on it and the file digest checked before execution.")}</Muted>
+              <div className="review-diff">
+                <div className="path">{p.diff.path}</div>
+                {p.diff.lines.map((l, i) => (
+                  <div key={i} style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                    {l}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </Col>
       </Card>
       {p.impact && (

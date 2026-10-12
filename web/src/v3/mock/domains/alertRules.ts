@@ -40,6 +40,8 @@ const PROPOSALS: Record<string, ProposalSpec> = {
   "PRP-113": { op: "enable", rule: "InventoryLag", status: "pending" },
   "PRP-114": { op: "disable", rule: "CheckoutLegacyErrors", status: "pending" },
   "PRP-115": { op: "enable", rule: "CheckoutHigh5xx", status: "pending" },
+  // An older proposal: no difference was recorded and the binding names no project path or web URL.
+  "PRP-116": { op: "enable", rule: "InventoryLag", status: "pending" },
   "PRP-109": { op: "enable", rule: "CheckoutHigh5xx", status: "executed", execution: "EXE-91" },
   "PRP-110": { op: "enable", rule: "OrderQueueDepth", status: "approved", execution: "EXE-90" },
   "PRP-111": { op: "enable", rule: "PaymentTimeout", status: "approved", execution: "EXE-92" },
@@ -85,22 +87,24 @@ export function alertRuleProposal(id: string) {
     alert_rule: {
       operation: spec.op,
       rule: { name: r.name, group: GROUP, expr: r.expr, for: r.for, severity: r.severity, labels: { application: "checkout-api", environment: "prod", severity: r.severity, team: "trade" }, annotations: { summary: r.summary } },
-      repository: REPO,
-      change: { lines, content_sha256: "5c1e9a7d3b2f8e4c6a1d9b7f3e5c2a8d4b6f1e9c7a3d5b2f8e6c4a1d9b7f3e5c" },
+      repository: id === "PRP-116" ? { ...REPO, connector_id: null, project_path: null, web_url: null } : REPO,
+      change: id === "PRP-116" ? null : { lines, content_sha256: "5c1e9a7d3b2f8e4c6a1d9b7f3e5c2a8d4b6f1e9c7a3d5b2f8e6c4a1d9b7f3e5c" },
       prometheus: { group: GROUP, file: `/etc/prometheus-gitops/current/${REPO.path}`, readback_timeout_seconds: 300 },
       merge: { method: "fast_forward", by: "executor" },
     },
   };
 }
 
-type Exec = { proposal: string; op: "enable" | "disable"; state: string; steps: [string, string][]; mr?: boolean; merged?: boolean; readback: Record<string, unknown>; failure?: { code: string; message: string } | null; observed?: string };
+type Exec = { proposal: string; op: "enable" | "disable"; state: string; steps: [string, string][]; mr?: boolean; merged?: boolean; readback: Record<string, unknown>; failure?: { code: string; message: string } | null; observed?: string; updated?: string };
 const pendingReadback = { state: "pending", checked_at: null, first_seen_at: null, health: null, last_evaluation_at: null, last_error: null, reload: null };
 const EXECS: Record<string, Exec> = {
-  "EXE-91": { proposal: "PRP-109", op: "enable", state: "enabled", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["merged", "14:30:14"], ["loading", "14:30:15"], ["enabled", "14:30:59"]], mr: true, merged: true, readback: { state: "loaded", checked_at: at("14:30:59"), first_seen_at: at("14:30:44"), health: "ok", last_evaluation_at: at("14:30:58"), last_error: null, reload: { last_successful: true, last_success_at: at("14:30:43") } } },
+  // Like the lab's run: the first commit's outcome was unknown, reconciled read-only, then committed again.
+  "EXE-91": { proposal: "PRP-109", op: "enable", state: "enabled", steps: [["reserved", "14:30:02"], ["committing", "14:30:02"], ["uncertain", "14:30:04"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["merged", "14:30:14"], ["loading", "14:30:15"], ["enabled", "14:30:59"]], mr: true, merged: true, readback: { state: "loaded", checked_at: at("14:30:59"), first_seen_at: at("14:30:44"), health: "ok", last_evaluation_at: at("14:30:58"), last_error: null, reload: { last_successful: true, last_success_at: at("14:30:43") } } },
   "EXE-90": { proposal: "PRP-110", op: "enable", state: "needs_attention", steps: [["reserved", "14:30:02"], ["needs_attention", "14:30:05"]], readback: pendingReadback, failure: { code: "stale_base", message: "main moved from 1a2b3c4 to e91f0a2 before commit" } },
   "EXE-92": { proposal: "PRP-111", op: "enable", state: "merging", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"]], mr: true, readback: pendingReadback },
   "EXE-93": { proposal: "PRP-108", op: "enable", state: "uncertain", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["uncertain", "14:30:21"]], mr: true, readback: pendingReadback },
-  "EXE-94": { proposal: "PRP-107", op: "enable", state: "needs_attention", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["merged", "14:30:14"], ["loading", "14:30:15"], ["needs_attention", "14:35:14"]], mr: true, merged: true, readback: { state: "timeout", checked_at: at("14:35:14"), first_seen_at: null, health: null, last_evaluation_at: null, last_error: null, reload: { last_successful: false, last_success_at: at("14:12:40") } }, failure: { code: "load_timeout", message: "rule not loaded within 300s; last reload failed" } },
+  // As the server reports it: the timeout is the page's state, the last recorded step stays loading.
+  "EXE-94": { proposal: "PRP-107", op: "enable", state: "needs_attention", updated: "14:35:14", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["merged", "14:30:14"], ["loading", "14:30:15"]], mr: true, merged: true, readback: { state: "timeout", checked_at: at("14:35:14"), first_seen_at: null, health: null, last_evaluation_at: null, last_error: null, reload: { last_successful: false, last_success_at: at("14:12:40") } }, failure: { code: "load_timeout", message: "rule not loaded within 300s; last reload failed" } },
   "EXE-95": { proposal: "PRP-106", op: "enable", state: "failed", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["merged", "14:30:14"], ["loading", "14:30:15"], ["failed", "14:30:59"]], mr: true, merged: true, readback: { state: "error", checked_at: at("14:30:59"), first_seen_at: at("14:30:44"), health: "err", last_evaluation_at: at("14:30:58"), last_error: "many-to-many matching not allowed", reload: { last_successful: true, last_success_at: at("14:30:43") } }, failure: { code: "rule_health_error", message: "health=err" }, observed: "r-gl-5xx" },
   "EXE-96": { proposal: "PRP-105", op: "disable", state: "loading", steps: [["reserved", "14:40:02"], ["committing", "14:40:05"], ["merging", "14:40:08"], ["merged", "14:40:12"], ["loading", "14:40:13"]], mr: true, merged: true, readback: pendingReadback },
   "EXE-98": { proposal: "PRP-103", op: "disable", state: "needs_attention", steps: [["reserved", "13:50:02"], ["committing", "13:50:05"], ["merging", "13:50:08"], ["needs_attention", "13:52:40"]], mr: true, readback: pendingReadback, failure: { code: "mr_closed", message: "merge request closed by a user" } },
@@ -115,7 +119,12 @@ export function alertRuleExecution(id: string) {
   return {
     id,
     kind: `prometheus.alert_rule.${x.op}`,
+    proposal_id: x.proposal,
     investigation_id: "INV-231",
+    application_id: "checkout-api",
+    environment_id: "prod",
+    created_at: at(x.steps[0][1]),
+    updated_at: at(x.updated ?? x.steps.at(-1)![1]),
     approved_at: at("14:29"),
     approvers: [
       { name: "李明", verified_at: at("14:27") },

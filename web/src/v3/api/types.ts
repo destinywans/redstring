@@ -378,7 +378,8 @@ export type AlertRulePending = {
  * empty_reason "no_authorized_target" = nothing visible to this user; [] with null = genuinely none.
  */
 export type EmptyReason = "no_authorized_target" | null;
-export type AlertRuleList = { items: AlertRuleSummary[] | null; counts: { all: number; firing: number; scheduled: number } | null; empty_reason: EmptyReason; unavailable: Unavailable; pending?: AlertRulePending[] };
+/** pending is null (and unavailable says "pending" / "items[].lifecycle") when the GitOps view can't be read. */
+export type AlertRuleList = { items: AlertRuleSummary[] | null; counts: { all: number; firing: number; scheduled: number } | null; empty_reason: EmptyReason; unavailable: Unavailable; pending?: AlertRulePending[] | null };
 export type AlertRule = AlertRuleSummary & {
   datasource: string;
   query_ref: string;
@@ -433,6 +434,8 @@ export type Proposal = {
   impact: string;
   reversible: boolean;
   proposed_by: string;
+  /** The proposer's display name when the server has one. */
+  proposed_by_name?: string;
   proposed_at: string;
   investigation_id: string;
   target: string;
@@ -458,20 +461,23 @@ export const ALERT_RULE_KINDS = ["prometheus.alert_rule.enable", "prometheus.ale
 export type ProposalAlertRule = {
   operation: "enable" | "disable";
   rule: { name: string; group: string; expr: string; for: string; severity: string; labels: Record<string, string>; annotations: Record<string, string> };
-  repository: { connector_id: string; project_id: string; project_path: string; web_url: string; target_branch: string; path: string; base_sha: string };
-  /** The whole file's difference; op " " is an unchanged line. */
-  change: { lines: { op: "+" | "-" | " "; text: string }[]; content_sha256: string };
+  /** connector_id, project_path and web_url are null when the deployment binding doesn't name them. */
+  repository: { connector_id: string | null; project_id: string; project_path: string | null; web_url: string | null; target_branch: string; path: string; base_sha: string };
+  /** The whole file's difference recorded with the proposal; op " " is an unchanged line. Null when none was recorded (older proposals). */
+  change: { lines: { op: "+" | "-" | " "; text: string }[]; content_sha256: string } | null;
   prometheus: { group: string; file: string; readback_timeout_seconds: number };
-  merge: { method: "fast_forward"; by: "executor" };
+  /** fast_forward by the executor (file_pull), or a person merging the MR in GitLab. */
+  merge: { method: "fast_forward" | "merge_request"; by: "executor" | "human" };
 };
 export type AlertRuleExecState = "reserved" | "committing" | "merging" | "merged" | "loading" | "enabled" | "disabled" | "failed" | "needs_attention" | "uncertain";
-export type AlertRuleFailureCode = "stale_base" | "branch_conflict" | "mr_closed" | "protection_changed" | "load_timeout" | "rule_health_error" | "credential_rejected" | "approval_invalid";
+export type AlertRuleFailureCode = "stale_base" | "branch_conflict" | "mr_closed" | "protection_changed" | "merge_refused" | "credential_rejected" | "approval_invalid" | "plan_changed" | "source_changed" | "load_timeout" | "rule_health_error";
 /** Fields of steps not reached yet are null. */
 export type ExecutionAlertRule = {
   proposal_id: string;
   operation: "enable" | "disable";
   state: AlertRuleExecState;
-  steps: { state: AlertRuleExecState; at: string }[];
+  /** Every recorded step in order, retries included (e.g. committing → uncertain → committing). */
+  steps: { state: AlertRuleExecState | "pending_review"; at: string }[];
   repository: { project_id: string; project_path: string; source_branch: string; target_branch: string; path: string; commit_sha: string | null; mr_iid: number | null; mr_url: string | null; merged_sha: string | null; merged_at: string | null };
   readback: {
     state: "pending" | "loaded" | "absent" | "mismatch" | "error" | "timeout";
@@ -480,17 +486,27 @@ export type ExecutionAlertRule = {
     health: string | null;
     last_evaluation_at: string | null;
     last_error: string | null;
+    /** Always null from the server so far. */
     reload: { last_successful: boolean | null; last_success_at: string | null } | null;
   };
   failure: { code: AlertRuleFailureCode | (string & {}); message: string } | null;
-  /** The rule list ID once Prometheus reports the rule (the executor's ledger keeps it); assumed, not in §11.5 yet. */
+  /** Not in the contract (the recheck returns it); the sample sets it. */
   observed_rule_id?: string | null;
 };
-/**
- * GET /executions/{id} for an alert rule. §11.5 only adds `alert_rule`; the approvers and approval time are assumed
- * like the rollback execution's and hidden when absent. The rule's name comes from the proposal.
- */
-export type AlertRuleExecutionDetail = { id: string; kind?: string; investigation_id?: string | null; approved_at?: string; approvers?: { name: string; verified_at: string }[]; alert_rule: ExecutionAlertRule };
+/** GET /executions/{id} for an alert rule (V3AlertRuleExecutionDetail). The rule's name comes from the proposal. */
+export type AlertRuleExecutionDetail = {
+  id: string;
+  kind: "prometheus.alert_rule.enable" | "prometheus.alert_rule.disable";
+  proposal_id: string;
+  investigation_id: string;
+  application_id: string;
+  environment_id: string;
+  approved_at: string;
+  approvers: { name: string; verified_at: string }[];
+  created_at: string;
+  updated_at: string;
+  alert_rule: ExecutionAlertRule;
+};
 
 /* ---------------- Kubernetes rollback (docs/api/v3-rollback.md, PA-08) ---------------- */
 /**

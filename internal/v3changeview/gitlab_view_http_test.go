@@ -84,7 +84,8 @@ func (f *fakeChanges) ReadPipeline(_ context.Context, _ core.User, _, _, _ strin
 	finished := f.now.Add(-30 * time.Minute)
 	duration := 152.5
 	files := 3
-	return v3changes.PipelineDetail{ProjectID: "42", Unavailable: map[string]string{},
+	mr := int64(4) // The reader's PipelineMergeRequest, as for the list row.
+	return v3changes.PipelineDetail{ProjectID: "42", Unavailable: map[string]string{}, MergeRequest: &mr,
 		Pipeline: v3changes.Pipeline{ID: 11, Status: "success", Ref: "main", SHA: viewSHAMerged, Source: "push",
 			CreatedAt: f.now.Add(-40 * time.Minute), UpdatedAt: finished},
 		FinishedAt: &finished, DurationSeconds: &duration, User: &v3changes.User{Username: "dev-a"},
@@ -315,7 +316,7 @@ func TestGitLabChangesViewHTTP(t *testing.T) {
 	}
 	if detail.ID != "gitlab:pipeline:42:11" || len(detail.Stages) != 2 || detail.Commit == nil || detail.Commit.Stats.Additions != 10 ||
 		detail.Commit.Stats.Files == nil || *detail.Commit.Stats.Files != 3 || len(detail.AdjacentAlerts) != 1 ||
-		detail.AdjacentAlerts[0].OffsetSeconds != 180 || detail.MergeRequestIID != nil {
+		detail.AdjacentAlerts[0].OffsetSeconds != 180 || detail.MergeRequestIID == nil || *detail.MergeRequestIID != 4 {
 		t.Fatalf("pipeline detail: %+v", detail)
 	}
 	for path, want := range map[string]int{

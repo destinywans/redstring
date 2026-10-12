@@ -295,6 +295,15 @@ func TestInvestigationNodeReplyRegisteredRoute(t *testing.T) {
 	if err = db.QueryRow(ctx, `SELECT revision FROM branches WHERE id=$1`, child).Scan(&revision); err != nil || revision != 2 {
 		t.Fatalf("recovery revision=%d err=%v", revision, err)
 	}
+	// PA-93: started, completed and failed replies carry the environment key,
+	// which GET /audit needs to list an application's rows.
+	var replyAudits, failedAudits, withoutEnv int
+	if err = db.QueryRow(ctx, `SELECT count(*),count(*) FILTER (WHERE action='v3.investigation_canvas.reply_failed'),
+ count(*) FILTER (WHERE changes->>'environment_id' IS DISTINCT FROM 'test')
+ FROM management_audit WHERE action LIKE 'v3.investigation_canvas.reply_%' AND target=$1`, child).
+		Scan(&replyAudits, &failedAudits, &withoutEnv); err != nil || replyAudits < 5 || failedAudits != 1 || withoutEnv != 0 {
+		t.Fatalf("reply audits=%d failed=%d without environment=%d err=%v", replyAudits, failedAudits, withoutEnv, err)
+	}
 	// A running model owns one branch slot. The losing HTTP request must not
 	// invoke the runner or append another context revision.
 	entered, release := make(chan struct{}), make(chan struct{})

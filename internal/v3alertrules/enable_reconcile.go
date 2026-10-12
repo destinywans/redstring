@@ -106,9 +106,9 @@ func (s *WriteService) reconcileEnableExecution(ctx context.Context, proposalID 
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
  VALUES($1,$2,'v3.alert_rule.enable.reconcile',$3,'pending',jsonb_build_object(
  'execution_id',$4::text,'generation',$5::bigint,'approval_id',$6::text,
- 'first_approver_id',$7::text,'reason','approval_or_access_unavailable'))`,
+ 'first_approver_id',$7::text,'reason','approval_or_access_unavailable','environment_id',$8::text))`,
 		record.ApproverID, intent.ApplicationID, proposalID, record.ID, record.Generation,
-		record.ApprovalID, record.FirstApproverID)
+		record.ApprovalID, record.FirstApproverID, intent.EnvironmentID)
 	if err != nil {
 		return zero, true, err
 	}

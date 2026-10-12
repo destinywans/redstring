@@ -117,6 +117,13 @@ func TestPostgresDeliveryVersionsIdempotencyAndFencing(t *testing.T) {
 	if err != nil || same.ID != r.ID {
 		t.Fatal("duplicate submit created another run")
 	}
+	// PA-93: the run's audit row names its environment key, which GET /audit
+	// needs to list an application's rows.
+	var auditEnv string
+	if err = p.DB.QueryRow(ctx, `SELECT changes->>'environment_id' FROM management_audit
+ WHERE action='delivery.run.queued' AND target=$1`, r.ID).Scan(&auditEnv); err != nil || auditEnv != "test" {
+		t.Fatalf("run audit environment=%q err=%v", auditEnv, err)
+	}
 	if _, err = p.CreateRun(ctx, v2, "operator", "run-one"); !errors.Is(err, store.ErrConflict) {
 		t.Fatal("idempotency key accepted different version")
 	}

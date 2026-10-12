@@ -21,6 +21,7 @@
 
 - 会话缺失或失效用 `401 unauthorized`；已知环境但无授权用 `403 forbidden`；未知/缺失环境或无效输入用 `422` 的稳定代码；`all` 写入用 `409 env_view_only`；来源、授权存储或必需 DTO 不可用用明确 `503`；未接适配可用 `501`。已存在但未接线的能力不得以成功空值、旧实现结果或路由存在冒充可用。避免把隐藏对象的细节泄露给无权用户。
 - 所有平台写请求和 Agent 工具调用写 `management_audit`；业务变更与成功审计须在同一事务提交，审计失败回滚业务写入。审计包含稳定 action、actor、target、outcome，以及可证明的 `environment`/`environment_id` 和有依据的 `application_id`，以便 V3 审计读取判定范围。失败/拒绝若需保留证据，按独立事务记录真实结果，不能把失败写成成功。
+- `GET /audit` 只按环境列出带 `application_id` 的行：`changes` 里没有 `environment_id`（或 `environment`）的应用级行，以及环境与应用未登记为 V3 应用环境的行，不出现在审计页。PA-93（2026-10-12）补齐了以下写入的 `environment_id`（均为环境键，如 `prod`/`test`）：告警规则执行器 `v3.alert_rule.enable.prepare`、`.enable.execution_state`、`.enable.observed`、`.enable.reconcile`、`v3.alert_rule.execution.rechecked`；告警规则草稿 `v3.alert_rule_draft.pre_export_unavailable`、`.rejected`、`.result_unknown`、`.pending_review`；画布 AI 回复 `v3.investigation_canvas.reply_started`、`.reply_completed`、`.reply_failed`；规则助手 `v3.alert_rule.generate.finished`、`.generate.ambiguous`；告警组静音预留释放 `alert.group.silence_reservation_released`（取被释放提案的环境）；Agent 审计（`changes` 未带环境时取 Agent 的环境）；GitLab webhook 等写的交付事件 `delivery.*`（取运行记录的环境键）。修复前写入的这些行已在哈希链上，不做修改，因此仍不出现在审计页；需要时只能直接查 `management_audit`。未改的旧模块（`aiextensions`、`delivery` 保留策略、`deployment`、`knowledge` 治理、`store` 平台目录）只由旧 API 写入，V3 实例的路由闸门对这些路由返回 501，且对象是整个应用而非某个环境。
 - 审计只保存必要的资源 ID、动作、范围、结果和安全元数据；不得写凭据、Vault 引用、原始日志/查询、对话证据、令牌或敏感响应。工具读取记录开始及结果，且读取前后重新校验会话、目标与权限。`management_audit` 的历史链只证明迁移后的连续性；037 在现有大表的回填锁时尚未验证。
 
 ## 迁移编号与并行提交

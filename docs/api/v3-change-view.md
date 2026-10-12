@@ -60,14 +60,14 @@
 - **关联**：只按提交 SHA、流水线 ID、MR 编号精确匹配，匹配不上就是 `null` 或空数组：
   - 部署的 `merge_request_iid`：合并提交、压缩提交或 fast-forward 头提交等于部署提交的已合并 MR（恰好一个时）；
   - 部署的 `kubernetes_revision`：change cause 写着该部署流水线（`gitlab pipeline <id> <sha>`）的集群修订，只对成功部署给出；
-  - 流水线的 `merge_request_iid`：MR 流水线取自 `refs/merge-requests/<iid>/…`；源分支流水线取窗口内唯一来自该分支的 MR；主干流水线按合并后的提交匹配；`deployment_ids` 为该流水线产生的部署；
+  - 流水线的 `merge_request_iid`：MR 流水线取自 `refs/merge-requests/<iid>/…`；源分支流水线取窗口内唯一来自该分支的 MR；主干流水线按合并后的提交匹配（恰好一个时）。流水线详情和 AI 证据 `failed_pipelines[]` 用同一条规则（PA-95，`v3changes.PipelineMergeRequest`）；详情不读窗口，候选 MR 是来自该分支（每个目录分支最多读 2 个）和 GitLab 关联到该提交（`list_merge_requests` 开启时读 `/repository/commits/:sha/merge_requests`，关联 20 个以上不归属）的目录分支 MR；`deployment_ids` 为该流水线产生的部署；
   - MR 的 `pipeline_ids`、`deployment_ids` 为反向关联。
 - **告警**：`alerts` 是窗口内已覆盖来源的告警（覆盖声明沿用 `AIOPS_V3_SERVICE_ALERT_COVERAGE_CONFIG`；没有覆盖时为 `null`，`coverage.alerts` 为 `unknown`）。部署的 `adjacent_alerts` 列出部署生效（结束；未结束取创建）前 15 分钟到后 60 分钟内开始的告警，`offset_seconds` 为告警开始减部署时间，`basis` 恒为 `time_adjacent`，文案写“时间相邻，不代表因果”。本轮不产生“已审阅”的关联（人工审阅界面不在 D11 范围）。
 - **集群修订**：`kubernetes_revisions` 为窗口内创建的 ReplicaSet 修订，经回滚服务的读凭据和 `resources.view` 读取；`coverage.kubernetes` 为 `history_limited`（只覆盖保留的历史）、`not_configured`、`no_authorized_target` 或 `unavailable`，后三种时为 `null`。
 - **KPI**：`deployments`（成功部署）、`failed_deployments`（GitLab 部署层面的失败，不是 DORA 变更失败率）、`pipelines`、`merged_merge_requests`；`series` 按 `series_step_seconds`（24h 为 3600，7d 为 86400）从 `series_start_at` 分桶。某类连接器工具关闭时该类列表为 `null`，没有对应 KPI，`unavailable` 写 `kpis.<id>: not_configured`。
 - **错误**：未配置代码项目、目录范围或连接器为 503 `change_source_not_configured`；凭据问题 503 `credential_unavailable`；GitLab 不可用 503 `source_unavailable`；某类超过 100 条 413 `change_window_too_large`；读取期间来源变化 409 `source_changed`；告警超过 200 条 413 `change_view_limit`。不返回部分结果。
 
-流水线详情 `GET /changes/pipelines/{pipeline_id}?service_id=` 见 [后端辅助接口](v3-backend-aux.md)；相邻告警以流水线结束时间（未结束取最后更新）为准。设计稿 11.2 节的 `deployment_ids` 没有放进详情：详情不读部署列表，从列表行带过去即可。
+流水线详情 `GET /changes/pipelines/{pipeline_id}?service_id=` 见 [后端辅助接口](v3-backend-aux.md)，其 `merge_request_iid` 与列表行同规则（PA-95；`list_merge_requests` 关闭且引用不是 MR 时为 `null`，`unavailable.merge_request` 为 `not_configured`）；相邻告警以流水线结束时间（未结束取最后更新）为准。设计稿 11.2 节的 `deployment_ids` 没有放进详情：详情不读部署列表，从列表行带过去即可。
 
 **实测（2026-10-11，只读）**：对实验 GitLab 19.3.2 的 `aiops-lab/checkout-api`（经验收 TLS 入口 `https://127.0.0.1:18446`，读令牌取自实验 Vault）读 7 天：3 次部署（#1、#2 失败，#3 成功，结束时间 01:09、01:16、01:18 UTC，与实验记录一致）、3 条流水线（含 MR !1 源分支上的 12）、1 个 MR；流水线 11 的三个阶段与提交统计正确。由此修正了部署结束时间和 MR 源分支流水线两处。可选的 `TestReadServiceChangesLiveLab`（`AIOPS_D11_LIVE_GITLAB_URL` 等变量开启）只发 GET。
 

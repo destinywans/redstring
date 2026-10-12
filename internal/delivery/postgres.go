@@ -176,7 +176,16 @@ func eventTx(ctx context.Context, tx pgx.Tx, run, app, kind, actor string, paylo
 	if actor == "" {
 		actorKind = "system"
 	}
-	_, err = tx.Exec(ctx, "INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes) VALUES($1,$2,$3,$4,$5,'recorded',$6)", actor, actorKind, app, kind, run, b)
+	// GET /audit lists an application's rows by environment only. The public
+	// GitLab webhook writes these on a V3 instance too, so a payload without
+	// one carries its run's environment key (PA-93).
+	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
+ SELECT $1,$2,$3,$4,$5,'recorded',CASE
+   WHEN e.key IS NULL OR jsonb_typeof($6::jsonb)<>'object' OR $6::jsonb ? 'environment_id' THEN $6::jsonb
+   ELSE $6::jsonb || jsonb_build_object('environment_id',e.key) END
+ FROM (SELECT 1) one LEFT JOIN delivery_runs r ON r.id=$5::text
+ LEFT JOIN application_environments e ON e.id=r.environment_id AND e.application_id=r.application_id`,
+		actor, actorKind, app, kind, run, b)
 	return err
 }
 func (p *PostgresRepository) CreateRun(ctx context.Context, pipe Pipeline, actor, key string) (Run, error) {

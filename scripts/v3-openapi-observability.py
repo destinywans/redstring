@@ -452,7 +452,10 @@ v3_route('get','/changes/pipelines/{pipeline_id}','Read one GitLab pipeline of a
     desc='D11 auxiliary read: one pipeline of the service\'s confirmed GitLab code project on a reviewed branch or one of its merge requests, '
          'with jobs grouped by stage in pipeline order, the commit title, statistics and at most 20 changed paths (no message body or diff text) '
          'and the covered alerts adjacent to the pipeline end. Needs get_pipeline; get_commit and get_commit_diff each add their part, otherwise '
-         'it is null with not_configured. Same authorization, errors and recheck as the GitLab change view; a pipeline outside the scope is 404.')
+         'it is null with not_configured. Same authorization, errors and recheck as the GitLab change view; a pipeline outside the scope is 404. '
+         'merge_request_iid follows the change list rule (PA-95): a merge request ref; else the one merge request from a non-reviewed branch; '
+         'else the one merged merge request that landed as the commit, from the merge requests GitLab links to it. Without list_merge_requests '
+         'only a merge request ref counts and unavailable.merge_request is not_configured.')
 for parameter in P['/changes/pipelines/{pipeline_id}']['get']['parameters']:
     if parameter['name'] == 'service_id':
         parameter['required'] = True

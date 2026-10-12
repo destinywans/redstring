@@ -69,6 +69,13 @@ func TestReadServiceChangesTool(t *testing.T) {
 	if len(got.MergedMergeRequests) != 1 || got.MergedMergeRequests[0].IID != 4 || len(got.FailedPipelines) != 2 {
 		t.Fatalf("merge requests and pipelines: %+v %+v", got.MergedMergeRequests, got.FailedPipelines)
 	}
+	// PA-95: a failed pipeline names its merge request as the change list
+	// does: !5 from its ref, and from the branch "broken" it was pushed to.
+	for _, p := range got.FailedPipelines {
+		if p.MergeRequestIID == nil || *p.MergeRequestIID != 5 {
+			t.Fatalf("failed pipeline %d (%s) merge request: %v", p.PipelineID, p.Ref, p.MergeRequestIID)
+		}
+	}
 	if strings.Contains(evidence.Content, "hidden@example.invalid") || strings.Contains(evidence.Content, "secret") ||
 		strings.Contains(evidence.Content, "Maintainer A") {
 		t.Fatalf("evidence carries user details or commit text: %s", evidence.Content)

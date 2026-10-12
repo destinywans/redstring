@@ -756,7 +756,7 @@ func (s *WriteService) releaseBeforeExport(ctx context.Context, actor core.User,
 	}
 	_, err = tx.Exec(cleanup, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
  VALUES($1,$2,'v3.alert_rule_draft.pre_export_unavailable',$3,'deferred',jsonb_build_object(
- 'attempt_generation',$4::bigint))`, actor.ID, record.ApplicationID, record.ID, record.Attempt)
+ 'attempt_generation',$4::bigint,'environment_id',$5::text))`, actor.ID, record.ApplicationID, record.ID, record.Attempt, record.EnvironmentID)
 	if err != nil {
 		return err
 	}
@@ -791,8 +791,8 @@ func (s *WriteService) markInvalid(ctx context.Context, actor core.User, record 
 	}
 	_, err = tx.Exec(cleanup, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
  VALUES($1,$2,'v3.alert_rule_draft.rejected',$3,$4,jsonb_build_object(
- 'reason',$5::text,'attempt_generation',$6::bigint,'project_id',$7::bigint,'mr_iid',$8::bigint))`,
-		actor.ID, record.ApplicationID, record.ID, state, reason, record.Attempt, record.ProjectID, iid)
+ 'reason',$5::text,'attempt_generation',$6::bigint,'project_id',$7::bigint,'mr_iid',$8::bigint,'environment_id',$9::text))`,
+		actor.ID, record.ApplicationID, record.ID, state, reason, record.Attempt, record.ProjectID, iid, record.EnvironmentID)
 	if err != nil {
 		return err
 	}
@@ -842,8 +842,9 @@ func (s *WriteService) markUnknown(ctx context.Context, actor core.User, record 
 		return problem(409, "draft_conflict", "Draft export attempt changed")
 	}
 	_, err = tx.Exec(cleanup, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
- VALUES($1,$2,'v3.alert_rule_draft.result_unknown',$3,'unknown',jsonb_build_object('attempt_generation',$4::bigint))`,
-		actor.ID, record.ApplicationID, record.ID, record.Attempt)
+ VALUES($1,$2,'v3.alert_rule_draft.result_unknown',$3,'unknown',jsonb_build_object('attempt_generation',$4::bigint,
+ 'environment_id',$5::text))`,
+		actor.ID, record.ApplicationID, record.ID, record.Attempt, record.EnvironmentID)
 	if err != nil {
 		return err
 	}
@@ -888,8 +889,8 @@ func (s *WriteService) finish(ctx context.Context, actor core.User, record opera
 	}
 	_, err = tx.Exec(cleanup, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
  VALUES($1,$2,'v3.alert_rule_draft.pending_review',$3,'success',jsonb_build_object(
- 'project_id',$4::bigint,'mr_iid',$5::bigint,'attempt_generation',$6::bigint))`,
-		actor.ID, record.ApplicationID, record.ID, record.ProjectID, mr.IID, record.Attempt)
+ 'project_id',$4::bigint,'mr_iid',$5::bigint,'attempt_generation',$6::bigint,'environment_id',$7::text))`,
+		actor.ID, record.ApplicationID, record.ID, record.ProjectID, mr.IID, record.Attempt, record.EnvironmentID)
 	if err != nil {
 		return nil, err
 	}

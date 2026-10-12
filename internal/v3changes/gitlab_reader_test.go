@@ -118,6 +118,16 @@ func (f *fakeGitLab) serve(w http.ResponseWriter, r *http.Request) {
   "author":{"username":"dev-a"},"merged_by":null,"created_at":%q,"updated_at":%q,"merged_at":null,"closed_at":null,
   "sha":%q,"merge_commit_sha":null,"squash_commit_sha":null,"web_url":"https://gitlab.example.invalid/mr/5"}]`,
 			at(50), at(41), at(41), shaMerged, at(25), at(20), shaHead)
+	// The merge requests GitLab links to a commit: !4 landed fast-forward as
+	// shaMerged; !5, still open, has shaHead as its head.
+	case "/api/v4/projects/42/repository/commits/" + shaMerged + "/merge_requests":
+		fmt.Fprintf(w, `[{"iid":4,"project_id":42,"title":"Use the pooled client","state":"merged","source_branch":"pool","target_branch":"main",
+ "created_at":%q,"updated_at":%q,"merged_at":%q,"sha":%q,"merge_commit_sha":null,"squash_commit_sha":null}]`, at(50), at(41), at(41), shaMerged)
+	case "/api/v4/projects/42/repository/commits/" + shaHead + "/merge_requests":
+		fmt.Fprintf(w, `[{"iid":5,"project_id":42,"title":"Broken unit test","state":"opened","source_branch":"broken","target_branch":"main",
+ "created_at":%q,"updated_at":%q,"sha":%q},
+ {"iid":8,"project_id":42,"title":"Into a branch nobody reviews","state":"opened","source_branch":"broken","target_branch":"scratch",
+ "created_at":%q,"updated_at":%q,"sha":%q}]`, at(25), at(20), shaHead, at(25), at(20), shaHead)
 	case "/api/v4/projects/42/pipelines/11":
 		fmt.Fprintf(w, `{"id":11,"project_id":42,"status":"success","ref":"main","sha":%q,"source":"push","created_at":%q,"updated_at":%q,
  "started_at":%q,"finished_at":%q,"duration":152.5,"user":{"username":"dev-a"},"web_url":"https://gitlab.example.invalid/p/11"}`,
@@ -331,6 +341,63 @@ func TestReadServiceChangesFromTheCodeProject(t *testing.T) {
 	// A pipeline of another branch is not this service's change.
 	if _, err := f.service.ReadPipeline(t.Context(), f.viewer, "app", "dev", f.serviceID, 13); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("pipeline outside the scope: %v", err)
+	}
+	// PA-95: the detail names the same merge request as the list row, for a
+	// main pipeline (the merge request that landed as its commit) and a
+	// source branch pipeline (the one merge request from its branch).
+	// The source branch merge request !5 into main counts; !8 into a branch
+	// nobody reviews does not.
+	want := map[int64]int64{11: 4, 14: 5}
+	for _, p := range got.Pipelines {
+		id, ok := want[p.ID]
+		if !ok {
+			continue
+		}
+		listed := PipelineMergeRequest(p, got.Project.Refs, got.MergeRequests)
+		detail, err := f.service.ReadPipeline(t.Context(), f.viewer, "app", "dev", f.serviceID, p.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if listed == nil || detail.MergeRequest == nil || *listed != id || *detail.MergeRequest != id {
+			t.Fatalf("pipeline %d: list=%v detail=%v want=%d", p.ID, listed, detail.MergeRequest, id)
+		}
+		delete(want, p.ID)
+	}
+	if len(want) != 0 {
+		t.Fatalf("pipelines missing from the list: %v", want)
+	}
+	if q := f.gitlab.query("/api/v4/projects/42/repository/commits/" + shaMerged + "/merge_requests"); !strings.Contains(q, "per_page=20") {
+		t.Fatalf("commit merge request query: %q", q)
+	}
+}
+
+// PA-95: the rule list and detail share, on its own.
+func TestPipelineMergeRequestRule(t *testing.T) {
+	merged := func(iid int64, source, sha string, mergeCommit *string) MergeRequest {
+		return MergeRequest{IID: iid, State: "merged", SourceBranch: source, TargetBranch: "main", SHA: sha, MergeCommitSHA: mergeCommit}
+	}
+	mergeCommit := shaMerged
+	refs := []string{"main"}
+	for _, c := range []struct {
+		name string
+		p    Pipeline
+		mrs  []MergeRequest
+		want int64
+	}{
+		{"merge request ref", Pipeline{Ref: "refs/merge-requests/9/head", SHA: shaHead}, nil, 9},
+		{"main by merge commit", Pipeline{Ref: "main", SHA: shaMerged}, []MergeRequest{merged(9, "feature", shaHead, &mergeCommit)}, 9},
+		{"main by fast-forward head", Pipeline{Ref: "main", SHA: shaHead}, []MergeRequest{merged(7, "ff", shaHead, nil)}, 7},
+		{"main, two landed", Pipeline{Ref: "main", SHA: shaHead}, []MergeRequest{merged(7, "a", shaHead, nil), merged(8, "b", shaHead, nil)}, 0},
+		{"main, from its own branch name", Pipeline{Ref: "main", SHA: shaFailed}, []MergeRequest{merged(7, "main", shaHead, nil)}, 0},
+		{"source branch", Pipeline{Ref: "feature", SHA: shaFailed}, []MergeRequest{{IID: 3, State: "opened", SourceBranch: "feature", TargetBranch: "main"}}, 3},
+		{"two from the branch, one landed", Pipeline{Ref: "feature", SHA: shaHead},
+			[]MergeRequest{merged(3, "feature", shaParent, nil), merged(4, "feature", shaHead, nil)}, 4},
+		{"no candidate", Pipeline{Ref: "feature", SHA: shaHead}, nil, 0},
+	} {
+		got := PipelineMergeRequest(c.p, refs, c.mrs)
+		if (c.want == 0) != (got == nil) || (got != nil && *got != c.want) {
+			t.Fatalf("%s: got %v want %d", c.name, got, c.want)
+		}
 	}
 }
 

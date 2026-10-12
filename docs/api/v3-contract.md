@@ -420,7 +420,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | PUT | `/me/ai-preferences` | 同上 | 同上 | implemented |
 | GET | `/workspace` | | `{ name, slug, timezone, locale, week_start, retention_days, data_region, brand }` 和强 ETag；当前有效账号在同一读取事务内复核所选环境的 `workspace.view` 后返回持久化配置。`data_region` 是保存的部署声明，不证明数据实际驻留 | implemented |
 | PUT | `/workspace` | 同上八字段完整对象（`brand` 含 `name,logo,pending`），`If-Match` 必须为 GET 返回的强 ETag；仅平台管理员且具全局 `workspace.manage` | 保存并审计后返回持久化对象及新 ETag；无前置条件 428、旧版 412 | implemented |
-| GET | `/audit` | `filter: all\|user\|agent\|system`, `q` | `AuditView`。`result` 增加 `pending`（生命周期中间步骤，最终结果在后续行）；无法归类的结果该行 `result: null`、`unavailable: {"result": "unavailable"}`，不再让整页 503（PA-42）；`result` 过滤也接受 `pending` | implemented |
+| GET | `/audit` | `filter: all\|user\|agent\|system`, `q` | `AuditView`。`result` 增加 `pending`（生命周期中间步骤，最终结果在后续行）；无法归类的结果该行 `result: null`、`unavailable: {"result": "unavailable"}`，不再让整页 503（PA-42）；`result` 过滤也接受 `pending`；带 `application_id` 的行只按 `changes.environment_id` 所在环境列出，PA-93 之前漏写环境的执行器、画布回复等行不出现（见 [集成基线](v3-integration-baseline.md)） | implemented |
 | GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | implemented |
 | POST | `/audit/export` | 过滤条件 | `{ url }` | implemented |
 

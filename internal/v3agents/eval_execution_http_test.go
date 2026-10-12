@@ -262,4 +262,12 @@ func TestEvalExecutionRegisteredWorkflow(t *testing.T) {
 	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_agent_eval_labels WHERE case_id=$1 AND snapshot_id IS NOT NULL`, caseID).Scan(&labels); err != nil || labels != 1 {
 		t.Fatal("human label snapshot missing")
 	}
+	// PA-93: every agent audit row names an environment (the agent's when the
+	// caller gave none, as eval.call.started does), so GET /audit lists it.
+	var calls, withoutEnv int
+	if err = db.QueryRow(ctx, `SELECT count(*) FILTER (WHERE action='v3.agent.eval.call.started'),
+ count(*) FILTER (WHERE NULLIF(changes->>'environment_id','') IS NULL)
+ FROM management_audit WHERE action LIKE 'v3.agent.%' AND application_id<>''`).Scan(&calls, &withoutEnv); err != nil || calls == 0 || withoutEnv != 0 {
+		t.Fatalf("agent audits: eval calls=%d without environment=%d err=%v", calls, withoutEnv, err)
+	}
 }

@@ -69,8 +69,9 @@ func (s *WriteService) recheckExecution(ctx context.Context, env string, actor c
 		return zero, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
- VALUES($1,'user',$2,'v3.alert_rule.execution.rechecked',$3,'requested',jsonb_build_object('execution_id',$4::text,'state',$5::text))`,
-		actor.ID, app, proposalID, executionID, state); err != nil {
+ VALUES($1,'user',$2,'v3.alert_rule.execution.rechecked',$3,'requested',jsonb_build_object('execution_id',$4::text,'state',$5::text,
+ 'environment_id',$6::text))`,
+		actor.ID, app, proposalID, executionID, state, env); err != nil {
 		return zero, err
 	}
 	if err := tx.Commit(ctx); err != nil {

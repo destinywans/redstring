@@ -298,31 +298,10 @@ func (s *Service) gitLabView(w http.ResponseWriter, r *http.Request, f requestFi
 		}
 	}
 	// The merge request a commit landed from, when exactly one did.
-	landed := func(sha string) *int64 {
-		var found *int64
-		for _, mr := range changes.MergeRequests {
-			if mr.LandedAs(sha) {
-				if found != nil {
-					return nil
-				}
-				iid := mr.IID
-				found = &iid
-			}
-		}
-		return found
-	}
+	landed := func(sha string) *int64 { return v3changes.LandedMergeRequest(sha, changes.MergeRequests) }
 	mrIndex := map[int64]int{}
-	// A branch pipeline of an MR's source branch is that MR's CI, when
-	// exactly one MR of the window comes from the branch.
-	bySource := map[string]*int64{}
-	ambiguousSource := map[string]bool{}
 	for i, mr := range out.MergeRequests {
 		mrIndex[mr.IID] = i
-		if _, seen := bySource[mr.SourceBranch]; seen {
-			ambiguousSource[mr.SourceBranch] = true
-		}
-		iid := mr.IID
-		bySource[mr.SourceBranch] = &iid
 	}
 	pipelineIndex := map[int64]int{}
 	if changes.Pipelines != nil {
@@ -331,13 +310,8 @@ func (s *Service) gitLabView(w http.ResponseWriter, r *http.Request, f requestFi
 			view := gitLabPipelineView{ID: "gitlab:pipeline:" + project + ":" + strconv.FormatInt(p.ID, 10), PipelineID: p.ID,
 				Status: p.Status, Ref: p.Ref, SHA: p.SHA, ShortSHA: shortSHA(p.SHA), Source: p.Source, CreatedAt: rfc(p.CreatedAt),
 				UpdatedAt: rfc(p.UpdatedAt), WebURL: optional(p.WebURL), DeploymentIDs: []int64{}}
-			if iid, ok := p.MergeRequestIID(); ok {
-				view.MergeRequestIID = &iid
-			} else if !containsRef(changes.Project.Refs, p.Ref) && !ambiguousSource[p.Ref] && bySource[p.Ref] != nil {
-				view.MergeRequestIID = bySource[p.Ref]
-			} else {
-				view.MergeRequestIID = landed(p.SHA)
-			}
+			// The pipeline detail uses the same rule (PA-95).
+			view.MergeRequestIID = v3changes.PipelineMergeRequest(p, changes.Project.Refs, changes.MergeRequests)
 			if view.MergeRequestIID != nil {
 				if i, ok := mrIndex[*view.MergeRequestIID]; ok {
 					out.MergeRequests[i].PipelineIDs = append(out.MergeRequests[i].PipelineIDs, p.ID)
@@ -386,15 +360,6 @@ func (s *Service) gitLabView(w http.ResponseWriter, r *http.Request, f requestFi
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, http.StatusOK, out)
-}
-
-func containsRef(refs []string, ref string) bool {
-	for _, item := range refs {
-		if item == ref {
-			return true
-		}
-	}
-	return false
 }
 
 func alertReason(state string) string {
@@ -669,9 +634,7 @@ func (s *Service) gitLabPipeline(w http.ResponseWriter, r *http.Request) {
 	for key, reason := range detail.Unavailable {
 		out.Unavailable[key] = reason
 	}
-	if iid, ok := detail.MergeRequestIID(); ok {
-		out.MergeRequestIID = &iid
-	}
+	out.MergeRequestIID = detail.MergeRequest
 	for _, stage := range detail.Stages {
 		view := gitLabStageView{Name: stage.Name, Status: stage.Status, Jobs: []gitLabJobView{}}
 		for _, job := range stage.Jobs {

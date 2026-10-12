@@ -332,10 +332,8 @@ func (s *Service) readChangesTool(ctx context.Context, opts ChangesToolOptions, 
 			out.Truncated = true
 			continue
 		}
-		item := toolPipeline{PipelineID: p.ID, Ref: p.Ref, UpdatedAt: p.UpdatedAt.UTC().Format(time.RFC3339)}
-		if iid, ok := p.MergeRequestIID(); ok {
-			item.MergeRequestIID = &iid
-		}
+		item := toolPipeline{PipelineID: p.ID, Ref: p.Ref, UpdatedAt: p.UpdatedAt.UTC().Format(time.RFC3339),
+			MergeRequestIID: PipelineMergeRequest(p, changes.Project.Refs, changes.MergeRequests)}
 		out.FailedPipelines = append(out.FailedPipelines, item)
 	}
 	for source, state := range out.Coverage {

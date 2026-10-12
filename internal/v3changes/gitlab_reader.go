@@ -153,6 +153,49 @@ func (m MergeRequest) LandedAs(sha string) bool {
 	return m.SHA == sha
 }
 
+// LandedMergeRequest is the merge request that landed as commit sha, when
+// exactly one of mrs did.
+func LandedMergeRequest(sha string, mrs []MergeRequest) *int64 {
+	var found *int64
+	for _, mr := range mrs {
+		if mr.LandedAs(sha) {
+			if found != nil {
+				return nil
+			}
+			iid := mr.IID
+			found = &iid
+		}
+	}
+	return found
+}
+
+// PipelineMergeRequest is the merge request a pipeline belongs to, by the
+// rules the change list, the pipeline detail and the changes evidence share
+// (PA-95): a merge request pipeline names it in its ref; a pipeline of a
+// branch outside the reviewed refs is the CI of the one merge request from
+// that branch; any other pipeline, such as one on main, belongs to the one
+// merge request that landed as its commit. mrs are merge requests into the
+// reviewed refs; two candidates are none.
+func PipelineMergeRequest(p Pipeline, reviewedRefs []string, mrs []MergeRequest) *int64 {
+	if iid, ok := p.MergeRequestIID(); ok {
+		return &iid
+	}
+	if !containsString(reviewedRefs, p.Ref) {
+		var source *int64
+		count := 0
+		for _, mr := range mrs {
+			if mr.SourceBranch == p.Ref {
+				iid := mr.IID
+				source, count = &iid, count+1
+			}
+		}
+		if count == 1 {
+			return source
+		}
+	}
+	return LandedMergeRequest(p.SHA, mrs)
+}
+
 // ServiceChanges are the GitLab changes of one service environment in a
 // window. A list is nil when its connector tool is off; Unavailable says so.
 type ServiceChanges struct {
@@ -440,6 +483,27 @@ type gitLabMergeRequest struct {
 	WebURL          string     `json:"web_url"`
 }
 
+// toMergeRequest checks a GitLab merge request of the project into ref.
+func toMergeRequest(item gitLabMergeRequest, projectID, ref string, now time.Time) (MergeRequest, bool) {
+	merged := item.MergedBy
+	if merged == nil {
+		merged = item.MergeUser
+	}
+	if item.IID <= 0 || strconv.FormatInt(item.ProjectID, 10) != projectID || item.TargetBranch != ref ||
+		!validMergeRequestState(item.State) || len(item.SourceBranch) > 255 || !validTime(item.CreatedAt, now) ||
+		item.UpdatedAt.Before(item.CreatedAt) || !validTime(item.UpdatedAt, now) ||
+		(item.MergedAt != nil && !validTime(*item.MergedAt, now)) || (item.ClosedAt != nil && !validTime(*item.ClosedAt, now)) ||
+		(item.SHA != "" && !gitSHA.MatchString(item.SHA)) || !validOptionalSHA(item.MergeCommitSHA) ||
+		!validOptionalSHA(item.SquashCommitSHA) || !validUser(item.Author) || !validUser(merged) || !validWebURL(item.WebURL) {
+		return MergeRequest{}, false
+	}
+	return MergeRequest{IID: item.IID, Title: cleanText(item.Title, 200),
+		State: item.State, SourceBranch: item.SourceBranch, TargetBranch: item.TargetBranch, Author: item.Author,
+		MergedBy: merged, CreatedAt: item.CreatedAt.UTC(), UpdatedAt: item.UpdatedAt.UTC(),
+		MergedAt: utcPointer(item.MergedAt), ClosedAt: utcPointer(item.ClosedAt), SHA: item.SHA,
+		MergeCommitSHA: item.MergeCommitSHA, SquashCommitSHA: item.SquashCommitSHA, WebURL: item.WebURL}, true
+}
+
 func validDeploymentStatus(status string) bool {
 	switch status {
 	case "created", "running", "success", "failed", "canceled", "skipped", "blocked":
@@ -523,23 +587,11 @@ func (s *Service) ReadServiceChanges(ctx context.Context, user core.User, app, e
 		out.MergeRequests = []MergeRequest{}
 		for i, ref := range src.scope.Refs {
 			for _, item := range mergeRequests[i] {
-				merged := item.MergedBy
-				if merged == nil {
-					merged = item.MergeUser
-				}
-				if item.IID <= 0 || strconv.FormatInt(item.ProjectID, 10) != src.ProjectID || item.TargetBranch != ref ||
-					!validMergeRequestState(item.State) || len(item.SourceBranch) > 255 || !validTime(item.CreatedAt, now) ||
-					item.UpdatedAt.Before(item.CreatedAt) || !validTime(item.UpdatedAt, now) ||
-					(item.MergedAt != nil && !validTime(*item.MergedAt, now)) || (item.ClosedAt != nil && !validTime(*item.ClosedAt, now)) ||
-					(item.SHA != "" && !gitSHA.MatchString(item.SHA)) || !validOptionalSHA(item.MergeCommitSHA) ||
-					!validOptionalSHA(item.SquashCommitSHA) || !validUser(item.Author) || !validUser(merged) || !validWebURL(item.WebURL) {
+				mr, ok := toMergeRequest(item, src.ProjectID, ref, now)
+				if !ok {
 					return out, ErrUnavailable
 				}
-				out.MergeRequests = append(out.MergeRequests, MergeRequest{IID: item.IID, Title: cleanText(item.Title, 200),
-					State: item.State, SourceBranch: item.SourceBranch, TargetBranch: item.TargetBranch, Author: item.Author,
-					MergedBy: merged, CreatedAt: item.CreatedAt.UTC(), UpdatedAt: item.UpdatedAt.UTC(),
-					MergedAt: utcPointer(item.MergedAt), ClosedAt: utcPointer(item.ClosedAt), SHA: item.SHA,
-					MergeCommitSHA: item.MergeCommitSHA, SquashCommitSHA: item.SquashCommitSHA, WebURL: item.WebURL})
+				out.MergeRequests = append(out.MergeRequests, mr)
 			}
 		}
 		if len(out.MergeRequests) > MaxChangeItems {
@@ -691,6 +743,9 @@ type Commit struct {
 // PipelineDetail is one pipeline with its stages and commit.
 type PipelineDetail struct {
 	Pipeline
+	// MergeRequest is the pipeline's merge request by PipelineMergeRequest,
+	// the change list's rule (PA-95), or nil.
+	MergeRequest    *int64
 	ProjectID       string
 	User            *User
 	StartedAt       *time.Time
@@ -763,14 +818,24 @@ func (s *Service) ReadPipeline(ctx context.Context, user core.User, app, env, se
 	}
 	out.Pipeline = Pipeline{ID: item.ID, Status: item.Status, Ref: item.Ref, SHA: item.SHA, Source: item.Source,
 		CreatedAt: item.CreatedAt.UTC(), UpdatedAt: item.UpdatedAt.UTC(), WebURL: item.WebURL}
+	candidates, err := s.pipelineMergeRequests(ctx, src, out.Pipeline, now)
+	if err != nil {
+		return out, err
+	}
 	if _, mr := out.Pipeline.MergeRequestIID(); !mr && !containsString(src.scope.Refs, out.Pipeline.Ref) {
-		inScope, err := s.mergeRequestSource(ctx, src, out.Pipeline.Ref)
-		if err != nil {
-			return out, err
+		// A branch pipeline is in scope as the CI of a merge request from
+		// the branch into a reviewed branch.
+		inScope := false
+		for _, candidate := range candidates {
+			inScope = inScope || candidate.SourceBranch == out.Pipeline.Ref
 		}
 		if !inScope {
 			return PipelineDetail{}, ErrNotFound
 		}
+	}
+	out.MergeRequest = PipelineMergeRequest(out.Pipeline, src.scope.Refs, candidates)
+	if out.MergeRequest == nil && !src.toolEnabled(ToolMergeRequests) {
+		out.Unavailable["merge_request"] = "not_configured"
 	}
 	out.ProjectID = src.ProjectID
 	out.User, out.StartedAt, out.FinishedAt, out.DurationSeconds = item.User, utcPointer(item.StartedAt), utcPointer(item.FinishedAt), item.Duration
@@ -855,27 +920,72 @@ func (s *Service) ReadPipeline(ctx context.Context, user core.User, app, env, se
 	return out, nil
 }
 
-// mergeRequestSource reports whether branch is the source branch of a merge
-// request into a reviewed branch: its branch pipelines are that merge
-// request's CI.
-func (s *Service) mergeRequestSource(ctx context.Context, src source, branch string) (bool, error) {
-	if !src.toolEnabled(ToolMergeRequests) || branch == "" || len(branch) > 255 {
-		return false, nil
+// pipelineMergeRequests reads the merge requests into a reviewed branch that
+// PipelineMergeRequest weighs for one pipeline, as the change list would
+// see them: those from the pipeline's branch, when it is not reviewed, and
+// those GitLab links to the pipeline's commit. None without the merge
+// request tool.
+func (s *Service) pipelineMergeRequests(ctx context.Context, src source, p Pipeline, now time.Time) ([]MergeRequest, error) {
+	if !src.toolEnabled(ToolMergeRequests) {
+		return nil, nil
 	}
-	for _, ref := range src.scope.Refs {
-		var items []gitLabMergeRequest
-		query := url.Values{"source_branch": {branch}, "target_branch": {ref}, "state": {"all"}, "per_page": {"1"}, "page": {"1"}}
-		if _, err := s.get(ctx, src.target, "/merge_requests", query, &items); err != nil {
-			return false, err
-		}
+	out := []MergeRequest{}
+	seen := map[int64]bool{}
+	// ref is the branch a query asked for; a commit's merge requests into
+	// branches that are not reviewed are left out.
+	add := func(items []gitLabMergeRequest, ref string) error {
 		for _, item := range items {
-			if strconv.FormatInt(item.ProjectID, 10) == src.ProjectID && item.SourceBranch == branch && item.TargetBranch == ref {
-				return true, nil
+			target := ref
+			if ref == "" {
+				if !containsString(src.scope.Refs, item.TargetBranch) {
+					continue
+				}
+				target = item.TargetBranch
+			}
+			mr, ok := toMergeRequest(item, src.ProjectID, target, now)
+			if !ok {
+				return ErrUnavailable
+			}
+			if !seen[mr.IID] {
+				seen[mr.IID] = true
+				out = append(out, mr)
+			}
+		}
+		return nil
+	}
+	if _, mr := p.MergeRequestIID(); !mr && !containsString(src.scope.Refs, p.Ref) && p.Ref != "" && len(p.Ref) <= 255 {
+		for _, ref := range src.scope.Refs {
+			// Two are enough to tell one merge request from several.
+			var items []gitLabMergeRequest
+			query := url.Values{"source_branch": {p.Ref}, "target_branch": {ref}, "state": {"all"}, "per_page": {"2"}, "page": {"1"}}
+			if _, err := s.get(ctx, src.target, "/merge_requests", query, &items); err != nil {
+				return nil, err
+			}
+			if err := add(items, ref); err != nil {
+				return nil, err
 			}
 		}
 	}
-	return false, nil
+	if _, mr := p.MergeRequestIID(); mr {
+		return out, nil
+	}
+	var items []gitLabMergeRequest
+	query := url.Values{"per_page": {strconv.Itoa(maxCommitMergeRequests)}, "page": {"1"}}
+	if _, err := s.get(ctx, src.target, "/repository/commits/"+p.SHA+"/merge_requests", query, &items); err != nil {
+		return nil, err
+	}
+	if len(items) >= maxCommitMergeRequests {
+		return out, nil // Not attributed: the commit is in too many.
+	}
+	if err := add(items, ""); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
+
+// maxCommitMergeRequests bounds the merge requests GitLab links to one
+// commit; a commit in that many is not attributed to any.
+const maxCommitMergeRequests = 20
 
 // stageStatus summarizes the jobs of a stage: a failure or a running job
 // decides it before a manual one waits, and success needs every job done.

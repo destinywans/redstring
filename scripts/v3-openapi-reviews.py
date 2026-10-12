@@ -17,7 +17,16 @@ S['V3Proposal'] = obj({**fieldnames('id title impact proposed_by investigation_i
     'execution':v3_nullable(obj({'execution_id':string(),'approved_at':string(format='date-time'),
         'action_kind':string(),'status':{'type':['string','null']},'upstream_id':{'type':['string','null']},
         'unavailable':ref('V3Unavailable')},
-        ['execution_id','approved_at','action_kind','status','upstream_id','unavailable']))},
+        ['execution_id','approved_at','action_kind','status','upstream_id','unavailable'])),
+    # PA-102: from the approval records; null while pending, also with one of two votes.
+    'decision':v3_nullable(obj({'state':string(enum=['approved','rejected','expired'],
+            description='expired: approved, but the approval lapsed before any executor took it up'),
+        'decided_at':string(format='date-time'),
+        'approvers':arr(obj({'id':string(),'name':string(description='Display name, or the account ID without one'),
+            'method':string(enum=['passkey']),'at':string(format='date-time')},['id','name','method','at'])),
+        'rejected_by':v3_nullable(obj({'id':string(),'name':string(),'at':string(format='date-time')},['id','name','at'])),
+        'revoked':v3_nullable(obj({'id':string(),'name':string(),'at':string(format='date-time')},['id','name','at']))},
+        ['state','decided_at','approvers','rejected_by','revoked']))},
     ['id','title','status','risk','impact','reversible','proposed_by','proposed_by_name','proposed_at',
      'investigation_id','target','diff','method','evidence','verification',
      'verification_note','checklist','requirement','discussion','execution'])

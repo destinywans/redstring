@@ -290,8 +290,9 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	if err := json.Unmarshal(view.Body.Bytes(), &proposal); err != nil || len(proposal.Discussion) != 1 || proposal.Discussion[0].Text != "Review evidence" {
 		t.Fatalf("comment not persisted in detail: %s (%v)", view.Body.String(), err)
 	}
-	if proposal.Execution != nil || !strings.Contains(view.Body.String(), `"execution":null`) {
-		t.Fatalf("pending proposal reported an execution: %s", view.Body.String())
+	if proposal.Execution != nil || !strings.Contains(view.Body.String(), `"execution":null`) ||
+		proposal.Decision != nil || !strings.Contains(view.Body.String(), `"decision":null`) {
+		t.Fatalf("pending proposal reported an execution or a decision: %s", view.Body.String())
 	}
 	// PA-36: once approved, the detail shows the decision's execution and the
 	// executor's state. The vote chain is out of scope here, so the two rows
@@ -307,7 +308,16 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 			`SET LOCAL session_replication_role=replica`,
 			`INSERT INTO v3_proposal_approval_decisions(proposal_id,execution_id,action_kind,action_digest,review_content_digest,
  approval_digest,creator_id,environment_id,application_id,risk,required_count,first_vote_id,second_vote_id,approved_at,expires_at)
- VALUES($1,$2,'alertmanager.silence.create',$3,$3,$3,$4,'dev','app-1','low',2,'v1','v2',now(),now()+interval '1 hour')`,
+ VALUES($1,$2,'alertmanager.silence.create',$3,$3,$3,$4,'dev','app-1','low',2,
+ 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',now(),now()+interval '1 hour')`,
+			// PA-102: the two passkey votes the decision counts.
+			`INSERT INTO v3_proposal_approval_votes(id,proposal_id,approver_id,challenge_id,action_kind,action_digest,
+ review_content_digest,instance_id,rp_id,credential_id,credential_fingerprint,request_hash,verified_at,expires_at)
+ SELECT v.id,$1,v.approver,'challenge-'||v.id,'alertmanager.silence.create',$3,$3,'test','localhost','\x01',
+ '0123456789abcdef',$3,now()-v.ago,now()-v.ago+interval '15 minutes'
+ FROM (VALUES ('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',$4::text,interval '2 minutes'),
+  ('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',(SELECT id FROM users WHERE email='admin@example.invalid'),interval '1 minute')) v(id,approver,ago)
+ WHERE $2::text<>''`,
 		} {
 			if _, err := fixture.Exec(ctx, statement, map[bool][]any{true: {mainID, executionID, digest, reviewer.ID}, false: nil}[strings.Contains(statement, "$1")]...); err != nil {
 				t.Fatal(err)
@@ -340,6 +350,47 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 			t.Fatalf("confirmed execution: %+v", got)
 		}
 	})
+	// PA-102: the decision from the approval records. Approved with both
+	// passkey votes; taken up by the executor, so its lapse is no expiry;
+	// a revocation is reported with it.
+	t.Run("decision", func(t *testing.T) {
+		decision := func() *ProposalDecision {
+			t.Helper()
+			w := request(api, "GET", mainID, "", "dev", reviewerToken, "", "")
+			assert(w, 200, "")
+			var got Proposal
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatal(err)
+			}
+			return got.Decision
+		}
+		d := decision()
+		if d == nil || d.State != "approved" || d.DecidedAt == "" || len(d.Approvers) != 2 || d.RejectedBy != nil || d.Revoked != nil ||
+			d.Approvers[0].Name != "Reviewer" || d.Approvers[0].ID != reviewer.ID || d.Approvers[0].Method != "passkey" ||
+			d.Approvers[1].Name == "" || d.Approvers[0].At >= d.Approvers[1].At {
+			t.Fatalf("approved decision: %+v", d)
+		}
+		if _, err := db.Exec(ctx, `SET session_replication_role=replica; UPDATE v3_proposal_approval_decisions
+ SET approved_at=now()-interval '2 hours',expires_at=now()-interval '1 hour' WHERE proposal_id='`+mainID+`'; SET session_replication_role=origin`); err != nil {
+			t.Fatal(err)
+		}
+		if d = decision(); d == nil || d.State != "approved" {
+			t.Fatalf("executed approval reported as expired: %+v", d)
+		}
+		if _, err := db.Exec(ctx, `SET session_replication_role=replica; DELETE FROM v3_silence_execution_claims WHERE proposal_id='`+mainID+`'; SET session_replication_role=origin`); err != nil {
+			t.Fatal(err)
+		}
+		if d = decision(); d == nil || d.State != "expired" || d.DecidedAt >= time.Now().UTC().Format(time.RFC3339) || len(d.Approvers) != 2 {
+			t.Fatalf("lapsed approval: %+v", d)
+		}
+		if _, err := db.Exec(ctx, `INSERT INTO v3_proposal_approval_revocations(proposal_id,revoked_by,reason)
+ VALUES($1,$2,'Approver left the team')`, mainID, reviewer.ID); err != nil {
+			t.Fatal(err)
+		}
+		if d = decision(); d == nil || d.State != "approved" || d.Revoked == nil || d.Revoked.Name != "Reviewer" || d.Revoked.At == "" {
+			t.Fatalf("revoked approval: %+v", d)
+		}
+	})
 	t.Run("machine-reject-skips-discussion-read", func(t *testing.T) {
 		blocker, err := db.Begin(ctx)
 		if err != nil {
@@ -366,6 +417,11 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	assert(rejected, 200, "")
 	if err := json.Unmarshal(rejected.Body.Bytes(), &proposal); err != nil || proposal.Status != "rejected" || len(proposal.Discussion) != 1 {
 		t.Fatalf("incorrect rejection DTO: %s (%v)", rejected.Body.String(), err)
+	}
+	// PA-102: a rejection is the decision, whatever was approved before.
+	if d := proposal.Decision; d == nil || d.State != "rejected" || d.RejectedBy == nil || d.RejectedBy.ID != reviewer.ID ||
+		d.RejectedBy.Name != "Reviewer" || d.RejectedBy.At != d.DecidedAt || len(d.Approvers) != 0 {
+		t.Fatalf("rejection decision: %+v", proposal.Decision)
 	}
 	assert(request(api, "POST", mainID, "/reject", "dev", reviewerToken, `{"comment":"Unsafe"}`, ""), 200, "")
 	assert(request(api, "POST", mainID, "/reject", "dev", adminToken, `{"comment":"Unsafe"}`, ""), 409, "proposal_closed")

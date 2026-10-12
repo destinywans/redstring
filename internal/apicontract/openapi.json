@@ -80717,6 +80717,127 @@
               }
             ]
           },
+          "decision": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "state": {
+                    "type": "string",
+                    "enum": [
+                      "approved",
+                      "rejected",
+                      "expired"
+                    ],
+                    "description": "expired: approved, but the approval lapsed before any executor took it up"
+                  },
+                  "decided_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "approvers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string",
+                          "description": "Display name, or the account ID without one"
+                        },
+                        "method": {
+                          "type": "string",
+                          "enum": [
+                            "passkey"
+                          ]
+                        },
+                        "at": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "id",
+                        "name",
+                        "method",
+                        "at"
+                      ]
+                    }
+                  },
+                  "rejected_by": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "name",
+                          "at"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "revoked": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "at": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "name",
+                          "at"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "state",
+                  "decided_at",
+                  "approvers",
+                  "rejected_by",
+                  "revoked"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "action_kind": {
             "type": [
               "string",

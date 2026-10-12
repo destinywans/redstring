@@ -438,6 +438,16 @@ export type SilenceList = { items: Silence[] | null; counts: { active: number; p
 export type Inhibition = { id: string; source: { k: string; v: string }[]; target: { k: string; v: string }[]; equal: string[]; active: boolean; stat: string };
 
 /* ---------------- proposals & executions ---------------- */
+/** How a proposal was decided (PA-102). expired: approved, but the approval lapsed before any executor took it up. */
+export type ProposalDecision = {
+  state: "approved" | "rejected" | "expired";
+  decided_at: string;
+  /** The two counted votes, in vote order; empty for a rejection. */
+  approvers: { id: string; name: string; method: "passkey"; at: string }[];
+  rejected_by: { id: string; name: string; at: string } | null;
+  /** An approval withdrawn after it was given (its execution is refused). */
+  revoked: { id: string; name: string; at: string } | null;
+};
 export type Proposal = {
   id: string;
   title: string;
@@ -461,6 +471,8 @@ export type Proposal = {
   discussion: { author: string; ai?: boolean; time: string; text: string }[];
   /** Null until the second approval; status/upstream_id stay null (not_generated) until the executor records them. */
   execution?: { execution_id: string; approved_at: string; action_kind: string; status: string | null; upstream_id: string | null; unavailable: Unavailable } | null;
+  /** PA-102: from the approval records; null while pending (also with one of two votes). */
+  decision?: ProposalDecision | null;
   /** e.g. kubernetes.deployment.rollback; null for display-only proposals (docs/api/v3-rollback.md §3). */
   action_kind?: string | null;
   rollback?: ProposalRollback | null;

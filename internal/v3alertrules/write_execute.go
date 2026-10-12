@@ -490,9 +490,9 @@ func (s *WriteService) claimEnableExecution(ctx context.Context, proposalID stri
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
  VALUES($1,$2,'v3.alert_rule.enable.prepare',$3,'pending',jsonb_build_object(
  'execution_id',$4::text,'generation',$5::bigint,'approval_id',$6::text,
- 'first_approver_id',$7::text))`,
+ 'first_approver_id',$7::text,'environment_id',$8::text))`,
 		approval.ApproverID, intent.ApplicationID, proposalID, record.ID,
-		record.Generation, approval.ID, approval.ApproverIDs[0])
+		record.Generation, approval.ID, approval.ApproverIDs[0], intent.EnvironmentID)
 	if err != nil {
 		return record, false, err
 	}
@@ -603,7 +603,7 @@ func (s *WriteService) markEnableExecution(ctx context.Context, record enableExe
 	}
 	_, err = tx.Exec(cleanup, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
  SELECT approver_id,p.application_id,'v3.alert_rule.enable.execution_state',proposal_id,$2,
- jsonb_build_object('reason',$3::text,'generation',$4::bigint,'execution_id',execution_id)
+ jsonb_build_object('reason',$3::text,'generation',$4::bigint,'execution_id',execution_id,'environment_id',p.environment_id)
  FROM v3_alert_rule_enable_executions x JOIN v3_proposals p ON p.id=x.proposal_id
  WHERE x.proposal_id=$1`, record.ProposalID, state, reason, record.Generation)
 	if err != nil {
@@ -742,7 +742,8 @@ func (s *WriteService) ObserveEnabled(ctx context.Context, proposalID string) (A
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
  SELECT approver_id,p.application_id,'v3.alert_rule.enable.observed',proposal_id,$2,
- jsonb_build_object('observed_rule_id',$3::text,'merge_revision',$4::text,'content_digest',$5::text)
+ jsonb_build_object('observed_rule_id',$3::text,'merge_revision',$4::text,'content_digest',$5::text,
+ 'environment_id',p.environment_id)
  FROM v3_alert_rule_enable_executions x JOIN v3_proposals p ON p.id=x.proposal_id
  WHERE x.proposal_id=$1`, proposalID, state, observedID, observation.MergeRevision, observation.ContentDigest)
 	if err != nil {
@@ -916,7 +917,8 @@ func (s *WriteService) readBackMerged(ctx context.Context, intent AlertRuleEnabl
 	if state != record.State {
 		_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
  SELECT approver_id,p.application_id,'v3.alert_rule.enable.observed',proposal_id,$2,
- jsonb_build_object('observed_rule_id',$3::text,'merge_revision',$4::text,'content_digest',$5::text,'readback',$6::text)
+ jsonb_build_object('observed_rule_id',$3::text,'merge_revision',$4::text,'content_digest',$5::text,'readback',$6::text,
+ 'environment_id',p.environment_id)
  FROM v3_alert_rule_enable_executions x JOIN v3_proposals p ON p.id=x.proposal_id
  WHERE x.proposal_id=$1`, record.ProposalID, state, observedID, observation.MergeRevision, observation.ContentDigest, readback.State)
 		if err != nil {

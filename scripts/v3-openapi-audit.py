@@ -17,7 +17,7 @@ S['V3AuditDetail'] = obj({**fieldnames('id title time actor_kind actor_name payl
 v3_route('get','/audit','Read environment-scoped audit events',
     response=ref('V3AuditView'),
     query=[v3_query(x) for x in ['filter','q','cursor']],
-    desc='Unknown or ambiguous historical environment rows are omitted; counts reflect visible records only.')
+    desc='Unknown or ambiguous historical environment rows are omitted; counts reflect visible records only. An application row is listed only in the environment named by its changes.environment_id; executor, canvas reply and other rows written before PA-93 without one stay in the hash chain unchanged and are not listed.')
 v3_route('get','/audit/{id}','Verify audit record chain and read redacted detail',
     response=ref('V3AuditDetail'),
     desc='chain_ok validates the sealed prefix from migration time, not independent proof of pre-migration history.')

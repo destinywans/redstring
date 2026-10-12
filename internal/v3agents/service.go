@@ -230,13 +230,18 @@ var auditCode = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 func safeCode(v string, n int) bool      { return bounded(v, n) && metadataCode.MatchString(v) }
 func safeAuditCode(v string, n int) bool { return bounded(v, n) && auditCode.MatchString(v) }
 
+// audit records an agent action. GET /audit lists an application's rows by
+// environment only, so an object without environment_id gets the agent's
+// (PA-93).
 func audit(ctx context.Context, tx pgx.Tx, a agent, actor, action, target string, changes any) error {
 	kind := "user"
 	if actor == "system" {
 		kind = "system"
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO management_audit(actor_id,actor_kind,application_id,action,target,outcome,changes)
- VALUES($1,$2,$3,$4,$5,'recorded',$6)`, actor, kind, a.App, action, target, changes)
+ VALUES($1,$2,$3,$4,$5,'recorded',CASE
+   WHEN $7::text='' OR jsonb_typeof($6::jsonb)<>'object' OR $6::jsonb ? 'environment_id' THEN $6::jsonb
+   ELSE $6::jsonb || jsonb_build_object('environment_id',$7::text) END)`, actor, kind, a.App, action, target, changes, a.Env)
 	return err
 }
 

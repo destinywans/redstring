@@ -68,7 +68,8 @@ func releaseTerminalBulkReservation(ctx context.Context, tx pgx.Tx, actor core.U
  (actor_id,actor_kind,application_id,action,target,outcome,changes)
  VALUES($1,'user',$2,'alert.group.silence_reservation_released',$3,'succeeded',
  jsonb_build_object('reason',$4::text,'environment_row_id',$5::text,
-                    'source_id',$6::text,'fingerprint',$7::text))`,
+                    'source_id',$6::text,'fingerprint',$7::text,
+                    'environment_id',(SELECT environment_id FROM v3_proposals WHERE id=$3)))`,
 		actor.ID, key.ApplicationID, releasedID, reason, key.EnvironmentID, key.SourceID, key.Fingerprint)
 	return err
 }

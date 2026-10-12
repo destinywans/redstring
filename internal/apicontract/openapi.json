@@ -7640,7 +7640,7 @@
       "get": {
         "summary": "Read environment-scoped audit events",
         "operationId": "get_audit",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Unknown or ambiguous historical environment rows are omitted; counts reflect visible records only. Repeated action is exact persisted action code; result uses ok/pending/blocked/failed with the same canonical outcome mapping as the response; a row whose outcome cannot be classified has result null and unavailable.result. Time/action/result filters apply before cursor selection, counts and volume. range volume uses seven equal-duration buckets; default volume retains seven UTC calendar days.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Unknown or ambiguous historical environment rows are omitted; counts reflect visible records only. An application row is listed only in the environment named by its changes.environment_id; executor, canvas reply and other rows written before PA-93 without one stay in the hash chain unchanged and are not listed. Repeated action is exact persisted action code; result uses ok/pending/blocked/failed with the same canonical outcome mapping as the response; a row whose outcome cannot be classified has result null and unavailable.result. Time/action/result filters apply before cursor selection, counts and volume. range volume uses seven equal-duration buckets; default volume retains seven UTC calendar days.",
         "responses": {
           "200": {
             "description": "Success",

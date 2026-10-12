@@ -219,7 +219,7 @@ func (s *Service) startInvestigationReply(r *http.Request, user core.User, env s
 		return "", nil, graphUnavailable()
 	}
 	for _, old := range stale {
-		if err = auditInvestigationReply(ctx, tx, old.actor, target.application, old.id, nodeID, investigationID, "reply_failed", "failed", "lease_expired"); err != nil {
+		if err = auditInvestigationReply(ctx, tx, old.actor, target.application, target.environment, old.id, nodeID, investigationID, "reply_failed", "failed", "lease_expired"); err != nil {
 			return "", nil, graphUnavailable()
 		}
 	}
@@ -250,7 +250,7 @@ func (s *Service) startInvestigationReply(r *http.Request, user core.User, env s
 		}
 		return "", nil, graphUnavailable()
 	}
-	if err = auditInvestigationReply(ctx, tx, user.ID, target.application, id, nodeID, investigationID, "reply_started", "started", ""); err != nil {
+	if err = auditInvestigationReply(ctx, tx, user.ID, target.application, target.environment, id, nodeID, investigationID, "reply_started", "started", ""); err != nil {
 		return "", nil, graphUnavailable()
 	}
 	if failure = s.canvasSession(ctx, tx, r); failure != nil {
@@ -262,10 +262,13 @@ func (s *Service) startInvestigationReply(r *http.Request, user core.User, env s
 	return id, prompt, nil
 }
 
-func auditInvestigationReply(ctx context.Context, tx pgx.Tx, actor, app, id, node, investigation, action, outcome, failureCode string) error {
+// auditInvestigationReply records a reply's start or end. The environment
+// makes the row visible in GET /audit, which lists an application's rows by
+// environment only (PA-93).
+func auditInvestigationReply(ctx context.Context, tx pgx.Tx, actor, app, env, id, node, investigation, action, outcome, failureCode string) error {
 	_, err := tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
  VALUES($1,$2,$3,$4,$5,$6::jsonb)`, actor, app, "v3.investigation_canvas."+action, node, outcome,
-		mustJSON(map[string]any{"investigation_id": investigation, "branch_id": node, "reply_id": id, "failure_code": failureCode}))
+		mustJSON(map[string]any{"investigation_id": investigation, "environment_id": env, "branch_id": node, "reply_id": id, "failure_code": failureCode}))
 	return err
 }
 
@@ -461,7 +464,7 @@ func (s *Service) completeInvestigationReply(r *http.Request, user core.User, en
 	if err != nil {
 		return graphUnavailable()
 	}
-	if err = auditInvestigationReply(ctx, tx, user.ID, target.application, id, nodeID, investigationID, "reply_completed", "success", ""); err != nil {
+	if err = auditInvestigationReply(ctx, tx, user.ID, target.application, target.environment, id, nodeID, investigationID, "reply_completed", "success", ""); err != nil {
 		return graphUnavailable()
 	}
 	if failure = s.canvasSession(ctx, tx, r); failure != nil {
@@ -481,17 +484,20 @@ func (s *Service) failInvestigationReply(id, reason string) {
 		return
 	}
 	defer tx.Rollback(ctx)
-	var investigationID, nodeID, userID, appID string
+	var investigationID, nodeID, userID, appID, envID string
 	err = tx.QueryRow(ctx, `UPDATE v3_investigation_node_replies SET state='failed',failure_code=$2
  WHERE id=$1 AND state='running' RETURNING investigation_id,branch_id,user_id`, id, reason).
 		Scan(&investigationID, &nodeID, &userID)
 	if err != nil {
 		return
 	}
-	if err = tx.QueryRow(ctx, `SELECT application_id FROM investigations WHERE id=$1`, investigationID).Scan(&appID); err != nil {
+	// The audit row names the environment key, as the canvas target does.
+	if err = tx.QueryRow(ctx, `SELECT i.application_id,COALESCE(ae.key,'') FROM investigations i
+ LEFT JOIN application_environments ae ON ae.id=i.environment_id AND ae.application_id=i.application_id
+ WHERE i.id=$1`, investigationID).Scan(&appID, &envID); err != nil {
 		return
 	}
-	if err = auditInvestigationReply(ctx, tx, userID, appID, id, nodeID, investigationID, "reply_failed", "failed", reason); err != nil {
+	if err = auditInvestigationReply(ctx, tx, userID, appID, envID, id, nodeID, investigationID, "reply_failed", "failed", reason); err != nil {
 		return
 	}
 	_ = tx.Commit(ctx)

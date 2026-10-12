@@ -266,7 +266,7 @@ func (s *Service) reserveGenerate(w http.ResponseWriter, r *http.Request, env, a
  error_code='stale_ambiguous',finished_at=clock_timestamp() WHERE id=$1 AND status='running'`, oldID)
 			if err == nil {
 				err = audit(r.Context(), tx, app, meta.actor, "v3.alert_rule.generate.ambiguous", oldID,
-					map[string]any{"error_code": "stale_ambiguous"})
+					map[string]any{"environment_id": env, "error_code": "stale_ambiguous"})
 			}
 			if err != nil {
 				httpapi.Error(w, http.StatusServiceUnavailable, "rule_assistant_unavailable", "Draft state is unavailable")
@@ -406,7 +406,7 @@ func (s *Service) finishGenerate(w http.ResponseWriter, r *http.Request, m gener
 		return errors.New("draft state changed")
 	}
 	if err = audit(ctx, tx, m.app, m.actor, "v3.alert_rule.generate.finished", m.id,
-		map[string]any{"status": status, "error_code": code, "provider_request_id": id,
+		map[string]any{"environment_id": m.env, "status": status, "error_code": code, "provider_request_id": id,
 			"usage_reported": in != nil && out != nil, "duration_ms": duration}); err != nil {
 		return err
 	}
@@ -449,7 +449,7 @@ func (s *Service) markGenerateAmbiguous(m generateMeta, result GenerateModelResu
 	}
 	if cmd.RowsAffected() == 1 {
 		if err = audit(ctx, tx, m.app, m.actor, "v3.alert_rule.generate.ambiguous", m.id,
-			map[string]any{"error_code": code, "provider_request_id": id,
+			map[string]any{"environment_id": m.env, "error_code": code, "provider_request_id": id,
 				"usage_reported": in != nil && out != nil}); err != nil {
 			return err
 		}

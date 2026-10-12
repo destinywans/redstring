@@ -52,6 +52,7 @@ const PROPOSALS: Record<string, ProposalSpec> = {
   "PRP-104": { op: "disable", rule: "CheckoutLegacyErrors", status: "executed", execution: "EXE-97" },
   "PRP-103": { op: "disable", rule: "CheckoutRestarts", status: "approved", execution: "EXE-98" },
   "PRP-117": { op: "enable", rule: "CheckoutHigh5xx", status: "executed", execution: "EXE-99" },
+  "PRP-118": { op: "enable", rule: "InventoryLag", status: "approved", execution: "EXE-89" },
 };
 export const isAlertRuleProposal = (id: string) => id in PROPOSALS;
 
@@ -96,12 +97,14 @@ export function alertRuleProposal(id: string) {
   };
 }
 
-type Exec = { proposal: string; op: "enable" | "disable"; state: string; steps: ([string, string] | [string, string, string])[]; mr?: boolean; merged?: boolean; readback: Record<string, unknown>; failure?: { code: string; message: string } | null; observed?: string; updated?: string };
+type Exec = { proposal: string; op: "enable" | "disable"; state: string; steps: ([string, string] | [string, string, string])[]; mr?: boolean; merged?: boolean; readback: Record<string, unknown>; failure?: { code: string; message: string } | null; observed?: string; updated?: string; noCommit?: boolean };
 const pendingReadback = { state: "pending", checked_at: null, first_seen_at: null, health: null, last_evaluation_at: null, last_error: null, reload: null };
 const EXECS: Record<string, Exec> = {
   // Like the lab's run: the first commit's outcome was unknown, reconciled read-only, then committed again.
   "EXE-91": { proposal: "PRP-109", op: "enable", state: "enabled", steps: [["reserved", "14:30:02"], ["committing", "14:30:02"], ["uncertain", "14:30:04", "prepare_unknown"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["merged", "14:30:14"], ["loading", "14:30:15"], ["enabled", "14:30:59"]], mr: true, merged: true, readback: { state: "loaded", checked_at: at("14:30:59"), first_seen_at: at("14:30:44"), health: "ok", last_evaluation_at: at("14:30:58"), last_error: null, reload: { last_successful: true, last_success_at: at("14:30:43") } } },
   "EXE-90": { proposal: "PRP-110", op: "enable", state: "needs_attention", steps: [["reserved", "14:30:02"], ["needs_attention", "14:30:05", "stale_base"]], readback: pendingReadback, failure: { code: "stale_base", message: "main moved from 1a2b3c4 to e91f0a2 before commit" } },
+  // Like nonprod 1e20c087…: stopped at plan_changed before writing anything (no commit).
+  "EXE-89": { proposal: "PRP-118", op: "enable", state: "needs_attention", noCommit: true, steps: [["reserved", "14:30:02"], ["committing", "14:30:02"], ["needs_attention", "14:30:03", "plan_changed"]], readback: pendingReadback, failure: { code: "plan_changed", message: "The target file or branch changed before the change was written." } },
   "EXE-92": { proposal: "PRP-111", op: "enable", state: "merging", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"]], mr: true, readback: pendingReadback },
   "EXE-93": { proposal: "PRP-108", op: "enable", state: "uncertain", steps: [["reserved", "14:30:02"], ["committing", "14:30:06"], ["merging", "14:30:09"], ["uncertain", "14:30:21", "merge_unknown"]], mr: true, readback: pendingReadback },
   // PA-90: the timeout is its own step, and readback.reload says how Prometheus's last reload went.
@@ -146,7 +149,7 @@ export function alertRuleExecution(id: string) {
         source_branch: `redstring/alert-rule/${id}`,
         target_branch: REPO.target_branch,
         path: REPO.path,
-        commit_sha: reached("committing") ? SHA("7c2d9e1") : null,
+        commit_sha: reached("committing") && !x.noCommit ? SHA("7c2d9e1") : null,
         mr_iid: x.mr ? iid : null,
         mr_url: x.mr ? `${REPO.web_url}/-/merge_requests/${iid}` : null,
         merged_sha: x.merged ? SHA("7c2d9e1") : null,

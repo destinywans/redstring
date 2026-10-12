@@ -74,7 +74,9 @@ func TestRealRuntimeToolStreamCompletesAndEntersNextTurnContext(t *testing.T) {
 		FROM v3_conversation_events WHERE reply_id='r' AND payload->>'type'='text.delta'`).Scan(&streamed); err != nil {
 		t.Fatal(err)
 	}
-	want := "I will check health.\nThe service is healthy."
+	// PA-92: the one-line process sentence before the tool call is held back
+	// and dropped; the answer after the tool is streamed and saved whole.
+	want := "The service is healthy."
 	if replyState != "completed" || messageState != "completed" || saved != want || streamed != want || calls.Load() != 2 {
 		t.Fatalf("reply=%s message=%s saved=%q streamed=%q calls=%d", replyState, messageState, saved, streamed, calls.Load())
 	}

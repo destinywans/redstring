@@ -34,6 +34,9 @@ type v3ConfigSyncGitLab struct {
 	BranchPrefix      string `json:"branch_prefix"`
 	TokenFile         string `json:"token_file"`
 	AllowLoopbackHTTP bool   `json:"allow_loopback_http"`
+	// CAFile is an optional PEM bundle for a GitLab behind an internal CA;
+	// only this client trusts it.
+	CAFile string `json:"ca_file"`
 }
 
 // loadV3ConfigSync binds the server to one dedicated configuration repository.
@@ -83,6 +86,7 @@ func loadV3ConfigSync(path string, tier string, db *pgxpool.Pool, access v3confi
 		BaseURL: config.GitLab.BaseURL, ProjectID: config.GitLab.ProjectID,
 		TargetBranch: config.GitLab.TargetBranch, BranchPrefix: config.GitLab.BranchPrefix,
 		TokenFile: config.GitLab.TokenFile, AllowLoopbackHTTP: config.GitLab.AllowLoopbackHTTP,
+		CAFile: config.GitLab.CAFile,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("invalid configuration sync GitLab binding: %w", err)

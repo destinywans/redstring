@@ -123,7 +123,8 @@ func (l *languageRuntime) Run(_ context.Context, req inference.Request, emit fun
 }
 
 // PA-77: a chat turn asks the model for the request's language. The chat
-// stream is append-only, so it keeps every round (no FinalRoundOnly).
+// stream is append-only, so it keeps every round (no FinalRoundOnly), and it
+// asks the runtime to hold back a process sentence before a tool call (PA-92).
 func TestChatTurnAsksForTheRequestLanguage(t *testing.T) {
 	for english, want := range map[bool]string{false: "zh", true: "en"} {
 		db := isolatedConversationDB(t)
@@ -136,7 +137,8 @@ func TestChatTurnAsksForTheRequestLanguage(t *testing.T) {
 			AuthorizeBackgroundTurnTx: func(context.Context, pgx.Tx, string, string) error { return nil },
 		})
 		svc.runTurn("c", "r", inference.Model{ID: "model", Name: "model"}, "", "test-session", english)
-		if len(runtime.requests) != 1 || runtime.requests[0].Language != want || runtime.requests[0].FinalRoundOnly {
+		if len(runtime.requests) != 1 || runtime.requests[0].Language != want || runtime.requests[0].FinalRoundOnly ||
+			!runtime.requests[0].DropToolPreamble {
 			t.Fatalf("english=%v requests=%+v", english, runtime.requests)
 		}
 	}

@@ -1021,12 +1021,14 @@ func (s *Service) runTurn(conv, reply string, model inference.Model, reasoning, 
 		return
 	}
 	// PA-77: every visible word in the request's language. The streamed
-	// text of every round stays in the message (the stream is append-only).
+	// text of every round stays in the message (the stream is append-only),
+	// except a short process sentence before a tool call, which the runtime
+	// holds back and drops (PA-92).
 	language := "zh"
 	if replyEnglish(ctx) {
 		language = "en"
 	}
-	answer, runErr := s.runtime.Run(ctx, inference.Request{RunID: reply, AttemptID: reply, BranchID: conv, EnvironmentID: env, ModelID: model.ID, Reasoning: reasoning, Messages: msgs, Tools: tools, Language: language}, emit)
+	answer, runErr := s.runtime.Run(ctx, inference.Request{RunID: reply, AttemptID: reply, BranchID: conv, EnvironmentID: env, ModelID: model.ID, Reasoning: reasoning, Messages: msgs, Tools: tools, Language: language, DropToolPreamble: true}, emit)
 	// PA-46: an answer cut at the output limit is kept and completes; the
 	// user can ask the model to continue from it. PA-52: so is an answer the
 	// model gave after the evidence-tool limit closed its tools.

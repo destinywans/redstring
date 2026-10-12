@@ -47,7 +47,7 @@ export default function ReviewPage() {
   // The API sends the proposer's user ID; show a name when it's the viewer, otherwise a short ID (PA-74).
   const isMine = !!me && (p.proposed_by === me.id || p.proposed_by === me.name);
   const idLike = /^[0-9a-f-]{16,}$/i.test(p.proposed_by);
-  const proposer = isMine ? me!.name : idLike ? tx("用户 {id}", "User {id}", { id: `${p.proposed_by.slice(0, 6)}…` }) : p.proposed_by;
+  const proposer = isMine ? me!.name : p.proposed_by_name || (idLike ? tx("用户 {id}", "User {id}", { id: `${p.proposed_by.slice(0, 6)}…` }) : p.proposed_by);
   const when = (t: string) => (/^\d{4}-\d{2}-\d{2}T/.test(t) ? fmt.dateTime(t) : t);
   const [statusTone, statusLabel] = ((): [Tone, string] => {
     switch (p.status) {

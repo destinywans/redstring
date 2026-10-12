@@ -770,6 +770,10 @@
   background: var(--warn-soft);
   color: var(--warn);
 }
+.ar-tl li.unsure .dot {
+  background: var(--sunken);
+  color: var(--warn);
+}
 .ar-tl li.bad .dot {
   background: var(--danger-soft);
   color: var(--danger);

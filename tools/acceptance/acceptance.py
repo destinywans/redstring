@@ -232,6 +232,13 @@ def tls():
         server host.docker.internal:{spec['port']};
         keepalive 64;
     }}""" for name, spec in INSTANCES.items())
+    # PA-103: the GitLab path needs the same keepalive; a new connection per request now and then
+    # timed out connecting and answered 504.
+    upstreams += f"""
+    upstream lab_gitlab {{
+        server {GITLAB['upstream']};
+        keepalive 16;
+    }}"""
     servers = ''.join(f"""
     server {{
         listen {spec['https']} ssl;
@@ -270,9 +277,11 @@ def tls():
         ssl_certificate_key /tls/alertmanager.key;
         client_max_body_size 64m;
         location / {{
-            proxy_pass http://{GITLAB['upstream']};
+            proxy_pass http://lab_gitlab;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
             proxy_set_header Host 127.0.0.1:28080;
-            proxy_connect_timeout 5s;
+            proxy_connect_timeout 10s;
             proxy_read_timeout 60s;
         }}
     }}"""

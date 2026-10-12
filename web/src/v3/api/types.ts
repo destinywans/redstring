@@ -1624,5 +1624,19 @@ export type InstanceInfo = {
   other?: { label: string; url: string; domain: string };
 };
 export type LowerSource = { id: string; name: string; brand: string; env: string; env_label: string; purpose: string; credential: string };
-/** status verifying (kind unknown): GitLab is still processing a just-merged MR; nothing is read from it yet (PA-100). */
-export type SyncItem = { id: string; kind: "runbook" | "alert_rule" | "agent_version" | "template" | "unknown"; kind_label: string; title: string; mr: string; author: string; meta: string; status: "pending" | "imported" | "exported" | "merged" | "verifying" };
+/**
+ * status verifying (kind unknown, reason not_ready): GitLab is still processing a just-merged MR (PA-100).
+ * status unverifiable (kind unknown): this candidate could not be verified — reason gitlab_unavailable (refresh to retry)
+ * or untrusted (it cannot be imported) (PA-103). Nothing is read from either; the others list as usual.
+ */
+export type SyncItem = {
+  id: string;
+  kind: "runbook" | "alert_rule" | "agent_version" | "template" | "unknown";
+  kind_label: string;
+  title: string;
+  mr: string;
+  author: string;
+  meta: string;
+  status: "pending" | "imported" | "exported" | "merged" | "verifying" | "unverifiable";
+  reason?: "not_ready" | "gitlab_unavailable" | "untrusted";
+};

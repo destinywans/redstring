@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http/httptest"
 	"strconv"
@@ -27,6 +26,7 @@ type readFixtureRepository struct {
 	fixtures    []readFixture
 	readErr     error
 	notPrepared map[int64]bool // GitLab still processing the merge
+	readErrs    map[int64]error
 	tooMany     bool
 	localMerged bool
 	onLookup    func()
@@ -71,6 +71,9 @@ func (f *readFixtureRepository) ReadMergedManifest(_ context.Context, iid int64)
 	}
 	if f.notPrepared[iid] {
 		return MR{}, "", nil, ErrMRNotPrepared
+	}
+	if err := f.readErrs[iid]; err != nil {
+		return MR{}, "", nil, err
 	}
 	for _, fixture := range f.fixtures {
 		if fixture.mr.IID == iid {
@@ -607,7 +610,9 @@ func TestConfigSyncNonTemplateLedgerDoesNotProveImported(t *testing.T) {
 	repo := &readFixtureRepository{fakeRepository: &fakeRepository{}, fixtures: fixtures[:1]}
 	api := configServer(t, s, repo, "production")
 	w := configRequest(api, "GET", "/api/v1/config-sync", "prod", "admin-token", "")
-	if w.Code != 503 || !strings.Contains(w.Body.String(), "config_source_untrusted") {
+	// PA-103: the item is unverifiable, not imported; it does not hide others.
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"status":"unverifiable","reason":"untrusted"`) ||
+		strings.Contains(w.Body.String(), `"status":"imported"`) {
 		t.Fatalf("unverified runbook import ledger: %d %s", w.Code, w.Body.String())
 	}
 }
@@ -629,7 +634,7 @@ func TestConfigSyncRejectsUntrustedMergedRead(t *testing.T) {
 			case "digest":
 				first.raw = []byte(strings.Replace(string(first.raw), `"source_digest":"`+first.digest+`"`, `"source_digest":"`+strings.Repeat("f", 64)+`"`, 1))
 			case "read_failure":
-				repo.readErr = errors.New("controlled GitLab outage")
+				repo.readErrs = map[int64]error{first.mr.IID: &MergedCheckError{IID: first.mr.IID, Step: "versions", Status: 504, Err: &StatusError{Status: 504}}}
 			case "stale_import_kind", "stale_import_sha", "stale_import_id":
 				ledgerKind, ledgerSHA, ledgerID := first.kind, first.mr.MergeCommitSHA, first.id
 				if fault == "stale_import_kind" {
@@ -648,9 +653,18 @@ func TestConfigSyncRejectsUntrustedMergedRead(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			// PA-103: the one candidate is listed as unverifiable with why,
+			// nothing read from it; GitLab failing is not untrustworthy.
+			repo.fixtures = append(repo.fixtures, fixtures[1])
 			api := configServer(t, s, repo, "production")
 			w := configRequest(api, "GET", "/api/v1/config-sync", "prod", "admin-token", "")
-			if w.Code != 503 || (fault != "read_failure" && !strings.Contains(w.Body.String(), "config_source_untrusted")) {
+			reason := "untrusted"
+			if fault == "read_failure" {
+				reason = "gitlab_unavailable"
+			}
+			items := decodeSyncList(t, w.Body.Bytes()).Items
+			if w.Code != 200 || len(items) != 2 || items[0].Status != "unverifiable" || items[0].Reason != reason ||
+				items[0].Kind != "unknown" || items[0].Title == first.title || items[1].Status != "merged" {
 				t.Fatalf("%s: status=%d body=%s", fault, w.Code, w.Body.String())
 			}
 		})

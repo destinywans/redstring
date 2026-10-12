@@ -1,9 +1,11 @@
 S['V3ConfigSyncItem'] = obj({
     **fieldnames('id kind_label title mr author meta'),
     'kind':string(enum=['runbook','alert_rule','agent_version','template','unknown'],
-        description='unknown only with status verifying'),
-    'status':string(enum=['pending','imported','exported','merged','verifying'],
-        description='verifying: a production candidate GitLab is still processing just after its merge; nothing is read from it until it verifies (PA-100)')},
+        description='unknown only with status verifying or unverifiable'),
+    'status':string(enum=['pending','imported','exported','merged','verifying','unverifiable'],
+        description='verifying: a production candidate GitLab is still processing just after its merge (PA-100); unverifiable: a candidate that could not be verified (PA-103). Nothing is read from either or claimed for it; the other candidates are listed as usual.'),
+    'reason':string(enum=['not_ready','gitlab_unavailable','untrusted'],
+        description='Only with verifying (not_ready) or unverifiable: GitLab could not be read (retry), or the merge does not match its signature, review or import record (it cannot be imported).')},
     ['id','kind','kind_label','title','mr','author','meta','status'])
 S['V3ConfigSyncList'] = obj({
     'direction':string(enum=['import','export']),

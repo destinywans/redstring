@@ -28,7 +28,7 @@ export default function ConfigSyncPage() {
     }
   };
   const statusBadge = (s: SyncItem["status"]) =>
-    ({ pending: <Badge tone="warn">{tx("待审核", "To review")}</Badge>, imported: <Badge tone="ok">{tx("已导入", "Imported")}</Badge>, exported: <Badge tone="info">{tx("已导出 · 合并请求中", "Exported · in review")}</Badge>, merged: <Badge tone="ok">{tx("已合并", "Merged")}</Badge>, verifying: <Badge tone="info">{tx("核验中", "Verifying")}</Badge> })[s];
+    ({ pending: <Badge tone="warn">{tx("待审核", "To review")}</Badge>, imported: <Badge tone="ok">{tx("已导入", "Imported")}</Badge>, exported: <Badge tone="info">{tx("已导出 · 合并请求中", "Exported · in review")}</Badge>, merged: <Badge tone="ok">{tx("已合并", "Merged")}</Badge>, verifying: <Badge tone="info">{tx("核验中", "Verifying")}</Badge>, unverifiable: <Badge tone="warn">{tx("无法核验", "Unverifiable")}</Badge> })[s];
   return (
     <Page error={!data ? error : undefined} errorSource={tx("配置仓库", "configuration repository")} crumbs={[tx("集成中心", "Integrations"), tx("配置同步", "Config sync")]}>
       <div className="v3-content" style={{ maxWidth: 980 }}>

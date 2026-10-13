@@ -119,7 +119,7 @@ export default function MembersPage() {
               </div>
             )}
             {checked.size > 0 && (
-              <div className="bulk-bar anim-rise">
+              <div className="member-bulk-bar anim-rise">
                 <b>{tx("已选 {n} 人", "{n} selected", { n: checked.size })}</b>
                 <Spacer />
                 <Btn

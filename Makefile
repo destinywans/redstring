@@ -10,7 +10,7 @@ web-api:
 web-dev:
 	pnpm --dir web dev
 web-build:
-	pnpm --dir web build
+	VITE_API_MODE=http pnpm --dir web build
 test:
 	GOCACHE="$(CURDIR)/.local/go-cache" go test -race ./...
 verify:

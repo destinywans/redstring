@@ -3,8 +3,9 @@ WORKDIR /web
 RUN npm install -g pnpm@12.4.1
 COPY web/package.json web/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
+COPY shared/ /shared/
 COPY web/ ./
-RUN pnpm build
+RUN VITE_API_MODE=http pnpm build
 
 FROM golang:1.27.1-alpine AS build
 WORKDIR /src

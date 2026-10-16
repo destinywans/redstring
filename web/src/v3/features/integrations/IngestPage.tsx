@@ -364,7 +364,10 @@ function Pull({ id }: { id: string | null }) {
               loading={testing}
               onClick={async () => {
                 setTesting(true);
-                const r = await api<{ ok: boolean; rows: number; dropped: number }>("POST", `/ingest/pull/${d.id}/test`, { body: { contract } }).finally(() => setTesting(false));
+                const r = await api<{ ok: boolean; rows: number; dropped: number }>("POST", `/ingest/pull/${d.id}/test`, { body: { contract } })
+                  .catch((e: unknown) => (toast(e instanceof ApiError ? e.message : tx("测试没有完成，请稍后重试", "The test didn't complete; try again later"), { tone: "danger" }), null))
+                  .finally(() => setTesting(false));
+                if (!r) return;
                 // Say what the test found; a failed test must not read "passed" (PA-135).
                 if (!r.ok) return toast(tx("测试没有通过：映射 {r} 行，丢弃 {x} 行", "Test failed: {r} rows mapped, {x} dropped", { r: r.rows, x: r.dropped }), { tone: "danger" });
                 toast(tx("测试通过：映射 {r} 行，丢弃 {x} 行", "Test passed: {r} rows mapped, {x} dropped", { r: r.rows, x: r.dropped }));

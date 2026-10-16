@@ -322,7 +322,11 @@ function SampleExecutionPage() {
               icon="check"
               disabled={published}
               onClick={async () => {
-                await api("POST", `/executions/${e.id}/report/publish`);
+                try {
+                  await api("POST", `/executions/${e.id}/report/publish`);
+                } catch (err) {
+                  return toast(err instanceof ApiError ? err.message : tx("报告没有发布，请稍后重试", "The report wasn't published; try again later"), { tone: "danger" });
+                }
                 setPublished(true);
                 toast(tx("报告已发布，并同步到复盘报告", "Report published and added to postmortems"));
               }}

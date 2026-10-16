@@ -256,7 +256,7 @@ function NodeCard({
   );
 }
 
-function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin, investigation, focus }: { n: CanvasNode; nodes: CanvasNode[]; tray?: EvidenceTrayItem[]; onClose: () => void; onWriteback: () => void; pinned: boolean; onPin: (v: boolean) => void; investigation?: { id: string; title: string }; focus?: number }) {
+function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin, investigation, focus }: { n: CanvasNode; nodes: CanvasNode[]; tray?: EvidenceTrayItem[]; onClose: () => void; onWriteback: (from: string) => void; pinned: boolean; onPin: (v: boolean) => void; investigation?: { id: string; title: string }; focus?: number }) {
   const { tx, fmt } = useI18n();
   const [tab, setTab] = useState<"chat" | "evidence" | "context" | "agent">("context");
   const openRollback = useRollbackDrawer((x) => x.open);
@@ -385,7 +385,7 @@ function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin, invest
                             .join(tx("；", "; "))}
                     </span>
                   </Row>
-                  <Btn h={24} onClick={onWriteback}>
+                  <Btn h={24} onClick={() => onWriteback(kids.find((k) => k.writeback)!.id)}>
                     {tx("查看回写记录", "View writeback")}
                   </Btn>
                 </div>
@@ -598,7 +598,8 @@ export default function CanvasPage() {
     panned.current = !!d?.moved;
     if (d?.kind === "node" && d.moved && dir === "lr") {
       const n = nodes.find((x) => x.id === d.id);
-      if (n) void api("PATCH", `/investigations/${id}/nodes/${n.id}`, { body: { x: Math.round(n.x), y: Math.round(n.y) } });
+      // A position the server didn't keep is said, so a reload doesn't silently move the node back (PA-155).
+      if (n) api("PATCH", `/investigations/${id}/nodes/${n.id}`, { body: { x: Math.round(n.x), y: Math.round(n.y) } }).catch((e: unknown) => toast(e instanceof ApiError ? e.message : tx("节点位置没有保存", "The node position wasn't saved"), { tone: "danger" }));
     }
   };
   const zoom = useCallback((factor: number, cx?: number, cy?: number) => {
@@ -821,7 +822,7 @@ export default function CanvasPage() {
     setParams(next, { replace: true });
   };
 
-  const inspector = selected ? <Inspector n={selected} nodes={nodes} tray={data?.tray} onClose={() => setSel(null)} onWriteback={() => setWriteback("b-amp")} pinned={pinned} onPin={setPinned} investigation={data?.investigation ? { id: data.investigation.id, title: data.investigation.title } : undefined} focus={suggestionFocus} /> : null;
+  const inspector = selected ? <Inspector n={selected} nodes={nodes} tray={data?.tray} onClose={() => setSel(null)} onWriteback={(from) => setWriteback(demo ? "b-amp" : from)} pinned={pinned} onPin={setPinned} investigation={data?.investigation ? { id: data.investigation.id, title: data.investigation.title } : undefined} focus={suggestionFocus} /> : null;
   // Keep the selected node clear of the floating card by panning the canvas.
   useEffect(() => {
     if (!selected || pinned || !area.current) return;
@@ -1010,15 +1011,30 @@ export default function CanvasPage() {
             <Btn kind="ghost" icon="fork" onClick={fork}>
               {tx("派生", "Fork")}
             </Btn>
-            <Btn kind="ghost" icon="merge" onClick={() => toast(tx("请选择两个同级分支进行合并", "Select two sibling branches to merge"))}>
-              {tx("合并", "Merge")}
-            </Btn>
-            <Btn kind="ghost" icon="writeback" onClick={() => setWriteback(sel ?? "b-amp")}>
+            {/* Merging and comparing branches have no server side yet; they stay in the sample (PA-156, D52). */}
+            {demo && (
+              <Btn kind="ghost" icon="merge" onClick={() => toast(tx("请选择两个同级分支进行合并", "Select two sibling branches to merge"))}>
+                {tx("合并", "Merge")}
+              </Btn>
+            )}
+            <Btn
+              kind="ghost"
+              icon="writeback"
+              onClick={() => {
+                // Real write-backs start from the selected branch; the sample opens its sample branch.
+                if (demo) return setWriteback(sel ?? "b-amp");
+                const from = sel ? byId[sel] : undefined;
+                if (!from || from.kind === "root" || from.kind === "evidence") return toast(tx("先选中要回写的分支", "Select the branch to write back first"));
+                setWriteback(from.id);
+              }}
+            >
               {tx("回写", "Write back")}
             </Btn>
-            <Btn kind={compare ? "soft" : "ghost"} icon="layers" onClick={() => setCompare((c) => !c)}>
-              {tx("对比", "Compare")}
-            </Btn>
+            {demo && (
+              <Btn kind={compare ? "soft" : "ghost"} icon="layers" onClick={() => setCompare((c) => !c)}>
+                {tx("对比", "Compare")}
+              </Btn>
+            )}
             <span className="v3-vdivider" />
             <Btn kind={tray ? "soft" : "ghost"} icon="file" onClick={() => setTray((t) => !t)}>
               {tx("证据", "Evidence")}

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { api, useGet } from "../../api/client";
+import { ApiError, api, useGet } from "../../api/client";
 import type { WritebackPreview } from "../../api/types";
 import { Badge, Btn, Col, Divider, Icon, Mono, Muted, Radio, Row, Section, Spacer, Tile } from "../../ui/core";
-import { Dialog } from "../../ui/overlays";
+import { Dialog, toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { useI18n } from "../../i18n";
 import { useWhen } from "../../ui/when";
@@ -11,7 +11,7 @@ import { useWhen } from "../../ui/when";
 export function WritebackDialog({ open, investigation, from, onClose, onDone }: { open: boolean; investigation: string; from: string; onClose: () => void; onDone: (version: string) => void }) {
   const { tx } = useI18n();
   const when = useWhen();
-  const { data } = useGet<WritebackPreview>(open ? `/investigations/${investigation}/writeback-preview` : null, { from });
+  const { data, error } = useGet<WritebackPreview>(open ? `/investigations/${investigation}/writeback-preview` : null, { from });
   const [mode, setMode] = useState<"summary" | "messages" | "evidence">("summary");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -20,7 +20,14 @@ export function WritebackDialog({ open, investigation, from, onClose, onDone }: 
   }, [data]);
   const confirm = async () => {
     setBusy(true);
-    const r = await api<{ version: string }>("POST", `/investigations/${investigation}/writeback`, { body: { from, mode, conclusions: [...picked] } });
+    let r: { version: string };
+    try {
+      r = await api<{ version: string }>("POST", `/investigations/${investigation}/writeback`, { body: { from, mode, conclusions: [...picked] } });
+    } catch (e) {
+      // A refused write-back is said and the dialog stays open to retry (PA-155).
+      setBusy(false);
+      return toast(e instanceof ApiError ? e.message : tx("回写没有完成，请稍后重试", "The write-back didn't complete; try again later"), { tone: "danger" });
+    }
     setBusy(false);
     onDone(r.version);
   };
@@ -66,7 +73,8 @@ export function WritebackDialog({ open, investigation, from, onClose, onDone }: 
     >
       {!data ? (
         <div style={{ padding: 40, textAlign: "center" }}>
-          <span className="v3-spinner spin" />
+          {/* A preview that can't be read says so instead of spinning (PA-156). */}
+          {error ? <Muted>{tx("读不到这个分支的回写预览：{m}", "Couldn't read this branch's write-back preview: {m}", { m: error instanceof Error ? error.message : "" })}</Muted> : <span className="v3-spinner spin" />}
         </div>
       ) : (
         <div className="wb-grid">

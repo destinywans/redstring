@@ -51,7 +51,9 @@ function Row2({ title, desc, children }: { title: ReactNode; desc: ReactNode; ch
 export default function PreferencesPage() {
   const { tx } = useI18n();
   const p = usePreferences();
-  const sync = (patch: Record<string, unknown>) => void api("PATCH", "/me/preferences", { body: patch });
+  // Preferences apply locally at once; a failed sync is said so other devices aren't silently out of date (PA-155).
+  const sync = (patch: Record<string, unknown>) =>
+    void api("PATCH", "/me/preferences", { body: patch }).catch(() => toast(tx("偏好只在这台设备上生效，没有同步到账号", "Applied on this device only; not synced to your account"), { tone: "danger" }));
   const setTheme = (t: ThemePreference) => {
     p.setTheme(t);
     sync({ theme: t });

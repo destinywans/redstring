@@ -19,7 +19,22 @@ type Phase =
  * action digest. Approval takes two different approvers: the first vote is recorded
  * (202 pending_review), the second yields the execution id. The creator cannot approve.
  */
-export function PasskeyApproval({ proposalId, comment, open, onClose, onDone }: { proposalId: string; comment: string; open: boolean; onClose: () => void; onDone: (r: Result) => void }) {
+export function PasskeyApproval({
+  proposalId,
+  comment,
+  open,
+  onClose,
+  onDone,
+  viewable = true,
+}: {
+  proposalId: string;
+  comment: string;
+  open: boolean;
+  onClose: () => void;
+  onDone: (r: Result) => void;
+  /** Whether the execution has a page: GET /executions/{id} serves rollbacks and rule changes, not silences (PA-125). */
+  viewable?: boolean;
+}) {
   const { tx } = useI18n();
   const [phase, setPhase] = useState<Phase>({ kind: "waiting", digest: "" });
   const abort = useRef<AbortController | null>(null);
@@ -130,9 +145,16 @@ export function PasskeyApproval({ proposalId, comment, open, onClose, onDone }: 
             <Tile icon="check" size={38} />
             <b>{tx("已批准，执行器开始执行", "Approved; the executor is starting")}</b>
             <Row gap={8}>
-              <Btn kind="primary" h={28} to={`/executions/${p.execution}`}>
-                {tx("查看执行进度", "View execution")}
-              </Btn>
+              {viewable ? (
+                <Btn kind="primary" h={28} to={`/executions/${p.execution}`}>
+                  {tx("查看执行进度", "View execution")}
+                </Btn>
+              ) : (
+                // The review page's execution box follows this one's progress.
+                <Btn h={28} onClick={close}>
+                  {tx("知道了", "Got it")}
+                </Btn>
+              )}
             </Row>
           </>
         )}

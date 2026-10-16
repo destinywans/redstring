@@ -202,6 +202,9 @@ export function LoadError({ error, source, title, icon }: { error: unknown; sour
   const reasonText = useReasonText();
   if (error instanceof ApiError && error.status === 403)
     return <PageUnavailable icon="lock" configure={false} title={tx("没有权限查看", "You can't view this")} desc={tx("需要管理员在当前环境授予查看权限。", "An admin needs to grant view access in this environment.")} />;
+  // A missing record is not a source failure and retrying won't bring it back (PA-125).
+  if (error instanceof ApiError && error.status === 404)
+    return <PageUnavailable icon="search" configure={false} title={tx("找不到这条记录", "Not found")} desc={tx("它可能不存在，或在当前环境里看不到。", "It may not exist, or isn't visible in this environment.")} detail={admin ? `${error.status} ${error.code}` : undefined} />;
   const reason = errorReason(error);
   const text = reasonText(reason, source);
   return (

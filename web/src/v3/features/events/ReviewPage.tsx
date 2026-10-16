@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { API_MODE, api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { Me, Proposal, Tone } from "../../api/types";
 import { AiAvatar, Avatar, Badge, Btn, Card, CardHead, Col, Icon, IconBtn, KV, Muted, Row, Skeleton, Spacer, Textarea, type IconName } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
@@ -45,6 +45,7 @@ export default function ReviewPage() {
   const approve = () => setApproving(true);
   // Approving and rejecting both need the approve grant; "conditional" still goes through the passkey ceremony.
   const decideBlocked = can(["proposals", "approve"]);
+  const commentBlocked = can(["proposals", "change"]);
   // The API sends the proposer's user ID; show a name when it's the viewer, otherwise a short ID (PA-74).
   const isMine = !!me && (p.proposed_by === me.id || p.proposed_by === me.name);
   const idLike = /^[0-9a-f-]{16,}$/i.test(p.proposed_by);
@@ -264,14 +265,22 @@ export default function ReviewPage() {
               className="reply"
               onSubmit={async (e) => {
                 e.preventDefault();
-                if (!reply.trim()) return;
-                const m = await api<Proposal["discussion"][number]>("POST", `/proposals/${p.id}/comments`, { body: { text: reply } });
-                setThread((t) => [...t, m]);
-                setReply("");
+                if (!reply.trim() || commentBlocked) return;
+                // A refused or failed comment is said, not thrown (PA-122).
+                try {
+                  const m = await api<Proposal["discussion"][number]>("POST", `/proposals/${p.id}/comments`, { body: { text: reply } });
+                  setThread((t) => [...t, m]);
+                  setReply("");
+                } catch (err) {
+                  toast(err instanceof ApiError ? err.message : tx("没能发送，请稍后重试", "Couldn't send; try again later"), { tone: "danger" });
+                }
               }}
             >
-              <input value={reply} onChange={(e) => setReply(e.target.value)} placeholder={tx("回复，或 @ 同事…", "Reply, or @ a teammate…")} aria-label={tx("回复讨论", "Reply")} />
-              <IconBtn icon="send" label={tx("发送回复", "Send")} size={26} submit />
+              {/* Commenting needs proposals.change; without it the box is disabled and says so (PA-122). */}
+              <input value={reply} onChange={(e) => setReply(e.target.value)} disabled={!!commentBlocked} placeholder={commentBlocked ?? tx("回复，或 @ 同事…", "Reply, or @ a teammate…")} aria-label={tx("回复讨论", "Reply")} />
+              <Gated reason={commentBlocked}>
+                <IconBtn icon="send" label={tx("发送回复", "Send")} size={26} submit />
+              </Gated>
             </form>
           </Col>
         </Card>
@@ -309,7 +318,7 @@ export default function ReviewPage() {
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} autoFocus />
         </Col>
       </Dialog>
-      <PasskeyApproval proposalId={p.id} comment={note} open={approving} onClose={() => setApproving(false)} onDone={() => void refetch()} />
+      <PasskeyApproval proposalId={p.id} comment={note} open={approving} onClose={() => setApproving(false)} onDone={() => void refetch()} viewable={!!(p.rollback || p.alert_rule)} />
     </Page>
   );
 }

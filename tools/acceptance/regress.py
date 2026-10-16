@@ -37,8 +37,10 @@ BIN = LOCAL / 'bin/aiops'
 TARGET_SERVICE = 'checkout-api'  # the silence drawer and the alert it silences belong to this service
 # golden-approval needs a pending proposal id (GOLDEN_PROPOSAL); golden-silence-ui proposes, approves
 # with passkeys, executes and expires a silence end to end, so it covers approval in the regression.
-# phase1-fixes: route-pinned checks for the WAN-434 phase 1 fixes (no writes).
-SPECS = {'golden-conversation.spec.ts': {}, 'golden-invite.spec.ts': {}, 'phase1-fixes.spec.ts': {}, 'golden-silence-ui.spec.ts': None}
+# phase1-fixes: route-pinned checks for the WAN-434 phase 1 fixes (no writes). account-security: TOTP, passkey,
+# photo and preferences on a throwaway account (tools/acceptance/accounts.py prod mfa:viewer); it skips without one.
+SPECS = {'golden-conversation.spec.ts': {}, 'golden-invite.spec.ts': {}, 'phase1-fixes.spec.ts': {}, 'account-security.spec.ts': {},
+         'golden-silence-ui.spec.ts': None}
 
 
 def golden_investigation():

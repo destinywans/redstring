@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { createHmac } from "node:crypto";
+import { deflateSync } from "node:zlib";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { INSTANCES, LOCAL, signIn, type Account } from "./support/env";
@@ -15,7 +16,9 @@ import { monitor } from "./support/monitor";
 const instance = "prod" as const;
 const origin = INSTANCES[instance].origin;
 const secrets = JSON.parse(readFileSync(resolve(LOCAL, instance, "secrets.json"), "utf8"));
-const account: Account | undefined = secrets.throwaway?.mfa;
+const raw = secrets.throwaway?.mfa as (Account & { role?: string }) | undefined;
+// Sign-in takes exactly email and password.
+const account: Account | undefined = raw && { email: raw.email, password: raw.password };
 test.skip(!account, "create the throwaway account first: tools/acceptance/accounts.py prod mfa:viewer");
 test.setTimeout(180_000);
 
@@ -85,5 +88,108 @@ test("authenticator app: enrol, confirm, remove", async ({ page }) => {
   out.api = m.api.filter((a) => a.path.startsWith("/me/mfa"));
   out.pageErrors = m.pageErrors;
   console.log(JSON.stringify(out, null, 1).slice(0, 3000));
+  expect(m.pageErrors).toEqual([]);
+});
+
+test("authenticator app: start, then discard the pending setup", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("aiops-v3-preferences", JSON.stringify({ locale: "zh-CN", theme: "light" })));
+  const m = monitor(page);
+  await signIn(page, instance, account!);
+  await page.goto(origin + "/settings/account-security");
+  await page.getByRole("button", { name: "绑定", exact: true }).click({ timeout: 20_000 });
+  await page.locator("code.totp-secret").waitFor({ timeout: 20_000 });
+  await page.getByRole("dialog").getByRole("button", { name: "放弃绑定" }).click();
+  await expect(page.getByText("未绑定", { exact: true })).toBeVisible({ timeout: 10_000 });
+  const calls = m.api.filter((a) => a.path.startsWith("/me/mfa")).map((a) => `${a.method} ${a.path} ${a.status}`);
+  console.log(calls.join("\n"));
+  expect(calls).toContain("DELETE /me/mfa/totp/enrollment 204");
+  expect(m.pageErrors).toEqual([]);
+});
+
+test("passkeys: add one through the panel, then remove it with itself", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await context.addInitScript(() => localStorage.setItem("aiops-v3-preferences", JSON.stringify({ locale: "zh-CN", theme: "light" })));
+  const page = await context.newPage();
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("WebAuthn.enable");
+  await cdp.send("WebAuthn.addVirtualAuthenticator", {
+    options: { protocol: "ctap2", transport: "internal", hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true },
+  });
+  const m = monitor(page);
+  await signIn(page, instance, account!);
+  await page.goto(origin + "/settings/account-security");
+  const label = `验收临时密钥 ${Date.now()}`;
+  await page.getByRole("button", { name: "添加" }).first().click({ timeout: 20_000 });
+  await page.getByLabel("名称（可选）").fill(label);
+  await page.getByRole("button", { name: "继续" }).click();
+  await expect(page.getByText("通行密钥已添加")).toBeVisible({ timeout: 20_000 });
+  const row = page.locator("li", { hasText: label });
+  await expect(row).toBeVisible();
+  await row.getByRole("button", { name: "删除" }).click();
+  await page.getByRole("button", { name: "删除" }).last().click(); // the confirm dialog
+  await expect(page.locator(".v3-toast", { hasText: "通行密钥已删除" })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator("li", { hasText: label })).toHaveCount(0);
+  const calls = m.api.filter((a) => a.path.startsWith("/me/passkeys")).map((a) => `${a.method} ${a.path} ${a.status}`);
+  console.log(calls.join("\n"));
+  expect(calls.some((c) => c.startsWith("POST /me/passkeys/deletion/finish 2"))).toBe(true);
+  expect(m.pageErrors).toEqual([]);
+  await context.close();
+});
+
+/** A solid-colour RGB PNG of the given size (the avatar must be PNG/JPEG, at least 256 × 256). */
+function png(size: number): Buffer {
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (b: Buffer) => {
+    let c = 0xffffffff;
+    for (const x of b) c = crcTable[(c ^ x) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type: string, data: Buffer) => {
+    const t = Buffer.from(type);
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const c = Buffer.alloc(4);
+    c.writeUInt32BE(crc(Buffer.concat([t, data])));
+    return Buffer.concat([len, t, data, c]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // RGB
+  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(size * 3, 0x5b)]);
+  const raw = Buffer.concat(Array.from({ length: size }, () => row));
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]);
+}
+
+test("profile photo and preferences", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("aiops-v3-preferences", JSON.stringify({ locale: "zh-CN", theme: "light" })));
+  const m = monitor(page);
+  await signIn(page, instance, account!);
+  await page.goto(origin + "/settings/profile");
+  await page.locator('input[type="file"]').first().setInputFiles({ name: "avatar.png", mimeType: "image/png", buffer: png(256) }, { timeout: 20_000 });
+  await expect(page.locator(".v3-toast", { hasText: "头像已更新" })).toBeVisible({ timeout: 20_000 });
+  // Too small is refused with the server's reason, not silently.
+  await page.locator('input[type="file"]').first().setInputFiles({ name: "tiny.png", mimeType: "image/png", buffer: png(32) });
+  await page.waitForTimeout(1_500);
+  await page.reload();
+  await page.getByRole("button", { name: "移除" }).first().click({ timeout: 20_000 });
+  await page.getByRole("button", { name: "移除" }).last().click();
+  await expect(page.locator(".v3-toast", { hasText: "头像已移除" })).toBeVisible({ timeout: 20_000 });
+  // Preferences sync to the server as they change.
+  await page.goto(origin + "/settings/preferences");
+  await page.getByText("深色", { exact: true }).first().click({ timeout: 20_000 });
+  await page.waitForTimeout(800);
+  await page.getByText("浅色", { exact: true }).first().click();
+  await page.waitForTimeout(800);
+  const calls = m.api.filter((a) => a.path.startsWith("/me/avatar") || a.path.startsWith("/me/preferences")).map((a) => `${a.method} ${a.path} ${a.status}${a.code ? " " + a.code : ""}`);
+  console.log(calls.join("\n"));
+  console.log("toasts:", (await page.locator(".v3-toast").allInnerTexts()).join(" | "));
+  expect(calls.filter((c) => c.startsWith("PATCH /me/preferences 2")).length).toBeGreaterThanOrEqual(2);
+  expect(calls.some((c) => c.startsWith("DELETE /me/avatar 2"))).toBe(true);
   expect(m.pageErrors).toEqual([]);
 });

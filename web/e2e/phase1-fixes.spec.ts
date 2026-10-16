@@ -241,8 +241,8 @@ test.describe("alert group names (PA-130)", () => {
     await page.getByText("已恢复", { exact: true }).click({ timeout: 20_000 });
     const head = page.locator(".alert-group .ag-head").first();
     test.skip(!(await head.waitFor({ state: "visible", timeout: 10_000 }).then(() => true, () => false)), "no alert group to read");
-    const text = await head.innerText();
-    expect(text, "a 32-hex application ID in the group row").not.toMatch(/\b[0-9a-f]{32}\b/);
+    // The row shows the raw ID until the service catalog has loaded; the name must replace it.
+    await expect.poll(() => head.innerText(), { timeout: 15_000, message: "a 32-hex application ID in the group row" }).not.toMatch(/\b[0-9a-f]{32}\b/);
   });
 });
 

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, useGet, useSend } from "../../api/client";
-import { Gate } from "../../ui/permission";
+import { Gate, Gated, useNeed } from "../../ui/permission";
 import type { AgentDetail, AgentVersion } from "../../api/types";
 import { Badge, Btn, Col, Icon, Legend, Mono, Muted, Num, Panel, Row, Skeleton, Spacer, State, Tabs, TextLink, Tile, cx, type IconName } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
@@ -25,6 +25,7 @@ export default function AgentPage() {
   // Both writes name the agent revision they were decided on (expected_revision, PA-159).
   const rollout = useSend<{ to: string; percent: number; override: boolean; override_reason?: string; expected_revision?: number }>("POST", `/agents/${id}/rollout`, ["/agents"]);
   const rollback = useSend<{ expected_revision?: number }>("POST", `/agents/${id}/rollback`, ["/agents"]);
+  const promoteBlocked = useNeed(["agents", "manage"]);
   const vs = (s: AgentVersion["status"]) => ({ canary: [tx("灰度中", "Canary"), "accent"], stable: [tx("稳定", "Stable"), "ok"], retired: [tx("已下线", "Retired"), "neutral"], draft: [tx("草稿", "Draft"), "neutral"] })[s] as [string, "accent" | "ok" | "neutral"];
   if (!a)
     return (
@@ -39,6 +40,7 @@ export default function AgentPage() {
   const gatesKnown = a.release.gates !== null;
   const passed = !!a.release.gates?.every((g) => g.pass);
   const current = a.release.current ?? a.release.configured_canary_percent ?? 0;
+  const noCandidate = !demo && !a.release.to;
   return (
     <Page
       flush
@@ -153,7 +155,7 @@ export default function AgentPage() {
                     </tbody>
                   </table>
                 </Panel>
-                <Panel title={tx("发布 · {v} 灰度", "Release · {v} canary", { v: a.release.to })} style={{ width: 380, flex: "none" }}>
+                <Panel title={noCandidate ? tx("发布", "Release") : tx("发布 · {v} 灰度", "Release · {v} canary", { v: a.release.to })} style={{ width: 380, flex: "none" }}>
                   <Col gap={12}>
                     <Col gap={6}>
                       <div className="ro-slider">
@@ -200,11 +202,12 @@ export default function AgentPage() {
                       )}
                     </Col>
                     <Row gap={8}>
-                      <Gate need={["agents", "manage"]}>
+                      {/* Without a canary in progress there is nothing to promote; starting one from a draft has no entry yet (PA-164). */}
+                      <Gated reason={promoteBlocked ?? (noCandidate ? tx("没有进行中的灰度版本；界面还不能从草稿版本发起灰度", "No canary in progress; starting one from a draft isn't available here yet") : null)}>
                         <Btn kind="primary" icon="up" onClick={() => setConfirm(true)}>
                           {tx("推进到 {p}%", "Promote to {p}%", { p: target })}
                         </Btn>
-                      </Gate>
+                      </Gated>
                       {gatesKnown && !passed && <Muted size={11.5}>{tx("门禁未全部通过；平台管理员可手动放行", "Not all gates passed; an admin may override")}</Muted>}
                       {!gatesKnown && <Muted size={11.5}>{tx("门禁结果未知，推进需要管理员放行", "Gate results are unknown; promoting needs an admin override")}</Muted>}
                     </Row>

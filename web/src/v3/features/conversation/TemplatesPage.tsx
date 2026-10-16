@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { API_MODE, api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { CanvasSummary, InvestigationTemplate } from "../../api/types";
 import { Badge, Brand, Btn, Check, IconBtn, Input, Col, Icon, LabelChip, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, Strong, Tile, cx } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
@@ -21,7 +21,13 @@ export default function TemplatesPage() {
   const [saveOpen, setSaveOpen] = useState(false);
   const sel = data?.items.find((t) => t.id === selId);
   const start = async (t: InvestigationTemplate) => {
-    const r = await api<{ investigation_id: string }>("POST", `/investigation-templates/${t.id}/start`);
+    let r: { investigation_id: string };
+    try {
+      r = await api<{ investigation_id: string }>("POST", `/investigation-templates/${t.id}/start`);
+    } catch (e) {
+      // Unreachable while the catalog is empty (PA-115); a refusal is said rather than thrown.
+      return toast(e instanceof ApiError ? e.message : tx("没能从模板新建调查，请稍后重试", "Couldn't start from the template; try again later"), { tone: "danger" });
+    }
     toast(tx("已用「{t}」新建调查，自动派生 {n} 个分支", "Started an investigation from “{t}” with {n} branches", { t: t.name, n: t.branches.length }));
     nav(`/canvas/${r.investigation_id}`);
   };
@@ -164,10 +170,20 @@ function SaveAsTemplateDialog({ open, onClose }: { open: boolean; onClose: () =>
   const [pick, setPick] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [keep, setKeep] = useState({ nodes: true, steps: true, runbooks: true, content: false });
-  const cur = data?.items.find((c) => c.id === pick) ?? data?.items[0];
+  // Only general canvases can become canvas templates; investigations have their own (PA-114).
+  const items = (data?.items ?? []).filter((c) => API_MODE === "mock" || c.kind !== "investigation");
+  const cur = items.find((c) => c.id === pick) ?? items[0];
   const save = async () => {
-    await api("POST", "/canvas-templates", { body: { from_canvas: cur?.id, name: name || cur?.title, keep } });
-    toast(tx("已保存为团队模板「{n}」", "Saved as team template “{n}”", { n: name || cur?.title || "" }));
+    try {
+      await api("POST", "/canvas-templates", { body: { from_canvas: cur?.id, name: name || cur?.title, keep } });
+    } catch (e) {
+      return toast(e instanceof ApiError ? e.message : tx("模板没有保存，请稍后重试", "The template wasn't saved; try again later"), { tone: "danger" });
+    }
+    toast(
+      API_MODE === "mock"
+        ? tx("已保存为团队模板「{n}」", "Saved as team template “{n}”", { n: name || cur?.title || "" })
+        : tx("已保存为画布模板「{n}」，新建画布时可以选用", "Saved as canvas template “{n}”; pick it when creating a canvas", { n: name || cur?.title || "" }),
+    );
     onClose();
   };
   return (
@@ -189,7 +205,7 @@ function SaveAsTemplateDialog({ open, onClose }: { open: boolean; onClose: () =>
         <Col gap={6}>
           <Strong>{tx("选择画布", "Canvas")}</Strong>
           <div className="v3-col" style={{ gap: 4, maxHeight: 220, overflow: "auto" }}>
-            {data?.items.map((c) => (
+            {items.map((c) => (
               <button key={c.id} type="button" className={cx("tpl-pick", cur?.id === c.id && "on")} onClick={() => setPick(c.id)}>
                 <KindTag kind={c.kind} />
                 <span className="grow ellipsis" style={{ textAlign: "left" }}>{c.title}</span>

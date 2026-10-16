@@ -6,11 +6,17 @@ import type { MemoryFact, MemoryPolicy, MemoryView } from "../../api/types";
 import { Badge, Btn, Card, Chip, Col, Icon, IconBtn, Muted, Num, Row, SearchBox, Section, Spacer, Strong, Tabs, TextLink, Tile, cx, type IconName } from "../../ui/core";
 import { DataTable } from "../../ui/data";
 import { toast } from "../../ui/overlays";
+import { Gated, useNeed } from "../../ui/permission";
 import { useI18n } from "../../i18n";
 import "./knowledge.css";
 import { ChipSelect, useFacet, openForm } from "../../ui/demo";
 
-const LAYER_ICON: Record<string, IconName> = { working: "layers", service: "box", episodic: "clock", semantic: "book" };
+const LAYER_ICON: Record<string, IconName> = { working: "layers", service: "box", episodic: "clock", semantic: "book", workspace: "globe" };
+// The server names its layers in English; the page names the two it knows (PA-145).
+const LAYER_TEXT: Record<string, { name: [string, string]; desc: [string, string] }> = {
+  service: { name: ["服务记忆", "Service"], desc: ["已发布资料中归属到可见服务的事实", "Published facts attributed to visible services"] },
+  workspace: { name: ["工作区记忆", "Workspace"], desc: ["已发布资料中明确属于整个工作区的事实", "Published facts scoped to the whole workspace"] },
+};
 
 export default function MemoryPage() {
   const { tx } = useI18n();
@@ -26,9 +32,24 @@ export default function MemoryPage() {
   const [edits, setEdits] = useState<Record<string, string>>({});
   const fSrc = useFacet(data?.facts, (f) => f.source);
   const fConf = useFacet(data?.facts, (f) => f.confidence);
+  // Every write here needs knowledge.manage (PA-144); the policy itself is readable with view.
+  const denied = useNeed(["knowledge", "manage"]);
+  const policy = useGet<MemoryPolicy>(API_MODE === "mock" ? null : "/memory/policy");
+  const layerName = (l: { id: string; name: string }) => (LAYER_TEXT[l.id] ? tx(...LAYER_TEXT[l.id].name) : l.name);
+  const layerDesc = (l: { id: string; desc?: string; description?: string }) => (API_MODE !== "mock" && LAYER_TEXT[l.id] ? tx(...LAYER_TEXT[l.id].desc) : l.desc ?? l.description);
+  /** Says why the server refused, in words (the server's own text is English). */
+  const why = (e: ApiError, changed: string) =>
+    e.status === 403
+      ? tx("你没有管理知识与记忆的权限。", "You can't manage knowledge and memory.")
+      : e.status === 409
+        ? changed
+        : e.status === 422
+          ? tx("修改后的内容必须是来源资料里的一段原文。", "The edited text must be an exact excerpt of its source.")
+          : e.message;
+  const factChanged = tx("这条记忆刚被修改，或正处于未裁决的冲突中；刷新后再试。", "This memory just changed or is in an open conflict; refresh and try again.");
   const editPolicy = async () => {
     // Real mode edits the stored policy under its revision; the demo only shows the form.
-    const cur = API_MODE === "mock" ? null : await api<MemoryPolicy>("GET", "/memory/policy").catch((e: ApiError) => (toast(e.message, { tone: "danger" }), undefined));
+    const cur = API_MODE === "mock" ? null : await api<MemoryPolicy>("GET", "/memory/policy").catch((e: ApiError) => (toast(why(e, e.message), { tone: "danger" }), undefined));
     if (cur === undefined) return;
     const v = await openForm({
       title: tx("记忆策略", "Memory policy"),
@@ -43,10 +64,11 @@ export default function MemoryPage() {
     if (cur) {
       const ok = await api("PUT", "/memory/policy", { body: { expected_revision: cur.revision, ttl_days: Number(v.ttl.replace("d", "")), proposers: v.source === "human" ? "human" : "human_ai" } }).then(
         () => true,
-        (e: ApiError) => (toast(e.message, { tone: "danger" }), false),
+        (e: ApiError) => (toast(why(e, tx("策略刚被他人修改，刷新后再试。", "The policy just changed; refresh and try again.")), { tone: "danger" }), false),
       );
       if (!ok) return;
       void refetch();
+      void policy.refetch();
     }
     toast(tx("记忆策略已更新", "Memory policy updated"));
   };
@@ -55,7 +77,7 @@ export default function MemoryPage() {
     const verb = action === "confirm" ? "confirm" : API_MODE === "mock" ? "forget" : f.confirmed ? "expire" : "reject";
     const ok = await api("POST", `/memory/facts/${f.id}/${verb}`).then(
       () => true,
-      (e: ApiError) => (toast(e.message, { tone: "danger" }), false),
+      (e: ApiError) => (toast(why(e, factChanged), { tone: "danger" }), false),
     );
     if (!ok) return;
     if (API_MODE !== "mock") {
@@ -71,7 +93,7 @@ export default function MemoryPage() {
     if (API_MODE !== "mock") {
       const ok = await api("POST", "/memory/conflicts/resolve", { body: { keep: c[keep].id, drop: c[keep === "a" ? "b" : "a"].id } }).then(
         () => true,
-        (e: ApiError) => (toast(e.message, { tone: "danger" }), false),
+        (e: ApiError) => (toast(why(e, tx("这条冲突刚被他人裁决，或其中的记忆已变化；刷新后再试。", "This conflict was just decided or one side changed; refresh and try again.")), { tone: "danger" }), false),
       );
       if (!ok) return;
       void refetch();
@@ -80,12 +102,14 @@ export default function MemoryPage() {
     toast(keep === "b" ? tx("已保留 B，A 已废弃", "Kept B, retired A") : tx("已保留 A，B 已废弃", "Kept A, retired B"));
   };
   const layerCount = (id: string) => data?.layers.find((l) => l.id === id)?.count;
+  // Real layers list their facts; the page shows the selected layer's (PA-145).
+  const inLayer = API_MODE === "mock" || tab === "pending" ? null : new Set(data?.layers.find((l) => l.id === layer)?.evidence?.fact_ids ?? []);
   const rows = (data?.facts ?? [])
-    .filter((f) => facts[f.id] !== "forgotten" && (!q || f.fact.toLowerCase().includes(q.toLowerCase())) && fSrc.test(f) && fConf.test(f) && (tab !== "pending" || (!f.confirmed && facts[f.id] !== "confirmed")))
+    .filter((f) => facts[f.id] !== "forgotten" && (!inLayer || inLayer.has(f.id)) && (!q || f.fact.toLowerCase().includes(q.toLowerCase())) && fSrc.test(f) && fConf.test(f) && (tab !== "pending" || (!f.confirmed && facts[f.id] !== "confirmed")))
     .map((f) => (edits[f.id] ? { ...f, fact: edits[f.id] } : f));
   return (
-    <Page flush crumbs={[tx("知识与记忆", "Knowledge"), tx("记忆", "Memory")]} actions={<Btn icon="sliders" onClick={editPolicy}>{tx("记忆策略", "Memory policy")}</Btn>}>
-      <Tabs value={tab} onChange={(v) => { setTab(v); if (v !== "pending") setLayer(v); }} options={API_MODE === "mock" ? [{ value: "service", label: tx("服务记忆", "Service"), count: 96 }, { value: "episodic", label: tx("情景记忆", "Episodic"), count: 214 }, { value: "semantic", label: tx("语义记忆", "Semantic"), count: "1,322" }, { value: "pending", label: tx("待确认", "To confirm"), count: 3 }] : [{ value: "service", label: tx("服务记忆", "Service"), count: layerCount("service") }, { value: "episodic", label: tx("情景记忆", "Episodic"), count: layerCount("episodic") }, { value: "semantic", label: tx("语义记忆", "Semantic"), count: layerCount("semantic") }, { value: "pending", label: tx("待确认", "To confirm"), count: data?.facts.filter((f) => !f.confirmed).length }]} />
+    <Page flush crumbs={[tx("知识与记忆", "Knowledge"), tx("记忆", "Memory")]} actions={<Gated reason={denied}><Btn icon="sliders" onClick={editPolicy}>{tx("记忆策略", "Memory policy")}</Btn></Gated>}>
+      <Tabs value={tab} onChange={(v) => { setTab(v); if (v !== "pending") setLayer(v); }} options={API_MODE === "mock" ? [{ value: "service", label: tx("服务记忆", "Service"), count: 96 }, { value: "episodic", label: tx("情景记忆", "Episodic"), count: 214 }, { value: "semantic", label: tx("语义记忆", "Semantic"), count: "1,322" }, { value: "pending", label: tx("待确认", "To confirm"), count: 3 }] : [...(data?.layers ?? []).map((l) => ({ value: l.id, label: layerName(l), count: layerCount(l.id) })), { value: "pending", label: tx("待确认", "To confirm"), count: data?.facts.filter((f) => !f.confirmed).length }]} />
       <div className="v3-split">
         <div className="side" style={{ width: 280, padding: 14, display: "flex", flexDirection: "column", gap: 14 }}>
           <Section title={tx("记忆分层", "Layers")}>
@@ -94,11 +118,11 @@ export default function MemoryPage() {
                 <Tile icon={LAYER_ICON[l.id]} tone={layer === l.id ? "accent" : "neutral"} size={26} />
                 <Col gap={2} grow>
                   <Row gap={6}>
-                    <Strong>{l.name}</Strong>
+                    <Strong>{layerName(l)}</Strong>
                     <Spacer />
                     <Num color="var(--muted)">{l.count}</Num>
                   </Row>
-                  <Muted size={11.5}>{l.desc ?? l.description}</Muted>
+                  <Muted size={11.5}>{layerDesc(l)}</Muted>
                 </Col>
               </button>
             ))}
@@ -116,7 +140,7 @@ export default function MemoryPage() {
         <div className="main">
           <div className="v3-content">
             <Row gap={8}>
-              <h2 style={{ fontSize: 15, fontWeight: 600 }}>{tx("{s} 的服务记忆", "Service memory for {s}", { s: svcName })}</h2>
+              <h2 style={{ fontSize: 15, fontWeight: 600 }}>{API_MODE !== "mock" && layer === "workspace" && tab !== "pending" ? tx("工作区记忆", "Workspace memory") : tx("{s} 的服务记忆", "Service memory for {s}", { s: svcName })}</h2>
               <Badge>{tx("{n} 条", "{n}", { n: rows.length })}</Badge>
               <Spacer />
               <SearchBox placeholder={tx("搜索记忆", "Search memory")} value={q} onChange={setQ} width={220} />
@@ -132,30 +156,34 @@ export default function MemoryPage() {
                 <div className="grid-2">
                   <Card style={{ padding: "10px 12px" }}>
                     <Col gap={4}>
-                      <Badge>{tx("A · 较旧", "A · older")}</Badge>
+                      <Badge>{API_MODE === "mock" ? tx("A · 较旧", "A · older") : "A"}</Badge>
                       <span style={{ fontSize: "var(--fs-sm)" }}>{data.conflict.a.text}</span>
-                      <Muted size={11.5}>{data.conflict.a.source}</Muted>
+                      <Muted size={11.5} style={{ overflowWrap: "anywhere" }}>{data.conflict.a.source}</Muted>
                     </Col>
                   </Card>
                   <Card style={{ padding: "10px 12px" }}>
                     <Col gap={4}>
-                      <Badge tone="accent">{tx("B · 较新", "B · newer")}</Badge>
+                      <Badge tone="accent">{API_MODE === "mock" ? tx("B · 较新", "B · newer") : "B"}</Badge>
                       <span style={{ fontSize: "var(--fs-sm)" }}>{data.conflict.b.text}</span>
-                      <Muted size={11.5}>{data.conflict.b.source}</Muted>
+                      <Muted size={11.5} style={{ overflowWrap: "anywhere" }}>{data.conflict.b.source}</Muted>
                     </Col>
                   </Card>
                 </div>
                 <Row gap={6}>
-                  <Btn kind="primary" h={26} onClick={() => void resolve("b")}>
-                    {tx("保留 B，废弃 A", "Keep B, retire A")}
-                  </Btn>
+                  <Gated reason={denied}>
+                    <Btn kind="primary" h={26} onClick={() => void resolve("b")}>
+                      {tx("保留 B，废弃 A", "Keep B, retire A")}
+                    </Btn>
+                  </Gated>
                   {API_MODE === "mock" ? (
                     <>
                       <Btn h={26} onClick={() => setConflict(false)}>{tx("两者都保留", "Keep both")}</Btn>
                       <Btn kind="ghost" h={26} onClick={() => { setConflict(false); toast(tx("已交给服务负责人李明", "Sent to service owner Li Ming")); }}>{tx("交给负责人", "Ask the owner")}</Btn>
                     </>
                   ) : (
-                    <Btn h={26} onClick={() => void resolve("a")}>{tx("保留 A，废弃 B", "Keep A, retire B")}</Btn>
+                    <Gated reason={denied}>
+                      <Btn h={26} onClick={() => void resolve("a")}>{tx("保留 A，废弃 B", "Keep A, retire B")}</Btn>
+                    </Gated>
                   )}
                 </Row>
               </div>
@@ -178,18 +206,21 @@ export default function MemoryPage() {
                     width: 96,
                     render: (f) => (
                       <span className="hact v3-row" style={{ gap: 0 }}>
-                        <IconBtn icon="check" label={tx("确认", "Confirm")} size={24} onClick={() => act(f, "confirm")} />
+                        <Gated reason={denied}>
+                          <IconBtn icon="check" label={tx("确认", "Confirm")} size={24} onClick={() => act(f, "confirm")} />
+                        </Gated>
+                        <Gated reason={denied}>
                         <IconBtn
                           icon="edit"
                           label={tx("编辑", "Edit")}
                           size={24}
                           onClick={async () => {
-                            const v = await openForm({ title: tx("编辑记忆", "Edit memory"), fields: [{ key: "fact", label: tx("事实", "Fact"), type: "textarea", initial: f.fact, required: true }], submit: tx("保存（需重新确认）", "Save (needs re-confirmation)") });
+                            const v = await openForm({ title: tx("编辑记忆", "Edit memory"), fields: [{ key: "fact", label: tx("事实", "Fact"), type: "textarea", initial: f.fact, required: true, hint: API_MODE === "mock" ? undefined : tx("只能改成来源资料里的一段原文，例如删掉多余的部分。", "It can only become an exact excerpt of its source, e.g. with extra words removed.") }], submit: tx("保存（需重新确认）", "Save (needs re-confirmation)") });
                             if (v) {
                               if (API_MODE !== "mock") {
                                 const ok = await api("PATCH", `/memory/facts/${f.id}`, { body: { expected_revision: f.revision, fact: v.fact } }).then(
                                   () => true,
-                                  (e: ApiError) => (toast(e.message, { tone: "danger" }), false),
+                                  (e: ApiError) => (toast(why(e, factChanged), { tone: "danger" }), false),
                                 );
                                 if (!ok) return;
                                 void refetch();
@@ -198,7 +229,10 @@ export default function MemoryPage() {
                             }
                           }}
                         />
-                        <IconBtn icon="x" label={tx("遗忘", "Forget")} size={24} onClick={() => act(f, "forget")} />
+                        </Gated>
+                        <Gated reason={denied}>
+                          <IconBtn icon="x" label={tx("遗忘", "Forget")} size={24} onClick={() => act(f, "forget")} />
+                        </Gated>
                       </span>
                     ),
                   },
@@ -207,9 +241,18 @@ export default function MemoryPage() {
             </Card>
             <Row gap={8}>
               <Icon name="shield" size={14} color="var(--muted)" />
-              <Muted>{data ? (data.policy ?? tx("当前记忆策略在“修改策略”里查看。", "Open Edit policy to see the current memory policy.")) : null}</Muted>
+              <Muted>
+                {data
+                  ? data.policy ??
+                    (policy.data
+                      ? tx("未被召回 {d} 天后过期；{p}可以提出记忆，只有人工确认过的事实会被召回。", "Expires when not recalled for {d} days; {p} can propose memories, and only human-confirmed facts are recalled.", { d: policy.data.ttl_days, p: policy.data.proposers === "human" ? tx("仅人工", "only people") : tx("人工与 AI", "people and AI") })
+                      : tx("当前记忆策略在“修改策略”里查看。", "Open Edit policy to see the current memory policy."))
+                  : null}
+              </Muted>
               <Spacer />
-              <TextLink onClick={editPolicy}>{tx("修改策略", "Edit policy")}</TextLink>
+              <Gated reason={denied}>
+                <TextLink onClick={editPolicy}>{tx("修改策略", "Edit policy")}</TextLink>
+              </Gated>
             </Row>
           </div>
         </div>

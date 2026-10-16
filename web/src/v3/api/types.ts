@@ -700,7 +700,7 @@ export type PostmortemSummary = {
   followups: { text: string; owner: string; due: string; tone: Tone }[] | null;
   unknown_fields?: string[];
 };
-export type MemoryLayer = { id: "working" | "service" | "episodic" | "semantic"; name: string; count: string | number; desc?: string; description?: string };
+export type MemoryLayer = { id: "working" | "service" | "episodic" | "semantic" | "workspace"; name: string; count: string | number; desc?: string; description?: string; /** Real layers list the facts they hold. */ evidence?: { fact_ids?: string[] } };
 /** Real facts carry `revision`/`state`; confidence, recalls and expiry are null until measured. */
 export type MemoryFact = { id: string; fact: string; source: string; confidence: "high" | "medium" | "low" | null; confirmed: string | null; recalls: number | null; expires: string | null; revision?: number; state?: string };
 export type MemoryConflictSide = { id?: string; text: string; source: string };

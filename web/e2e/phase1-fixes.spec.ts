@@ -531,3 +531,32 @@ test.describe("evaluations in real mode (PA-147, PA-148)", () => {
     });
   });
 });
+
+test.describe("agent console writes as a viewer (PA-150)", () => {
+  test.use({ storageState: statePath("prod", "viewer"), viewport: { width: 1440, height: 1000 } });
+  test("each write entry is disabled without the agents grant it needs", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/agents/evals");
+    await expect(page.getByRole("button", { name: "新建实验" })).toBeDisabled({ timeout: 20_000 });
+    await page.goto(origin + "/agents/tools");
+    await expect(page.getByRole("button", { name: "登记工具" })).toBeDisabled({ timeout: 20_000 });
+    await page.goto(origin + "/agents/guardrails");
+    const toggle = page.locator("[role=switch]").first();
+    if (await toggle.waitFor({ timeout: 15_000 }).then(() => true, () => false)) await expect(toggle).toBeDisabled();
+    // A recorded run and agent, when the instance has them.
+    const ids = await page.evaluate(async () => {
+      const h = { "X-AIOps-Environment": "prod" };
+      const runs = (await (await fetch("/api/v1/agent-runs", { headers: h })).json()) as { items?: { id: string }[] };
+      const agents = (await (await fetch("/api/v1/agents/lifecycle", { headers: h })).json()) as { items?: { id: string }[]; agents?: { id: string }[] };
+      return { run: runs.items?.[0]?.id ?? null, agent: (agents.items ?? agents.agents)?.[0]?.id ?? null };
+    });
+    if (ids.run) {
+      await page.goto(origin + `/agents/runs/${ids.run}`);
+      for (const name of ["有用", "无用", "标注"]) await expect(page.getByRole("button", { name, exact: true })).toBeDisabled({ timeout: 20_000 });
+    }
+    if (ids.agent) {
+      await page.goto(origin + `/agents/${ids.agent}`);
+      await expect(page.getByRole("button", { name: /^回滚到/ })).toBeDisabled({ timeout: 20_000 });
+    }
+  });
+});

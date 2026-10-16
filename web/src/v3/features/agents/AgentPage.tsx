@@ -22,8 +22,9 @@ export default function AgentPage() {
   const [tab, setTab] = useState("release");
   const [confirm, setConfirm] = useState(false);
   const [target, setTarget] = useState(50);
-  const rollout = useSend<{ to: string; percent: number; override: boolean }>("POST", `/agents/${id}/rollout`, ["/agents"]);
-  const rollback = useSend<void>("POST", `/agents/${id}/rollback`, ["/agents"]);
+  // Both writes name the agent revision they were decided on (expected_revision, PA-159).
+  const rollout = useSend<{ to: string; percent: number; override: boolean; override_reason?: string; expected_revision?: number }>("POST", `/agents/${id}/rollout`, ["/agents"]);
+  const rollback = useSend<{ expected_revision?: number }>("POST", `/agents/${id}/rollback`, ["/agents"]);
   const vs = (s: AgentVersion["status"]) => ({ canary: [tx("灰度中", "Canary"), "accent"], stable: [tx("稳定", "Stable"), "ok"], retired: [tx("已下线", "Retired"), "neutral"], draft: [tx("草稿", "Draft"), "neutral"] })[s] as [string, "accent" | "ok" | "neutral"];
   if (!a)
     return (
@@ -45,7 +46,7 @@ export default function AgentPage() {
       actions={
         <>
           <Gate need={["agents", "manage"]}>
-          <Btn icon="rotate" loading={rollback.isPending} onClick={() => rollback.mutate(undefined, { onSuccess: () => toast(tx("已回滚到 {v}，灰度流量清零", "Rolled back to {v}; canary traffic cleared", { v: a.release.from }), demo ? { undo: () => undefined } : {}), onError: (e) => toast(e.message, { tone: "danger" }) })}>
+          <Btn icon="rotate" loading={rollback.isPending} onClick={() => rollback.mutate({ expected_revision: a.revision }, { onSuccess: () => toast(tx("已回滚到 {v}，灰度流量清零", "Rolled back to {v}; canary traffic cleared", { v: a.release.from }), demo ? { undo: () => undefined } : {}), onError: (e) => toast(e.message, { tone: "danger" }) })}>
             {tx("回滚到 {v}", "Roll back to {v}", { v: a.release.from })}
           </Btn>
           </Gate>
@@ -256,17 +257,24 @@ export default function AgentPage() {
             <Btn
               kind={passed ? "primary" : "danger"}
               loading={rollout.isPending}
-              onClick={() =>
+              onClick={async () => {
+                // An override needs a person's reason (contract); the sample skips it.
+                let override_reason: string | undefined;
+                if (!passed && !demo) {
+                  const v = await openForm({ title: tx("放行原因", "Override reason"), desc: tx("门禁没有全部通过，放行会写入审计。", "Not all gates passed; the override is audited."), fields: [{ key: "reason", label: tx("原因", "Reason"), type: "textarea", required: true }], submit: tx("放行并推进", "Override and promote") });
+                  if (!v) return;
+                  override_reason = v.reason.trim().slice(0, 500);
+                }
                 rollout.mutate(
-                  { to: a.release.to, percent: target, override: !passed },
+                  { to: a.release.to, percent: target, override: !passed, ...(override_reason ? { override_reason } : {}), ...(demo ? {} : { expected_revision: a.revision }) },
                   {
                     onSuccess: () => {
                       setConfirm(false);
                       toast(tx("{v} 灰度已调整到 {p}%", "{v} canary set to {p}%", { v: a.release.to, p: target }), demo ? { undo: () => undefined } : {});
                     },
                   },
-                )
-              }
+                );
+              }}
             >
               {passed ? tx("推进", "Promote") : tx("管理员放行并推进", "Override and promote")}
             </Btn>

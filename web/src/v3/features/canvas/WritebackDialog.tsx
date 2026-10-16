@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError, api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { WritebackPreview } from "../../api/types";
 import { Badge, Btn, Col, Divider, Icon, Mono, Muted, Radio, Row, Section, Spacer, Tile } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
@@ -11,7 +11,7 @@ import { useWhen } from "../../ui/when";
 export function WritebackDialog({ open, investigation, from, onClose, onDone }: { open: boolean; investigation: string; from: string; onClose: () => void; onDone: (version: string) => void }) {
   const { tx } = useI18n();
   const when = useWhen();
-  const { data, error } = useGet<WritebackPreview>(open ? `/investigations/${investigation}/writeback-preview` : null, { from });
+  const { data, error, refetch } = useGet<WritebackPreview>(open ? `/investigations/${investigation}/writeback-preview` : null, { from });
   const [mode, setMode] = useState<"summary" | "messages" | "evidence">("summary");
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -22,10 +22,19 @@ export function WritebackDialog({ open, investigation, from, onClose, onDone }: 
     setBusy(true);
     let r: { version: string };
     try {
-      r = await api<{ version: string }>("POST", `/investigations/${investigation}/writeback`, { body: { from, mode, conclusions: [...picked] } });
+      // The real write names the ancestor and the revisions the preview read (PA-157).
+      const body =
+        API_MODE === "mock"
+          ? { from, mode, conclusions: [...picked] }
+          : { from, target: data?.target ?? data?.to.id, mode, conclusions: [...picked], expected_source_revision: data?.source_revision, expected_target_revision: data?.target_revision };
+      r = await api<{ version: string }>("POST", `/investigations/${investigation}/writeback`, { body });
     } catch (e) {
-      // A refused write-back is said and the dialog stays open to retry (PA-155).
+      // A refused write-back is said and the dialog stays open to retry (PA-155); a stale preview is read again.
       setBusy(false);
+      if (e instanceof ApiError && e.status === 409) {
+        void refetch();
+        return toast(tx("分支或主线刚有变化，已重新读取，请核对后再回写", "The branch or main line just changed; reloaded — check and write back again"), { tone: "danger" });
+      }
       return toast(e instanceof ApiError ? e.message : tx("回写没有完成，请稍后重试", "The write-back didn't complete; try again later"), { tone: "danger" });
     }
     setBusy(false);

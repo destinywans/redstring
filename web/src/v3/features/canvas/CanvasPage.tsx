@@ -1072,7 +1072,9 @@ export default function CanvasPage() {
         onClose={() => setWriteback(null)}
         onDone={(v) => {
           setWriteback(null);
-          setNodes((ns) => ns.map((n) => (n.id === "root" ? { ...n, subtitle: tx("主线 · 上下文 {v}", "Main line · context {v}", { v }) } : n)));
+          // The sample relabels its root; a real write-back rereads the graph so the target shows its new revision.
+          if (demo) setNodes((ns) => ns.map((n) => (n.id === "root" ? { ...n, subtitle: tx("主线 · 上下文 {v}", "Main line · context {v}", { v }) } : n)));
+          else void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith(`/investigations/${id}/`) });
           toast(tx("已生成主线 {v}，可在“版本”中查看或撤销", "Main line {v} created — view or revert under Versions", { v }), demo ? { undo: () => toast(tx("已撤销回写", "Writeback reverted")) } : {});
         }}
       />

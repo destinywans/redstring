@@ -244,6 +244,10 @@ export type WritebackPreview = {
   timeline: { v: string; text: string; meta: string; isNew?: boolean }[];
   checks: { tone: "ok" | "warn"; text: string }[];
   budget: { before: number; after: number; limit: number };
+  /** Real previews name the strict ancestor and both revisions the write must match. */
+  target?: string;
+  source_revision?: number;
+  target_revision?: number;
 };
 
 /* ---------------- investigation templates ---------------- */

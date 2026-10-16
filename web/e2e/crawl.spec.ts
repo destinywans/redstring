@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { INSTANCES, LOCAL, type InstanceName } from "./support/env";
 import { statePath } from "./support/global-setup";
-import { monitor, type PageReport } from "./support/monitor";
+import { monitor, sampleLeaks, type PageReport } from "./support/monitor";
 
 /**
  * Phase 1 · every static v3 route, loaded against the real backend.
@@ -74,6 +74,7 @@ for (const instance of Object.keys(INSTANCES) as InstanceName[]) {
           const caught = await page.locator("[data-page-error]").first().getAttribute("data-page-error", { timeout: 500 }).catch(() => null);
           if (caught) m.pageErrors.push(`PageBoundary: ${caught}`);
           const blank = await page.evaluate(() => (document.getElementById("root")?.innerText ?? "").trim().length < 20);
+          const sample = await sampleLeaks(page);
           const gates = await page.evaluate(() =>
             Array.from(document.querySelectorAll(".perm-gate")).map((g) => ({
               reason: (g.querySelector(".sr-only")?.textContent ?? "").trim(),
@@ -85,12 +86,13 @@ for (const instance of Object.keys(INSTANCES) as InstanceName[]) {
           await page.screenshot({ path: shot });
           const report: PageReport = {
             route, instance, role: ROLE, gates, locale: combo.locale, theme: combo.theme,
-            api: m.api, consoleErrors: m.consoleErrors, pageErrors: m.pageErrors, blank,
+            api: m.api, consoleErrors: m.consoleErrors, pageErrors: m.pageErrors, blank, sample,
             title: await page.title(), screenshot: shot,
           };
           writeFileSync(resolve(OUT, `${key}.json`), JSON.stringify(report, null, 2));
           expect.soft(m.pageErrors, "uncaught exceptions").toEqual([]);
           expect.soft(blank, "page rendered nothing").toBe(false);
+          expect.soft(sample, "sample data shown as real").toEqual([]);
         });
       }
     });

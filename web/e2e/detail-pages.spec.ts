@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { INSTANCES, LOCAL, type InstanceName } from "./support/env";
 import { statePath } from "./support/global-setup";
-import { monitor, type PageReport } from "./support/monitor";
+import { monitor, sampleLeaks, type PageReport } from "./support/monitor";
 
 /**
  * T5 (WAN-434) · detail pages and the tabs inside them, against the real backend.
@@ -176,6 +176,7 @@ for (const instance of Object.keys(INSTANCES) as InstanceName[]) {
           const caught = await page.locator("[data-page-error]").first().getAttribute("data-page-error", { timeout: 500 }).catch(() => null);
           if (caught) m.pageErrors.push(`PageBoundary: ${caught}`);
           const blank = await page.evaluate(() => (document.getElementById("root")?.innerText ?? "").trim().length < 20);
+          const sample = await sampleLeaks(page);
           const gates = await page.evaluate(() =>
             Array.from(document.querySelectorAll(".perm-gate")).map((g) => ({
               reason: (g.querySelector(".sr-only")?.textContent ?? "").trim(),
@@ -184,13 +185,14 @@ for (const instance of Object.keys(INSTANCES) as InstanceName[]) {
           );
           const entry: PageReport = {
             route, instance, role: ROLE, gates, ...LOCALE,
-            api: m.api.slice(seen.api), consoleErrors: m.consoleErrors.slice(seen.console), pageErrors: m.pageErrors.slice(seen.errors), blank,
+            api: m.api.slice(seen.api), consoleErrors: m.consoleErrors.slice(seen.console), pageErrors: m.pageErrors.slice(seen.errors), blank, sample,
             title: await page.title(),
           };
           seen = { api: m.api.length, console: m.consoleErrors.length, errors: m.pageErrors.length };
           writeFileSync(resolve(OUT, `${instance}-${slug(key)}.json`), JSON.stringify(entry, null, 2));
           if (entry.pageErrors.length) failures.push(`${route}: ${entry.pageErrors[0]}`);
           if (blank) failures.push(`${route}: blank page`);
+          if (sample.length) failures.push(`${route}: sample data shown as real: ${sample.join("; ")}`);
         };
 
         for (const path of targets) {

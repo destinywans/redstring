@@ -178,6 +178,7 @@ def main():
     page_errors = collections.defaultdict(set)
     console = collections.Counter()
     blank = set()
+    samples = collections.defaultdict(set)  # marker text -> pages (PA-129: sample values on a real page)
     for r in reports:
         tag = f"{r['instance']}:{r['route']}"
         for c in r['api']:
@@ -194,6 +195,9 @@ def main():
         if r['blank']:
             blank.add(tag)
             bad_pages[tag].add('blank')
+        for leak in r.get('sample') or []:
+            samples[leak.split(':', 1)[0]].add(tag)
+            bad_pages[tag].add('sample')
         for e in r['consoleErrors']:
             if not e.startswith('Failed to load resource'):
                 console[e[:160]] += 1
@@ -222,7 +226,8 @@ def main():
     lines = [f'# Crawl summary ({ROLE})', '',
              f'- page loads: {len(reports)}; clean (no unexpected API error, exception or blank): {pages_ok}',
              f"- failing API groups: {len(failures)} (unexpected {count['unexpected']}, exempt {count['exempt']}, expected for the role {count['expected']}); "
-             f'uncaught exception kinds: {len(page_errors)}; blank pages: {len(blank)}; permission gate problems: {len(gate_problems)}', '',
+             f'uncaught exception kinds: {len(page_errors)}; blank pages: {len(blank)}; permission gate problems: {len(gate_problems)}; '
+             f'sample markers shown as real: {len(samples)}', '',
              '## Failing API calls (grouped)', '', '| # | call | status | code | verdict | instances | routes | message |', '| --- | --- | --- | --- | --- | --- | --- | --- |']
     order = {'unexpected': 0, 'exempt': 1, 'expected': 2}
     ranked = sorted(failures.items(), key=lambda kv: (order[verdicts[kv[0]][0]], -len(kv[1]['routes']), kv[0]))
@@ -240,16 +245,20 @@ def main():
     for e, tags in sorted(page_errors.items(), key=lambda kv: -len(kv[1])):
         lines.append(f'- **{e}** — {len(tags)} page(s): ' + ', '.join(sorted(tags)[:8]))
     lines += ['', '## Blank pages', ''] + [f'- {t}' for t in sorted(blank)]
+    lines += ['', '## Sample data shown as real (PA-129)', ''] + \
+             [f'- **{m}** — {len(tags)} page(s): ' + ', '.join(sorted(tags)[:8]) for m, tags in sorted(samples.items())]
     lines += ['', '## Console errors (excluding failed resource loads)', ''] + [f'- ({n}) {e}' for e, n in console.most_common(30)]
     OUT.write_text('\n'.join(lines) + '\n')
     OUT.with_suffix('.json').write_text(json.dumps({
         'role': ROLE, 'loads': len(reports), 'clean': pages_ok, 'unexpected_groups': len(unexpected), 'exempt_groups': count['exempt'],
         'expected_groups': count['expected'], 'exception_kinds': len(page_errors), 'blank': len(blank), 'gate_problems': gate_problems,
+        'sample_markers': {m: sorted(t) for m, t in samples.items()},
         'groups': [{'call': f'{m} {p}', 'status': st, 'code': c, 'verdict': v[0], 'why': v[1], 'instances': sorted(failures[(m, p, st, c)]['instances']),
                     'routes': sorted(failures[(m, p, st, c)]['routes'])} for (m, p, st, c), v in sorted(verdicts.items(), key=lambda kv: order[kv[1][0]])]},
         ensure_ascii=False, indent=1))
     print(f'{len(reports)} page loads, {pages_ok} clean, {len(unexpected)} failing API groups, {len(page_errors)} exception kinds, {len(blank)} blank'
-          f", {count['exempt']} exempt, {count['expected']} expected-denied, {len(gate_problems)} gate problems ({ROLE}) -> {OUT.relative_to(ROOT)}")
+          f", {count['exempt']} exempt, {count['expected']} expected-denied, {len(gate_problems)} gate problems, {len(samples)} sample markers"
+          f" ({ROLE}) -> {OUT.relative_to(ROOT)}")
 
 
 if __name__ == '__main__':

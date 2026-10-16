@@ -14,9 +14,34 @@ export type PageReport = {
   consoleErrors: string[];
   pageErrors: string[];
   blank: boolean;
+  /** Sample-data markers visible on a real page (PA-21, PA-109, PA-129): sample values posing as real ones. */
+  sample?: string[];
   title: string;
   screenshot?: string;
 };
+
+/**
+ * Strings that only the bundled sample data contains: sample incident, canvas and report IDs, the sample on-call person,
+ * the sample service and Feishu channel. None exists in the acceptance data, so on a real page each one is sample
+ * content shown as if it were real.
+ */
+export const SAMPLE_MARKERS = ["INV-231", "INC-1042", "EXE-51", "王晨", "Wang Chen", "#trade-incident", "payment-gateway", "run_7f3a"];
+
+/** Sample markers in the page's visible text and link targets, each with a little context. */
+export async function sampleLeaks(page: Page): Promise<string[]> {
+  return page.evaluate((markers) => {
+    const text = document.getElementById("root")?.innerText ?? "";
+    const hrefs = Array.from(document.querySelectorAll("#root a[href]")).map((a) => a.getAttribute("href") ?? "");
+    const out: string[] = [];
+    for (const m of markers) {
+      const i = text.indexOf(m);
+      if (i >= 0) out.push(`${m}: …${text.slice(Math.max(0, i - 30), i + m.length + 30).replace(/\s+/g, " ")}…`);
+      const h = hrefs.find((x) => x.includes(m));
+      if (h) out.push(`${m}: link ${h}`);
+    }
+    return out;
+  }, SAMPLE_MARKERS);
+}
 
 /** Collects every /api/v1 response, console error and uncaught exception while a page is open. */
 export function monitor(page: Page) {

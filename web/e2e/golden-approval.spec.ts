@@ -77,6 +77,13 @@ async function approve(page: Page, expected: RegExp, shot: string) {
   await page.getByRole("button", { name: "用通行密钥批准" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByText(expected)).toBeVisible({ timeout: 30_000 });
+  // The dialog may only link to an execution page that serves this execution (PA-125: silences have none).
+  const link = dialog.locator('a[href^="/executions/"]');
+  if (await link.count()) {
+    const href = (await link.first().getAttribute("href")) ?? "";
+    const status = await page.evaluate(async ({ href, envId }) => (await fetch("/api/v1" + href, { headers: { "X-AIOps-Environment": envId } })).status, { href, envId });
+    expect.soft(status, "the execution page the approval dialog links to").toBe(200);
+  }
   await page.screenshot({ path: resolve(OUT, shot), fullPage: true });
   return (await dialog.innerText()).trim();
 }

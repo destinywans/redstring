@@ -37,7 +37,8 @@ BIN = LOCAL / 'bin/aiops'
 TARGET_SERVICE = 'checkout-api'  # the silence drawer and the alert it silences belong to this service
 # golden-approval needs a pending proposal id (GOLDEN_PROPOSAL); golden-silence-ui proposes, approves
 # with passkeys, executes and expires a silence end to end, so it covers approval in the regression.
-SPECS = {'golden-conversation.spec.ts': {}, 'golden-invite.spec.ts': {}, 'golden-silence-ui.spec.ts': None}
+# phase1-fixes: route-pinned checks for the WAN-434 phase 1 fixes (no writes).
+SPECS = {'golden-conversation.spec.ts': {}, 'golden-invite.spec.ts': {}, 'phase1-fixes.spec.ts': {}, 'golden-silence-ui.spec.ts': None}
 
 
 def golden_investigation():
@@ -102,14 +103,14 @@ def mismatches(out):
 def crawl_summary(out):
     """crawl-summary.py counts only the groups left after exemptions and the role's expected denials."""
     m = re.search(r'(\d+) page loads, (\d+) clean, (\d+) failing API groups, (\d+) exception kinds, (\d+) blank'
-                  r'(?:, (\d+) exempt, (\d+) expected-denied, (\d+) gate problems)?', out)
+                  r'(?:, (\d+) exempt, (\d+) expected-denied, (\d+) gate problems)?(?:, (\d+) sample markers)?', out)
     if not m:
         return {}
     loads, clean, groups, exc, blank = map(int, m.groups()[:5])
-    exempt, expected, gates = (int(x or 0) for x in m.groups()[5:])
+    exempt, expected, gates, samples = (int(x or 0) for x in m.groups()[5:])
     return {'loads': loads, 'clean': clean, 'failing_api_groups': groups, 'exceptions': exc, 'blank': blank,
-            'exempt_groups': exempt, 'expected_denied_groups': expected, 'gate_problems': gates,
-            'ok': exc == 0 and blank == 0 and groups == 0 and gates == 0}
+            'exempt_groups': exempt, 'expected_denied_groups': expected, 'gate_problems': gates, 'sample_markers': samples,
+            'ok': exc == 0 and blank == 0 and groups == 0 and gates == 0 and samples == 0}
 
 
 def main():

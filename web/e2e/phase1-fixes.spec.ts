@@ -372,3 +372,25 @@ test.describe("SLO settings gate (PA-140)", () => {
     await expect(page.getByRole("button", { name: "SLO 设置" })).toBeDisabled({ timeout: 20_000 });
   });
 });
+
+test.describe("guardrail switch (PA-142)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  test("the toggle sends only { enabled } with the ID in the path", async ({ page }) => {
+    await page.addInitScript(zh);
+    let sent: unknown = undefined;
+    let path = "";
+    await page.route((u) => u.pathname.startsWith("/api/v1/guardrails/"), (r) => {
+      if (r.request().method() !== "PATCH") return r.fallback();
+      sent = r.request().postDataJSON();
+      path = new URL(r.request().url()).pathname;
+      return json(r, 200, {});
+    });
+    await page.goto(origin + "/agents/guardrails");
+    const toggle = page.locator(".v3-toggle, [role=switch]").first();
+    test.skip(!(await toggle.waitFor({ state: "visible", timeout: 15_000 }).then(() => true, () => false)), "no switchable guardrail");
+    await toggle.click();
+    await expect.poll(() => sent).toBeDefined();
+    expect(Object.keys(sent as object)).toEqual(["enabled"]);
+    expect(path).toMatch(/^\/api\/v1\/guardrails\/[^/]+$/);
+  });
+});

@@ -287,3 +287,14 @@ test.describe("no pretend actions in real mode (PA-134)", () => {
     await expect(page.getByRole("button", { name: "新建版本" })).toHaveCount(0);
   });
 });
+
+test.describe("write failures are said (PA-136)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  test("a mutate call without its own error handler still shows the refusal", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/members/sync"), (r) => json(r, 503, { error: { code: "member_source_not_configured", message: "检查用：目录来源未配置" } }));
+    await page.goto(origin + "/settings/members");
+    await page.getByRole("button", { name: "从飞书同步" }).click({ timeout: 20_000 });
+    await expect.poll(() => toasts(page)).toContain("检查用：目录来源未配置");
+  });
+});

@@ -148,7 +148,7 @@ export function useSend<TBody, TResult = unknown>(
   // Re-sending the identical request while it is in flight or after it failed (double click, retry after a
   // dropped connection) reuses its key, so the server replays instead of repeating it. Success starts afresh.
   const last = useRef<{ sig: string; key: string } | null>(null);
-  return useMutation<TResult, ApiError, TBody>({
+  const m = useMutation<TResult, ApiError, TBody>({
     mutationFn: (body) => {
       const url = typeof path === "function" ? path(body) : path;
       const sig = `${method} ${url} ${JSON.stringify(body ?? null)}`;
@@ -161,4 +161,18 @@ export function useSend<TBody, TResult = unknown>(
         client.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith(prefix) });
     },
   });
+  // A caller that passes no onError used to fail silently (the button just stopped spinning): say why instead (PA-136).
+  // Loaded lazily: overlays → core → … would otherwise import this module back while it initialises.
+  type Opts = Parameters<typeof m.mutate>[1];
+  const mutate = (vars: TBody, opts?: Opts) =>
+    m.mutate(vars, {
+      ...opts,
+      onError:
+        opts?.onError ??
+        ((e) =>
+          void import("../ui/overlays").then(({ toast }) =>
+            toast(e?.message || (currentLocale() === "en-US" ? "That didn't work; try again later" : "操作失败，请稍后重试"), { tone: "danger" }),
+          )),
+    });
+  return { ...m, mutate: mutate as typeof m.mutate };
 }

@@ -160,6 +160,17 @@
   - DeepSeek：第 5 步约 3 次（调查分支追问 1、新建画布 AI 起草 1、新对话 1，另规则生成 503 未调用模型）；阶段 1 本会话合计约 7 次。
 - **清单 1.4 · 回滚“无写权限”反例（22:45，交回）**：只读核对实验集群：回滚账号 `aiops-lab/aiops-rollback` 的 Role 只对 checkout-api、order-api 有 get/patch，`kubectl auth can-i patch deployment/message-api --as …:aiops-rollback` 为 no，message-api Deployment 存在。前置条件只差产品部署配置：nonprod `AIOPS_V3_KUBERNETES_WRITE_BINDINGS`（`.local/acceptance/nonprod/server.env`、`extra.env`）的 `aiops-lab` 绑定里加入 `message-api`，然后只重启 nonprod，再跑 `rollback_edges.py write-forbidden --app message-api`。回滚令牌已轮换（到 10-17 14:45Z）。改绑定这一步被自动模式判为“授予权限”拦下，未做任何改动；需要用户确认是否这样配置（这条绑定会让产品在 nonprod 对 message-api 提供必然被 K8s 拒绝的回滚，正是反例要的状态，演练后保留还是撤回也请一并定）。
 
+- **收尾回归 1（87db4f62，`regress-cv-p1-final.json`，22:46–23:10，负载 4～9）：17/23**，失败项逐条归类：
+  - 管理员对拍 216/216 干净、0 失败接口组、0 示意标记，但 12 条“门控没写权限”：PA-137/138 修复时把“来源未配置”（飞书目录、Push 来源）放进了权限门控组件；详情页对拍同类 6 条来自 PA-164 的“没有候选版本”。修正：`Gated` 增加 `kind="availability"`（样式不变、类名 `avail-gate`），三处改用它（0a7aa981）。
+  - 只读成员、运维人员对拍各 107/108，唯一意外项是已登记的 PA-110（`GET /config-sync` 403）。
+  - 详情页对拍 140/142：两条 prod 审阅页 404 是工具把 nonprod 回滚边界演练的提案拿到 prod 去开（报告文件名不含 nonprod）→ 工具改为按报告的 `instance` 字段或已知演练名分实例（6f01ae79）。
+  - `account-security.spec.ts` 4/5：同一文件的用例并行跑，我新加的“退出其他会话”结束了身份验证器用例的会话 → 改为串行，单独重跑 5/5。
+  - 告警规则闭环 nonprod 18/21：启用全程通过；停用的两人批准失败，原因是两位审批人在 nonprod 各已注册 65、64 把通行密钥（每次批准用例都用新的虚拟认证器注册一把），超过 Chrome 对 `excludeCredentials`/`allowCredentials` 的 64 项上限。prod 两人各 48 把，也会很快撞上。不是产品缺陷（真实用户不会有这么多密钥），但会挡住所有 nonprod 审批流程 → 新增 `tools/acceptance/passkey-prune.mjs`：用软件密钥走产品自己的注册与删除仪式，删掉名字以“验收”开头的密钥（遇到 `passkey_rate_limited` 按退避重试）。这次停用没完成；清理后（nonprod 两人 65/64 → 0，prod 两人 48/48 → 0，23:15–23:38）用界面两人批准停用提案 `54d7a69d…`，执行到 disabled，实验 Prometheus 里已没有 `RedstringAcceptance10162259`。
+  - 其余通过：对拍、对话与邀请黄金路径、`phase1-fixes` 42/42、静默界面与两人批准（prod）、两实例权限矩阵、链路视图 16/16、凭据 9/9、环境 25/25、输入 12/12、登录 10/10、GitLab 比对 6/6。
+
+- **收尾回归 2（6f01ae79，`regress-cv-p1-final2.json`，23:38–23:54，负载 6～8）：20/23**：管理员对拍 216/216 干净、0 门控问题、0 示意标记；`phase1-fixes` 42/42；账号安全 5/5；告警规则闭环 nonprod 21/21（通行密钥清理后启用与停用全程通过）；其余同上全部通过。三项失败：只读成员、运维人员对拍各唯一意外项仍是已登记的 PA-110；详情页对拍 2 条 404 是 20:09 留下的旧结果文件（详情页 ID 每次不同，旧文件不会被覆盖，汇总一并统计）→ `regress.py` 改为每次先清空详情页对拍输出，从空目录重跑 105/105 干净、0 失败接口组。
+- **阶段 1 收工（10-16 23:55）**：宿主 1 分钟负载 6.8（开工 10.0）。阶段 1 本会话登记 PA-119～166 共 48 条（P0 2、P1 11、P2 16、P3 16、缺能力 3），并修复阶段 0 遗留的 PA-114；未修的 P0/P1：PA-124 余项（模板/对话/导入三个起点，待用户定方案）。D53～D55 待复核。
+
 ## 轮次记录
 
 （阶段 2 开始后每轮一节，由 `tools/acceptance/round.py` 生成段落。）

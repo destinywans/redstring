@@ -157,6 +157,10 @@ def main():
                                cwd=ROOT / 'web', env=crawl_env))
             results.append(run(f'crawl summary {role}', ['python3', 'tools/acceptance/crawl-summary.py'], env={'CRAWL_ROLE': role}, parse=crawl_summary))
     if a.with_details:
+        # Detail page IDs change between runs, so a page left over from an earlier run is never overwritten and
+        # the summary would judge it again: start from an empty output directory.
+        for old in (LOCAL / 'e2e/detail-crawl').glob('*.json'):
+            old.unlink()
         results.append(run('detail pages and tabs', ['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', 'detail-pages.spec.ts'],
                            cwd=ROOT / 'web', env={'E2E_WORKERS': '3'}, timeout=2400))
         results.append(run('detail summary', ['python3', 'tools/acceptance/crawl-summary.py'], env={'CRAWL_OUT': 'e2e/detail-crawl'}, parse=crawl_summary))

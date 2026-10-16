@@ -292,9 +292,24 @@ test.describe("write failures are said (PA-136)", () => {
   test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
   test("a mutate call without its own error handler still shows the refusal", async ({ page }) => {
     await page.addInitScript(zh);
-    await page.route(at("/members/sync"), (r) => json(r, 503, { error: { code: "member_source_not_configured", message: "检查用：目录来源未配置" } }));
+    // Audit export calls mutate with onSuccess only, like most write buttons.
+    await page.route(at("/audit/export"), (r) => json(r, 503, { error: { code: "audit_export_unavailable", message: "检查用：导出暂不可用" } }));
+    await page.goto(origin + "/settings/audit");
+    await page.getByRole("button", { name: "导出" }).click({ timeout: 20_000 });
+    await expect.poll(() => toasts(page)).toContain("检查用：导出暂不可用");
+  });
+});
+
+test.describe("members page with unknown MFA counts (PA-137)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  test("no raw placeholders; directory sync says it isn't connected", async ({ page }) => {
+    await page.addInitScript(zh);
     await page.goto(origin + "/settings/members");
-    await page.getByRole("button", { name: "从飞书同步" }).click({ timeout: 20_000 });
-    await expect.poll(() => toasts(page)).toContain("检查用：目录来源未配置");
+    await page.getByText("成员与团队").first().waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(1_500);
+    const text = await page.locator("#root").innerText();
+    expect(text).not.toMatch(/\{n\}|\{d\}/);
+    // The acceptance instances have no Feishu directory (unavailable_fields: directory_sync_source).
+    await expect(page.getByRole("button", { name: "从飞书同步" })).toBeDisabled();
   });
 });

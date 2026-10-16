@@ -4,6 +4,10 @@ export type ApiCall = { method: string; path: string; status: number; code?: str
 export type PageReport = {
   route: string;
   instance: string;
+  /** Account the page was loaded as (admin unless CRAWL_ROLE says otherwise). */
+  role?: string;
+  /** Permission gates on the page: entries rendered disabled with the permission to ask for (PA-64). */
+  gates?: { reason: string; disabled: boolean }[];
   locale: string;
   theme: string;
   api: ApiCall[];

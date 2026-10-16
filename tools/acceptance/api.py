@@ -31,9 +31,13 @@ def session_cookie(instance, role):
     return '; '.join(f"{c['name']}={c['value']}" for c in state['cookies'])
 
 
-def call(instance, method, path, body=None, env=None, role='admin', cookie=None, locale='zh-CN', headers_out=None, idempotency_key=None):
+def call(instance, method, path, body=None, env=None, role='admin', cookie=None, locale='zh-CN', headers_out=None, idempotency_key=None, probe=None):
+    """probe: a non-empty label is sent as X-Acceptance-Probe; the proxy log records it and coverage.py
+    leaves those requests out (permission probes and other non-use traffic)."""
     ctx = ssl.create_default_context(cafile=str(LOCAL / 'tls/cert.pem'))
     headers = {'Accept-Language': locale, 'Origin': ORIGINS[instance], 'Cookie': cookie or session_cookie(instance, role)}
+    if probe:
+        headers['X-Acceptance-Probe'] = str(probe)
     if env != '':
         headers['X-AIOps-Environment'] = env or DEFAULT_ENV[instance]
     data = None

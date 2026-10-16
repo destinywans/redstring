@@ -12,6 +12,7 @@ import { useI18n } from "../../i18n";
 import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./events.css";
 import { openExternal, copyText } from "../../ui/demo";
+import { Gate } from "../../ui/permission";
 import { useWhen, parseStamp } from "../../ui/when";
 
 type Day = "today" | "yesterday" | "earlier";
@@ -42,11 +43,16 @@ export function AlertDetailView({ id }: { id: string }) {
       await api("POST", `/alerts/${a.id}/claim`, demo ? undefined : { body: { expected_revision: a.revision } });
       setClaimed(true);
       if (!demo) void refetch();
-      toast(tx("已认领，值班升级已停止", "Claimed — escalation stopped"), demo ? { undo: () => setClaimed(false) } : {});
+      // V3 has no on-call escalation to stop; only the sample says so (PA-117).
+      toast(demo ? tx("已认领，值班升级已停止", "Claimed — escalation stopped") : tx("已认领", "Claimed"), demo ? { undo: () => setClaimed(false) } : {});
     } catch (e) {
       if (e instanceof ApiError && e.status === 412) {
         void refetch();
         return toast(tx("告警状态刚刚变化，已重新读取，请再试一次", "The alert just changed; it was reloaded — try again"), { tone: "danger" });
+      }
+      if (e instanceof ApiError && e.code === "already_claimed_or_closed") {
+        void refetch();
+        return toast(tx("这条告警已被他人认领或已经结束", "Someone else claimed this alert, or it has ended"), { tone: "danger" });
       }
       toast(e instanceof ApiError ? e.message : tx("认领失败，请稍后重试", "Couldn't claim it; try again later"), { tone: "danger" });
     }
@@ -60,9 +66,18 @@ export function AlertDetailView({ id }: { id: string }) {
           {STATE[a.state][1]}
         </State>
         <Spacer />
-        <Btn kind={isClaimed ? "secondary" : "primary"} icon="check" disabled={isClaimed && !demo} onClick={() => void claim()}>
-          {isClaimed ? tx("已认领", "Claimed") : tx("认领", "Claim")}
-        </Btn>
+        {/* A resolved alert can't be claimed (409); say so up front instead (PA-118). */}
+        <Gate need={["events", "change"]}>
+          <Btn
+            kind={isClaimed ? "secondary" : "primary"}
+            icon="check"
+            disabled={!demo && (isClaimed || a.state === "resolved")}
+            title={!demo && !isClaimed && a.state === "resolved" ? tx("告警已恢复，不需要认领", "The alert has resolved; nothing to claim") : undefined}
+            onClick={() => void claim()}
+          >
+            {isClaimed ? tx("已认领", "Claimed") : tx("认领", "Claim")}
+          </Btn>
+        </Gate>
         <Btn icon="branch" to={investigation ? `/canvas/${investigation}` : demo ? "/canvas/INV-231" : "/canvases?new=investigation"}>
           {investigation || demo ? tx("打开调查", "Open investigation") : tx("发起调查", "Investigate")}
         </Btn>

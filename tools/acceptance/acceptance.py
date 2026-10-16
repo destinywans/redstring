@@ -33,6 +33,13 @@ MODELS = ['deepseek-flash', 'deepseek-v4-pro']
 # --host-resolver-rules; nothing is added to /etc/hosts or the keychain.
 PROXY = 'aiops-acceptance-proxy'
 TLS = LOCAL / 'tls'
+# WAN-434 T2: one JSON line per request for coverage.py. Only the fields below are logged: $uri has the
+# query string removed (OIDC callbacks carry a code) and no Cookie or Authorization header is recorded.
+# The directory is mounted from the host so a rebuilt proxy keeps the history.
+PROXY_LOGS = LOCAL / 'proxy-logs'
+LOG_FORMAT = ('log_format acceptance escape=json \'{"t":"$time_iso8601","port":"$server_port","m":"$request_method",'
+              '"uri":"$uri","s":"$status","rt":"$request_time","probe":"$http_x_acceptance_probe","urt":"$upstream_response_time"}\';\n'
+              '    access_log /var/log/nginx/acceptance/access.log acceptance;\n')
 # The lab Alertmanager speaks plain HTTP; a production tier only accepts HTTPS, so the proxy
 # also fronts it on 127.0.0.1 with its own IP-SAN cert (trusted via ca_file) and a bearer token.
 ALERTMANAGER = {'https': 18445, 'upstream': 'host.docker.internal:19093'}
@@ -286,14 +293,18 @@ def tls():
         }}
     }}"""
     conf = TLS / 'nginx.conf'
-    conf.write_text('worker_processes 2;\nevents { worker_connections 4096; }\nhttp {' + upstreams + servers + '\n}\n')
+    conf.write_text('worker_processes 2;\nevents { worker_connections 4096; }\nhttp {\n    ' + LOG_FORMAT + upstreams + servers + '\n}\n')
     os.chmod(conf, 0o600)
+    PROXY_LOGS.mkdir(parents=True, exist_ok=True)
+    os.chmod(PROXY_LOGS, 0o700)
     subprocess.run(['docker', 'rm', '-f', PROXY], capture_output=True)
     ports = sum((['-p', f"127.0.0.1:{p}:{p}"] for p in [*(spec['https'] for spec in INSTANCES.values()), ALERTMANAGER['https'], GITLAB['https']]), [])
     subprocess.run(['docker', 'run', '-d', '--name', PROXY, '--label', 'aiops.acceptance=2026-10-09', *ports,
-                    '-v', f'{TLS}:/tls:ro', '-v', f"{TLS / 'nginx.conf'}:/etc/nginx/nginx.conf:ro", 'nginx:latest'],
+                    '-v', f'{TLS}:/tls:ro', '-v', f"{TLS / 'nginx.conf'}:/etc/nginx/nginx.conf:ro",
+                    '-v', f'{PROXY_LOGS}:/var/log/nginx/acceptance', 'nginx:latest'],
                    check=True, capture_output=True)
-    print(f"{PROXY}: https on {', '.join(origin(n) for n in INSTANCES)}; SPKI in .local/acceptance/tls/spki.txt")
+    print(f"{PROXY}: https on {', '.join(origin(n) for n in INSTANCES)}; SPKI in .local/acceptance/tls/spki.txt; "
+          f"access log in .local/acceptance/proxy-logs/access.log")
 
 
 MAIL = LOCAL / 'mail'

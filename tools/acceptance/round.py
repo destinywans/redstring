@@ -21,6 +21,10 @@ Rules applied at finish (§2.2, §2.3):
   * void: --invalid-reason TEXT (attach evidence: watchdog output, container state), more than 2 load exemptions,
     or an artifact built from a modified tree (counted rounds only);
   * at most one counted round per calendar day (a second valid one the same day is flagged);
+  * model usage (finish): calls, failures and tokens recorded between start and finish are counted from the
+    acceptance databases (read only, through audit_writes.readonly_json); any failure, or more calls than twice the
+    median of earlier valid rounds (needs 3 of them), is flagged loudly. DeepSeek has no budget cap, so this is the
+    only watch on it. --model-usage-json FILE reuses a result, --skip-model-usage leaves it out;
   * the cap: N + 5 valid counted rounds without reaching N (5) in a row stops the phase; the paragraph says so.
 """
 import argparse
@@ -34,6 +38,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCAL = ROOT / '.local/acceptance'
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 BIN = LOCAL / 'bin/aiops'
 N = 5
 CAP = N + 5
@@ -100,6 +105,93 @@ def credentials(args):
     if not target.exists() or target.stat().st_mtime == before:
         return {'error': f'credentials.py wrote no result (exit {r.returncode}): {(r.stdout + r.stderr).strip()[-300:]}'}
     return json.loads(target.read_text())
+
+
+# Where the product leaves countable model calls. Every query counts a time window and returns numbers only:
+# prompts, answers and error text are never selected. FAILED_ERR marks provider-side failures (429, 5xx, timeouts).
+FAILED_ERR = "'429|rate.?limit|5[0-9]{2}|time.?out|deadline|unavailable'"
+USAGE_QUERIES = {
+    # investigation canvas/branch attempts (internal/store/run_steps.go): one row per model call
+    'canvas_model_steps': f"""SELECT count(*) AS calls, count(*) FILTER (WHERE status='failed') AS failed,
+        count(*) FILTER (WHERE status='failed' AND error ~* {FAILED_ERR}) AS provider_failed,
+        count(*) FILTER (WHERE status='running') AS unfinished,
+        coalesce(sum(input_tokens),0) AS input_tokens, coalesce(sum(output_tokens),0) AS output_tokens,
+        count(*) FILTER (WHERE input_tokens IS NULL) AS tokens_unreported
+        FROM run_steps WHERE kind='model' AND started_at >= :'since'::timestamptz AND started_at < :'until'::timestamptz""",
+    # conversation turns (v3_conversation_replies): one row per reply, each with one or more model calls; only the total
+    # token figure is kept, in the assistant message's run block
+    'conversation_replies': f"""SELECT count(*) AS calls, count(*) FILTER (WHERE r.state='failed') AS failed,
+        count(*) FILTER (WHERE r.state='failed' AND r.error ~* {FAILED_ERR}) AS provider_failed,
+        count(*) FILTER (WHERE r.state IN ('queued','running')) AS unfinished,
+        coalesce(sum(CASE WHEN jsonb_typeof(m.run->'tokens')='number' THEN (m.run->>'tokens')::bigint END),0) AS tokens_total
+        FROM v3_conversation_replies r LEFT JOIN v3_conversation_messages m ON m.id=r.assistant_message_id
+        WHERE r.started_at >= :'since'::timestamptz AND r.started_at < :'until'::timestamptz""",
+    'prompt_trials': f"""SELECT count(*) AS calls, count(*) FILTER (WHERE status='failed') AS failed,
+        count(*) FILTER (WHERE status='failed' AND error_code ~* {FAILED_ERR}) AS provider_failed,
+        count(*) FILTER (WHERE status='started') AS unfinished,
+        coalesce(sum(input_tokens),0) AS input_tokens, coalesce(sum(output_tokens),0) AS output_tokens
+        FROM v3_agent_prompt_trial_runs WHERE status<>'pending' AND started_at >= :'since'::timestamptz AND started_at < :'until'::timestamptz""",
+    'rule_assistant': f"""SELECT count(*) AS calls, count(*) FILTER (WHERE status IN ('failed','ambiguous')) AS failed,
+        count(*) FILTER (WHERE status IN ('failed','ambiguous') AND error_code ~* {FAILED_ERR}) AS provider_failed,
+        count(*) FILTER (WHERE status='running') AS unfinished,
+        coalesce(sum(input_tokens),0) AS input_tokens, coalesce(sum(output_tokens),0) AS output_tokens
+        FROM v3_rule_generate_attempts WHERE created_at >= :'since'::timestamptz AND created_at < :'until'::timestamptz""",
+    'agent_llm_spans': """SELECT count(*) AS calls, count(*) FILTER (WHERE status='failed') AS failed, 0 AS provider_failed, 0 AS unfinished,
+        coalesce(sum(token_input),0) AS input_tokens, coalesce(sum(token_output),0) AS output_tokens
+        FROM v3_agent_run_spans WHERE kind='llm' AND started_at >= :'since'::timestamptz AND started_at < :'until'::timestamptz""",
+}
+USAGE_LABELS = {'canvas_model_steps': '画布/调查模型调用', 'conversation_replies': '对话回复（每条含 ≥1 次调用）', 'prompt_trials': 'Prompt 试运行',
+                'rule_assistant': '规则助手', 'agent_llm_spans': 'Agent 运行 LLM 片段'}
+
+
+def model_usage(since, until, databases=None):
+    """Count model calls, failures and tokens in [since, until) over the acceptance databases."""
+    from acceptance import INSTANCES
+    from audit_writes import readonly_json
+    per_db, sources = {}, {}
+    for spec in INSTANCES.values():
+        db = spec['db']
+        if databases and db not in databases:
+            continue
+        per_db[db] = readonly_json(db, USAGE_QUERIES, {'since': since, 'until': until})
+    for name in USAGE_QUERIES:
+        rows = [d[name][0] for d in per_db.values() if d.get(name)]
+        if not rows:
+            sources[name] = None  # no database answered: the table is missing or the query failed
+            continue
+        total = {}
+        for row in rows:
+            for k, v in row.items():
+                total[k] = total.get(k, 0) + (v or 0)
+        sources[name] = total
+    return summarize_usage(since, until, sources, per_db)
+
+
+def summarize_usage(since, until, sources, per_db=None):
+    ok = {k: v for k, v in sources.items() if v}
+    return {'window': {'since': since, 'until': until}, 'sources': sources,
+            'unavailable': [k for k, v in sources.items() if v is None],
+            'total_calls': sum(v['calls'] for v in ok.values()), 'failed': sum(v['failed'] for v in ok.values()),
+            'provider_failed': sum(v['provider_failed'] for v in ok.values()), 'unfinished': sum(v['unfinished'] for v in ok.values()),
+            'input_tokens': sum(v.get('input_tokens', 0) for v in ok.values()), 'output_tokens': sum(v.get('output_tokens', 0) for v in ok.values()),
+            'conversation_tokens_total': (ok.get('conversation_replies') or {}).get('tokens_total', 0),
+            'per_database': per_db}
+
+
+def usage_alerts(usage, history):
+    """Reasons to look at this round's model usage; history = total_calls of earlier valid rounds."""
+    alerts = []
+    if usage.get('failed'):
+        alerts.append(f"模型调用失败 {usage['failed']} 次（其中 429/5xx/超时类 {usage['provider_failed']} 次）：DeepSeek 外部故障要有明确提示且可重试，否则按缺陷定级")
+    if usage.get('unfinished'):
+        alerts.append(f"有 {usage['unfinished']} 条调用在收工时仍未结束")
+    if len(history) >= 3:
+        median = sorted(history)[len(history) // 2] if len(history) % 2 else sum(sorted(history)[len(history) // 2 - 1:len(history) // 2 + 1]) / 2
+        if median and usage['total_calls'] > 2 * median:
+            alerts.append(f"调用次数 {usage['total_calls']} 超过此前 {len(history)} 个有效轮次中位数 {median:g} 的 2 倍")
+    if usage.get('unavailable'):
+        alerts.append('这些来源没查到（表缺失或查询失败）：' + '、'.join(USAGE_LABELS[k] for k in usage['unavailable']))
+    return alerts
 
 
 def load(round_id):
@@ -194,11 +286,36 @@ def cmd_finish(a):
         prior = streak_before(record['round'], records)
         record['streak'] = 0 if reset else (prior + 1 if record['valid'] else prior)
         record['valid_rounds_so_far'] = sum(1 for r in records if r['counted'] and r['valid'] and int(r['round']) < int(record['round'])) + int(record['valid'])
+    if not a.skip_model_usage:
+        try:
+            if a.model_usage_json:
+                usage = json.loads(Path(a.model_usage_json).read_text())
+            else:
+                usage = model_usage(record['started_at'], record['finished_at'])
+            history = [r['model_usage']['total_calls'] for r in records if r.get('valid') and (r.get('model_usage') or {}).get('total_calls') is not None]
+            usage['alerts'] = usage_alerts(usage, history)
+            record['model_usage'] = usage
+        except (SystemExit, Exception) as e:  # noqa: BLE001
+            record['model_usage'] = {'error': str(e)[:300], 'alerts': ['模型调用次数没统计到：' + str(e)[:200]]}
+        for alert in record['model_usage']['alerts']:
+            print(f'!! 模型调用：{alert}', file=sys.stderr)
     if a.note:
         record['notes'] = (record['notes'] + '\n' + a.note).strip()
     print(f'finished round {a.round}: {save(record)}')
     print()
     print(paragraph(record))
+
+
+def usage_text(u):
+    if not u:
+        return '未统计'
+    if u.get('error'):
+        return f"⚠ 没统计到：{u['error']}"
+    parts = [f"共 {u['total_calls']} 次"] + [f"{USAGE_LABELS[k]} {v['calls']}" for k, v in u['sources'].items() if v and v['calls']]
+    parts.append(f"失败 {u['failed']}（429/5xx/超时类 {u['provider_failed']}）")
+    parts.append(f"token 输入 {u['input_tokens']} / 输出 {u['output_tokens']}" + (f"；对话回复合计 {u['conversation_tokens_total']}" if u.get('conversation_tokens_total') else ''))
+    text = '；'.join(parts)
+    return text + ''.join(f'<br>⚠ {a}' for a in u.get('alerts', []))
 
 
 def paragraph(r):
@@ -219,6 +336,7 @@ def paragraph(r):
              f"| 任务卡 | {'、'.join(r['cards']) if r['cards'] else '—'} |",
              f"| 数据状态 | {'、'.join(r['data_states']) if r['data_states'] else '—'} |",
              f"| 自由探索 | {r['exploration_minutes'] if r['exploration_minutes'] is not None else '—'} 分钟 |",
+             f"| 模型调用 | {usage_text(r.get('model_usage'))} |",
              f"| 负载豁免 | {r['load_exemptions']} 次（超过 2 次本轮作废） |",
              f"| 本轮有效 | {valid} |"]
     if r['counted']:
@@ -267,6 +385,8 @@ def main():
     f.add_argument('--invalid-reason', help='void the round with this reason (attach evidence in the registry)')
     f.add_argument('--binary', default=str(BIN))
     f.add_argument('--note')
+    f.add_argument('--model-usage-json', help='reuse a model usage result instead of querying the databases')
+    f.add_argument('--skip-model-usage', action='store_true')
     f.set_defaults(fn=cmd_finish)
     w = sub.add_parser('show')
     w.add_argument('round')

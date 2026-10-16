@@ -37,24 +37,37 @@ QUERIES = {
 }
 
 
-def psql(db, since):
-    """One READ ONLY transaction; every result comes back as a single JSON document."""
-    if not re.fullmatch(r'[0-9T:+\-. Z]+', since):
-        sys.exit(f'--since looks wrong: {since}')
-    script = ['\\set ON_ERROR_STOP on', 'BEGIN READ ONLY;', f"\\set since '{since}'"]
-    for name, sql in QUERIES.items():
-        script.append(f"SELECT '{name}', coalesce(json_agg(t), '[]'::json) FROM ({sql}) t;")
-    script.append('COMMIT;')
+def readonly_json(db, queries, variables=None):
+    """Run named SELECTs, each in its own READ ONLY transaction, and return {name: parsed JSON or None}.
+
+    A query that fails (for example a table that this build does not have) yields None; the others still run.
+    Variables become psql variables, so a query refers to them as :'name'. Used by round.py too.
+    """
+    script = ['\\set ON_ERROR_STOP off']
+    for key, value in (variables or {}).items():
+        if not re.fullmatch(r'[0-9T:+\-. Z]+', value):
+            sys.exit(f'--{key} looks wrong: {value}')
+        script.append(f"\\set {key} '{value}'")
+    for name, sql in queries.items():
+        script += ['BEGIN READ ONLY;', f"SELECT '{name}', coalesce(json_agg(t), '[]'::json) FROM ({sql}) t;", 'COMMIT;']
     env = dict(os.environ, PGPASSWORD=read_env(PG_ENV)['POSTGRES_PASSWORD'])
     r = subprocess.run(['docker', 'exec', '-i', '-e', 'PGPASSWORD', CONTAINER, 'psql', '-h', '127.0.0.1', '-U', 'aiops', '-d', db,
                         '-X', '-A', '-t', '-F', '\t', '-q'], input='\n'.join(script) + '\n', env=env, capture_output=True, text=True)
     if r.returncode:
         sys.exit(f'{db}: psql failed ({r.returncode}): {r.stderr.strip()[:300]}')
-    out = {}
+    out = {name: None for name in queries}
     for line in r.stdout.splitlines():
         name, _, doc = line.partition('\t')
-        if name in QUERIES:
+        if name in queries:
             out[name] = json.loads(doc)
+    return out
+
+
+def psql(db, since):
+    out = readonly_json(db, QUERIES, {'since': since})
+    missing = [k for k, v in out.items() if v is None]
+    if missing:
+        sys.exit(f'{db}: queries failed: {", ".join(missing)} (is the schema migrated?)')
     return out
 
 

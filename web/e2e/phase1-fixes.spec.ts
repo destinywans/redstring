@@ -261,3 +261,29 @@ test.describe("silences when Alertmanager can't be read (PA-131, PA-132)", () =>
     expect(await page.locator("#root").innerText()).not.toContain("稍后会自动重试");
   });
 });
+
+test.describe("no pretend actions in real mode (PA-134)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  test("member roles, role members and agent versions don't fake a success", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/settings/members");
+    const box = page.locator("table input[type=checkbox], [role=row] input[type=checkbox]").nth(1);
+    await box.waitFor({ timeout: 20_000 });
+    await box.check();
+    await expect(page.getByText(/已选 \d+ 人/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "分配角色" })).toHaveCount(0);
+    await page.goto(origin + "/settings/roles");
+    await page.getByText("角色与权限").first().waitFor({ timeout: 20_000 });
+    await page.waitForTimeout(1_500);
+    await expect(page.getByRole("button", { name: "管理成员" })).toHaveCount(0);
+    const agent = await page.evaluate(async () => {
+      const r = await fetch("/api/v1/agents/lifecycle", { headers: { "X-AIOps-Environment": "prod" } });
+      const b = (await r.json()) as { items?: { id?: string }[]; agents?: { id?: string }[] };
+      return (b.items ?? b.agents ?? []).find((a) => a.id)?.id ?? null;
+    });
+    test.skip(!agent, "no agent to open");
+    await page.goto(origin + `/agents/${agent}`);
+    await page.waitForTimeout(2_500);
+    await expect(page.getByRole("button", { name: "新建版本" })).toHaveCount(0);
+  });
+});

@@ -245,3 +245,19 @@ test.describe("alert group names (PA-130)", () => {
     expect(text, "a 32-hex application ID in the group row").not.toMatch(/\b[0-9a-f]{32}\b/);
   });
 });
+
+test.describe("silences when Alertmanager can't be read (PA-131, PA-132)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+  test("a failed read says so instead of showing an empty list", async ({ page }) => {
+    await page.addInitScript(zh);
+    const down = { error: { code: "alertmanager_unavailable", message: "An authorized Alertmanager source is unavailable" } };
+    await page.route(at("/silences"), (r) => (r.request().method() === "GET" ? json(r, 503, down) : r.fallback()));
+    await page.route(at("/inhibitions"), (r) => (r.request().method() === "GET" ? json(r, 503, down) : r.fallback()));
+    await page.goto(origin + "/silences");
+    await expect(page.getByText("暂时读不到静默")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("暂时读不到抑制规则")).toBeVisible();
+    await expect(page.getByText("没有数据")).toHaveCount(0);
+    // PA-132: nothing retries on its own, so the text doesn't promise it.
+    expect(await page.locator("#root").innerText()).not.toContain("稍后会自动重试");
+  });
+});

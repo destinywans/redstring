@@ -80,8 +80,13 @@ async function approve(page: Page, expected: RegExp, shot: string) {
   // The dialog may only link to an execution page that serves this execution (PA-125: silences have none).
   const link = dialog.locator('a[href^="/executions/"]');
   if (await link.count()) {
+    // The executor records the execution a few seconds after the vote; the page retries for a minute, so does this.
     const href = (await link.first().getAttribute("href")) ?? "";
-    const status = await page.evaluate(async ({ href, envId }) => (await fetch("/api/v1" + href, { headers: { "X-AIOps-Environment": envId } })).status, { href, envId });
+    let status = 0;
+    for (let i = 0; i < 20 && status !== 200; i++) {
+      if (i) await page.waitForTimeout(3_000);
+      status = await page.evaluate(async ({ href, envId }) => (await fetch("/api/v1" + href, { headers: { "X-AIOps-Environment": envId } })).status, { href, envId });
+    }
     expect.soft(status, "the execution page the approval dialog links to").toBe(200);
   }
   await page.screenshot({ path: resolve(OUT, shot), fullPage: true });

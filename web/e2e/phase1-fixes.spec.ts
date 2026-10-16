@@ -225,8 +225,10 @@ test.describe("missing records (PA-125)", () => {
   test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
   test("an execution that isn't there says not found, not a source failure", async ({ page }) => {
     await page.addInitScript(zh);
+    test.setTimeout(120_000);
     await page.goto(origin + "/executions/00000000000000000000000000000000");
-    await expect(page.getByText("找不到这条记录")).toBeVisible({ timeout: 20_000 });
+    // The page keeps asking for a minute (a just-approved execution may not be recorded yet), then says so.
+    await expect(page.getByText("找不到这条记录")).toBeVisible({ timeout: 90_000 });
     await expect(page.getByText("来源连接失败")).toHaveCount(0);
   });
 });

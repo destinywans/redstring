@@ -886,3 +886,19 @@ test.describe("agent release without a canary (PA-164)", () => {
     await expect(page.getByText("发布 ·  灰度")).toHaveCount(0);
   });
 });
+
+test.describe("save a canvas as a template (PA-114)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+  test("only general canvases are offered and a refusal is said", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/canvas-templates"), (r) => (r.request().method() === "POST" ? json(r, 404, { error: { code: "not_found", message: "检查用：画布不存在" } }) : r.fallback()));
+    await page.goto(origin + "/templates");
+    await page.getByRole("button", { name: "新建模板" }).click({ timeout: 20_000 });
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.locator(".tpl-pick").first()).toBeVisible({ timeout: 10_000 });
+    await expect(dialog.locator(".tpl-pick", { hasText: "调查" })).toHaveCount(0);
+    await dialog.getByRole("button", { name: "保存模板" }).click();
+    await expect.poll(() => toasts(page)).toContain("检查用：画布不存在");
+    await expect(dialog).toBeVisible();
+  });
+});

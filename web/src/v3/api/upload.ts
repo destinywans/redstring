@@ -32,8 +32,22 @@ export function uploadFile(file: File, kind: UploadKind, onProgress: (pct: numbe
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/v1/uploads");
     xhr.withCredentials = true;
+    // Same headers as every other write: the server refuses an upload without one environment (PA-165).
+    xhr.setRequestHeader("Accept-Language", currentLocale());
+    if (currentEnv()) xhr.setRequestHeader("X-AIOps-Environment", currentEnv()!);
+    xhr.setRequestHeader("Idempotency-Key", newIdempotencyKey());
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(Math.round((100 * e.loaded) / e.total));
-    xhr.onload = () => (xhr.status < 300 ? resolve(JSON.parse(xhr.responseText) as Upload) : reject(new Error(`HTTP ${xhr.status}`)));
+    xhr.onload = () => {
+      if (xhr.status < 300) return resolve(JSON.parse(xhr.responseText) as Upload);
+      // Say the server's reason, not just the status.
+      let body: { error?: { code?: string; message?: string } } | null = null;
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        /* not JSON */
+      }
+      reject(new ApiError(xhr.status, body?.error?.code ?? "request_failed", body?.error?.message ?? `HTTP ${xhr.status}`));
+    };
     xhr.onerror = () => reject(new Error("network"));
     xhr.send(form);
   });

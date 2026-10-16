@@ -787,3 +787,41 @@ test.describe("canvas node move (PA-160)", () => {
     expect(typeof (sent as unknown as { expected_layout_version?: unknown }).expected_layout_version).toBe("number");
   });
 });
+
+test.describe("webhooks and API tokens (PA-161)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  test("tokens are issued as the contract says, show the server's secret, and list and revoke real tokens", async ({ page }) => {
+    await page.addInitScript(zh);
+    let sent: Record<string, unknown> | null = null;
+    let deleted = "";
+    await page.route(at("/api-tokens"), (r) => {
+      if (r.request().method() === "POST") {
+        sent = r.request().postDataJSON();
+        return json(r, 201, { id: "tok-new", name: "检查用令牌", scopes: ["connectors:view"], secret_shown_once: "aiops_pat_checksecret" });
+      }
+      return json(r, 200, { items: [{ id: "tok-check", name: "检查用旧令牌", environment_id: "prod", scopes: ["connectors:view"], created_at: "2026-10-16T07:00:00Z", expires_at: "2026-10-17T07:00:00Z", revoked_at: null }] });
+    });
+    await page.route((u) => u.pathname === "/api/v1/api-tokens/tok-check", (r) => {
+      deleted = r.request().method();
+      return r.fulfill({ status: 204 });
+    });
+    await page.goto(origin + "/integrations/webhooks");
+    await expect(page.getByRole("button", { name: "新建 API 令牌" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "新建 Webhook" })).toHaveCount(0);
+    await page.getByRole("button", { name: "新建 API 令牌" }).click();
+    await page.getByRole("dialog").locator("input").first().fill("检查用令牌");
+    await page.getByRole("dialog").getByRole("button", { name: "创建令牌" }).click();
+    await expect.poll(() => sent).not.toBeNull();
+    expect(sent).toMatchObject({ scopes: ["connectors:view"] });
+    expect([3600, 86400, 604800, 2592000]).toContain((sent as unknown as { ttl: number }).ttl);
+    await expect(page.getByRole("dialog")).toContainText("aiops_pat_checksecret");
+    await page.getByRole("dialog").getByRole("button", { name: "我已保存" }).click();
+    await page.getByRole("tab", { name: /API 令牌/ }).click();
+    const row = page.locator("li", { hasText: "检查用旧令牌" });
+    await expect(row).toBeVisible();
+    await expect(row.getByRole("button", { name: "轮换" })).toHaveCount(0);
+    await row.getByRole("button", { name: "吊销" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "吊销" }).click();
+    await expect.poll(() => deleted).toBe("DELETE");
+  });
+});

@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { INSTANCES, LOCAL, type InstanceName } from "./support/env";
 import { statePath } from "./support/global-setup";
@@ -59,10 +59,31 @@ const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 type Get = (path: string) => Promise<Body>;
 type Kind = {
   name: string;
-  paths: (get: Get) => Promise<string[]>;
+  paths: (get: Get, instance: InstanceName) => Promise<string[]>;
   /** Extra interaction on a loaded page, for objects that are selected in the page rather than addressed. */
   explore?: (page: Page, report: (route: string, key: string) => Promise<void>, failures: string[]) => Promise<void>;
 };
+/**
+ * Proposal and execution ids recorded by the prod drills (tools/acceptance/drill.py, rollback.py, delivery_drill.py)
+ * and by golden-silence-ui: proposals have no list endpoint, so these are the only way to reach prod review and
+ * execution pages (WAN-434 phase 1).
+ */
+function recorded(instance: InstanceName, key: string): string[] {
+  const dir = resolve(LOCAL, "e2e/drills");
+  const found: string[] = [];
+  // A report names its instance only when it is nonprod (alert-rule-nonprod.json); the rest ran on prod.
+  const mine = (f: string) => f.endsWith(".json") && f.includes("nonprod") === (instance === "nonprod");
+  for (const f of existsSync(dir) ? readdirSync(dir).filter(mine) : []) {
+    try {
+      found.push(...collect(JSON.parse(readFileSync(resolve(dir, f), "utf8")), key));
+    } catch {
+      /* a partial drill report: skip it */
+    }
+  }
+  const silence = resolve(LOCAL, "e2e/golden/silence-proposal.txt");
+  if (instance === "prod" && key === "proposal_id" && existsSync(silence)) found.unshift(readFileSync(silence, "utf8").trim());
+  return found;
+}
 const ids = (list: string) => async (get: (p: string) => Promise<Body>) =>
   rows(await get(list)).map((r) => str(r.id)).filter((x): x is string => !!x);
 
@@ -93,8 +114,8 @@ export const KINDS: Kind[] = [
   {
     // Proposals have no list of their own; they are linked from silences, rule lifecycles and the inbox.
     name: "review",
-    paths: async (get) => {
-      const found: string[] = [];
+    paths: async (get, instance) => {
+      const found: string[] = recorded(instance, "proposal_id");
       for (const src of ["/silences", "/alert-rules", "/inbox"]) found.push(...collect(await get(src), "proposal_id"));
       // An incident's own record can link its proposals too.
       for (const id of (await ids("/incidents")(get)).slice(0, 5)) found.push(...collect(await get(`/incidents/${id}`), "proposal_id"));
@@ -103,8 +124,8 @@ export const KINDS: Kind[] = [
   },
   {
     name: "executions",
-    paths: async (get) => {
-      const found: string[] = [];
+    paths: async (get, instance) => {
+      const found: string[] = recorded(instance, "execution_id");
       for (const src of ["/silences", "/alert-rules"]) found.push(...collect(await get(src), "execution_id"));
       const deployments = await get("/deployments/executions");
       found.push(...collect(deployments, "execution_id"), ...rows(deployments).map((r) => str(r.id)).filter((x): x is string => !!x));
@@ -163,7 +184,7 @@ for (const instance of Object.keys(INSTANCES) as InstanceName[]) {
         test.setTimeout(300_000);
         await page.addInitScript((c) => localStorage.setItem("aiops-v3-preferences", JSON.stringify(c)), LOCALE);
         await page.goto(INSTANCES[instance].origin + "/healthz");
-        const targets = uniq(await kind.paths(reader(page, instance)).catch(() => [])).slice(0, MAX_IDS * (kind.name === "services" ? 2 : 1));
+        const targets = uniq(await kind.paths(reader(page, instance), instance).catch(() => [])).slice(0, MAX_IDS * (kind.name === "services" ? 2 : 1));
         test.skip(targets.length === 0, `no ${kind.name} on ${instance} to open (empty list, or the list could not be read)`);
         const failures: string[] = [];
 

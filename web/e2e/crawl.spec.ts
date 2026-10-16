@@ -16,6 +16,7 @@ import { monitor, sampleLeaks, type PageReport } from "./support/monitor";
  * e2e/crawl-<role> unless CRAWL_OUT says otherwise; CRAWL_COMBOS ("zh-CN:dark,en-US:light") overrides that.
  * Besides API calls, every page records its permission gates (.perm-gate: a disabled entry plus screen-reader
  * text naming the permission, web/src/v3/ui/permission.tsx); tools/acceptance/crawl-summary.py judges them.
+ * CRAWL_INSTANCES=nonprod limits the run to listed instances; CRAWL_ENV=dev selects that environment first.
  */
 export const STATIC_ROUTES = [
   "/", "/settings/preferences", "/conversations", "/conversations/new", "/canvases", "/templates",
@@ -48,7 +49,12 @@ const COMBOS = process.env.CRAWL_COMBOS
 const OUT = resolve(LOCAL, process.env.CRAWL_OUT ?? (ROLE === "admin" ? "e2e/crawl" : `e2e/crawl-${ROLE}`));
 mkdirSync(OUT, { recursive: true });
 
-for (const instance of Object.keys(INSTANCES) as InstanceName[]) {
+// CRAWL_INSTANCES narrows the run, for accounts that exist on one instance only (the nonprod "scoped" account).
+const CRAWL_INSTANCES = (process.env.CRAWL_INSTANCES ?? Object.keys(INSTANCES).join(",")).split(",") as InstanceName[];
+// CRAWL_ENV selects an environment before load (nonprod dev or staging: the empty-data state, WAN-434 phase 1).
+const CRAWL_ENV = process.env.CRAWL_ENV ?? "";
+
+for (const instance of CRAWL_INSTANCES) {
   for (const combo of COMBOS) {
     test.describe(`${instance} · ${combo.locale} · ${combo.theme}`, () => {
       test.use({ storageState: statePath(instance, ROLE) });
@@ -56,7 +62,8 @@ for (const instance of Object.keys(INSTANCES) as InstanceName[]) {
         test(route, async ({ page }) => {
           await page.addInitScript((c) => {
             localStorage.setItem("aiops-v3-preferences", JSON.stringify({ locale: c.locale, theme: c.theme }));
-          }, combo);
+            if (c.env) localStorage.setItem("aiops-v3-env", c.env);
+          }, { ...combo, env: CRAWL_ENV });
           const m = monitor(page);
           await page.goto(INSTANCES[instance].origin + route);
           // React replaces the #boot placeholder on mount; only then do page queries start.

@@ -2,6 +2,7 @@
 """Create the per-role acceptance accounts through the product's own flow.
 
   python3 tools/acceptance/accounts.py prod
+  python3 tools/acceptance/accounts.py prod mfa:viewer     # also (or only) these extra name:role accounts
 
 For each account: the admin sends an invitation (POST /members/invitations), the
 code is read from the local SMTP sink (.local/acceptance/mail/inbox), the invitee
@@ -55,10 +56,15 @@ def member_id(instance, address):
 
 def main():
     instance = sys.argv[1] if len(sys.argv) > 1 else 'prod'
+    # Extra throwaway accounts (WAN-434 phase 1), e.g. one to enrol and remove an authenticator app on, so the
+    # shared role accounts never end up needing a TOTP code at sign-in.
+    extra = dict(arg.split(':', 1) for arg in sys.argv[2:])
     path = LOCAL / instance / 'secrets.json'
     store = json.loads(path.read_text())
-    accounts = store.setdefault('accounts', {})
-    for name, role in ACCOUNTS.items():
+    # Extra accounts live apart from "accounts": the e2e global setup signs every "accounts" entry in, and an
+    # extra one may be left needing a second factor.
+    accounts = store.setdefault('throwaway' if extra else 'accounts', {})
+    for name, role in (extra or ACCOUNTS).items():
         address = f'{name}@{domain(instance)}'
         if name not in accounts:
             since = time.time() - 1

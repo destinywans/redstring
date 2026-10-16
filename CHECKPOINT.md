@@ -6,7 +6,10 @@
 - 用户 10-16 批准 `docs/plans/2026-10-16-defect-convergence.md`（第二版）第 9 节 13 项全部按推荐；授权沿用 10-09 的范围（aiops-test 三台虚拟机 Kubernetes 写操作与受控故障注入，显式 `.local/vm-cluster/kubeconfig`；实验 GitLab 与 Vault 含重建；验收 PG 与两个验收实例；DeepSeek）。DeepSeek 预算上限、收敛期间其他 kind 集群是否暂停，用户另行告知。决策记录：Linear「决策｜缺陷收敛：覆盖门槛加连续轮次」；父任务 WAN-434；缺陷编号从 PA-105 起。
 - 同日先把 Linear 与登记册对齐：PA-09/19/43/67/78 关闭，PA-79～104 补建为 WAN-408～433，WAN-297 关闭（29b86fe3）。
 - 只读核对发现环境与 CP-326 不一致（计划 1.3）：开发模式 Vault 已于 10-12 23:01 停止（凭据丢失，需 `enterprise/vault.py init` 并重新签发）；`aiops-delivery-control-plane` 在运行、GitLab 容器退出码 137；验收二进制为 6b206d22 且 `vcs.modified=true`，之后 main 上 11 个代码提交未在实例上回归。
-- 待用户：计数开始前审完 D35～D45，并确认 D22～D30 的审阅状态。
+- 环境恢复（10-16 14:50 起）：实验 `cluster.py up`（三节点 Ready，内核 7.0.0-38）；启动实验中间件、观测与企业组件 12 个容器；`enterprise/vault.py up` 重新注入 7 个路径（K8s 读令牌沿用文件中的旧令牌，到 10-18 13:58Z；回滚令牌新签，到 10-17 06:52Z），GitLab 起来后 `vault.py verify` 24 项全部通过；`delivery/lab.py resume`（GitLab 200）；`clock-watchdog.py check` 为 READY。验收 PG、邮件接收、TLS 代理启动。
+- 干净构建：Go 二进制在临时 worktree 从 5502f631 构建（`vcs.modified=false`），Web 从同一提交构建；旧产物备份为 `.local/acceptance/bin/aiops.6b206d22-dirty`、`.local/acceptance/web.6b206d22-dirty`；没有新迁移（最新 179，已在两验收库执行）。两个实例 `acceptance.py start all` 后均 healthy。
+- 工具补强交给两个子会话（各自 worktree，不碰实例）：t1-route-matrix（T0 静态比对、T1 `go/ast` 路由扫描与权限矩阵）、t2-coverage-tools（T2 代理日志与覆盖率、T3 轮次记录、T4 多角色对拍、T5 详情页对拍、凭据检查补全、regress.py 版本与写死调查）。约定接口 `api.call(..., probe=None)`。
+- 待用户：计数开始前审完 D35～D45，并确认 D22～D30 的审阅状态（D25、D29 已于 10-11 按设计图确认，D37 已确认方案 A）；DeepSeek 预算上限；其他 kind 集群是否暂停。
 
 **此前验收：[CP-326](#cp-326-current)，2026-10-12 (+08)。本轮除性能与 24 小时外全部收尾：D11 补齐逐条比对与审计检查并对照设计图核对页面；配置提升首次接实验配置仓库，四类配置从 nonprod 导出、真人审批合并、prod 导入全部走通（Runbook 首次走通审核发布）；审阅页批准后状态按用户确认的方案 A 上线。登记 PA-01～PA-104 全部验证，最终回归 19/19。报告 https://claude.ai/artifact/CD6jdw84V8stiLQRsqvjHt 。**
 

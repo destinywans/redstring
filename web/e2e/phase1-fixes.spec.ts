@@ -703,3 +703,87 @@ test.describe("write-back request (PA-157)", () => {
     await expect(page.getByRole("dialog")).toBeVisible();
   });
 });
+
+test.describe("saves that need the revision they read (PA-158, PA-159, PA-160)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  test("a role matrix is saved with If-Role-Matrix-Revision", async ({ page }) => {
+    await page.addInitScript(zh);
+    let header: string | undefined;
+    await page.route((u) => /\/api\/v1\/roles\/[^/]+$/.test(u.pathname), (r) => {
+      if (r.request().method() !== "PUT") return r.fallback();
+      header = r.request().headers()["if-role-matrix-revision"];
+      return json(r, 409, { error: { code: "role_revision_conflict", message: "stale" } });
+    });
+    await page.goto(origin + "/settings/roles");
+    const business = page.getByRole("button", { name: /知识审核/ }).first();
+    test.skip(!(await business.waitFor({ timeout: 15_000 }).then(() => true, () => false)), "no business role");
+    await business.click();
+    await page.locator("button.perm-cell").first().click({ timeout: 10_000 });
+    await page.getByRole("button", { name: "保存权限" }).click();
+    await expect.poll(() => header).toMatch(/^\d+$/);
+    await expect.poll(() => toasts(page)).toContain("角色刚被其他人修改，已重新读取，请核对后再保存");
+  });
+  test("workspace settings are saved with If-Match", async ({ page }) => {
+    await page.addInitScript(zh);
+    let header: string | undefined;
+    await page.route(at("/workspace"), (r) => {
+      if (r.request().method() !== "PUT") return r.fallback();
+      header = r.request().headers()["if-match"];
+      return json(r, 412, { error: { code: "precondition_failed", message: "stale" } });
+    });
+    await page.goto(origin + "/settings/workspace");
+    const name = page.getByLabel("工作区名称").or(page.locator("input").first());
+    await name.first().waitFor({ timeout: 20_000 });
+    await name.first().fill((await name.first().inputValue()) + " 检查");
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect.poll(() => header).toBeTruthy();
+    await expect.poll(() => toasts(page)).toContain("工作区设置刚被其他人修改，已重新读取，请核对后再保存");
+  });
+  test("agent rollback names the agent revision", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const agent = await page.evaluate(async () => {
+      const b = (await (await fetch("/api/v1/agents/lifecycle", { headers: { "X-AIOps-Environment": "prod" } })).json()) as { agents?: { id: string }[] };
+      return b.agents?.[0]?.id ?? null;
+    });
+    test.skip(!agent, "no agent");
+    let sent: Record<string, unknown> | null = null;
+    await page.route((u) => u.pathname.endsWith(`/agents/${agent}/rollback`), (r) => {
+      sent = r.request().postDataJSON();
+      return json(r, 409, { error: { code: "agent_revision_conflict", message: "检查用：版本已变化" } });
+    });
+    await page.goto(origin + `/agents/${agent}`);
+    await page.getByRole("button", { name: /^回滚到/ }).click({ timeout: 20_000 });
+    await expect.poll(() => sent).not.toBeNull();
+    expect(typeof (sent as unknown as { expected_revision?: unknown }).expected_revision).toBe("number");
+  });
+});
+
+test.describe("canvas node move (PA-160)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+  test("a moved node names its layout revision", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const inv = await page.evaluate(async () => {
+      const b = (await (await fetch("/api/v1/canvases", { headers: { "X-AIOps-Environment": "prod" } })).json()) as { items?: { id: string; kind?: string; type?: string }[] };
+      return (b.items ?? []).find((i) => (i.kind ?? i.type) === "investigation")?.id ?? null;
+    });
+    test.skip(!inv, "no investigation canvas");
+    let sent: Record<string, unknown> | null = null;
+    await page.route((u) => /\/api\/v1\/investigations\/[^/]+\/nodes\/[^/]+$/.test(u.pathname), (r) => {
+      if (r.request().method() !== "PATCH") return r.fallback();
+      sent = r.request().postDataJSON();
+      return json(r, 409, { error: { code: "layout_conflict", message: "检查用" } });
+    });
+    await page.goto(origin + `/canvas/${inv}`);
+    const node = page.locator("article.cv-node").first();
+    await node.waitFor({ timeout: 20_000 });
+    const box = (await node.boundingBox())!;
+    await page.mouse.move(box.x + 60, box.y + 16);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 140, box.y + 60, { steps: 8 });
+    await page.mouse.up();
+    await expect.poll(() => sent, { timeout: 10_000 }).not.toBeNull();
+    expect(typeof (sent as unknown as { expected_layout_version?: unknown }).expected_layout_version).toBe("number");
+  });
+});

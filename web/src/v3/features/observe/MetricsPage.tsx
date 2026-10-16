@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import { useEnv } from "../../app/environment";
+import { serviceApplicationId } from "../../api/ids";
 import { PageUnavailable, PartialBanner, Unavailable, UnknownValue, missingParts, unknownLabels } from "../../ui/unknown";
 import type { MetricsDashboard, ServiceSloSettings } from "../../api/types";
 import { AiAvatar, Badge, Bar, Brand, Btn, Card, Chip, Cite, Col, Icon, IconBtn, LabelChip, Legend, Muted, Panel, Row, Segmented, Skeleton, Spacer, Strong, TextLink, cx, type Tone } from "../../ui/core";
@@ -29,7 +30,10 @@ export default function MetricsPage() {
   const demo = API_MODE === "mock";
   const env = useEnv((s) => s.env);
   const [align, setAlign] = useState(false);
-  const { data: d, error } = useGet<MetricsDashboard>(service ? "/metrics/dashboard" : null, { service, range: demo ? undefined : "1h", align: demo ? undefined : align ? "true" : undefined });
+  // Links carry the catalog service ID (application + environment); the dashboard takes the application ID or key and
+  // answered 403 to the catalog ID for every service and role (PA-139). The sample uses its plain service name.
+  const dashboardService = demo ? service : (serviceApplicationId(service) ?? service);
+  const { data: d, error } = useGet<MetricsDashboard>(service ? "/metrics/dashboard" : null, { service: dashboardService, range: demo ? undefined : "1h", align: demo ? undefined : align ? "true" : undefined });
   // Aligning needs events.view; a 403 for the aligned read drops back to the plain window instead of blanking the page.
   useEffect(() => {
     if (align && error instanceof ApiError && error.status === 403) {

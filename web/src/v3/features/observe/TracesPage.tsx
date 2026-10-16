@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
+import { serviceApplicationId } from "../../api/ids";
 import { PartialBanner, Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
 import type { ServiceCatalog, TraceList } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Dot, Icon, IconBtn, Legend, Muted, Num, Panel, Row, Skeleton, Spacer, cx, type Tone } from "../../ui/core";
@@ -78,7 +79,9 @@ export default function TracesPage() {
       toast(e instanceof ApiError ? e.message : tx("删除失败，请稍后重试", "Couldn't delete; try again later"), { tone: "danger" });
     }
   };
-  const { data, isLoading, error, refetch, dataUpdatedAt } = useGet<TraceList>("/traces", { scope, view, service, q: applied || undefined, range });
+  // Service links and the picker carry the catalog ID; the trace search takes the application ID (404 otherwise, PA-139).
+  const traceService = service && real ? (serviceApplicationId(service) ?? service) : service;
+  const { data, isLoading, error, refetch, dataUpdatedAt } = useGet<TraceList>("/traces", { scope, view, service: traceService, q: applied || undefined, range });
   const raw = data?.unavailable ?? {};
   // PA-81: with a connected source, not_configured on the charts, total and facets means search completeness isn't
   // declared — say so instead of "not connected / configure". No source at all keeps the original text.

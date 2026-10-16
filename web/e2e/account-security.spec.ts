@@ -193,3 +193,37 @@ test("profile photo and preferences", async ({ page }) => {
   expect(calls.some((c) => c.startsWith("DELETE /me/avatar 2"))).toBe(true);
   expect(m.pageErrors).toEqual([]);
 });
+
+test("sign in through the form, sign out another session, then sign out", async ({ browser }) => {
+  // A second session to end from the first one.
+  const other = await browser.newContext();
+  await other.addInitScript(() => localStorage.setItem("aiops-v3-preferences", JSON.stringify({ locale: "zh-CN", theme: "light" })));
+  await signIn(await other.newPage(), instance, account!);
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await context.addInitScript(() => localStorage.setItem("aiops-v3-preferences", JSON.stringify({ locale: "zh-CN", theme: "light" })));
+  const page = await context.newPage();
+  const m = monitor(page);
+  await page.goto(origin + "/login");
+  await page.locator("#login-email").fill(account!.email, { timeout: 20_000 });
+  await page.locator("#login-password").fill(account!.password);
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 20_000 });
+  await page.goto(origin + "/settings/account-security");
+  const signOutOne = page.getByRole("button", { name: "退出", exact: true }).first();
+  await signOutOne.click({ timeout: 20_000 });
+  await expect(page.locator(".v3-toast", { hasText: /已退出/ })).toBeVisible({ timeout: 10_000 });
+  // The account menu signs this session out and lands on the sign-in page.
+  await page.locator("button.account").click();
+  await page.getByRole("menuitem", { name: "退出登录" }).click();
+  await page.waitForURL((u) => u.pathname.startsWith("/login"), { timeout: 20_000 });
+  const calls = m.api.filter((a) => a.path.startsWith("/auth/") || a.path.startsWith("/me/sessions")).map((a) => `${a.method} ${a.path} ${a.status}`);
+  console.log(calls.join("\n"));
+  expect(calls.some((c) => /^POST \/auth\/login 200/.test(c))).toBe(true);
+  expect(calls.some((c) => /^DELETE \/me\/sessions\/\S+ 20\d/.test(c))).toBe(true);
+  expect(calls.some((c) => /^POST \/auth\/logout 20\d/.test(c))).toBe(true);
+  // The ended session can no longer read.
+  const ended = await (await other.newPage()).goto(origin + "/api/v1/me").then((r) => r?.status());
+  console.log("ended session /me:", ended);
+  await other.close();
+  await context.close();
+});

@@ -683,8 +683,10 @@ export type Runbook = {
   steps: RunbookStep[];
   reviewers: { name: string; state: "pending" | "optional" | "approved" }[];
   versions: { v: string; who: string; when: string }[];
-  usage: { refs: number; resolve_rate: number; weekly: number[]; highlight: number };
-  incidents: { id: string; title: string }[];
+  /** Real records leave these null until a trustworthy source exists (listed in unknown_fields). */
+  usage: { refs: number | null; resolve_rate: number | null; weekly: number[] | null; highlight: number | null };
+  incidents: { id: string; title: string }[] | null;
+  unknown_fields?: string[];
 };
 export type Postmortem = { id: string; title: string; severity: Severity | null; date: string; duration: string | null; cause: string; actions: string; status: "draft" | "published"; incident_id?: string };
 export type PostmortemSummary = {

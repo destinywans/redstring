@@ -12,6 +12,7 @@ import "../../ui/forms.css";
 import "./knowledge.css";
 import { confirmAction } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
+import { UnknownValue } from "../../ui/unknown";
 
 export default function RunbookEditorPage() {
   const { id = "rb-retry-storm" } = useParams();
@@ -185,21 +186,30 @@ export default function RunbookEditorPage() {
             </Section>
             <Section title={tx("使用情况", "Usage")}>
               <Row gap={6}>
-                <Num>{rb.usage.refs}</Num>
+                {rb.usage.refs == null ? <UnknownValue /> : <Num>{rb.usage.refs}</Num>}
                 <Muted>{tx("次调查引用", "citations")}</Muted>
                 <Spacer />
-                <Num>{rb.usage.resolve_rate}%</Num>
+                {rb.usage.resolve_rate == null ? <UnknownValue /> : <Num>{rb.usage.resolve_rate}%</Num>}
                 <Muted>{tx("解决率", "resolved")}</Muted>
               </Row>
-              <VBars values={rb.usage.weekly} height={44} color="var(--accent-line)" highlight={new Set([rb.usage.highlight])} hiColor="var(--accent)" gap={4} />
-              <Muted size={11.5}>{tx("近 12 周 · 高亮为 INC-1042 所在周", "12 weeks · highlighted week of INC-1042")}</Muted>
+              {/* PA-109: real records may have no weekly series yet; the INC-1042 caption belongs to the sample data. */}
+              {rb.usage.weekly != null && (
+                <>
+                  <VBars values={rb.usage.weekly} height={44} color="var(--accent-line)" highlight={new Set(rb.usage.highlight == null ? [] : [rb.usage.highlight])} hiColor="var(--accent)" gap={4} />
+                  <Muted size={11.5}>{API_MODE === "mock" ? tx("近 12 周 · 高亮为 INC-1042 所在周", "12 weeks · highlighted week of INC-1042") : tx("近 12 周", "Last 12 weeks")}</Muted>
+                </>
+              )}
             </Section>
             <Section title={tx("关联事件", "Incidents")}>
-              {rb.incidents.map((i) => (
-                <TextLink key={i.id} to={`/incidents/${i.id}`}>
-                  {i.id} · {i.title}
-                </TextLink>
-              ))}
+              {rb.incidents == null ? (
+                <UnknownValue />
+              ) : (
+                rb.incidents.map((i) => (
+                  <TextLink key={i.id} to={`/incidents/${i.id}`}>
+                    {i.id} · {i.title}
+                  </TextLink>
+                ))
+              )}
             </Section>
             <Section title={tx("试跑", "Dry run")}>
               <Muted size={11.5}>{tx("在预发用只读步骤走一遍，确认查询与判断条件仍然有效。", "Walk through the read-only steps on staging to confirm queries and checks still work.")}</Muted>

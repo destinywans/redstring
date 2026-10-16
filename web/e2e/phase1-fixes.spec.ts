@@ -357,3 +357,18 @@ test.describe("service links into metrics and traces (PA-139)", () => {
     expect(traces.every((a) => a.status !== 404), JSON.stringify(traces)).toBe(true);
   });
 });
+
+test.describe("SLO settings gate (PA-140)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+  test("a role without services.manage can't open SLO settings", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const id = await page.evaluate(async () => {
+      const b = (await (await fetch("/api/v1/services", { headers: { "X-AIOps-Environment": "prod" } })).json()) as { items?: { id: string }[] };
+      return b.items?.[0]?.id ?? null;
+    });
+    test.skip(!id, "no service in the catalog");
+    await page.goto(origin + `/metrics?service=${encodeURIComponent(id!)}`);
+    await expect(page.getByRole("button", { name: "SLO 设置" })).toBeDisabled({ timeout: 20_000 });
+  });
+});

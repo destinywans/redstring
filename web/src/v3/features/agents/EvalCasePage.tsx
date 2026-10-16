@@ -2,18 +2,25 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, useGet, useSend } from "../../api/client";
-import type { EvalCase, Severity } from "../../api/types";
+import type { EvalCase, Me, Severity } from "../../api/types";
 import { Badge, Brand, Btn, Card, Check, Col, Divider, Field, Icon, LabelChip, Muted, Num, Pills, Row, Section, Sev, Skeleton, Spacer, Strong, Textarea } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { useI18n } from "../../i18n";
 import "./agents.css";
 import { Unavailable } from "../../ui/unknown";
+import { Gate } from "../../ui/permission";
+
+// The server's fixed English descriptions of a single-case run, said in the page's language (PA-148).
+const OUTPUT_META = "Single human-supplied case; tool-free model output; usage unknown";
+const AUTO_NOTE = "Fraction of explicit case-sensitive literal checks satisfied. Not a human correctness label or general Agent quality score.";
+const VERDICT: Record<string, [string, string]> = { correct: ["正确", "Correct"], partial: ["部分正确", "Partly"], incorrect: ["错误", "Incorrect"], unsure: ["不确定", "Unsure"] };
 
 export default function EvalCasePage() {
-  const { tx } = useI18n();
+  const { tx, fmt } = useI18n();
   const nav = useNavigate();
   const demo = API_MODE === "mock";
+  const { data: me } = useGet<Me>(demo ? null : "/me");
   const { id = demo ? "INV-187" : "" } = useParams();
   const { data: c, error, refetch } = useGet<EvalCase>(id ? `/eval-cases/${id}` : null);
   // A case without a trusted snapshot can still show the input it was registered with.
@@ -60,15 +67,18 @@ export default function EvalCasePage() {
           <Btn kind="ghost" onClick={() => nav("/agents/evals")}>
             {tx("跳过", "Skip")}
           </Btn>
-          <Btn
-            kind="primary"
-            icon="check"
-            loading={submit.isPending}
-            disabled={!c}
-            onClick={send}
-          >
-            {demo ? tx("提交并下一条", "Submit & next") : tx("提交标注", "Submit review")}
-          </Btn>
+          {/* Labels need agents.change (PA-148). */}
+          <Gate need={["agents", "change"]}>
+            <Btn
+              kind="primary"
+              icon="check"
+              loading={submit.isPending}
+              disabled={!c}
+              onClick={send}
+            >
+              {demo ? tx("提交并下一条", "Submit & next") : tx("提交标注", "Submit review")}
+            </Btn>
+          </Gate>
         </>
       }
     >
@@ -140,7 +150,7 @@ export default function EvalCasePage() {
                 <Badge tone="accent" mono>
                   {tx("{v} 输出", "{v} output", { v: c.output.version })}
                 </Badge>
-                <Muted size={11.5}>{c.output.meta}</Muted>
+                <Muted size={11.5}>{!demo && c.output.meta === OUTPUT_META ? tx("单个人工案例；无工具的模型输出；用量未知", "Single human-supplied case; tool-free model output; usage unknown") : c.output.meta}</Muted>
                 <Spacer />
                 {demo && (
                   <Btn kind="ghost" icon="external" h={26} to="/agents/runs/run_7f1e">
@@ -201,7 +211,7 @@ export default function EvalCasePage() {
                   </>
                 )}
                 <Field label={tx("备注", "Notes")}>
-                  <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={tx("建议里可以补充限流配额的具体数值来源。", "e.g. cite where the quota number comes from.")} />
+                  <Textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder={demo ? tx("建议里可以补充限流配额的具体数值来源。", "e.g. cite where the quota number comes from.") : tx("写下判断依据（可选）", "Why (optional)")} />
                 </Field>
                 {demo && <Check checked={regress} onChange={setRegress} label={tx("加入回归集（v14 起必须通过）", "Add to regression set (required from v14)")} />}
               </Col>
@@ -211,10 +221,10 @@ export default function EvalCasePage() {
                 <Col gap={6}>
                   {c.labels.map((l, i) => (
                     <Row key={i} gap={6} align="flex-start">
-                      <Badge>{l.label}</Badge>
+                      <Badge>{VERDICT[l.label] ? tx(...VERDICT[l.label]) : l.label}</Badge>
                       <Col gap={0} style={{ minWidth: 0 }}>
                         <Muted size={11.5}>
-                          {l.actor} · {/^\d{4}-\d{2}-\d{2}T/.test(l.time) ? new Date(l.time).toLocaleString() : l.time}
+                          {me && l.actor === me.id ? tx("你", "You") : tx("成员 {id}", "Member {id}", { id: l.actor.slice(0, 8) })} · {/^\d{4}-\d{2}-\d{2}T/.test(l.time) ? fmt.dateTime(l.time) : l.time}
                         </Muted>
                         {l.note && <span style={{ fontSize: "var(--fs-sub)" }}>{l.note}</span>}
                       </Col>
@@ -227,16 +237,22 @@ export default function EvalCasePage() {
             <Section title={tx("自动评测", "Automatic checks")}>
               <Col gap={7}>
                 <Row gap={6}>
-                  <Badge tone="accent">{tx("LLM 评审", "LLM judge")}</Badge>
+                  {/* Real automatic checks are literal phrase matches, not a model judge (PA-148). */}
+                  <Badge tone="accent">{demo ? tx("LLM 评审", "LLM judge") : tx("字面检查", "Literal checks")}</Badge>
                   <Num>{c.auto.score}</Num>
-                  <Muted size={11.5}>{c.auto.note}</Muted>
+                  <Muted size={11.5}>{!demo && c.auto.note === AUTO_NOTE ? tx("命中的检查词比例；不是人工正确性判断，也不是 Agent 的整体质量分。", "Share of the case's literal checks found; not a human correctness label or an overall Agent score.") : c.auto.note}</Muted>
                 </Row>
-                {c.auto.rules.map((r) => (
-                  <Row key={r} gap={6}>
-                    <Icon name="check" size={14} color="var(--ok)" />
-                    <Muted>{r}</Muted>
-                  </Row>
-                ))}
+                {c.auto.rules.map((r) => {
+                  // The case lists its checks without per-check results: only an all-or-nothing score says which passed.
+                  const score = Number(c.auto!.score);
+                  const known = demo || score === 1 ? "ok" : score === 0 ? "fail" : null;
+                  return (
+                    <Row key={r} gap={6}>
+                      <Icon name={known === "fail" ? "x" : known ? "check" : "info"} size={14} color={known === "ok" ? "var(--ok)" : known === "fail" ? "var(--danger)" : "var(--muted)"} />
+                      <Muted>{r}</Muted>
+                    </Row>
+                  );
+                })}
               </Col>
             </Section>
             )}

@@ -13,6 +13,8 @@ import "./agents.css";
 import { openForm } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 
+const STATUS: Record<string, [string, string]> = { pending: ["待运行", "Pending"], running: ["运行中", "Running"], passed: ["通过", "Passed"], failed: ["未通过", "Failed"], invalid: ["无效", "Invalid"], cancelled: ["已取消", "Cancelled"] };
+
 export default function EvalsPage() {
   const { tx } = useI18n();
   const when = useWhen();
@@ -147,10 +149,10 @@ export default function EvalsPage() {
                     <Row gap={8}>
                       <b style={{ fontSize: "var(--fs-lg)" }}>{e.title}</b>
                       {e.dataset && <Badge>{e.dataset}</Badge>}
-                      {!demo && e.status && <Badge tone={e.status === "passed" ? "ok" : e.status === "failed" ? "danger" : "neutral"}>{e.status}</Badge>}
+                      {!demo && e.status && <Badge tone={e.status === "passed" ? "ok" : e.status === "failed" ? "danger" : "neutral"}>{STATUS[e.status] ? tx(...STATUS[e.status]) : e.status}</Badge>}
                       {!demo && <Mono color="var(--muted)">{verA} → {verB}</Mono>}
                     </Row>
-                    <Muted size={11.5}>{e.meta}</Muted>
+                    {(demo || e.meta !== e.status) && <Muted size={11.5}>{e.meta}</Muted>}
                   </Col>
                   <Spacer />
                   {/* Review count and re-run are sample-only; real results and runs come from the execution record. */}
@@ -168,7 +170,12 @@ export default function EvalsPage() {
               </Card>
               {!e.metrics || !e.cases || !e.radar ? (
                 <Card>
-                  <Unavailable reason="not_generated" icon="activity" title={tx("这个实验还没有结果", "No results for this experiment yet")} desc={tx("实验运行完成后，这里显示两个版本的指标对比、评测维度和用例结果。", "Once the experiment has run, the metric comparison, dimensions and case results show here.")} />
+                  {/* A real run checks one human case with literal phrases; it has no metric table or dimensions (PA-148). */}
+                  {!demo && e.execution?.status === "succeeded" ? (
+                    <Unavailable reason="not_generated" icon="activity" title={tx("这个实验只评了一个人工案例", "This experiment checked one human-supplied case")} desc={tx("用字面检查对比两个版本，没有多案例指标和评测维度。在“人工标注”里打开案例，查看两个版本的输出和检查结果。", "Both versions were checked with literal phrases; there is no multi-case metric table or dimensions. Open the case under Human review to see both outputs and the checks.")} />
+                  ) : (
+                    <Unavailable reason="not_generated" icon="activity" title={tx("这个实验还没有结果", "No results for this experiment yet")} desc={tx("实验运行完成后，这里显示两个版本的指标对比、评测维度和用例结果。", "Once the experiment has run, the metric comparison, dimensions and case results show here.")} />
+                  )}
                 </Card>
               ) : (
               <>
@@ -262,7 +269,8 @@ export default function EvalsPage() {
           )}
         </div>
         <aside className="aside" style={{ width: 320, padding: 16, display: "flex", flexDirection: "column", gap: 16 }}>
-          <Section title={tx("数据集", "Datasets")} right={
+          {/* Creating a dataset here only showed a toast; it stays in the sample (PA-147). */}
+          <Section title={tx("数据集", "Datasets")} right={demo &&
               <TextLink
                 icon="plus"
                 onClick={async () => {
@@ -309,7 +317,8 @@ export default function EvalsPage() {
               ))}
             </Col>
           </Section>
-          <Section title={tx("来源", "Sinks")}>
+          {/* No Langfuse or Phoenix sink is connected; the sample shows what one would look like (PA-147). */}
+          {demo && <Section title={tx("来源", "Sinks")}>
             <Col gap={8}>
               <Row gap={8}>
                 <Brand name="langfuse" size={22} />
@@ -320,7 +329,7 @@ export default function EvalsPage() {
                 <Muted size={11.5}>{tx("Trace 通过 OTLP 发送到 Phoenix", "Traces go to Phoenix via OTLP")}</Muted>
               </Row>
             </Col>
-          </Section>
+          </Section>}
         </aside>
       </div>
     </Page>

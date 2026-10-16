@@ -1255,6 +1255,8 @@ export type EvalExperiment = {
   baseline_version?: string;
   candidate_version?: string;
   gate_failed?: string;
+  /** Real experiments that ran one human case (WAN-241). */
+  execution?: { case_id: string; status: string; evaluation_kind?: string; detail_ref?: string } | null;
   metrics: { name: string; a: string; b: string; delta: string; gate: string; pass: boolean | null }[] | null;
   radar: { axes: string[]; a: number[]; b: number[] } | null;
   cases: { id: string; title: string; expected: string; a: boolean; b: boolean; score: string; duration: string }[] | null;

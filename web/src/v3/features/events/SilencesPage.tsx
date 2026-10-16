@@ -24,7 +24,7 @@ const readSubmitted = (): SubmittedSilence[] => {
 };
 import "./events.css";
 import { SampleOnly } from "../../ui/demo";
-import { Unavailable } from "../../ui/unknown";
+import { Unavailable, errorReason } from "../../ui/unknown";
 import { useWhen } from "../../ui/when";
 
 type Preview = { kind: "idle" } | { kind: "loading" } | { kind: "ok"; affects: number; sample: string[] } | { kind: "error"; text: string };
@@ -181,6 +181,9 @@ export default function SilencesPage() {
             <Card style={{ overflow: "hidden" }}>
               {noAlertmanager ? (
                 <Unavailable reason={list.data?.unavailable.items} source="Alertmanager" title={tx("未接入告警管理器", "Alertmanager isn't connected")} icon="mute" />
+              ) : list.error && !list.data ? (
+                // A failed read is not an empty list: never say "no data" when the source couldn't answer (PA-131).
+                <Unavailable reason={errorReason(list.error)} source="Alertmanager" title={tx("暂时读不到静默", "Silences can't be read right now")} icon="mute" />
               ) : (
               <DataTable
                 rows={rows}
@@ -226,6 +229,11 @@ export default function SilencesPage() {
             <Card>
               <CardHead title={tx("抑制规则", "Inhibition rules")} right={<Btn kind="ghost" icon="plus" h={26} onClick={() => setInhibitOpen(true)}>{tx("新建抑制规则", "New rule")}</Btn>} />
               <ul>
+                {inhib.error && !inhib.data && (
+                  <li className="inhibit-row">
+                    <Muted>{tx("暂时读不到抑制规则：告警管理器不可用或这个环境还没接入。", "Inhibition rules can't be read right now: Alertmanager is unavailable or not connected for this environment.")}</Muted>
+                  </li>
+                )}
                 {inhib.data && !inhib.data.items.length && (
                   <li className="inhibit-row">
                     <Muted>{inhib.data.empty_reason ? tx("没有你能查看的抑制规则。", "No inhibition rules you can view.") : tx("还没有抑制规则。", "No inhibition rules yet.")}</Muted>

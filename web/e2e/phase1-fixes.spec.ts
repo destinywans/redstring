@@ -463,3 +463,71 @@ test.describe("memory page (PA-144, PA-145)", () => {
     });
   });
 });
+
+test.describe("knowledge source read (PA-146)", () => {
+  test.use({ storageState: statePath("prod", "viewer"), viewport: { width: 1440, height: 1000 } });
+  test("reading a source is gated on knowledge.manage; uploads are named", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/knowledge-sources");
+    const read = page.locator('button[aria-label^="读取来源"]').first();
+    test.skip(!(await read.waitFor({ timeout: 15_000 }).then(() => true, () => false)), "no registered source");
+    await expect(read).toBeDisabled();
+    const kinds = await page.locator("tbody tr").allInnerTexts();
+    expect(kinds.join("\n")).not.toMatch(/^upload$/m);
+  });
+});
+
+const EVAL_RUN = {
+  id: "eval-check", title: "检查用实验", dataset: null, meta: "passed", status: "passed", baseline_version: "v1", candidate_version: "v2",
+  execution: { case_id: "case-check", status: "succeeded", evaluation_kind: "single_case_literal_checks" },
+  metrics: { literal_checks_baseline: 1, literal_checks_candidate: 1 }, radar: null, cases: [{ id: "case-check", execution_status: "succeeded" }],
+  datasets: null, evaluators: null, partial: true,
+};
+const EVAL_CASE = {
+  id: "case-check", title: "检查用案例", queue: "检查用队列", revision: 1,
+  alert: { sev: "P2", title: "LabHigh5xxRate", labels: [{ k: "service", v: "checkout-api" }] },
+  evidence: [{ brand: "manual", title: "值班记录", sub: "人工提供" }], expected: { cause: "发布回滚后恢复", advice: "继续观察" },
+  output: { version: "v2", meta: "Single human-supplied case; tool-free model output; usage unknown", tools: [], markdown: "检查用输出" },
+  baseline: { version: "v1", score: "0.5000", text: "检查用基线" },
+  labels: [{ actor: "0123456789abcdef0123456789abcdef", label: "correct", note: "检查用备注", time: "2026-10-16T13:23:51Z" }],
+  auto: { score: "0.5000", note: "Fraction of explicit case-sensitive literal checks satisfied. Not a human correctness label or general Agent quality score.", rules: ["健康", "回滚"] },
+};
+
+test.describe("evaluations in real mode (PA-147, PA-148)", () => {
+  const pin = async (page: Page) => {
+    await page.route(at("/evals/eval-check"), (r) => json(r, 200, EVAL_RUN));
+    await page.route(at("/eval-cases/case-check"), (r) => json(r, 200, EVAL_CASE));
+  };
+  test.describe("as an admin", () => {
+    test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+    test("a run experiment says what it checked; no pretend dataset or sinks", async ({ page }) => {
+      await page.addInitScript(zh);
+      await pin(page);
+      await page.goto(origin + "/agents/evals?id=eval-check");
+      await expect(page.getByText("这个实验只评了一个人工案例")).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText("通过", { exact: true })).toBeVisible();
+      const body = await page.locator("#root").innerText();
+      for (const sample of ["Langfuse", "Phoenix", "passed"]) expect.soft(body, sample).not.toContain(sample);
+      await expect(page.locator("aside").getByText("新建", { exact: true })).toHaveCount(0);
+    });
+    test("the case page names literal checks and labels in words", async ({ page }) => {
+      await page.addInitScript(zh);
+      await pin(page);
+      await page.goto(origin + "/agents/evals/case-check");
+      await expect(page.getByText("字面检查")).toBeVisible({ timeout: 20_000 });
+      const body = await page.locator("#root").innerText();
+      for (const raw of ["LLM 评审", "Fraction of explicit", "Single human-supplied", "0123456789abcdef0123456789abcdef"]) expect.soft(body, raw).not.toContain(raw);
+      await expect(page.locator(".aside").getByText("正确", { exact: true }).last()).toBeVisible();
+      await expect(page.getByPlaceholder("限流配额", { exact: false })).toHaveCount(0);
+    });
+  });
+  test.describe("as a viewer", () => {
+    test.use({ storageState: statePath("prod", "viewer"), viewport: { width: 1440, height: 1000 } });
+    test("submitting a label is gated on agents.change", async ({ page }) => {
+      await page.addInitScript(zh);
+      await pin(page);
+      await page.goto(origin + "/agents/evals/case-check");
+      await expect(page.getByRole("button", { name: "提交标注" })).toBeDisabled({ timeout: 20_000 });
+    });
+  });
+});

@@ -54,7 +54,9 @@ export default function AlertsPage() {
   const svcOf = (g: AlertGroup) => {
     const hit = catalog?.items.find((x) => {
       const parts = serviceParts(x.id);
-      return parts?.application === g.service && (!g.environment_id || parts.environment === g.environment_id);
+      // Catalog IDs carry the environment key, not the persisted environment row ID (PA-130).
+      const env = g.environment_key ?? g.environment_id;
+      return parts?.application === g.service && (!env || parts.environment === env);
     });
     return hit ? { id: hit.id, name: hit.name } : { id: g.service, name: g.service };
   };
@@ -335,7 +337,13 @@ export default function AlertsPage() {
             <Tile icon="layers" tone="accent" />
             <Col gap={0}>
               <Strong size={13.5}>{tx("聚合与通知", "Grouping & notification")}</Strong>
-              <Muted size={11.5}>{data?.items.find((g) => g.id === focus)?.labels.map((l) => l.v).join(" / ")}</Muted>
+              {/* Same reading as the row: the service by name, then the other grouping labels (PA-130). */}
+              <Muted size={11.5}>
+                {(() => {
+                  const g = data?.items.find((x) => x.id === focus);
+                  return g && [svcOf(g).name, ...g.labels.filter((l) => l.k !== "service" && l.k !== "application_id").map((l) => l.v)].join(" / ");
+                })()}
+              </Muted>
             </Col>
           </Row>
           {policy.error && !policy.data ? (

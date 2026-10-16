@@ -230,3 +230,16 @@ test.describe("missing records (PA-125)", () => {
     await expect(page.getByText("来源连接失败")).toHaveCount(0);
   });
 });
+
+test.describe("alert group names (PA-130)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+  test("groups show the service by name, not the application ID", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/alerts");
+    await page.getByText("已恢复", { exact: true }).click({ timeout: 20_000 });
+    const head = page.locator(".alert-group .ag-head").first();
+    test.skip(!(await head.waitFor({ state: "visible", timeout: 10_000 }).then(() => true, () => false)), "no alert group to read");
+    const text = await head.innerText();
+    expect(text, "a 32-hex application ID in the group row").not.toMatch(/\b[0-9a-f]{32}\b/);
+  });
+});

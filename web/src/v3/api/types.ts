@@ -308,7 +308,9 @@ export type AlertGroup = {
   owner?: string | null;
   inhibited?: boolean | null;
   instances: AlertInstance[];
+  /** The persisted environment row; the environment key ("prod") is what service catalog IDs carry. */
   environment_id?: string;
+  environment_key?: string;
   unavailable?: string[];
 };
 /**

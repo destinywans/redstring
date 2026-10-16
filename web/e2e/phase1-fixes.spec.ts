@@ -662,3 +662,44 @@ test.describe("investigation canvas tools and silent writes (PA-155, PA-156)", (
     await page.getByText("浅色", { exact: true }).first().click();
   });
 });
+
+test.describe("write-back request (PA-157)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+  test("the write names the ancestor and the revisions the preview read", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const inv = await page.evaluate(async () => {
+      const h = { "X-AIOps-Environment": "prod" };
+      const b = (await (await fetch("/api/v1/canvases", { headers: h })).json()) as { items?: { id: string; kind?: string; type?: string }[] };
+      for (const c of (b.items ?? []).filter((i) => (i.kind ?? i.type) === "investigation")) {
+        const g = (await (await fetch(`/api/v1/investigations/${c.id}/canvas`, { headers: h })).json()) as { nodes?: { id: string; kind: string }[] };
+        const branch = g.nodes?.find((n) => n.kind === "branch");
+        if (branch) return { id: c.id, branch: branch.id };
+      }
+      return null;
+    });
+    test.skip(!inv, "no investigation with a branch");
+    await page.route((u) => u.pathname.endsWith("/writeback-preview"), (r) =>
+      json(r, 200, {
+        from: { id: inv!.branch, title: "检查用分支", version: "v1" }, to: { id: "target-check", title: "主线", version: "v3", next_version: "v4", hops: 1 },
+        conclusions: [{ id: "msg-check", text: "检查用结论", evidence: [], recommended: true }], timeline: [], checks: [], budget: { before: null, after: null, limit: null },
+        target: "target-check", source_revision: 5, target_revision: 3,
+      }),
+    );
+    let sent: Record<string, unknown> | null = null;
+    await page.route((u) => u.pathname.endsWith("/writeback"), (r) => {
+      if (r.request().method() !== "POST") return r.fallback();
+      sent = r.request().postDataJSON();
+      return json(r, 409, { error: { code: "revision_conflict", message: "stale" } });
+    });
+    await page.goto(origin + `/canvas/${inv!.id}`);
+    await page.locator(`article.cv-node[data-node="${inv!.branch}"]`).click({ position: { x: 40, y: 16 }, timeout: 20_000 });
+    await page.getByRole("toolbar", { name: "画布工具" }).getByRole("button", { name: "回写" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: /确认回写/ }).click({ timeout: 10_000 });
+    await expect.poll(() => sent).not.toBeNull();
+    expect(sent).toMatchObject({ from: inv!.branch, target: "target-check", expected_source_revision: 5, expected_target_revision: 3, conclusions: ["msg-check"] });
+    // A stale write is said and the dialog stays open to check again.
+    await expect.poll(() => toasts(page)).toContain("分支或主线刚有变化，已重新读取，请核对后再回写");
+    await expect(page.getByRole("dialog")).toBeVisible();
+  });
+});

@@ -97,7 +97,16 @@ function call(method, path, body) {
   });
 }
 
-const login = await call("POST", "/auth/login", { email: account.email, password: account.password });
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+/** The passkey routes are rate limited: wait as the server says (or 20 s) and try again. */
+async function patient(method, path, body) {
+  for (let i = 0; ; i++) {
+    const r = await call(method, path, body);
+    if (r.status !== 429 || i >= 30) return r;
+    await pause(1000 * (r.retryAfter || 20));
+  }
+}
+const login = await patient("POST", "/auth/login", { email: account.email, password: account.password });
 if (login.status !== 200) throw new Error(`login ${login.status}`);
 const listed = await call("GET", "/me/passkeys");
 const creds = listed.json?.credentials ?? [];
@@ -110,7 +119,7 @@ if (dryRun || !targets.length) process.exit(0);
 const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
 const jwk = publicKey.export({ format: "jwk" });
 const credId = randomBytes(32);
-const reg = await call("POST", "/me/passkeys/registration/options");
+const reg = await patient("POST", "/me/passkeys/registration/options");
 if (reg.status >= 300) throw new Error(`registration options ${reg.status} ${JSON.stringify(reg.json)}`);
 const pk = reg.json.options.publicKey;
 const cose = cbor(new Map([[1, 2], [3, -7], [-1, 1], [-2, unb64url(jwk.x)], [-3, unb64url(jwk.y)]]));
@@ -119,7 +128,7 @@ lenBuf.writeUInt16BE(credId.length);
 const regAuthData = Buffer.concat([sha256(pk.rp.id), Buffer.from([0x45]), Buffer.alloc(4), Buffer.alloc(16), lenBuf, credId, cose]);
 const regClient = Buffer.from(JSON.stringify({ type: "webauthn.create", challenge: pk.challenge, origin, crossOrigin: false }));
 const attestation = cbor(new Map([["fmt", "none"], ["attStmt", new Map()], ["authData", regAuthData]]));
-const fin = await call("POST", "/me/passkeys/registration/finish", {
+const fin = await patient("POST", "/me/passkeys/registration/finish", {
   challenge_id: reg.json.id,
   label: "清理用临时密钥",
   credential: {
@@ -131,15 +140,6 @@ if (fin.status >= 300) throw new Error(`registration finish ${fin.status} ${JSON
 const userHandle = pk.user.id;
 
 let counter = 0;
-const pause = (ms) => new Promise((r) => setTimeout(r, ms));
-/** The passkey routes are rate limited: wait as the server says (or 20 s) and try again. */
-async function patient(method, path, body) {
-  for (let i = 0; ; i++) {
-    const r = await call(method, path, body);
-    if (r.status !== 429 || i >= 30) return r;
-    await pause(1000 * (r.retryAfter || 20));
-  }
-}
 async function remove(targetId) {
   const o = await patient("POST", "/me/passkeys/deletion/options", { credential_id: targetId });
   if (o.status >= 300) return `options ${o.status}`;

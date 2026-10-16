@@ -21,3 +21,5 @@
 - 2026-09-24 用户确认设计稿 v3 并恢复前端开发：按稿实施全部页面与 UI（Mock 数据、深浅色、中英文），只做前端并约定 API 契约；旧前端保留在 `/legacy`。见 `docs/plans/2026-09-24-v3-frontend.md`。后端与 CI/CD 仍不在本轮范围。
 
 - 2026-10-09 用户要求以生产验收为目标做完整前后端联调与全量回归（计划见 `docs/plans/2026-10-09-production-acceptance.md`）：功能、权限、故障本轮做，性能与 24 小时后置；边测边修，界面改动先出设计图；AI 流程用 DeepSeek；允许在 aiops-test 三台 Lima 虚拟机 Kubernetes（显式 `.local/vm-cluster/kubeconfig`）上做写操作和受控故障注入，不碰其他集群和默认上下文。验收实例与数据只在 `.local/acceptance/` 和独立 PG `aiops-acceptance-pg`，不改现有业务库或 testlab 数据。无关联的测试并行执行。
+
+- 2026-10-16 用户批准缺陷收敛计划（WAN-434，`docs/plans/2026-10-16-defect-convergence.md`）：先过覆盖门槛，再连续 5 轮无新的 P0/P1；授权沿用 2026-10-09 的范围；收敛期间冻结新功能，缺陷修复不改外观，新界面元素先出设计图。性能/24 小时、环境广度、安全审查、运维能力不在本轮。

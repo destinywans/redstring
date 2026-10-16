@@ -1,4 +1,14 @@
-**最新验收：[CP-326](#cp-326-current)，2026-10-12 (+08)。本轮除性能与 24 小时外全部收尾：D11 补齐逐条比对与审计检查并对照设计图核对页面；配置提升首次接实验配置仓库，四类配置从 nonprod 导出、真人审批合并、prod 导入全部走通（Runbook 首次走通审核发布）；审阅页批准后状态按用户确认的方案 A 上线。登记 PA-01～PA-104 全部验证，最终回归 19/19。报告 https://claude.ai/artifact/CD6jdw84V8stiLQRsqvjHt 。**
+**当前：[CP-327](#cp-327-current)，2026-10-16 (+08)。缺陷收敛（WAN-434）阶段 0：用户批准计划第 9 节全部推荐，授权沿用 10-09。**
+
+<a id="cp-327-current"></a>
+## CP-327 · 缺陷收敛：阶段 0
+
+- 用户 10-16 批准 `docs/plans/2026-10-16-defect-convergence.md`（第二版）第 9 节 13 项全部按推荐；授权沿用 10-09 的范围（aiops-test 三台虚拟机 Kubernetes 写操作与受控故障注入，显式 `.local/vm-cluster/kubeconfig`；实验 GitLab 与 Vault 含重建；验收 PG 与两个验收实例；DeepSeek）。DeepSeek 预算上限、收敛期间其他 kind 集群是否暂停，用户另行告知。决策记录：Linear「决策｜缺陷收敛：覆盖门槛加连续轮次」；父任务 WAN-434；缺陷编号从 PA-105 起。
+- 同日先把 Linear 与登记册对齐：PA-09/19/43/67/78 关闭，PA-79～104 补建为 WAN-408～433，WAN-297 关闭（29b86fe3）。
+- 只读核对发现环境与 CP-326 不一致（计划 1.3）：开发模式 Vault 已于 10-12 23:01 停止（凭据丢失，需 `enterprise/vault.py init` 并重新签发）；`aiops-delivery-control-plane` 在运行、GitLab 容器退出码 137；验收二进制为 6b206d22 且 `vcs.modified=true`，之后 main 上 11 个代码提交未在实例上回归。
+- 待用户：计数开始前审完 D35～D45，并确认 D22～D30 的审阅状态。
+
+**此前验收：[CP-326](#cp-326-current)，2026-10-12 (+08)。本轮除性能与 24 小时外全部收尾：D11 补齐逐条比对与审计检查并对照设计图核对页面；配置提升首次接实验配置仓库，四类配置从 nonprod 导出、真人审批合并、prod 导入全部走通（Runbook 首次走通审核发布）；审阅页批准后状态按用户确认的方案 A 上线。登记 PA-01～PA-104 全部验证，最终回归 19/19。报告 https://claude.ai/artifact/CD6jdw84V8stiLQRsqvjHt 。**
 
 <a id="cp-326-current"></a>
 ## CP-326 · 生产验收：D11 收尾与配置提升

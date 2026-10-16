@@ -20,6 +20,8 @@ const raw = secrets.throwaway?.mfa as (Account & { role?: string }) | undefined;
 // Sign-in takes exactly email and password.
 const account: Account | undefined = raw && { email: raw.email, password: raw.password };
 test.skip(!account, "create the throwaway account first: tools/acceptance/accounts.py prod mfa:viewer");
+// Every test signs the same throwaway account in and one ends its other sessions: run them one at a time.
+test.describe.configure({ mode: "serial" });
 test.setTimeout(180_000);
 
 /** RFC 6238 code (SHA-1, 30 s, 6 digits) for a base32 seed. */

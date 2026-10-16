@@ -71,11 +71,14 @@ type Kind = {
 function recorded(instance: InstanceName, key: string): string[] {
   const dir = resolve(LOCAL, "e2e/drills");
   const found: string[] = [];
-  // A report names its instance only when it is nonprod (alert-rule-nonprod.json); the rest ran on prod.
-  const mine = (f: string) => f.endsWith(".json") && f.includes("nonprod") === (instance === "nonprod");
-  for (const f of existsSync(dir) ? readdirSync(dir).filter(mine) : []) {
+  // A report's instance: its own "instance" field, else its name. rollback_edges.py and the rule half of
+  // d11_negatives.py run on nonprod without saying so in the name; everything else ran on prod.
+  const nonprodByName = (f: string) => f.includes("nonprod") || f.startsWith("rollback-edge-") || f.startsWith("d11-negatives-rules");
+  for (const f of existsSync(dir) ? readdirSync(dir).filter((x) => x.endsWith(".json")) : []) {
     try {
-      found.push(...collect(JSON.parse(readFileSync(resolve(dir, f), "utf8")), key));
+      const report = JSON.parse(readFileSync(resolve(dir, f), "utf8"));
+      const at = typeof report?.instance === "string" ? report.instance : nonprodByName(f) ? "nonprod" : "prod";
+      if (at === instance) found.push(...collect(report, key));
     } catch {
       /* a partial drill report: skip it */
     }

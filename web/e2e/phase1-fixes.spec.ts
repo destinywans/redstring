@@ -634,3 +634,31 @@ test.describe("canvas node selection and node turns (PA-153, PA-154)", () => {
     await expect.poll(() => toasts(page)).toContain("检查用：模型暂时不可用");
   });
 });
+
+test.describe("investigation canvas tools and silent writes (PA-155, PA-156)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+  test("write back needs a selected branch; sample-only compare and merge stay out", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const inv = await page.evaluate(async () => {
+      const b = (await (await fetch("/api/v1/canvases", { headers: { "X-AIOps-Environment": "prod" } })).json()) as { items?: { id: string; kind?: string; type?: string }[] };
+      return (b.items ?? []).find((i) => (i.kind ?? i.type) === "investigation")?.id ?? null;
+    });
+    test.skip(!inv, "no investigation canvas");
+    await page.goto(origin + `/canvas/${inv}`);
+    const tools = page.getByRole("toolbar", { name: "画布工具" });
+    await tools.waitFor({ timeout: 20_000 });
+    for (const sample of ["合并", "对比"]) await expect(tools.getByRole("button", { name: sample })).toHaveCount(0);
+    await tools.getByRole("button", { name: "回写" }).click();
+    await expect.poll(() => toasts(page)).toContain("先选中要回写的分支");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  });
+  test("a preference that didn't sync is said", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/me/preferences"), (r) => (r.request().method() === "PATCH" ? json(r, 503, { error: { code: "unavailable", message: "检查用" } }) : r.fallback()));
+    await page.goto(origin + "/settings/preferences");
+    await page.getByText("深色", { exact: true }).first().click({ timeout: 20_000 });
+    await expect.poll(() => toasts(page)).toContain("偏好只在这台设备上生效，没有同步到账号");
+    await page.getByText("浅色", { exact: true }).first().click();
+  });
+});

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as RPE } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { API_MODE, api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { CanvasBlock, CanvasDoc, CanvasDocNode, CanvasTurn, Me, ModelChoice } from "../../api/types";
 import { AiAvatar, Avatar, AvatarGroup, Badge, Brand, Btn, Dot, Env, Icon, IconBtn, Muted, Row, Segmented, Skeleton, Spacer, Strong, Tabs, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { BrandMark } from "../../ui/BrandMark";
@@ -131,6 +131,7 @@ export default function DocCanvasPage() {
   const [sel, setSel] = useState<string | null>(null);
   const [pinned, setPinned] = usePinned("doc-canvas");
   const panned = useRef(false);
+  const pressedAt = useRef<HTMLElement | null>(null);
   const [tab, setTab] = useState<"chat" | "context" | "artifacts">("chat");
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
   const [threads, setThreads] = useState<CanvasDoc["threads"]>({});
@@ -220,7 +221,14 @@ export default function DocCanvasPage() {
     const push = (t: CanvasTurn) => setThreads((th) => ({ ...th, [nodeId]: { context: th[nodeId]?.context ?? "", turns: [...(th[nodeId]?.turns ?? []), t] } }));
     push({ id: `u${Date.now()}`, role: "user", author: API_MODE === "mock" ? "王晨" : me?.name ?? tx("我", "Me"), text });
     setBusy(c);
-    const r = await api<{ reply: string }>("POST", `/canvases/${id}/nodes/${nodeId}/messages`, { body: { text, model: c?.model, reasoning: c?.reasoning } });
+    let r: { reply: string };
+    try {
+      r = await api<{ reply: string }>("POST", `/canvases/${id}/nodes/${nodeId}/messages`, { body: { text, model: c?.model, reasoning: c?.reasoning } });
+    } catch (e) {
+      // A refused or failed turn is said and the composer is freed (PA-154).
+      setBusy(null);
+      return toast(e instanceof ApiError ? e.message : tx("这条消息没有发出去，请稍后重试", "The message wasn't sent; try again later"), { tone: "danger" });
+    }
     setTimeout(() => {
       push({ id: `a${Date.now()}`, role: "assistant", author: "AI", text: r.reply, model: d?.name, reasoning_label: d?.effort, brand: d?.brand });
       setBusy(null);
@@ -351,6 +359,9 @@ export default function DocCanvasPage() {
         <div
           ref={area}
           className="cv-area"
+          onPointerDownCapture={(e) => {
+            pressedAt.current = e.target as HTMLElement;
+          }}
           style={{ backgroundPosition: `${view.x}px ${view.y}px`, backgroundSize: `${20 * view.k}px ${20 * view.k}px` }}
           onPointerDown={(e) => {
             if (e.button !== 0) return;
@@ -363,7 +374,8 @@ export default function DocCanvasPage() {
             drag.current = null;
           }}
           onClick={(e) => {
-            if (!panned.current && !(e.target as HTMLElement).closest(".cv-node, .dc-artifact, .cv-toolbar, .cv-zoom, .dp")) setSel(null);
+            // The area captures the pointer on press, so the click lands on the area itself; judge by where the press began (PA-153).
+            if (!panned.current && !(pressedAt.current ?? (e.target as HTMLElement)).closest(".cv-node, .dc-artifact, .cv-toolbar, .cv-zoom, .dp")) setSel(null);
           }}
         >
           {isLoading && (

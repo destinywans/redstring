@@ -575,6 +575,7 @@ export default function CanvasPage() {
   };
   const selected = sel ? byId[sel] : undefined;
   const panned = useRef(false);
+  const pressedAt = useRef<HTMLElement | null>(null);
 
   const toCanvas = (cx: number, cy: number) => {
     const r = area.current!.getBoundingClientRect();
@@ -739,15 +740,29 @@ export default function CanvasPage() {
     if (!parent) return;
     const siblings = nodes.filter((n) => n.parent === parent.id).length;
     const title = tx("新分支 {n}", "New branch {n}", { n: siblings + 1 });
-    const node = await api<CanvasNode>("POST", `/investigations/${id}/branches`, { body: { parent_id: parent.id, title, x: parent.x + parent.w + 70, y: parent.y + siblings * 30 + 40 } });
+    let node: CanvasNode;
+    try {
+      node = await api<CanvasNode>("POST", `/investigations/${id}/branches`, { body: { parent_id: parent.id, title, x: parent.x + parent.w + 70, y: parent.y + siblings * 30 + 40 } });
+    } catch (e) {
+      // A refused fork is said, not thrown (PA-154).
+      return toast(e instanceof ApiError ? e.message : tx("分支没有建成，请稍后重试", "The branch wasn't created; try again later"), { tone: "danger" });
+    }
     setNodes((ns) => [...ns, node]);
     setSel(node.id);
     toast(tx("已从「{p}」派生：继承其上下文 {v}，之后互不影响", "Forked from “{p}”: inherits context {v}, isolated from now on", { p: parent.title, v: parent.context.version }));
     setTimeout(() => setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, status: "active", summary: tx("等待你的第一个问题。", "Waiting for your first question.") } : n))), 1200);
   };
   const ask = async (nodeId: string, text: string) => {
+    const before = nodes.find((n) => n.id === nodeId)?.status;
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, status: "running" } : n)));
-    const res = await api<{ summary: string; new_branch?: { title: string; subtitle: string; summary: string }; rollback_suggestion?: RollbackSuggestion | null }>("POST", `/investigations/${id}/nodes/${nodeId}/messages`, { body: { text } });
+    let res: { summary: string; new_branch?: { title: string; subtitle: string; summary: string }; rollback_suggestion?: RollbackSuggestion | null };
+    try {
+      res = await api<typeof res>("POST", `/investigations/${id}/nodes/${nodeId}/messages`, { body: { text } });
+    } catch (e) {
+      // A failed turn puts the node back and says why, instead of leaving it running (PA-154).
+      setNodes((ns) => ns.map((n) => (n.id === nodeId && before ? { ...n, status: before } : n)));
+      return toast(e instanceof ApiError ? e.message : tx("这条消息没有发出去，请稍后重试", "The message wasn't sent; try again later"), { tone: "danger" });
+    }
     // The inspector reads the persisted thread; reread it now that this reply is stored (PA-75).
     void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === `/investigations/${id}/nodes/${nodeId}/replies` });
     setTimeout(() => {
@@ -904,6 +919,9 @@ export default function CanvasPage() {
         <div
           ref={area}
           className={cx("cv-area", dropHint && "drop")}
+          onPointerDownCapture={(e) => {
+            pressedAt.current = e.target as HTMLElement;
+          }}
           style={{ backgroundPosition: `${view.x}px ${view.y}px`, backgroundSize: `${20 * view.k}px ${20 * view.k}px` }}
           onPointerDown={(e) => {
             if (e.button !== 0) return;
@@ -914,7 +932,8 @@ export default function CanvasPage() {
           onPointerUp={onPointerUp}
           onClick={(e) => {
             // A click on empty canvas (not a pan) closes the floating detail card.
-            if (!panned.current && !(e.target as HTMLElement).closest(".cv-node, .cv-toolbar, .cv-zoom, .cv-minimap, .dp")) setSel(null);
+            // The area captures the pointer on press, so the click lands on the area itself; judge by where the press began (PA-153).
+            if (!panned.current && !(pressedAt.current ?? (e.target as HTMLElement)).closest(".cv-node, .cv-toolbar, .cv-zoom, .cv-minimap, .dp")) setSel(null);
           }}
           onDragOver={(e) => {
             if (e.dataTransfer.types.includes("text/x-aiops-evidence")) {

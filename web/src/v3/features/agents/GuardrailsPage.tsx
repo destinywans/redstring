@@ -24,7 +24,8 @@ export default function GuardrailsPage() {
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const demo = API_MODE === "mock";
   const [selPick, setSel] = useState(demo ? "g1" : "");
-  const patch = useSend<{ id: string; enabled: boolean }>("PATCH", (b) => `/guardrails/${b.id}`);
+  // The ID is in the path; the body is only { enabled } (the server rejects unknown fields, PA-142).
+  const patch = useSend<{ id: string; enabled: boolean }>("PATCH", (b) => `/guardrails/${b.id}`, [], ({ enabled }) => ({ enabled }));
   const act = (a: GuardEvent["action"]) => (a === "blocked" ? ([tx("已拦截", "Blocked"), "danger"] as const) : a === "masked" ? ([tx("已脱敏", "Masked"), "warn"] as const) : ([a, "neutral"] as const));
   // Real detail only describes the newest event; any selected event shows what its row recorded.
   const sel = selPick || (demo ? "" : data?.events[0]?.id ?? "");

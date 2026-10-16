@@ -143,6 +143,8 @@ export function useSend<TBody, TResult = unknown>(
   method: "POST" | "PATCH" | "PUT" | "DELETE",
   path: string | ((body: TBody) => string),
   invalidate: string[] = [],
+  /** What goes on the wire when the path already carries part of the variables (PA-142: `{ id, enabled }` → `{ enabled }`). */
+  toBody?: (body: TBody) => unknown,
 ) {
   const client = useQueryClient();
   // Re-sending the identical request while it is in flight or after it failed (double click, retry after a
@@ -151,9 +153,10 @@ export function useSend<TBody, TResult = unknown>(
   const m = useMutation<TResult, ApiError, TBody>({
     mutationFn: (body) => {
       const url = typeof path === "function" ? path(body) : path;
-      const sig = `${method} ${url} ${JSON.stringify(body ?? null)}`;
+      const sent = toBody ? toBody(body) : body;
+      const sig = `${method} ${url} ${JSON.stringify(sent ?? null)}`;
       if (last.current?.sig !== sig) last.current = { sig, key: newIdempotencyKey() };
-      return api<TResult>(method, url, { body, idempotencyKey: last.current.key });
+      return api<TResult>(method, url, { body: sent, idempotencyKey: last.current.key });
     },
     onSuccess: () => {
       last.current = null;

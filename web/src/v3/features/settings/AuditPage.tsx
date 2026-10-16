@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { API_MODE, useGet, useSend } from "../../api/client";
 import type { AuditDetail, AuditEntry, AuditView } from "../../api/types";
 import { AiAvatar, Avatar, Btn, Card, Chip, Code, Col, Icon, IconBtn, KV, Legend, Mono, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, Tile } from "../../ui/core";
 import { DataTable } from "../../ui/data";
@@ -22,7 +22,7 @@ export default function AuditPage() {
   const { data } = useGet<AuditView>("/audit", { filter, q });
   const fAct = useFacet(data?.items, (a) => a.action);
   const fRes = useFacet(data?.items, (a) => a.result ?? "unknown");
-  const exp = useSend<void, { url: string }>("POST", "/audit/export");
+  const exp = useSend<{ filter: string; q?: string }, { url: string }>("POST", "/audit/export");
   const res = (r: AuditEntry["result"] | "unknown") =>
     r === "ok" ? ([tx("成功", "OK"), "ok"] as const) : r === "pending" ? ([tx("进行中", "Pending"), "accent"] as const) : r === "blocked" ? ([tx("已拦截", "Blocked"), "warn"] as const) : r === "failed" ? ([tx("失败", "Failed"), "danger"] as const) : ([tx("未知", "Unknown"), "neutral"] as const);
   const { data: d } = useGet<AuditDetail>(sel ? `/audit/${sel}` : null);
@@ -32,7 +32,19 @@ export default function AuditPage() {
       ai={false}
       crumbs={[tx("设置", "Settings"), tx("审计日志", "Audit log")]}
       actions={
-        <Btn icon="download" loading={exp.isPending} onClick={() => exp.mutate(undefined, { onSuccess: () => toast(tx("导出任务已创建，完成后通过飞书通知", "Export started — you'll be notified on Feishu")) })}>
+        <Btn icon="download" loading={exp.isPending} onClick={() =>
+            // Exports what the list shows and downloads the CSV the server returns (PA-162); the sample has no file.
+            exp.mutate(
+              { filter, ...(q.trim() ? { q: q.trim() } : {}) },
+              {
+                onSuccess: (r) => {
+                  if (API_MODE === "mock") return toast(tx("导出任务已创建，完成后通过飞书通知", "Export started — you'll be notified on Feishu"));
+                  if (r?.url) window.location.assign(r.url);
+                  toast(tx("审计日志已导出，开始下载", "Audit log exported; the download is starting"));
+                },
+              },
+            )
+          }>
           {tx("导出", "Export")}
         </Btn>
       }

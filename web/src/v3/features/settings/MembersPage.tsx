@@ -70,7 +70,7 @@ export default function MembersPage() {
       actions={
         <>
           {/* Without a configured directory source the sync can only fail (503); say so up front (PA-137). */}
-          <Gated reason={data?.unavailable_fields?.includes("directory_sync_source") ? tx("这个实例还没接入飞书目录", "No Feishu directory is connected to this instance") : null}>
+          <Gated reason={data?.unavailable_fields?.includes("directory_sync_source") ? tx("这个实例还没接入飞书目录", "No Feishu directory is connected to this instance") : null} kind="availability">
             <Btn icon="rotate" loading={sync.isPending} onClick={() => sync.mutate(undefined, { onSuccess: (r) => toast(tx("已从飞书同步：新增 {a}，更新 {u}", "Synced from Feishu: {a} added, {u} updated", { a: r.added, u: r.updated })) })}>
               {tx("从飞书同步", "Sync from Feishu")}
             </Btn>

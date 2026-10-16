@@ -75,11 +75,18 @@ export function Gate({ need, children, grow }: { need: Need; children: ReactNode
 }
 
 /** `Gate` for callers that already computed the reason (lists, several entries with one check). */
-export function Gated({ reason, children, grow }: { reason: string | null; children: ReactNode; /** flex-grow of the entry inside a row */ grow?: number }) {
+export function Gated({ reason, children, grow, kind = "permission" }: {
+  reason: string | null;
+  children: ReactNode;
+  /** flex-grow of the entry inside a row */
+  grow?: number;
+  /** "availability" holds an entry whose source isn't configured; only permission gates must name a grant. */
+  kind?: "permission" | "availability";
+}) {
   if (!reason || !isValidElement(children)) return <>{children}</>;
   return (
     <Tooltip label={reason} grow={grow}>
-      <span className="perm-gate" style={grow ? { flexGrow: 1 } : undefined}>
+      <span className={kind === "permission" ? "perm-gate" : "avail-gate"} style={grow ? { flexGrow: 1 } : undefined}>
         {cloneElement(children as ReactElement<{ disabled?: boolean }>, { disabled: true })}
         <span className="sr-only">{reason}</span>
       </span>

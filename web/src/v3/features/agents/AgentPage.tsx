@@ -203,7 +203,10 @@ export default function AgentPage() {
                     </Col>
                     <Row gap={8}>
                       {/* Without a canary in progress there is nothing to promote; starting one from a draft has no entry yet (PA-164). */}
-                      <Gated reason={promoteBlocked ?? (noCandidate ? tx("没有进行中的灰度版本；界面还不能从草稿版本发起灰度", "No canary in progress; starting one from a draft isn't available here yet") : null)}>
+                      <Gated
+                        kind={promoteBlocked ? "permission" : "availability"}
+                        reason={promoteBlocked ?? (noCandidate ? tx("没有进行中的灰度版本；界面还不能从草稿版本发起灰度", "No canary in progress; starting one from a draft isn't available here yet") : null)}
+                      >
                         <Btn kind="primary" icon="up" onClick={() => setConfirm(true)}>
                           {tx("推进到 {p}%", "Promote to {p}%", { p: target })}
                         </Btn>

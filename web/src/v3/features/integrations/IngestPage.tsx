@@ -54,7 +54,7 @@ export default function IngestPage() {
             <Btn icon="key" to="/integrations/webhooks">
               {tx("新建令牌", "New token")}
             </Btn>
-            <Gated reason={noPushSource ? tx("这个实例还没有配置 Push 来源", "No Push source is configured on this instance") : null}>
+            <Gated reason={noPushSource ? tx("这个实例还没有配置 Push 来源", "No Push source is configured on this instance") : null} kind="availability">
               <Btn kind="primary" icon="send" loading={test.isPending} onClick={() => test.mutate({ type: pushType }, { onSuccess: (r) => toast(tx("测试事件已发送 · {c}", "Test event sent · {c}", { c: r.code })) })}>
                 {tx("发送测试事件", "Send test event")}
               </Btn>

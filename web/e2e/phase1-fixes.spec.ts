@@ -185,7 +185,7 @@ test.describe("alert group actions (PA-120)", () => {
       await page.goto(origin + "/alerts");
       await page.getByText("已恢复", { exact: true }).click({ timeout: 20_000 });
       const box = page.locator(".alert-group input[type=checkbox]").first();
-      test.skip(!(await box.isVisible({ timeout: 10_000 }).catch(() => false)), "no alert group to select");
+      test.skip(!(await box.waitFor({ state: "visible", timeout: 10_000 }).then(() => true, () => false)), "no alert group to select");
       await box.check();
       await page.locator(".bulk-bar button", { hasText: "发起调查" }).click();
       await expect.poll(async () => (await toasts(page)).join(" ")).toContain("请从事件页发起调查");
@@ -203,7 +203,7 @@ test.describe("alert group actions (PA-120)", () => {
       await page.goto(origin + "/alerts");
       await page.getByText("已恢复", { exact: true }).click({ timeout: 20_000 });
       const box = page.locator(".alert-group input[type=checkbox]").first();
-      test.skip(!(await box.isVisible({ timeout: 10_000 }).catch(() => false)), "no alert group to select");
+      test.skip(!(await box.waitFor({ state: "visible", timeout: 10_000 }).then(() => true, () => false)), "no alert group to select");
       await box.check();
       for (const name of ["认领", "提议静默", "发起调查"]) await expect(page.locator(".bulk-bar button", { hasText: name })).toBeDisabled();
     });

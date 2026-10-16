@@ -11,7 +11,7 @@ import { toast, Tooltip } from "../../ui/overlays";
 import { DataTable } from "../../ui/data";
 import { Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
-import { Gate } from "../../ui/permission";
+import { Gate, usePermission } from "../../ui/permission";
 import { PersonPeekLink, ServicePeekLink } from "./peeks";
 import "./events.css";
 import { ChipSelect } from "../../ui/demo";
@@ -80,6 +80,7 @@ export default function AlertsPage() {
    * Real claim / silence / investigate through POST /alert-groups/bulk. Each group answers on its own (207 when some
    * fail); a silence is only a pending-review proposal, never an immediate silence.
    */
+  const can = usePermission();
   const act = async (action: BulkAction, ids: string[]) => {
     if (!ids.length) return;
     try {
@@ -96,10 +97,26 @@ export default function AlertsPage() {
           : action === "silence"
             ? tx("已为 {n} 组提交静默提案，批准并执行前告警不会被静默", "Silence proposals submitted for {n} groups; nothing is silenced until approved and executed", { n: ok.length })
             : tx("已为 {n} 组发起调查", "Investigations started for {n} groups", { n: ok.length });
+      // The server's error is the same code as the outcome; always say it in words (PA-120).
       const why = (o: string) =>
-        ({ not_connected: tx("静默来源未接入", "silencing isn't connected"), investigation_required: tx("需要先有开放的调查", "needs an open investigation"), conflict: tx("状态已变化", "state changed"), not_found: tx("告警组不存在或不可见", "group not found"), group_too_large: tx("告警组太大", "group too large") })[o] ?? o;
+        ({
+          not_connected:
+            action === "silence"
+              ? tx("这组告警没有可精确静默的分组标签，请在静默页按条件提议静默", "these groups have no exact silence label; propose a silence by matchers on the Silences page")
+              : tx("来源未接入", "the source isn't connected"),
+          investigation_required: tx("需要先有开放的调查", "needs an open investigation"),
+          conflict:
+            action === "investigate"
+              ? tx("这组告警的历史记录关联了不同的调查，请从事件页发起调查", "past alerts in the group belong to different investigations; start one from the incident page")
+              : tx("状态已变化，请刷新后再试", "state changed; refresh and retry"),
+          not_found: tx("告警组不存在，或你没有处理它的权限", "group not found, or you can't act on it"),
+          group_too_large: tx("告警组太大", "group too large"),
+          session_revoked: tx("会话已失效，请重新登录", "your session ended; sign in again"),
+          human_required: tx("需要本人登录操作", "needs a signed-in person"),
+          unavailable: tx("服务暂时不可用", "the service is unavailable"),
+        })[o] ?? o;
       if (!failed.length) toast(done);
-      else toast(`${ok.length ? done + tx("；", "; ") : ""}${tx("{n} 组未完成：{w}", "{n} not done: {w}", { n: failed.length, w: [...new Set(failed.map((f) => f.error || why(f.outcome)))].join(tx("、", ", ")) })}`, { tone: ok.length ? undefined : "danger" });
+      else toast(`${ok.length ? done + tx("；", "; ") : ""}${tx("{n} 组未完成：{w}", "{n} not done: {w}", { n: failed.length, w: [...new Set(failed.map((f) => why(f.outcome)))].join(tx("、", ", ")) })}`, { tone: ok.length ? undefined : "danger" });
     } catch (e) {
       toast(e instanceof ApiError ? e.message : tx("操作失败，请稍后重试", "That didn't work; try again later"), { tone: "danger" });
     }
@@ -109,7 +126,7 @@ export default function AlertsPage() {
       if ((e.target as HTMLElement).closest("input,textarea")) return;
       if (e.key === "Escape") setChecked(new Set());
       if (e.key === "x") setChecked((c) => toggle(c, focus));
-      if (e.key === "s" && checked.size) void (demo ? bulk("silence", tx("批量静默 1 小时", "Silenced 1 h")) : act("silence", [...checked]));
+      if (e.key === "s" && checked.size && !can(["silences", "manage"])) void (demo ? bulk("silence", tx("批量静默 1 小时", "Silenced 1 h")) : act("silence", [...checked]));
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
@@ -205,15 +222,22 @@ export default function AlertsPage() {
                       </Row>
                       {g.owner && <PersonPeekLink name={g.owner} />}
                       <span className="hact v3-row" style={{ gap: 2 }}>
-                        <Tooltip label={tx("发起调查", "Investigate")}>
-                          {demo ? <IconBtn icon="branch" label={tx("发起调查", "Investigate")} size={26} color="var(--accent-text)" to="/canvas/INV-231" /> : <IconBtn icon="branch" label={tx("发起调查", "Investigate")} size={26} color="var(--accent-text)" onClick={() => void act("investigate", [g.id])} />}
-                        </Tooltip>
-                        <Tooltip label={demo ? tx("静默", "Silence") : tx("提议静默", "Propose silence")}>
-                          <IconBtn icon="mute" label={tx("静默", "Silence")} size={26} onClick={() => (demo ? toast(tx("已静默 1 小时", "Silenced for 1 h"), { undo: () => undefined }) : void act("silence", [g.id]))} />
-                        </Tooltip>
-                        <Tooltip label={tx("认领", "Claim")}>
-                          <IconBtn icon="user" label={tx("认领", "Claim")} size={26} onClick={() => (demo ? toast(tx("已认领", "Claimed")) : void act("claim", [g.id]))} />
-                        </Tooltip>
+                        {/* Write entries are disabled with the grant they need, like the rest of the page (PA-120). */}
+                        <Gate need={["events", "change"]}>
+                          <Tooltip label={tx("发起调查", "Investigate")}>
+                            {demo ? <IconBtn icon="branch" label={tx("发起调查", "Investigate")} size={26} color="var(--accent-text)" to="/canvas/INV-231" /> : <IconBtn icon="branch" label={tx("发起调查", "Investigate")} size={26} color="var(--accent-text)" onClick={() => void act("investigate", [g.id])} />}
+                          </Tooltip>
+                        </Gate>
+                        <Gate need={["silences", "manage"]}>
+                          <Tooltip label={demo ? tx("静默", "Silence") : tx("提议静默", "Propose silence")}>
+                            <IconBtn icon="mute" label={tx("静默", "Silence")} size={26} onClick={() => (demo ? toast(tx("已静默 1 小时", "Silenced for 1 h"), { undo: () => undefined }) : void act("silence", [g.id]))} />
+                          </Tooltip>
+                        </Gate>
+                        <Gate need={["events", "change"]}>
+                          <Tooltip label={tx("认领", "Claim")}>
+                            <IconBtn icon="user" label={tx("认领", "Claim")} size={26} onClick={() => (demo ? toast(tx("已认领", "Claimed")) : void act("claim", [g.id]))} />
+                          </Tooltip>
+                        </Gate>
                       </span>
                     </div>
                     {expanded && g.instances.length > 0 && (
@@ -279,18 +303,24 @@ export default function AlertsPage() {
             ) : (
               <>
                 {/* The bulk contract supports claim, silence (as a proposal) and investigate; merge and assign have no endpoint. */}
-                <button type="button" onClick={() => void act("claim", [...checked])}>
-                  <Icon name="user" size={14} />
-                  {tx("认领", "Claim")}
-                </button>
-                <button type="button" onClick={() => void act("silence", [...checked])}>
-                  <Icon name="mute" size={14} />
-                  {tx("提议静默", "Propose silence")}
-                </button>
-                <button type="button" className="primary" onClick={() => void act("investigate", [...checked])}>
-                  <Icon name="branch" size={14} />
-                  {tx("发起调查", "Investigate")}
-                </button>
+                <Gate need={["events", "change"]}>
+                  <button type="button" onClick={() => void act("claim", [...checked])}>
+                    <Icon name="user" size={14} />
+                    {tx("认领", "Claim")}
+                  </button>
+                </Gate>
+                <Gate need={["silences", "manage"]}>
+                  <button type="button" onClick={() => void act("silence", [...checked])}>
+                    <Icon name="mute" size={14} />
+                    {tx("提议静默", "Propose silence")}
+                  </button>
+                </Gate>
+                <Gate need={["events", "change"]}>
+                  <button type="button" className="primary" onClick={() => void act("investigate", [...checked])}>
+                    <Icon name="branch" size={14} />
+                    {tx("发起调查", "Investigate")}
+                  </button>
+                </Gate>
               </>
             )}
             <span className="sep" />

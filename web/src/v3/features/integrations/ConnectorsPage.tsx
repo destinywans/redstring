@@ -327,7 +327,9 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
               >
                 {tx("测试连接", "Test connection")}
               </Btn>
-              <Btn
+              {/* Editing settings (PUT /connectors/{id}/settings, POST …/activate) and disabling aren't wired; the sample
+                  forms only showed a toast, so they stay in the sample (PA-163, D52). */}
+              {API_MODE === "mock" && <Btn
                 icon="edit"
                 onClick={async () => {
                   const v = await openForm({
@@ -344,9 +346,9 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
                 }}
               >
                 {tx("编辑", "Edit")}
-              </Btn>
+              </Btn>}
               <Spacer />
-              <Btn
+              {API_MODE === "mock" && <Btn
                 kind="danger"
                 onClick={async () => {
                   const ok = await confirmAction({
@@ -359,7 +361,7 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
                 }}
               >
                 {tx("停用", "Disable")}
-              </Btn>
+              </Btn>}
             </Row>
           </Col>
         </>

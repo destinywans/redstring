@@ -55,6 +55,8 @@ export default function RolesPage() {
               {tx("保存权限", "Save permissions")}
             </Btn>
           )}
+          {/* Creating a role only showed a toast; it stays in the sample until the real form is designed (PA-163, D52). */}
+          {API_MODE === "mock" && (
           <Btn
             kind={dirty ? "secondary" : "primary"}
             icon="plus"
@@ -73,6 +75,7 @@ export default function RolesPage() {
           >
             {tx("新建角色", "New role")}
           </Btn>
+          )}
         </>
       }
     >

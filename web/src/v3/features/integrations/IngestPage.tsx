@@ -186,7 +186,9 @@ function Pull({ id }: { id: string | null }) {
         </div>
       </Row>
       <div className="pull-grid">
+        {/* Editing the request template only showed a toast; sample only (PA-163, D52). */}
         <Panel title={tx("请求模板", "Request template")} right={
+          API_MODE === "mock" && (
           <TextLink
             icon="edit"
             onClick={async () => {
@@ -204,6 +206,7 @@ function Pull({ id }: { id: string | null }) {
           >
             {tx("编辑", "Edit")}
           </TextLink>
+          )
         } style={{ width: 330, flex: "none" }}>
           <Col gap={10}>
             <Col gap={4}>
@@ -476,6 +479,8 @@ function Push({ stackOnly, sel, setSel }: { stackOnly: boolean; sel: string; set
             </Col>
           </button>
         ))}
+        {/* Custom event types only showed a toast; they stay in the sample (PA-163, D52). */}
+        {API_MODE === "mock" && (
         <Btn
           kind="ghost"
           icon="plus"
@@ -495,6 +500,7 @@ function Push({ stackOnly, sel, setSel }: { stackOnly: boolean; sel: string; set
         >
           {tx("自定义事件 schema", "Custom event schema")}
         </Btn>
+        )}
         <div className="push-note">{tx("事件型小数据落到平台（带 schema 校验、幂等去重与签名校验）；遥测大数据请用 Pull 或配套栈。", "Small event data lands in the platform (schema-validated, idempotent, signed); use Pull or the starter stack for telemetry.")}</div>
       </div>
       <div className="main">

@@ -95,8 +95,8 @@ export default function McpPage() {
                       items={[
                         { label: tx("查看详情", "Open details"), icon: "panel", onSelect: () => setSel(s.id) },
                         ...(API_MODE === "mock" ? [{ label: tx("重新发现工具", "Rediscover tools"), icon: "rotate" as const, onSelect: () => toast(tx("{n}：工具列表已刷新，无新增", "{n}: tools refreshed, nothing new", { n: s.name })) }] : []),
-                        { sep: true, label: "" },
-                        { label: tx("停用", "Disable"), icon: "x", danger: true, onSelect: () => void disableServer(s.name) },
+                        // Disabling has no server side yet and only showed a toast; sample only (PA-163, D52).
+                        ...(API_MODE === "mock" ? [{ sep: true, label: "" }, { label: tx("停用", "Disable"), icon: "x" as const, danger: true, onSelect: () => void disableServer(s.name) }] : []),
                       ]}
                     />
                   </span>
@@ -290,7 +290,7 @@ function McpAside({ id, onClose }: { id: string; onClose: () => void }) {
                 {tx("在 Agent 中配置", "Configure in agents")}
               </Btn>
               <Spacer />
-              <Btn kind="danger" onClick={() => void disableServer(s.name)}>{tx("停用", "Disable")}</Btn>
+              {API_MODE === "mock" && <Btn kind="danger" onClick={() => void disableServer(s.name)}>{tx("停用", "Disable")}</Btn>}
             </Row>
           </Col>
         </>

@@ -848,3 +848,20 @@ test.describe("audit export (PA-162)", () => {
     expect((await toasts(page)).join(" ")).not.toContain("飞书");
   });
 });
+
+test.describe("no pretend actions in real mode, second sweep (PA-163)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  test("new role, connector edit/disable and custom event schema stay in the sample", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/settings/roles");
+    await expect(page.getByRole("button", { name: "角色与权限" }).or(page.getByText("系统角色")).first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "新建角色" })).toHaveCount(0);
+    await page.goto(origin + "/integrations");
+    await page.getByText("Prometheus", { exact: true }).first().click({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "测试连接" })).toBeVisible({ timeout: 10_000 });
+    for (const name of ["编辑", "停用"]) await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
+    await page.goto(origin + "/integrations/ingest/push");
+    await page.waitForTimeout(3_000);
+    await expect(page.getByRole("button", { name: "自定义事件 schema" })).toHaveCount(0);
+  });
+});

@@ -2,6 +2,7 @@ import { Fragment, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { useGet, useSend, API_MODE, ApiError, api } from "../../api/client";
+import { Gate } from "../../ui/permission";
 import type { RunDetail } from "../../api/types";
 import { Badge, Btn, Card, CardHead, Col, Icon, IconBtn, Mono, Muted, Row, Skeleton, Spacer, Tabs, Tile, cx, type IconName } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -42,10 +43,16 @@ export default function RunDetailPage() {
       crumbs={[tx("Agent 运行台", "Agent console"), tx("运行与 Trace", "Runs & traces"), tx("运行 {id}", "Run {id}", { id })]}
       actions={
         <>
-          <IconBtn icon="check" label={tx("有用", "Helpful")} active={vote === "up"} onClick={() => rate("up")} />
-          <IconBtn icon="x" label={tx("无用", "Not helpful")} active={vote === "down"} onClick={() => rate("down")} />
+          {/* Feedback and annotations need agents.change (PA-150). */}
+          <Gate need={["agents", "change"]}>
+            <IconBtn icon="check" label={tx("有用", "Helpful")} active={vote === "up"} onClick={() => rate("up")} />
+          </Gate>
+          <Gate need={["agents", "change"]}>
+            <IconBtn icon="x" label={tx("无用", "Not helpful")} active={vote === "down"} onClick={() => rate("down")} />
+          </Gate>
           {/* Adding a run to an eval dataset needs a dataset picker (POST /eval-datasets/{id}/items); sample data only for now. */}
           {demo && <Btn icon="plus" onClick={() => toast(tx("已加入数据集「根因分析 · 回归」", "Added to dataset “Root cause · regression”"))}>{tx("加入数据集", "Add to dataset")}</Btn>}
+          <Gate need={["agents", "change"]}>
           <Btn
             icon="edit"
             onClick={async () => {
@@ -69,6 +76,7 @@ export default function RunDetailPage() {
           >
             {tx("标注", "Annotate")}
           </Btn>
+          </Gate>
           {demo && <Btn kind="ghost" icon="external" onClick={() => openExternal("Phoenix", `https://phoenix.example.internal/projects/aiops/traces/${id}`)}>{tx("在 Phoenix 中打开", "Open in Phoenix")}</Btn>}
           <Btn
             kind="ghost"

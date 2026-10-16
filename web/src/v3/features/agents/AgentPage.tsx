@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, useGet, useSend } from "../../api/client";
+import { Gate } from "../../ui/permission";
 import type { AgentDetail, AgentVersion } from "../../api/types";
 import { Badge, Btn, Col, Icon, Legend, Mono, Muted, Num, Panel, Row, Skeleton, Spacer, State, Tabs, TextLink, Tile, cx, type IconName } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
@@ -43,9 +44,11 @@ export default function AgentPage() {
       crumbs={[tx("Agent 运行台", "Agent console"), tx("Agent 与版本", "Agents & versions"), a.name]}
       actions={
         <>
+          <Gate need={["agents", "manage"]}>
           <Btn icon="rotate" loading={rollback.isPending} onClick={() => rollback.mutate(undefined, { onSuccess: () => toast(tx("已回滚到 {v}，灰度流量清零", "Rolled back to {v}; canary traffic cleared", { v: a.release.from }), demo ? { undo: () => undefined } : {}), onError: (e) => toast(e.message, { tone: "danger" }) })}>
             {tx("回滚到 {v}", "Roll back to {v}", { v: a.release.from })}
           </Btn>
+          </Gate>
           {/* Real versions need an artifact reference (POST /agents/{id}/versions); this form only pretends, so sample data only (PA-134). */}
           {demo && (
             <Btn
@@ -196,9 +199,11 @@ export default function AgentPage() {
                       )}
                     </Col>
                     <Row gap={8}>
-                      <Btn kind="primary" icon="up" onClick={() => setConfirm(true)}>
-                        {tx("推进到 {p}%", "Promote to {p}%", { p: target })}
-                      </Btn>
+                      <Gate need={["agents", "manage"]}>
+                        <Btn kind="primary" icon="up" onClick={() => setConfirm(true)}>
+                          {tx("推进到 {p}%", "Promote to {p}%", { p: target })}
+                        </Btn>
+                      </Gate>
                       {gatesKnown && !passed && <Muted size={11.5}>{tx("门禁未全部通过；平台管理员可手动放行", "Not all gates passed; an admin may override")}</Muted>}
                       {!gatesKnown && <Muted size={11.5}>{tx("门禁结果未知，推进需要管理员放行", "Gate results are unknown; promoting needs an admin override")}</Muted>}
                     </Row>

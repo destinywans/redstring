@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Page } from "../../app/Shell";
 import { API_MODE, useGet, useSend } from "../../api/client";
+import { Gate } from "../../ui/permission";
 import type { PromptDetail, PromptItem, PromptTrial } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Field, Icon, Muted, Num, Panel, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, TextLink, Tile, cx } from "../../ui/core";
 import { toast, MenuButton } from "../../ui/overlays";
@@ -97,6 +98,7 @@ export default function PromptsPage() {
                     onSelect: () => i > 0 && toast(tx("已在试运行对比中载入 {v}", "Loaded {v} into the trial comparison", { v })),
                   }))}
                 />
+                <Gate need={["agents", "change"]}>
                 <Btn
                   kind="primary"
                   icon="check"
@@ -114,6 +116,7 @@ export default function PromptsPage() {
                 >
                   {demo ? tx("保存为 v14", "Save as v14") : tx("保存为新版本", "Save as new version")}
                 </Btn>
+                </Gate>
               </Row>
               <Row gap={6}>
                 <Muted>{tx("变量", "Variables")}</Muted>

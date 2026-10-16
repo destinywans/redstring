@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, useGet, useSend } from "../../api/client";
+import { Gate } from "../../ui/permission";
 import { PageUnavailable, Unavailable } from "../../ui/unknown";
 import type { EvalExperiment, EvalList } from "../../api/types";
 import { DataTable } from "../../ui/data";
@@ -16,7 +17,7 @@ import { useWhen } from "../../ui/when";
 const STATUS: Record<string, [string, string]> = { pending: ["待运行", "Pending"], running: ["运行中", "Running"], passed: ["通过", "Passed"], failed: ["未通过", "Failed"], invalid: ["无效", "Invalid"], cancelled: ["已取消", "Cancelled"] };
 
 export default function EvalsPage() {
-  const { tx } = useI18n();
+  const { tx, fmt } = useI18n();
   const when = useWhen();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -57,7 +58,7 @@ export default function EvalsPage() {
   if (API_MODE !== "mock" && !expId) {
     const l = list.data;
     return (
-      <Page crumbs={[tx("Agent 运行台", "Agent console"), tx("评测", "Evaluations")]} error={!l ? list.error : undefined} errorSource={tx("评测记录", "evaluation records")} actions={<Btn kind="primary" icon="play" onClick={() => void newExperiment()}>{tx("新建实验", "New experiment")}</Btn>}>
+      <Page crumbs={[tx("Agent 运行台", "Agent console"), tx("评测", "Evaluations")]} error={!l ? list.error : undefined} errorSource={tx("评测记录", "evaluation records")} actions={<Gate need={["agents", "change"]}><Btn kind="primary" icon="play" onClick={() => void newExperiment()}>{tx("新建实验", "New experiment")}</Btn></Gate>}>
         {l && !l.items.length ? (
           <PageUnavailable
             icon="activity"
@@ -77,7 +78,7 @@ export default function EvalsPage() {
                   { key: "t", header: tx("实验", "Experiment"), width: "32%", render: (x) => <Col gap={0} style={{ minWidth: 0 }}><span className="ellipsis" style={{ fontWeight: 500 }}>{x.title}</span><Muted size={11.5}>{x.agent_name}</Muted></Col> },
                   { key: "v", header: tx("基线 → 候选", "Baseline → candidate"), render: (x) => <Mono size={12}>{x.baseline_version} → {x.candidate_version}</Mono> },
                   { key: "s", header: tx("状态", "Status"), render: (x) => <Badge tone={EVAL_STATUS[x.status][0]}>{EVAL_STATUS[x.status][1]}</Badge> },
-                  { key: "c", header: tx("创建", "Created"), render: (x) => <Muted>{new Date(x.created_at).toLocaleString()}</Muted> },
+                  { key: "c", header: tx("创建", "Created"), render: (x) => <Muted>{fmt.dateTime(x.created_at)}</Muted> },
                   { key: "f", header: tx("完成", "Finished"), render: (x) => <Muted>{when.at(x.finished_at) ?? "—"}</Muted> },
                 ]}
               />
@@ -98,6 +99,7 @@ export default function EvalsPage() {
   const Res = ({ ok }: { ok: boolean }) => <Icon name={ok ? "check" : "x"} size={14} color={ok ? "var(--ok)" : "var(--danger)"} />;
   return (
     <Page flush crumbs={[tx("Agent 运行台", "Agent console"), API_MODE === "mock" ? tx("评测", "Evaluations") : { label: tx("评测", "Evaluations"), to: "/agents/evals" }, ...(API_MODE === "mock" || !e ? [] : [e.title])]} actions={
+        <Gate need={["agents", "change"]}>
         <Btn
           kind="primary"
           icon="play"
@@ -119,6 +121,7 @@ export default function EvalsPage() {
         >
           {tx("新建实验", "New experiment")}
         </Btn>
+        </Gate>
       }>
       <Tabs
         value={tab}

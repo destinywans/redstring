@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
 import { API_MODE, api, useGet, useSend } from "../../api/client";
+import { Gate } from "../../ui/permission";
 import type { AgentLevel, ConnectorList, ToolRow, ToolsView } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, Mono, Muted, Num, Pills, Row, SearchBox, Section, Strong, Tile, cx } from "../../ui/core";
 import { DataTable } from "../../ui/data";
@@ -26,6 +27,7 @@ export default function ToolsPage() {
   const rows = data?.items.filter((t) => (!q || t.name.includes(q)) && fConn.test(t) && fAgent.test(t));
   return (
     <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("工具与权限", "Tools & permissions")]} actions={
+        <Gate need={["agents", "manage"]}>
         <Btn
           kind="primary"
           icon="plus"
@@ -60,6 +62,7 @@ export default function ToolsPage() {
         >
           {tx("登记工具", "Register tool")}
         </Btn>
+        </Gate>
       }>
       <div className="v3-split">
         <div className="main">

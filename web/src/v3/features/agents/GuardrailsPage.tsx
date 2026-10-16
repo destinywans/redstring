@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
 import { useGet, useSend, API_MODE } from "../../api/client";
+import { Gate } from "../../ui/permission";
 import type { GuardEvent, GuardrailsView } from "../../api/types";
 import { Badge, Btn, Card, Chip, Code, Col, Icon, Legend, Mono, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, TextLink, Tile, Toggle, cx, type IconName } from "../../ui/core";
 import { DataTable } from "../../ui/data";
@@ -124,11 +125,13 @@ export default function GuardrailsPage() {
                     {p.forced ? (
                       <Badge>{tx("不可关闭", "Always on")}</Badge>
                     ) : (
-                      <Toggle
-                        on={on}
-                        label={p.name}
-                        onChange={(v) => toggle(p.id, p.name, v)}
-                      />
+                      <Gate need={["agents", "manage"]}>
+                        <Toggle
+                          on={on}
+                          label={p.name}
+                          onChange={(v) => toggle(p.id, p.name, v)}
+                        />
+                      </Gate>
                     )}
                   </li>
                 );

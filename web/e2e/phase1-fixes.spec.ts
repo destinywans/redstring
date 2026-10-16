@@ -825,3 +825,26 @@ test.describe("webhooks and API tokens (PA-161)", () => {
     await expect.poll(() => deleted).toBe("DELETE");
   });
 });
+
+test.describe("audit export (PA-162)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  test("exports what the list shows and downloads the returned file", async ({ page }) => {
+    await page.addInitScript(zh);
+    let sent: Record<string, unknown> | null = null;
+    let downloaded = false;
+    await page.route(at("/audit/export"), (r) => {
+      sent = r.request().postDataJSON();
+      return json(r, 200, { url: "/api/v1/audit/exports/check" });
+    });
+    await page.route((u) => u.pathname === "/api/v1/audit/exports/check", (r) => {
+      downloaded = true;
+      return r.fulfill({ status: 200, contentType: "text/csv", headers: { "Content-Disposition": "attachment; filename=audit.csv" }, body: "id,at\n" });
+    });
+    await page.goto(origin + "/settings/audit");
+    await page.getByRole("button", { name: "导出" }).click({ timeout: 20_000 });
+    await expect.poll(() => sent).not.toBeNull();
+    expect(sent).toMatchObject({ filter: "all" });
+    await expect.poll(() => downloaded).toBe(true);
+    expect((await toasts(page)).join(" ")).not.toContain("飞书");
+  });
+});

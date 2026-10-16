@@ -24,6 +24,13 @@
 | PA-116 | P3 | `POST /canvases` 新建通用画布缺 `services` 时写库 NULL 撞非空约束，统一包成 503 `canvas_unavailable` 且不记日志；应 422 或当空列表。前端始终带 `services`，用户路径不受影响 | 待修。Linear WAN-446 | 首次路径 | 扫荡 | 1 |
 | PA-117 | P3 | 收件箱认领成功提示“已认领，值班升级已停止”（`InboxPage.tsx:45`），V3 没有值班升级（`/oncall-schedules` 503），同 PA-21/PA-30 一类 | 待修：真实模式只写“已认领”。Linear WAN-447 | 首次路径 | 扫荡（代码与接口核对） | 1 |
 | PA-118 | P3 | 已恢复的告警“认领”仍可点，409 `already_claimed_or_closed` 弹出后端英文原文（同 PA-24 一类） | 待修。扫荡截图 `e2e/sweep/alert-claim-*.png`。Linear WAN-448 | 首次路径 | 扫荡 | 1 |
+| PA-119 | P2 | 告警组过往的已恢复发生记录挂在两个以上不同调查上（演练后事件没结案很常见）时，对正在触发的组“发起调查”（行内或批量）恒定 207 `conflict`：`activeInvestigationMember` 只看事件状态 open/investigating、不看告警是否仍在触发。prod checkout-api 的 `LabHigh5xxRate` 组 12 条事件里两条挂着 `INV-e0d3abd4…`、`INV-85425a14…` | 待修，**修复需定方案**（改分组调查的成员口径属改变产品行为，交主会话与用户确认）。绕行：事件页发起调查（本次未验证）。Linear WAN-449 | 首次数据状态 | 扫荡（故障窗口） | 1 |
+| PA-120 | P3 | 告警页批量/行内动作：未完成项的提示直接显示后端代码（“1 组未完成：conflict”“2 组未完成：not_connected”，`f.error \|\| why(f.outcome)` 跳过了中文映射），批量静默按设计 `not_connected` 也不说明原因与替代入口；动作对只读成员不门控，点了提示“not_found” | 待修。扫荡 `alerts-bulk`、`alerts-viewer`。Linear WAN-450 | 首次路径 | 扫荡 | 1 |
+| PA-121 | P3 | 静默提案（创建与提前结束）审阅页的标题、摘要、核对清单、审批要求、执行方式、依据、恢复验证都是生成时写死的英文；摘要“…if a separate approval and execution flow is later enabled”“No silence is created by this proposal”已过时（批准后约 5 秒静默即生效），会误导审批人。同 PA-24 一类 | 待修。提案 `ca60e8a3…`、`d7f03f5b…`。Linear WAN-451 | 首次路径 | 扫荡 | 1 |
+| PA-122 | P3 | 审阅页“讨论”回复框对只读成员可用，发送 403，`onSubmit` 未捕获（页面异常 `ApiError`）、无提示；评论要 `proposals.change`，变更审批员同样 403（审批人能否评论是产品口径，修时确认）。拒绝/批准按钮门控正确 | 待修（门控按现有权限做）。扫荡 `review-viewer-comment`。Linear WAN-452 | 首次角色 | 扫荡 | 1 |
+| PA-123 | P2 | “新建抑制规则”两实例都不可用：预览不带契约要求的 `application_id`，恒 404 且错误被吞、预览区一直空白（带上后 prod 为 501 缺七天历史来源）；保存 501 `not_connected`（未接 GitOps 抑制仓库），提示为英文原文；不带 `If-Match`；入口未按 `silences.manage` 门控，“生效范围”不进请求。按 2.3 算缺陷 | 待修，**修复需定方案**（来源未接时隐藏、标暂不可用或补接来源；新元素需设计图）。扫荡 `inhibition-drawer`。Linear WAN-453 | 首次路径 | 扫荡 | 1 |
+| PA-124 | P2 | 新建 Runbook 页（WAN-127，界面上唯一入口）真实模式只能存空白草稿：“从复盘生成”的候选取自 `/postmortems/candidates`（契约是“尚无复盘的已结案事件”），两实例已发布复盘共 5 篇、候选却为空；模板/对话/导入没有来源选择控件，`/runbooks/draft` 缺 `from` 恒 422；起草失败不提示，仍显示“AI 起草”和写死的示意提示；保存不带 `from`/`expected_source_sha256`，422 未捕获；空白起点保存时丢掉输入的标题（非受控输入，存成“未命名 Runbook”），不能加步骤；步骤类型 `action`/`act` 不一致。起草步骤标题写死英文“Review: …”即 PA-113 的来源 | 待修，**部分需定方案**（模板/对话/导入需新来源选择控件或真实模式先隐藏）。扫荡 `runbook-new`，产生 Runbook `ee36a525…`。Linear WAN-454 | 首次路径 | 扫荡 | 1 |
+| PA-125 | P2 | 第二位审批人批准静默提案后，弹窗主按钮“查看执行进度”跳 `/executions/<静默执行 ID>`，该接口只投影回滚与旧动作执行，404，执行页整页显示“暂时不可用 · 来源连接失败或超时，稍后会自动重试”（原因不实、不会恢复）；实际已执行成功（审阅页执行框“已确认”、Alertmanager 已有静默）。审阅页只对回滚/规则显示“查看执行”，弹窗未同样判断 | 待修。定级 P2（执行页对回滚正常、结果在审阅页可见），按 2.3 字面可读成 P1，留审查复核。扫荡 `exec-pages-prod`。Linear WAN-455 | 首次路径 | 扫荡 | 1 |
 
 ## 阶段 0 记录
 
@@ -52,6 +59,24 @@
 - **2026-10-16 工具合并与修复**：两个工具分支按用户同意的顺序合并（da3ed7d0、66828adb）；4 个演练脚本的问题已修（f1631991）；`audit_writes.py` 首次实跑因 `json_agg` 换行解析失败，已修（ab12b225），prod 5282 条审计、112 种动作，nonprod 1667 条、76 种。
 - **2026-10-16 回归（含多角色与详情页对拍，`regress-cv-tools.json`）**：14/21。管理员对拍 216 次全部干净、0 失败组（对拍降到 3 个 worker 后负载 8～12，D45 类超时未出现）；只读成员、运维人员各 108 次、107 次干净，唯一意外项为 PA-110；详情页对拍首次运行查出 PA-109（P1，已修复验证）。其余失败是工具问题：权限矩阵的假阳性（交 t1-route-matrix 修）、详情页对拍用错告警组和评测用例的地址、管理员入口门控规则（交 t2-coverage-tools 修）；韧性接口 503 按契约（五类来源未配）加入 `crawl-exemptions.json` 豁免。
 - **2026-10-16 重跑与第二批工具修复**：Pod 崩溃演练隔开重跑后 AI 判断正确（终止原因 `Error`，无 OOMKilled）；交付演练自动开第 3 轮后 25/25（AI 29 秒作答、建议 84 → 83、两人批准回滚并验证通过、修复上线后无告警）；D11 变更反例 11/11。两个修复分支按用户同意合并（cbb17df7、8b1fffef）。实例验证：权限矩阵两实例 0 不一致（PA-110、PA-108 作为已登记缺陷单列；`GET /canvases/{id}` 的样本全是调查画布 ID，通用画布详情在真实数据上未覆盖，列入阶段 1）；合法请求体探测 prod 133 次（拒绝 121）、nonprod 132 次（拒绝 117），无越权，PA-108 范围扩大到告警规则新建、导入与停用；管理员对拍 216/216 干净、门控问题 0（`proposals.approve` 按设计只列备注）；详情页对拍干净重跑 98/98、6 个韧性 503 按契约豁免。详情页仍跳过 5 类：prod 审阅页与执行详情（提案没有列表接口，取不到 ID）、两实例评测用例（评测未执行无用例）、nonprod Agent 运行（无数据），列入阶段 1 覆盖缺口。
+
+## 阶段 1 记录
+
+结论写进 `.local/acceptance/coverage-verified.json`（六层：页面、数据、权限、环境、异常、AI）；扫荡场景在 `.local/acceptance/sweep-scenarios/`，输出与截图在 `.local/acceptance/e2e/sweep/`（`web/e2e/sweep.spec.ts`）。
+
+- **10-16 19:10 开工**：Go 二进制为 5502f631 干净构建（`vcs.modified=false`），Web 为含 PA-109 前端修复（01ef1fce）的构建，两实例健康；5502f631 之后的产品提交只有 01ef1fce（仅前端）；`clock-watchdog.py check` READY；凭据 9/9（回滚写令牌 10-17 06:52Z 到期）；宿主 1 分钟负载 10.0。
+- **1.7 第 1 步 · 核心闭环（10-16 19:12–19:35）**：在 aiops-test 开重试风暴（19:12:39 开，19:13:52 Prometheus 触发，19:14 产品两组触发），故障窗口内：
+  - 认领：运维人员在收件箱认领正在触发的 checkout-api 告警 200，刷新后仍为“已认领”、计入“待我处理”，审计 `alert.claim`；提示仍是“值班升级已停止”（PA-117 复现，不重复登记）。并发：运维人员与管理员同一修订同时认领，一个 200、一个 412 `claim_revision_changed`；之后另一人用新修订认领 409（英文原文，PA-118 一类）。只读成员、审批员认领 403；不存在的告警 404。
+  - 批量：认领两组 200“已认领 2 组”；发起调查 207（order-api 新建 `INV-d3d3556c…`，checkout-api `conflict` → PA-119）；提议静默两组 `not_connected`（按设计，缺专用分组标签声明），提示显示原始代码 → PA-120。只读成员批量 207 逐项 `not_found`，入口不门控（并入 PA-120）。nonprod 全部环境视图 409 `env_view_only`，跨实例分组 ID `not_found`。
+  - 静默：抽屉预览“当前匹配 1 条告警”，与 Alertmanager 一致；改成不存在的告警名后 0。抽屉提交提案 202 → 审批员 1、2 通行密钥批准 → 约 5 秒后 Alertmanager 出现静默 `0e26a304…`，产品静默列表“生效中、影响 1”。提前结束：静默页“提议提前结束”选调查、写原因，`DELETE /silences/{id}` 202 生成取消提案 `d7f03f5b…`（走提案，不直接执行，符合契约）→ 两人批准 → 约 5 秒后 Alertmanager 中该静默 expired，产品列表同步。对已结束的静默再提取消 409 `silence_proposal_conflict`；只读成员取消 404。静默生效的 1 分钟内告警组状态仍为 firing（`silence_state` 在 `unavailable` 里，按契约）。
+  - 抑制：预览与保存两实例都不可用 → PA-123。
+  - 提案评论：发起人评论 201，刷新后仍在；空评论 422；只读成员 403 未捕获、审批员 403 → PA-122。审阅页拒绝/批准按钮对非审批角色禁用并写明所需权限。审阅页内容英文且过时 → PA-121。
+  - prod 审阅页与执行详情：三条回滚执行页（`158fb8d4…` 等）正常显示时间线、验证采样、副本与批准人；静默执行 ID 进执行页整页“暂时不可用” → PA-125。
+  - 执行报告发布：V3 旧动作 Worker 关闭，只能投影已有持久执行；三条 prod 回滚执行 `report` 为 null，发布按钮不出现，界面无入口 → 归**缺来源**（不登记缺陷）。
+  - 新建 Runbook 页（WAN-127）→ PA-124。
+  - **实验环境**：19:21 起 worker2 不可达，看门狗 19:24 判定、19:26 重启修复（`repair_done`，80.6 秒，证据 `aiops-test/.local/clock-watchdog/evidence/20261016T112444Z-aiops-k8s-worker2`）；期间 `lab-faults.py off` 超时，修复后关闭成功，故障窗口 19:12:39–19:27，所有开关 off。不计产品缺陷。
+  - 工具：`sweep.spec.ts` 增加 `fillPlaceholder`、`fillSelector` 两种步骤。
+  - DeepSeek：本步 0 次调用（没有触发 AI 调查）。
 
 ## 轮次记录
 

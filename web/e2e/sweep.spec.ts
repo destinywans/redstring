@@ -18,6 +18,8 @@ import { monitor } from "./support/monitor";
  *   { "clickRole": { "role": "button", "name": "保存模板" } }
  *   { "clickSelector": "css" }                click the first match
  *   { "fill": { "label": "模板名称", "value": "x" } }   fill an input by its accessible label
+ *   { "fillPlaceholder": { "placeholder": "例如", "value": "x" } }   fill the last input with this placeholder
+ *   { "fillSelector": { "selector": "css", "value": "x" } }
  *   { "waitText": "text", "timeout"?: ms }     wait until the text is visible
  *   { "wait": ms }
  *   { "shot": "label" }                       full-page screenshot
@@ -74,6 +76,12 @@ if (scenario) {
         } else if (step.fill) {
           const f = step.fill as { label: string; value: string };
           await page.getByLabel(f.label).first().fill(f.value, { timeout: 10_000 });
+        } else if (step.fillPlaceholder) {
+          const f = step.fillPlaceholder as { placeholder: string; value: string };
+          await page.getByPlaceholder(f.placeholder).last().fill(f.value, { timeout: 10_000 });
+        } else if (step.fillSelector) {
+          const f = step.fillSelector as { selector: string; value: string };
+          await page.locator(f.selector).first().fill(f.value, { timeout: 10_000 });
         } else if (step.waitText) {
           await page.getByText(String(step.waitText)).first().waitFor({ state: "visible", timeout: Number(step.timeout ?? 15_000) });
           await collectToasts();

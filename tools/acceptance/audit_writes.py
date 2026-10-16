@@ -49,7 +49,8 @@ def readonly_json(db, queries, variables=None):
             sys.exit(f'--{key} looks wrong: {value}')
         script.append(f"\\set {key} '{value}'")
     for name, sql in queries.items():
-        script += ['BEGIN READ ONLY;', f"SELECT '{name}', coalesce(json_agg(t), '[]'::json) FROM ({sql}) t;", 'COMMIT;']
+        # json_agg puts a newline between elements; the output is read one line per query, so flatten it.
+        script += ['BEGIN READ ONLY;', f"SELECT '{name}', replace(coalesce(json_agg(t), '[]'::json)::text, E'\\n', ' ') FROM ({sql}) t;", 'COMMIT;']
     env = dict(os.environ, PGPASSWORD=read_env(PG_ENV)['POSTGRES_PASSWORD'])
     r = subprocess.run(['docker', 'exec', '-i', '-e', 'PGPASSWORD', CONTAINER, 'psql', '-h', '127.0.0.1', '-U', 'aiops', '-d', db,
                         '-X', '-A', '-t', '-F', '\t', '-q'], input='\n'.join(script) + '\n', env=env, capture_output=True, text=True)

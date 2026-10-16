@@ -16,7 +16,7 @@ writes it) unless CRAWL_OUT says otherwise. Each failing group is then judged:
   unexpected everything else, including a 403 for a route the role is granted or one missing from the matrix.
 Permission gates (.perm-gate, web/src/v3/ui/permission.tsx: a disabled entry plus text "需要 … 权限") are checked
 too: every gate must be disabled and name a permission, none may name one the role holds, and a role that lacks
-write grants must show at least one on some page. Only gates that exist can be judged; an enabled write entry
+gated write grants (the Need tuples in web/src/v3) must show at least one on some page. Only gates that exist can be judged; an enabled write entry
 that has no gate is not visible to a page load.
 The headline keeps the old shape, with failing API groups counting only the unexpected ones.
 """
@@ -45,6 +45,10 @@ MODULES = {'对话与画布': 'conversation', '画布': 'canvas', '事件与告�
            'Resource catalog & relations': 'resources', 'Workspace': 'workspace', 'Models': 'models'}
 ACTIONS = {'查看': 'view', '修改': 'change', '删除': 'delete', '批准': 'approve', '管理': 'manage',
            'View': 'view', 'Change': 'change', 'Delete': 'delete', 'Approve': 'approve', 'Manage': 'manage'}
+# Grants a built-in role lacks on purpose. proposals.approve belongs to the approver roles only (approving is a
+# separate duty from proposing and executing); its one gate (ReviewPage `can(["proposals","approve"])`) sits on a
+# detail page, so the static crawl cannot show it and the admin's missing grant must not count as a gate problem.
+BY_DESIGN = {'admin': {('proposals', 'approve')}}
 GATE_TEXT = re.compile(r'^(?:需要 (?P<zm>.+)·(?P<za>.+) 权限|Needs (?P<em>.+) · (?P<ea>.+) permission)$')
 
 ID = re.compile(r'/(?:[0-9a-f]{16,}|[A-Z]+-\d+|\d+)(?=/|$)')
@@ -113,6 +117,15 @@ def judge_denial(matrix, method, path, status, instance):
     return 'route is not in the role matrix' if status == 403 else None
 
 
+def gated_needs():
+    """(module, action) pairs the front end gates on: the Need tuples in web/src/v3 (permission.tsx), mock/ aside."""
+    pairs = set()
+    for f in (ROOT / 'web/src/v3').rglob('*.ts*'):
+        if '/mock/' not in str(f):
+            pairs.update(re.findall(r'\[\s*"([a-z_]+)",\s*"(change|delete|approve|manage)"\s*\]', f.read_text()))
+    return pairs
+
+
 def judge_gates(reports, matrices):
     """Problems with permission gates; also the distinct gates seen, reason -> pages."""
     problems, seen = [], collections.defaultdict(set)
@@ -132,13 +145,26 @@ def judge_gates(reports, matrices):
             action = ACTIONS.get(m['za'] or m['ea'], m['za'] or m['ea'])
             if held is not None and (module, action) in held:
                 problems.append(f'{tag}: gated on {module}.{action} although {ROLE} holds it')
+    # A role that lacks a grant the front end gates on must show at least one gate somewhere. Grants no gate
+    # uses (the admin's missing proposals.approve is by design: approving is a separate role's duty, and no page
+    # gates on it) cannot show up on a page, so they are listed as a note and never judged.
     grants_all = [m[1] for m in matrices.values() if m and m[1]]
-    if grants_all and not seen:
+    notes = []
+    if grants_all:
         universe = {g for gs in grants_all for roles in gs.values() for g in roles if g[1] != 'view'}
         held = set().union(*(gs.get(ROLE, set()) for gs in grants_all))
-        if universe - held:
-            problems.append(f'{ROLE} lacks {len(universe - held)} write grants, yet no page showed a permission gate')
-    return problems, seen
+        gated = gated_needs()
+        by_design = BY_DESIGN.get(ROLE, set()) & (universe - held)
+        missing = universe - held - by_design
+        if by_design:
+            notes.append(f'{ROLE} lacks {", ".join(f"{m}.{a}" for m, a in sorted(by_design))} by design (not judged): the only gate on it is on /review/:id, a detail page the static crawl does not load')
+        if missing & gated and not seen:
+            problems.append(f'{ROLE} lacks gated write grants ({", ".join(f"{m}.{a}" for m, a in sorted(missing & gated))}), yet no page showed a permission gate')
+        if ROLE == 'admin' or len(missing - gated) <= 12:
+            notes.append(f'{ROLE} lacks write grants that no front-end gate uses (not judged): ' + (', '.join(f'{m}.{a}' for m, a in sorted(missing - gated)) or 'none'))
+        else:
+            notes.append(f'{ROLE} lacks {len(missing - gated)} write grants that no front-end gate uses (not judged)')
+    return problems, seen, notes
 
 
 def main():
@@ -189,7 +215,7 @@ def main():
             for route in f['routes']:
                 for inst in f['instances']:
                     bad_pages[f'{inst}:{route}'].add('api')
-    gate_problems, gates_seen = judge_gates(reports, matrices)
+    gate_problems, gates_seen, gate_notes = judge_gates(reports, matrices)
     pages_ok = len(reports) - len(bad_pages)
     unexpected = {k: v for k, v in verdicts.items() if v[0] == 'unexpected'}
     count = collections.Counter(v[0] for v in verdicts.values())
@@ -209,6 +235,7 @@ def main():
     lines += [f'- {len(gates_seen)} distinct gate text(s) on {len({t for v in gates_seen.values() for t in v})} page(s)'] + \
              [f'- `{reason}` — {len(tags)} page(s)' for reason, tags in sorted(gates_seen.items(), key=lambda kv: -len(kv[1]))]
     lines += ['', '### Gate problems', ''] + ([f'- {p}' for p in gate_problems] or ['- none'])
+    lines += [''] + [f'- note: {n}' for n in gate_notes]
     lines += ['', '## Uncaught exceptions', '']
     for e, tags in sorted(page_errors.items(), key=lambda kv: -len(kv[1])):
         lines.append(f'- **{e}** — {len(tags)} page(s): ' + ', '.join(sorted(tags)[:8]))

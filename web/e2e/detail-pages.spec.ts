@@ -14,6 +14,14 @@ import { monitor, type PageReport } from "./support/monitor";
  * Each load and each tab click writes a PageReport (same shape as the crawl, crawl-summary.py reads it) to
  * DETAIL_OUT (default e2e/detail-crawl); a page fails on uncaught exceptions, a PageBoundary fallback or a blank root.
  *
+ * An alert group has no address of its own (`/alerts/:id` only redirects an old link to the incident), so the alerts
+ * kind opens /alerts and clicks group rows, which is how the page selects one and loads its policy.
+ * Evaluation ids in the route are case ids (EvalCasePage), taken from the cases of the listed experiments.
+ *
+ * A kind with no object on an instance is skipped, with the reason in the report annotations; that is expected,
+ * not a failure. On 2026-10-16 four were skipped that way: prod review and executions (no proposal or execution
+ * reachable from the lists below), nonprod agent-runs and evals (none exist). Rerun after drills create them.
+ *
  * Needs no write: it only navigates and clicks tabs. DETAIL_WITH_DRAFTS=1 also opens /postmortems/new?incident=…
  * (the AI drafts there, so it costs a model call per incident). DETAIL_ROLE picks the account (admin by default).
  */
@@ -48,13 +56,31 @@ function collect(body: Body, key: string, out: string[] = []): string[] {
 const uniq = <T,>(xs: T[]) => [...new Set(xs)];
 const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
 
-type Kind = { name: string; paths: (get: (path: string) => Promise<Body>) => Promise<string[]> };
+type Get = (path: string) => Promise<Body>;
+type Kind = {
+  name: string;
+  paths: (get: Get) => Promise<string[]>;
+  /** Extra interaction on a loaded page, for objects that are selected in the page rather than addressed. */
+  explore?: (page: Page, report: (route: string, key: string) => Promise<void>, failures: string[]) => Promise<void>;
+};
 const ids = (list: string) => async (get: (p: string) => Promise<Body>) =>
   rows(await get(list)).map((r) => str(r.id)).filter((x): x is string => !!x);
 
 export const KINDS: Kind[] = [
   { name: "incidents", paths: async (get) => (await ids("/incidents")(get)).map((id) => `/incidents/${id}`) },
-  { name: "alerts", paths: async (get) => (await ids("/alert-groups")(get)).map((id) => `/alerts/${id}`) },
+  {
+    name: "alerts",
+    paths: async (get) => ((await ids("/alert-groups")(get)).length ? ["/alerts"] : []),
+    explore: async (page, report, failures) => {
+      const heads = page.locator(".alert-group .ag-head");
+      const n = Math.min(await heads.count(), MAX_IDS);
+      // The first group is selected on load; the others are clicked in turn, each loading its policy.
+      for (let i = 1; i < n; i++) {
+        await heads.nth(i).click({ timeout: 5_000 }).catch((e) => failures.push(`/alerts [group ${i}]: click failed (${String(e).split("\n")[0].slice(0, 120)})`));
+        await report(`/alerts [group ${i}]`, `/alerts-group-${i}`);
+      }
+    },
+  },
   {
     // One of each canvas kind first, so investigation, plan and review canvases are all opened.
     name: "canvases",
@@ -70,6 +96,8 @@ export const KINDS: Kind[] = [
     paths: async (get) => {
       const found: string[] = [];
       for (const src of ["/silences", "/alert-rules", "/inbox"]) found.push(...collect(await get(src), "proposal_id"));
+      // An incident's own record can link its proposals too.
+      for (const id of (await ids("/incidents")(get)).slice(0, 5)) found.push(...collect(await get(`/incidents/${id}`), "proposal_id"));
       return found.map((id) => `/review/${id}`);
     },
   },
@@ -87,7 +115,19 @@ export const KINDS: Kind[] = [
   { name: "conversations", paths: async (get) => (await ids("/conversations")(get)).map((id) => `/conversations/${id}`) },
   { name: "agents", paths: async (get) => (await ids("/agents/lifecycle")(get)).map((id) => `/agents/${id}`) },
   { name: "agent-runs", paths: async (get) => (await ids("/agent-runs")(get)).map((id) => `/agents/runs/${id}`) },
-  { name: "evals", paths: async (get) => (await ids("/evals")(get)).map((id) => `/agents/evals/${id}`) },
+  {
+    // The route takes a case id: read the cases of the listed experiments until enough are found.
+    name: "evals",
+    paths: async (get) => {
+      const found: string[] = [];
+      for (const id of (await ids("/evals")(get)).slice(0, 5)) {
+        const experiment = (await get(`/evals/${id}`)) as { cases?: { id?: string }[] | null } | null;
+        for (const c of experiment?.cases ?? []) if (c.id) found.push(c.id);
+        if (found.length >= MAX_IDS) break;
+      }
+      return found.map((id) => `/agents/evals/${id}`);
+    },
+  },
   {
     name: "traces",
     paths: async (get) => rows(await get("/traces")).map((r) => str(r.id) ?? str(r.trace_id)).filter((x): x is string => !!x).map((id) => `/traces/${id}`),
@@ -124,7 +164,7 @@ for (const instance of Object.keys(INSTANCES) as InstanceName[]) {
         await page.addInitScript((c) => localStorage.setItem("aiops-v3-preferences", JSON.stringify(c)), LOCALE);
         await page.goto(INSTANCES[instance].origin + "/healthz");
         const targets = uniq(await kind.paths(reader(page, instance)).catch(() => [])).slice(0, MAX_IDS * (kind.name === "services" ? 2 : 1));
-        test.skip(targets.length === 0, `no ${kind.name} on ${instance} to open`);
+        test.skip(targets.length === 0, `no ${kind.name} on ${instance} to open (empty list, or the list could not be read)`);
         const failures: string[] = [];
 
         // One monitor for the whole test; each report takes what arrived since the previous one.
@@ -172,6 +212,7 @@ for (const instance of Object.keys(INSTANCES) as InstanceName[]) {
               await report(`${path} [tab ${name}]`, `${path}-tab-${li}-${ti}-${name}`);
             }
           }
+          await kind.explore?.(page, report, failures);
         }
         expect(failures, "uncaught exceptions, error fallbacks or blank pages").toEqual([]);
       });

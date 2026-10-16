@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Page } from "../../app/Shell";
-import { API_MODE, useGet, useSend } from "../../api/client";
+import { API_MODE, ApiError, api, useGet, useGetWithEtag } from "../../api/client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Role, RoleDetail } from "../../api/types";
 import { AvatarGroup, Badge, Btn, Card, Chip, Col, Icon, Muted, Row, SearchBox, Section, Skeleton, Tabs, Tile, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -16,10 +17,16 @@ export default function RolesPage() {
   const [q, setQ] = useState("");
   const [tab, setTab] = useState("perm");
   useFirstSelection(list?.items, (x) => x.id, sel, setSel);
-  const { data: r } = useGet<RoleDetail>(sel ? `/roles/${sel}` : null);
+  // The matrix is saved against the revision it was read at (If-Role-Matrix-Revision, PA-158).
+  const { data: read } = useGetWithEtag<RoleDetail>(sel ? `/roles/${sel}` : null);
+  const r = read?.data;
   const lists = usePickLists();
   const [matrix, setMatrix] = useState<RoleDetail["matrix"] | null>(null);
-  const save = useSend<{ matrix: RoleDetail["matrix"] }>("PUT", `/roles/${sel}`, ["/roles"]);
+  const client = useQueryClient();
+  const save = useMutation<unknown, ApiError, { matrix: RoleDetail["matrix"] }>({
+    mutationFn: (body) => api("PUT", `/roles/${sel}`, { body, headers: read?.revision ? { "If-Role-Matrix-Revision": read.revision } : undefined }),
+    onSettled: () => client.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("/roles") }),
+  });
   useEffect(() => setMatrix(r ? r.matrix : null), [r]);
   const dirty = !!r && !!matrix && JSON.stringify(r.matrix) !== JSON.stringify(matrix);
   const kinds: [Role["kind"], string][] = [
@@ -44,7 +51,7 @@ export default function RolesPage() {
       actions={
         <>
           {dirty && (
-            <Btn kind="primary" icon="check" loading={save.isPending} onClick={() => matrix && save.mutate({ matrix }, { onSuccess: () => toast(tx("权限已保存并写入审计", "Permissions saved and audited")) })}>
+            <Btn kind="primary" icon="check" loading={save.isPending} onClick={() => matrix && save.mutate({ matrix }, { onSuccess: () => toast(tx("权限已保存并写入审计", "Permissions saved and audited")), onError: (e) => toast(e.status === 409 || e.status === 412 ? tx("角色刚被其他人修改，已重新读取，请核对后再保存", "Someone just changed this role; reloaded — check and save again") : e.message, { tone: "danger" }) })}>
               {tx("保存权限", "Save permissions")}
             </Btn>
           )}

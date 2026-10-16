@@ -187,6 +187,8 @@ export type EvidenceBody =
   | { type: "table"; rows: string[][] };
 export type CanvasNode = {
   id: string;
+  /** Real nodes: the layout revision a move must name (expected_layout_version). */
+  layout_version?: number;
   kind: "root" | "branch" | "evidence";
   parent?: string;
   title: string;
@@ -1221,6 +1223,8 @@ export type Lifecycle = {
 /** Real versions carry configured_traffic; observed traffic, score, success and tokens are null until measured. */
 export type AgentVersion = { version: string; status: "canary" | "stable" | "retired" | "draft"; traffic: string | null; configured_traffic?: string; score: string | null; success: string | null; tokens: string | null; delta?: string; created: string };
 export type AgentDetail = AgentSummary & {
+  /** Real agents: the revision rollout and rollback must name (expected_revision). */
+  revision?: number;
   owner: string;
   account: string | null;
   summary: string;

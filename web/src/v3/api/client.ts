@@ -78,7 +78,7 @@ export async function apiWithMeta<T>(
   method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
   opts: { query?: Query; body?: unknown; idempotencyKey?: string; headers?: Record<string, string> } = {},
-): Promise<{ data: T; etag: string | null }> {
+): Promise<{ data: T; etag: string | null; revision?: string | null }> {
   if (API_MODE === "mock") return { data: await handleMock<T>(method, path, opts.query ?? {}, opts.body), etag: null };
   const res = await fetch(`/api/v1${path}${qs(opts.query)}`, {
     method,
@@ -99,8 +99,10 @@ export async function apiWithMeta<T>(
     throw new ApiError(res.status, body?.error?.code ?? "request_failed", body?.error?.message ?? `HTTP ${res.status}`, body?.error ?? {});
   }
   const etag = res.headers.get("ETag");
-  if (res.status === 204) return { data: undefined as T, etag };
-  return { data: (await res.json()) as T, etag };
+  // Role matrices carry their revision in their own header (PUT needs it back as If-Role-Matrix-Revision).
+  const revision = res.headers.get("X-Role-Matrix-Revision");
+  if (res.status === 204) return { data: undefined as T, etag, revision };
+  return { data: (await res.json()) as T, etag, revision };
 }
 
 /** Typed GET bound to the current locale, so switching language refetches server-localised text. */
@@ -126,11 +128,11 @@ export function useGet<T>(path: string | null, query?: Query, options?: Partial<
 }
 
 /** `useGet` for resources saved with `If-Match`: returns `{ data, etag }` so the page can send the revision back. */
-export function useGetWithEtag<T>(path: string | null, options?: Partial<UseQueryOptions<{ data: T; etag: string | null }>>) {
+export function useGetWithEtag<T>(path: string | null, options?: Partial<UseQueryOptions<{ data: T; etag: string | null; revision?: string | null }>>) {
   const locale = usePreferences((s) => s.locale);
   const env = useEnv((s) => s.env);
   const ready = useEnv((s) => s.instance !== null) || API_MODE === "mock";
-  return useQuery<{ data: T; etag: string | null }>({
+  return useQuery<{ data: T; etag: string | null; revision?: string | null }>({
     queryKey: [path, { etag: true }, locale, env],
     queryFn: () => apiWithMeta<T>("GET", path!),
     staleTime: 30_000,

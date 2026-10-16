@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { ApiError, api, useGetWithEtag } from "../../api/client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Badge, Btn, Chip, Field, Input, Muted, Panel, Row, Segmented, Skeleton, Strong, Icon } from "../../ui/core";
 import { BrandMark } from "../../ui/BrandMark";
 import { toast } from "../../ui/overlays";
@@ -16,9 +17,15 @@ type Workspace = { name: string; slug: string; timezone: string; locale: string;
 /** Workspace › General: name, defaults for new members, retention. Product name and logo are still undecided. */
 export default function WorkspacePage() {
   const { tx } = useI18n();
-  const { data } = useGet<Workspace>("/workspace");
+  // Saved against the version it was read at: If-Match with the GET's strong ETag (PA-158).
+  const { data: read } = useGetWithEtag<Workspace>("/workspace");
+  const data = read?.data;
   const [w, setW] = useState<Workspace | null>(null);
-  const save = useSend<Workspace>("PUT", "/workspace", ["/workspace"]);
+  const client = useQueryClient();
+  const save = useMutation<unknown, ApiError, Workspace>({
+    mutationFn: (body) => api("PUT", "/workspace", { body, headers: read?.etag ? { "If-Match": read.etag } : undefined }),
+    onSettled: () => client.invalidateQueries({ predicate: (q) => q.queryKey[0] === "/workspace" }),
+  });
   useEffect(() => {
     if (data) setW(structuredClone(data));
   }, [data]);
@@ -32,7 +39,7 @@ export default function WorkspacePage() {
       bodyClass="set-narrow"
       crumbs={[tx("设置", "Settings"), tx("工作区通用", "Workspace")]}
       actions={
-        <Btn kind="primary" icon="check" disabled={!dirty} loading={save.isPending} onClick={() => w && save.mutate(w, { onSuccess: () => toast(tx("工作区设置已保存并写入审计", "Workspace settings saved and audited")) })}>
+        <Btn kind="primary" icon="check" disabled={!dirty} loading={save.isPending} onClick={() => w && save.mutate(w, { onSuccess: () => toast(tx("工作区设置已保存并写入审计", "Workspace settings saved and audited")), onError: (e) => toast(e.status === 409 || e.status === 412 ? tx("工作区设置刚被其他人修改，已重新读取，请核对后再保存", "Someone just changed the workspace; reloaded — check and save again") : e.message, { tone: "danger" }) })}>
           {tx("保存", "Save")}
         </Btn>
       }

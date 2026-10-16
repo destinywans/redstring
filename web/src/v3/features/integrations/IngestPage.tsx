@@ -358,6 +358,8 @@ function Pull({ id }: { id: string | null }) {
               onClick={async () => {
                 setTesting(true);
                 const r = await api<{ ok: boolean; rows: number; dropped: number }>("POST", `/ingest/pull/${d.id}/test`, { body: { contract } }).finally(() => setTesting(false));
+                // Say what the test found; a failed test must not read "passed" (PA-135).
+                if (!r.ok) return toast(tx("测试没有通过：映射 {r} 行，丢弃 {x} 行", "Test failed: {r} rows mapped, {x} dropped", { r: r.rows, x: r.dropped }), { tone: "danger" });
                 toast(tx("测试通过：映射 {r} 行，丢弃 {x} 行", "Test passed: {r} rows mapped, {x} dropped", { r: r.rows, x: r.dropped }));
                 setStep(4);
               }}
@@ -365,9 +367,14 @@ function Pull({ id }: { id: string | null }) {
               {tx("运行测试", "Run test")}
             </Btn>
           ) : (
-            <Btn kind="primary" h={28} icon="check" onClick={() => toast(tx("{n} 已启用，按请求模板的频率拉取", "{n} enabled; pulling at the template rate", { n: d.name }))}>
-              {tx("启用", "Enable")}
-            </Btn>
+            // Pull sources are enabled in server configuration; this page has no enable call (PA-135).
+            API_MODE === "mock" ? (
+              <Btn kind="primary" h={28} icon="check" onClick={() => toast(tx("{n} 已启用，按请求模板的频率拉取", "{n} enabled; pulling at the template rate", { n: d.name }))}>
+                {tx("启用", "Enable")}
+              </Btn>
+            ) : (
+              <Muted size={11.5}>{tx("测试通过后，由运维在服务端配置中启用。", "Once the test passes, an operator enables it in server configuration.")}</Muted>
+            )
           )}
         </Row>
       </Panel>

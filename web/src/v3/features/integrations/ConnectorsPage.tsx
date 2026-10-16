@@ -384,9 +384,12 @@ function LowerSources() {
         <Badge>{data?.items.length ?? 0}</Badge>
         <Spacer />
         <Muted size={12}>{tx("只读、单向：生产可以读取低环境用于对比，低环境不能访问生产", "Read-only, one-way: production may read lower environments for comparison; they can never reach production")}</Muted>
-        <Btn h={26} icon="plus" onClick={() => toast(tx("添加时只能选择只读凭据，凭据保存在生产 Vault", "Only read-only credentials can be added; they live in the production Vault"))}>
-          {tx("添加", "Add")}
-        </Btn>
+        {/* There is no endpoint to add a lower-environment source from here; the button only explained (PA-135). */}
+        {API_MODE === "mock" && (
+          <Btn h={26} icon="plus" onClick={() => toast(tx("添加时只能选择只读凭据，凭据保存在生产 Vault", "Only read-only credentials can be added; they live in the production Vault"))}>
+            {tx("添加", "Add")}
+          </Btn>
+        )}
       </div>
       {data?.items.map((x) => (
         <div key={x.id} className="lower-row">

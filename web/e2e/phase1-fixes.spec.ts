@@ -593,3 +593,44 @@ test.describe("alert rule import, preview and dry run refusals (PA-151, PA-152)"
     await expect.poll(() => toasts(page)).toContain("这条规则的评估间隔不在 15 秒到 5 分钟之间，不能试运行。");
   });
 });
+
+test.describe("canvas node selection and node turns (PA-153, PA-154)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+  const canvases = async (page: Page) => {
+    await page.goto(origin + "/healthz");
+    return page.evaluate(async () => {
+      const b = (await (await fetch("/api/v1/canvases", { headers: { "X-AIOps-Environment": "prod" } })).json()) as { items?: { id: string; kind?: string; type?: string }[] };
+      const items = b.items ?? [];
+      const kind = (i: { kind?: string; type?: string }) => i.kind ?? i.type;
+      return { doc: items.find((i) => kind(i) !== "investigation")?.id ?? null, inv: items.find((i) => kind(i) === "investigation")?.id ?? null };
+    });
+  };
+  test("clicking a node keeps it selected on both canvases", async ({ page }) => {
+    await page.addInitScript(zh);
+    const ids = await canvases(page);
+    test.skip(!ids.doc && !ids.inv, "no canvas");
+    for (const id of [ids.doc, ids.inv].filter(Boolean)) {
+      await page.goto(origin + `/canvas/${id}`);
+      const node = page.locator("article.cv-node").first();
+      await node.waitFor({ timeout: 20_000 });
+      await node.click({ position: { x: 40, y: 16 } });
+      await page.waitForTimeout(400);
+      await expect(node, `${id}: the node stays selected after the click`).toHaveClass(/selected/);
+    }
+  });
+  test("a failed node turn is said and frees the composer", async ({ page }) => {
+    await page.addInitScript(zh);
+    const ids = await canvases(page);
+    test.skip(!ids.doc, "no general canvas");
+    await page.route((u) => /\/api\/v1\/canvases\/[^/]+\/nodes\/[^/]+\/messages$/.test(u.pathname), (r) =>
+      r.request().method() === "POST" ? json(r, 503, { error: { code: "model_unavailable", message: "检查用：模型暂时不可用" } }) : r.fallback(),
+    );
+    await page.goto(origin + `/canvas/${ids.doc}`);
+    const node = page.locator("article.cv-node").first();
+    await node.waitFor({ timeout: 20_000 });
+    await node.click({ position: { x: 40, y: 16 } });
+    await page.getByPlaceholder("在这个节点继续…").fill("检查用问题", { timeout: 10_000 });
+    await page.locator(".dp button[aria-label='发送']").click();
+    await expect.poll(() => toasts(page)).toContain("检查用：模型暂时不可用");
+  });
+});

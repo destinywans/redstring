@@ -49,6 +49,7 @@ export default function SourcesPage() {
     git_markdown: tx("GitLab Markdown", "GitLab Markdown"),
     notion: "Notion",
     confluence: "Confluence",
+    upload: tx("本人上传", "Upload"),
   })[kind] ?? kind;
   const scheduleLabel = (schedule: string) => schedule === "manual" ? tx("手动", "Manual") : schedule;
   const syncSource = async (source: KnowledgeSourceEvidence) => {
@@ -119,7 +120,7 @@ export default function SourcesPage() {
                   { key: "st", header: tx("连接", "Connection"), render: (s) => isEvidence(s)
                     ? <Col gap={2}><State tone={s.connection_status === "connected" ? "ok" : s.connection_status === "error" ? "danger" : "neutral"}>{s.connection_status === "connected" ? tx("已连接", "Connected") : s.connection_status === "error" ? tx("异常", "Error") : unknown}</State><Muted size={11}>{s.error ?? tx("登记待验证", "Registration unverified")}</Muted></Col>
                     : (s.status === "connected" ? <State tone="ok">{tx("已连接", "Connected")}</State> : <Col gap={2}><State tone="danger">{tx("异常", "Error")}</State><Muted size={11}>{s.error}</Muted></Col>) },
-                  { key: "x", header: "", width: 46, render: (s) => <span className="hact"><Btn kind="ghost" h={24} icon="rotate" loading={isEvidence(s) && syncingId === s.id} disabled={!isEvidence(s)} aria-label={tx("读取来源 {n}", "Read source {n}", { n: s.name })} title={isEvidence(s) ? tx("读取来源；不代表完成索引", "Read source; indexing is not implied") : tx("演示来源不可读取", "Demo sources cannot be read")} onClick={() => { if (isEvidence(s)) void syncSource(s); }} /></span> },
+                  { key: "x", header: "", width: 46, render: (s) => <span className="hact"><Gate need={["knowledge", "manage"]}><Btn kind="ghost" h={24} icon="rotate" loading={isEvidence(s) && syncingId === s.id} disabled={!isEvidence(s)} aria-label={tx("读取来源 {n}", "Read source {n}", { n: s.name })} title={isEvidence(s) ? tx("读取来源；不代表完成索引", "Read source; indexing is not implied") : tx("演示来源不可读取", "Demo sources cannot be read")} onClick={() => { if (isEvidence(s)) void syncSource(s); }} /></Gate></span> },
                 ]}
               />
             </Card>

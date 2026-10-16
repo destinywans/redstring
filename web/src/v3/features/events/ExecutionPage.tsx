@@ -32,7 +32,12 @@ function RealExecutionPage() {
   // Times in the app's language, like the rest of the product (PA-74).
   const when = useWhen();
   const fmtTime = (t: string | null) => when.at(t) ?? "—";
-  const { data: e, error, refetch } = useGet<ExecutionDetail>(id ? `/executions/${id}` : null);
+  // Right after the second approval the executor may not have recorded the execution yet (404 for a few seconds):
+  // keep asking for a minute before saying it isn't there (PA-125).
+  const { data: e, error, refetch } = useGet<ExecutionDetail>(id ? `/executions/${id}` : null, undefined, {
+    retry: (n, err) => err instanceof ApiError && err.status === 404 && n < 20,
+    retryDelay: 3_000,
+  });
   const [publishing, setPublishing] = useState(false);
   if (!e)
     return (

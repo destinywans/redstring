@@ -599,7 +599,11 @@ export default function CanvasPage() {
     if (d?.kind === "node" && d.moved && dir === "lr") {
       const n = nodes.find((x) => x.id === d.id);
       // A position the server didn't keep is said, so a reload doesn't silently move the node back (PA-155).
-      if (n) api("PATCH", `/investigations/${id}/nodes/${n.id}`, { body: { x: Math.round(n.x), y: Math.round(n.y) } }).catch((e: unknown) => toast(e instanceof ApiError ? e.message : tx("节点位置没有保存", "The node position wasn't saved"), { tone: "danger" }));
+      // Real moves name the layout revision they started from (PA-160) and keep the one the server returns.
+      if (n)
+        api<CanvasNode>("PATCH", `/investigations/${id}/nodes/${n.id}`, { body: { x: Math.round(n.x), y: Math.round(n.y), ...(demo ? {} : { expected_layout_version: n.layout_version ?? 0 }) } })
+          .then((u) => u && typeof u.layout_version === "number" && setNodes((ns) => ns.map((x) => (x.id === n.id ? { ...x, layout_version: u.layout_version } : x))))
+          .catch((e: unknown) => toast(e instanceof ApiError ? e.message : tx("节点位置没有保存", "The node position wasn't saved"), { tone: "danger" }));
     }
   };
   const zoom = useCallback((factor: number, cx?: number, cy?: number) => {

@@ -20,6 +20,7 @@ import { monitor } from "./support/monitor";
  *   { "fill": { "label": "模板名称", "value": "x" } }   fill an input by its accessible label
  *   { "fillPlaceholder": { "placeholder": "例如", "value": "x" } }   fill the last input with this placeholder
  *   { "fillSelector": { "selector": "css", "value": "x" } }
+ *   { "upload": { "selector": "input[type=file]", "name": "a.md", "mime": "text/markdown", "text": "..." } }
  *   { "waitText": "text", "timeout"?: ms }     wait until the text is visible
  *   { "wait": ms }
  *   { "shot": "label" }                       full-page screenshot
@@ -82,6 +83,10 @@ if (scenario) {
         } else if (step.fillSelector) {
           const f = step.fillSelector as { selector: string; value: string };
           await page.locator(f.selector).first().fill(f.value, { timeout: 10_000 });
+        } else if (step.upload) {
+          const u = step.upload as { selector: string; name: string; mime: string; text: string };
+          await page.locator(u.selector).first().setInputFiles({ name: u.name, mimeType: u.mime, buffer: Buffer.from(u.text) }, { timeout: 10_000 });
+          await loaded();
         } else if (step.waitText) {
           await page.getByText(String(step.waitText)).first().waitFor({ state: "visible", timeout: Number(step.timeout ?? 15_000) });
           await collectToasts();

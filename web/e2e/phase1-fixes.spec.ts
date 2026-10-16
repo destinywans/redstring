@@ -902,3 +902,18 @@ test.describe("save a canvas as a template (PA-114)", () => {
     await expect(dialog).toBeVisible();
   });
 });
+
+test.describe("conversation attachments (PA-165)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+  test("an attachment is uploaded with the environment header", async ({ page }) => {
+    await page.addInitScript(zh);
+    let env: string | undefined;
+    await page.route(at("/uploads"), (r) => {
+      env = r.request().headers()["x-aiops-environment"];
+      return json(r, 201, { id: "up-check", kind: "file", name: "check.md", size: 10, mime: "text/markdown", url: "/api/v1/uploads/up-check" });
+    });
+    await page.goto(origin + "/conversations/new");
+    await page.locator('input[type="file"]').first().setInputFiles({ name: "check.md", mimeType: "text/markdown", buffer: Buffer.from("# 检查用\n") }, { timeout: 20_000 });
+    await expect.poll(() => env, { timeout: 10_000 }).toBe("prod");
+  });
+});

@@ -27,8 +27,18 @@ come from GET /members/{id}/access (all roles, legacy origin included).
 Every request carries X-Acceptance-Probe: permissions, so coverage counts can
 leave this traffic out.
 
-Path parameters use a real id from the matching list route when one exists,
-otherwise a dummy id (writes) or the route is skipped (reads).
+Path parameters use a real id from the matching list route. A role that holds
+the grant reads with an id from its OWN list (drafts and pending objects are
+visible to their maintainer only); roles without it and writes use admin's. A
+read with no real id is skipped; a write falls back to a dummy id.
+
+Some answers are reported apart from the mismatches (field "excluded"), so they
+do not fail regress:
+  * runtime_unregistered: a plain-text 404/405 from the mux, i.e. the route is
+    not registered on this instance (OIDC bindings without OIDC configured);
+  * known_defect:<id>: an answer that matches a registered defect (KNOWN);
+  * no_object (list "no_object"): a granted read answered 404 for an object
+    admin cannot read either (an evaluation never executed, no review candidate).
 """
 import argparse
 import json
@@ -41,6 +51,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from api import LOCAL, ORIGINS, call  # noqa: E402
+from permission_bodies import list_items  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 PROBE = 'permissions'
@@ -48,6 +59,14 @@ ROLES = ['admin', 'operator', 'approver1', 'viewer']
 # Readable only by the account that created the object (the sample ids come from admin's records).
 OWNER_ONLY = {'GET /api/v1/agent-runs/{id}/result'}
 DENIED = {403, 404}
+# Registered defects: a failing answer that matches is reported as known_defect:<defect>,
+# not as a new mismatch. Remove an entry when the defect is fixed.
+KNOWN = [
+    {'route': 'GET /api/v1/config-sync', 'instances': {'prod'}, 'status': {403}, 'defect': 'PA-110',
+     'why': 'production lists config-sync only for human platform administrators; the route mark says workspace.view'},
+    {'route': 'POST /api/v1/silences', 'instances': {'nonprod'}, 'status': {501}, 'code': 'not_connected', 'defect': 'PA-108',
+     'why': 'checks the Alertmanager write binding before the permission'},
+]
 # List routes read for sample ids, and the path prefix their ids fill in.
 SAMPLES = {
     '/services': '/services', '/alert-groups': '/alert-groups', '/incidents': '/incidents', '/alert-rules': '/alert-rules',
@@ -112,41 +131,36 @@ def grants(instance, email):
     return {(g['module'], g['action']) for r in access['roles'] for g in r.get('grants', [])}
 
 
-def first_id(body, depth=0):
-    """The id of the first object in the first non-empty list of a list response
-    (items, rules, agents, policies ... the key differs per module)."""
-    if depth > 3:
-        return None
-    if isinstance(body, list):
-        for item in body:
-            if isinstance(item, dict) and isinstance(item.get('id'), (str, int)) and str(item['id']):
-                return str(item['id'])
-        for item in body:
-            found = first_id(item, depth + 1)
-            if found:
-                return found
-    elif isinstance(body, dict):
-        for key in ('items', 'rules', 'agents', 'members', 'roles', 'silences', 'runs', 'tokens', 'servers', 'policies'):
-            found = first_id(body.get(key), depth + 1)
-            if found:
-                return found
-        for value in body.values():
-            if isinstance(value, (list, dict)):
-                found = first_id(value, depth + 1)
-                if found:
-                    return found
-    return None
+def first_id(body):
+    """The id of the first object of a list response (items, agents, policies ...
+    the key differs per module); never an id from kpis, trend or other lists."""
+    rows = list_items(body)
+    return str(rows[0]['id']) if rows else None
 
 
-def sample_ids(instance):
-    """A real id per id prefix, read as admin; keys are the full /api/v1 prefix."""
+def sample_ids(instance, cookie=None):
+    """A real id per id prefix from the lists this account can read (admin when
+    cookie is None); keys are the full /api/v1 prefix."""
     ids = {}
     for path, prefix in SAMPLES.items():
-        status, body = call(instance, 'GET', path, probe=PROBE)
+        status, body = call(instance, 'GET', path, cookie=cookie, role='admin', probe=PROBE)
         found = first_id(body) if status == 200 else None
         if found:
             ids.setdefault('/api/v1' + prefix, found)
     return ids
+
+
+def exclusion(row, instance, body):
+    """Why a row stays out of the mismatches, or None (see the module docstring)."""
+    if row['status'] in (404, 405) and isinstance(body, str):
+        return 'runtime_unregistered'
+    if row['ok']:
+        return None
+    for k in KNOWN:
+        if (k['route'] == row['route'] and instance in k['instances'] and row['status'] in k['status']
+                and k.get('code', row['code']) == row['code']):
+            return f"known_defect:{k['defect']}"
+    return None
 
 
 def resolve(path, ids, dummy):
@@ -182,12 +196,24 @@ def main():
         cookies[role] = login(a.instance, accounts[role], probe=PROBE)
         effective[role] = grants(a.instance, accounts[role]['email'])
     table = routes(scanned)
-    ids = sample_ids(a.instance)
+    ids = {'admin': sample_ids(a.instance)}
+    for role in ROLES[1:]:
+        ids[role] = sample_ids(a.instance, cookies[role])
 
     def allowed_for(role, key, module, action):
         return (module, action) in effective[role] and not (key in OWNER_ONLY and role != 'admin')
 
-    results, problems, skipped = [], [], []
+    results, problems, skipped, no_object = [], [], [], []
+
+    def record(row, body):
+        why = exclusion(row, a.instance, body)
+        if why:
+            row['excluded'] = why
+            row['ok'], row['inconclusive'] = False, False
+        results.append(row)
+        if not row['ok'] and not row['inconclusive'] and not why:
+            problems.append(row)
+
     for key in sorted(table):
         method, path = key.split(' ', 1)
         scoped, module, action = table[key]
@@ -195,13 +221,20 @@ def main():
             allowed = allowed_for(role, key, module, action)
             if method != 'GET' and allowed:
                 continue  # positive writes are covered by the golden paths
-            target = resolve(path, ids, dummy=method != 'GET')
+            # A granted read targets an object from the role's own list; the rest use admin's.
+            own = allowed and method == 'GET'
+            target = resolve(path, ids[role] if own else ids['admin'], dummy=method != 'GET')
             if target is None:
                 skipped.append((key, role))
                 continue
-            status, body = call(a.instance, method, target.replace('/api/v1', '', 1), None if method == 'GET' else {},
-                                cookie=cookies[role] if role != 'admin' else None, role='admin', probe=PROBE)
+            target = target.replace('/api/v1', '', 1)
+            cookie = cookies[role] if role != 'admin' else None
+            status, body = call(a.instance, method, target, None if method == 'GET' else {}, cookie=cookie, role='admin', probe=PROBE)
             code = body.get('error', {}).get('code') if isinstance(body, dict) and isinstance(body.get('error'), dict) else None
+            if own and status == 404 and '{' in path and isinstance(body, dict) and (
+                    role == 'admin' or call(a.instance, 'GET', target, probe=PROBE)[0] == 404):
+                no_object.append({'route': key, 'role': role, 'target': target, 'code': code})
+                continue  # nobody can read it: no such object (or sub-resource) to probe
             if allowed:
                 ok = status not in (401, 403) and not (scoped and status == 404 and '{' in path)
             elif scoped:
@@ -209,13 +242,10 @@ def main():
             else:
                 ok = status == 403
             inconclusive = not ok and not allowed and scoped and method != 'GET' and status in (400, 409, 412, 422, 428, 501, 503)
-            row = {'route': key, 'role': role, 'module': module, 'action': action, 'object_scoped': scoped,
-                   'allowed': allowed, 'status': status, 'code': code, 'ok': ok, 'inconclusive': inconclusive,
-                   'probe': 'empty_body' if method != 'GET' else 'read',
-                   'registration': info[key]['registration'], 'source': info[key]['source']}
-            results.append(row)
-            if not ok and not inconclusive:
-                problems.append(row)
+            record({'route': key, 'role': role, 'module': module, 'action': action, 'object_scoped': scoped,
+                    'allowed': allowed, 'status': status, 'code': code, 'ok': ok, 'inconclusive': inconclusive,
+                    'probe': 'empty_body' if method != 'GET' else 'read',
+                    'registration': info[key]['registration'], 'source': info[key]['source']}, body)
     valid_skipped = []
     if a.valid_bodies or a.setup_scoped:
         import permission_bodies
@@ -228,12 +258,18 @@ def main():
         valid, valid_skipped = permission_bodies.run(a.instance, table, effective, cookies, ROLES, scoped)
         for row in valid:
             row.update(registration=info[row['route']]['registration'], source=info[row['route']]['source'])
-            results.append(row)
-            if not row['ok'] and not row['inconclusive']:
-                problems.append(row)
+            record(row, row.pop('body_text', None))
     pending = [r for r in results if r['inconclusive']]
+    excluded = [r for r in results if r.get('excluded')]
     print(f"{a.instance}: {len(table)} routes, {len(results)} probes, {len(problems)} mismatches, "
           f"{len(pending)} inconclusive object-scoped writes, {len(skipped)} skipped (no real id)")
+    groups = {}
+    for r in excluded:
+        groups.setdefault(r['excluded'], set()).add(r['route'])
+    for why, keys in sorted(groups.items()):
+        print(f"  {why}: " + ', '.join(sorted(keys)))
+    if no_object:
+        print(f"  no_object (granted read, admin gets 404 too): " + ', '.join(sorted({x['route'] for x in no_object})))
     if a.valid_bodies or a.setup_scoped:
         verdicts = {}
         for r in results:
@@ -256,6 +292,8 @@ def main():
             'results': results, 'skipped': skipped, 'grants': {r: sorted(map(list, g)) for r, g in effective.items()},
             'routes': matrix, 'scan': scanned['summary'],
             'valid_body_skipped': [{'route': k, 'role': r, 'reason': why} for k, r, why in valid_skipped],
+            'excluded': {why: sorted(keys) for why, keys in sorted(groups.items())}, 'no_object': no_object,
+            'known_defects': [{k: (sorted(v) if isinstance(v, set) else v) for k, v in d.items()} for d in KNOWN],
             'outside_matrix': [{'route': r['pattern'], 'reason': 'own account or composite'} for r in scanned['routes'] if not r['module']]
             + [{'route': r['pattern'], 'reason': r['exempt']} for r in scanned['exempt']],
         }, ensure_ascii=False, indent=1))

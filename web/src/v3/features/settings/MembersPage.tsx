@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
 import { API_MODE, useGet, useSend } from "../../api/client";
+import { Gated } from "../../ui/permission";
 import type { Member, MembersView, OrgNode, Role } from "../../api/types";
 import { AiAvatar, Avatar, Badge, Brand, Btn, Card, Chip, Col, Field, Icon, Input, Mono, Muted, Pills, Row, SearchBox, Section, Spacer, State, cx } from "../../ui/core";
 import { DataTable } from "../../ui/data";
@@ -68,9 +69,12 @@ export default function MembersPage() {
       crumbs={[tx("设置", "Settings"), tx("成员与团队", "Members & teams")]}
       actions={
         <>
-          <Btn icon="rotate" loading={sync.isPending} onClick={() => sync.mutate(undefined, { onSuccess: (r) => toast(tx("已从飞书同步：新增 {a}，更新 {u}", "Synced from Feishu: {a} added, {u} updated", { a: r.added, u: r.updated })) })}>
-            {tx("从飞书同步", "Sync from Feishu")}
-          </Btn>
+          {/* Without a configured directory source the sync can only fail (503); say so up front (PA-137). */}
+          <Gated reason={data?.unavailable_fields?.includes("directory_sync_source") ? tx("这个实例还没接入飞书目录", "No Feishu directory is connected to this instance") : null}>
+            <Btn icon="rotate" loading={sync.isPending} onClick={() => sync.mutate(undefined, { onSuccess: (r) => toast(tx("已从飞书同步：新增 {a}，更新 {u}", "Synced from Feishu: {a} added, {u} updated", { a: r.added, u: r.updated })) })}>
+              {tx("从飞书同步", "Sync from Feishu")}
+            </Btn>
+          </Gated>
           <Btn kind="primary" icon="plus" onClick={() => setInvite(true)}>
             {tx("邀请成员", "Invite")}
           </Btn>
@@ -101,7 +105,7 @@ export default function MembersPage() {
                 options={[
                   { value: "all", label: tx("全部", "All"), count: data?.counts.all },
                   { value: "admin", label: tx("管理员", "Admins"), count: data?.counts.admin },
-                  { value: "no_mfa", label: tx("未启用两步验证", "No 2FA"), count: data?.counts.no_mfa },
+                  { value: "no_mfa", label: tx("未启用两步验证", "No 2FA"), count: data?.counts.no_mfa ?? undefined },
                   { value: "disabled", label: tx("已停用", "Disabled"), count: data?.counts.disabled },
                 ]}
               />
@@ -109,10 +113,15 @@ export default function MembersPage() {
               <ChipSelect label={tx("角色", "Role")} {...fRole.props} />
               <ChipSelect label={tx("来源", "Source")} {...fSrc.props} options={fSrc.props.options.map((o) => ({ ...o, label: ({ feishu: tx("飞书", "Feishu"), ldap: "LDAP", system: tx("系统", "System"), invite: tx("邀请", "Invitation") } as Record<string, string>)[o.value] ?? o.value }))} />
             </Row>
-            {data && !remind.isSuccess && (
+            {/* Only a known count can be reminded about; an unknown one rendered the raw "{n} … {d}" template (PA-137). */}
+            {data && !remind.isSuccess && typeof data.counts.no_mfa === "number" && data.counts.no_mfa > 0 && (
               <div className="warn-bar anim-rise">
                 <Icon name="alert" size={14} />
-                <span className="grow">{tx("{n} 名成员还没有启用两步验证，宽限期还剩 {d} 天。", "{n} members haven't enabled 2FA; {d} days of grace left.", { n: data.counts.no_mfa, d: data.mfa_grace_days })}</span>
+                <span className="grow">
+                  {data.mfa_grace_days === null
+                    ? tx("{n} 名成员还没有启用两步验证。", "{n} members haven't enabled 2FA.", { n: data.counts.no_mfa })
+                    : tx("{n} 名成员还没有启用两步验证，宽限期还剩 {d} 天。", "{n} members haven't enabled 2FA; {d} days of grace left.", { n: data.counts.no_mfa, d: data.mfa_grace_days })}
+                </span>
                 <Btn h={26} loading={remind.isPending} onClick={() => remind.mutate(undefined, { onSuccess: (r) => toast(tx("已通过飞书提醒 {n} 人", "Reminded {n} people on Feishu", { n: r.sent })) })}>
                   {tx("提醒他们", "Remind them")}
                 </Btn>

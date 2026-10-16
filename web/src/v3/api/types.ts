@@ -1388,7 +1388,15 @@ export type Member = {
   last_login: string;
   agent?: boolean;
 };
-export type MembersView = { org: OrgNode[]; groups: OrgNode[]; items: Member[]; counts: Record<"all" | "admin" | "no_mfa" | "disabled", number>; mfa_grace_days: number };
+/** counts.no_mfa, mfa_grace_days and the directory source are null / listed in unavailable_fields until their sources exist. */
+export type MembersView = {
+  org: OrgNode[];
+  groups: OrgNode[];
+  items: Member[];
+  counts: Record<"all" | "admin" | "disabled", number> & { no_mfa: number | null };
+  mfa_grace_days: number | null;
+  unavailable_fields?: string[];
+};
 export type Role = { id: string; name: string; members: number; kind: "system" | "business" | "machine" };
 export type RoleDetail = Role & {
   desc: string;

@@ -313,3 +313,47 @@ test.describe("members page with unknown MFA counts (PA-137)", () => {
     await expect(page.getByRole("button", { name: "从飞书同步" })).toBeDisabled();
   });
 });
+
+test.describe("push test event (PA-138)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  test("disabled without a Push source; otherwise sends the picked event type", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/integrations/ingest/push");
+    await expect(page.getByRole("button", { name: "发送测试事件" })).toBeDisabled({ timeout: 20_000 });
+    const real = await page.evaluate(async () => (await fetch("/api/v1/ingest/push", { headers: { "X-AIOps-Environment": "prod" } })).json());
+    let sent: Record<string, unknown> | null = null;
+    await page.route(at("/ingest/push"), (r) => json(r, 200, { ...(real as object), availability: "configured" }));
+    await page.route(at("/ingest/push/test"), (r) => {
+      sent = r.request().postDataJSON();
+      return json(r, 202, { code: 202, receipt_id: "rcpt-check" });
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "发送测试事件" }).click({ timeout: 20_000 });
+    await expect.poll(() => toasts(page)).toContain("测试事件已发送 · 202");
+    expect(sent).toEqual({ type: "change" });
+  });
+});
+
+test.describe("service links into metrics and traces (PA-139)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+  test("a catalog service ID opens its metrics dashboard and trace search", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await page.goto(origin + "/healthz");
+    const id = await page.evaluate(async () => {
+      const b = (await (await fetch("/api/v1/services", { headers: { "X-AIOps-Environment": "prod" } })).json()) as { items?: { id: string }[] };
+      return b.items?.[0]?.id ?? null;
+    });
+    test.skip(!id, "no service in the catalog");
+    await page.goto(origin + `/metrics?service=${encodeURIComponent(id!)}`);
+    await page.waitForTimeout(4_000);
+    await page.goto(origin + `/traces?service=${encodeURIComponent(id!)}`);
+    await page.waitForTimeout(4_000);
+    await m.settle();
+    const dash = m.api.filter((a) => a.path.startsWith("/metrics/dashboard"));
+    const traces = m.api.filter((a) => a.path.startsWith("/traces?"));
+    expect(dash.length, "dashboard requested").toBeGreaterThan(0);
+    expect(dash.every((a) => a.status !== 403 && a.status !== 404), JSON.stringify(dash)).toBe(true);
+    expect(traces.every((a) => a.status !== 404), JSON.stringify(traces)).toBe(true);
+  });
+});

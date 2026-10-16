@@ -97,7 +97,7 @@ def main():
         report['degraded_ok'] = not bad
         print(f"degraded: { {p: (v['status'], v['code'], v['seconds']) for p, v in report['degraded'].items()} }", flush=True)
         if not a.no_crawl:
-            env = dict(os.environ, E2E_WORKERS='6', CRAWL_OUT=f'e2e/fault-{a.fault}')
+            env = dict(os.environ, E2E_WORKERS='3', CRAWL_OUT=f'e2e/fault-{a.fault}')
             crawl = run(['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', 'crawl.spec.ts', '--grep', '(?<!non)prod · zh-CN · dark'],
                         cwd=ROOT / 'web', env=env, timeout=900)
             report['crawl_exit'] = crawl.returncode

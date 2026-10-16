@@ -8,7 +8,7 @@ export default defineConfig({
   outputDir: resolve(LOCAL, "e2e/test-results"),
   globalSetup: "./support/global-setup.ts",
   fullyParallel: true,
-  workers: Number(process.env.E2E_WORKERS ?? 6),
+  workers: Number(process.env.E2E_WORKERS ?? 3),
   timeout: 60_000,
   reporter: [["dot"], ["json", { outputFile: resolve(LOCAL, "e2e/results.json") }], ["html", { outputFolder: resolve(LOCAL, "e2e/report"), open: "never" }]],
   use: {

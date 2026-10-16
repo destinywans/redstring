@@ -124,7 +124,7 @@ def main():
         print(f"WARNING: deployed binary revision {art.get('revision')} modified={art.get('modified')}: this run is not on a clean build.", file=sys.stderr)
     results = []
     results.append(run('crawl (216 page loads)', ['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', 'crawl.spec.ts'],
-                       cwd=ROOT / 'web', env={'E2E_WORKERS': '6'}))
+                       cwd=ROOT / 'web', env={'E2E_WORKERS': '3'}))
     results.append(run('crawl summary', ['python3', 'tools/acceptance/crawl-summary.py'], parse=crawl_summary))
     for spec, env in SPECS.items():
         if env is None:  # golden-silence-ui: look the investigation up now, after the crawl
@@ -149,13 +149,13 @@ def main():
                                                        '--json', str(LOCAL / f'e2e/permissions-{instance}.json')], parse=mismatches))
     if a.with_roles:
         for role in ('viewer', 'operator'):
-            crawl_env = {'E2E_WORKERS': '6', 'CRAWL_ROLE': role}
+            crawl_env = {'E2E_WORKERS': '3', 'CRAWL_ROLE': role}
             results.append(run(f'crawl {role} (108 page loads)', ['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', 'crawl.spec.ts'],
                                cwd=ROOT / 'web', env=crawl_env))
             results.append(run(f'crawl summary {role}', ['python3', 'tools/acceptance/crawl-summary.py'], env={'CRAWL_ROLE': role}, parse=crawl_summary))
     if a.with_details:
         results.append(run('detail pages and tabs', ['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', 'detail-pages.spec.ts'],
-                           cwd=ROOT / 'web', env={'E2E_WORKERS': '4'}, timeout=2400))
+                           cwd=ROOT / 'web', env={'E2E_WORKERS': '3'}, timeout=2400))
         results.append(run('detail summary', ['python3', 'tools/acceptance/crawl-summary.py'], env={'CRAWL_OUT': 'e2e/detail-crawl'}, parse=crawl_summary))
     # The trace page opens on the Errors view, so the crawl never loads All; read every view directly (PA-87).
     results.append(run('trace views', ['python3', 'tools/acceptance/trace_views.py'], parse=passed_line))

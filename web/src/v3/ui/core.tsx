@@ -273,7 +273,7 @@ export function Chip({ children, icon, caret, active, onClick, style, ariaLabel,
     </button>
   );
 }
-export function TextLink({ children, to, icon = "right", onClick }: { children: ReactNode; to?: string; icon?: IconName | null; onClick?: () => void }) {
+export function TextLink({ children, to, icon = "right", onClick, disabled }: { children: ReactNode; to?: string; icon?: IconName | null; onClick?: () => void; disabled?: boolean }) {
   const inner = (
     <>
       {children}
@@ -287,7 +287,7 @@ export function TextLink({ children, to, icon = "right", onClick }: { children: 
       </Link>
     );
   return (
-    <button type="button" className="v3-link" onClick={onClick}>
+    <button type="button" className="v3-link" onClick={onClick} disabled={disabled}>
       {inner}
     </button>
   );

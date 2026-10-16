@@ -14,7 +14,7 @@ import { Markdown } from "../../ui/Markdown";
 import { toast } from "../../ui/overlays";
 import { Axis, BoxPlot, Gauge, HBars, Heatmap, Lines, SmallMultiples, StackedArea } from "../../charts";
 import { useI18n } from "../../i18n";
-import { useNeed } from "../../ui/permission";
+import { Gate, useNeed } from "../../ui/permission";
 import "./observe.css";
 import { ChipSelect, RangeChip, AddChip, openExternal, openForm, usePickLists } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
@@ -212,7 +212,7 @@ export default function MetricsPage() {
                 <Unavailable reason={u.requests} source="Prometheus" title={tx("请求量", "Requests")} icon="activity" />
               )}
             </Panel>
-            <Panel title={sloTarget ? tx("SLO · 可用性 {t}%", "SLO · availability {t}%", { t: sloTarget }) : "SLO"} style={{ flex: "1 1 0" }} right={<TextLink onClick={() => void editSlo()}>{tx("SLO 设置", "SLO settings")}</TextLink>}>
+            <Panel title={sloTarget ? tx("SLO · 可用性 {t}%", "SLO · availability {t}%", { t: sloTarget }) : "SLO"} style={{ flex: "1 1 0" }} right={<Gate need={["services", "manage"]}><TextLink onClick={() => void editSlo()}>{tx("SLO 设置", "SLO settings")}</TextLink></Gate>}>
               {!d.slo ? (
                 <Unavailable reason={u.slo} source="Prometheus" title={tx("错误预算", "Error budget")} icon="shield" desc={!demo && !sloCfg?.target ? tx("还没有设置 SLO 目标；先在右上角设置目标，错误预算才能按指标计算。", "No SLO target yet; set one at the top right so the budget can be computed from metrics.") : undefined} />
               ) : (

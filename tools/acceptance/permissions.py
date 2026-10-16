@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Probe the V3 role matrix route by route on one acceptance instance.
 
-  python3 tools/acceptance/permissions.py prod [--json out.json]
+  python3 tools/acceptance/permissions.py prod [--json out.json] [--routes routes.json]
 
-Routes and their (module, action) come from the server's own registry calls
-(httpapi MarkV3Route / MarkV3ObjectRoute) in internal/ and cmd/, plus the few
-registered through variables (DYNAMIC below). Each role account's effective
-grants come from GET /members/{id}/access (all roles, legacy origin included).
+Routes and their (module, action, object scope) come from routescan, which reads
+every MarkV3Route / MarkV3ObjectRoute call in internal/ and cmd/ with go/ast,
+including the route tables registered in loops (`go run ./tools/acceptance/routescan`;
+--routes reads a saved scan instead). Routes without a module (own account,
+composite discovery) are not in the matrix. Each role account's effective grants
+come from GET /members/{id}/access (all roles, legacy origin included).
 
   * GET routes: every role. With the grant the answer must not be 403; without
     it, a route-level check must answer 403 (object-scoped: 403 or 404).
@@ -15,12 +17,15 @@ grants come from GET /members/{id}/access (all roles, legacy origin included).
     Object-scoped handlers validate the body before resolving the target, so
     their 4xx/5xx answers are listed as "inconclusive" for a valid-body recheck.
 
+Every request carries X-Acceptance-Probe: permissions, so coverage counts can
+leave this traffic out.
+
 Path parameters use a real id from the matching list route when one exists,
 otherwise a dummy id (writes) or the route is skipped (reads).
 """
 import argparse
 import json
-import re
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -31,79 +36,60 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from api import LOCAL, ORIGINS, call  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-MARK = re.compile(r'MarkV3(Object)?Route\(\s*"(GET|POST|PUT|PATCH|DELETE) (/api/v1/[^"]+)",\s*"(\w*)",\s*"(\w+)"\)')
-TABLE = re.compile(r'\{\s*"(GET|POST|PUT|PATCH|DELETE) (/api/v1/[^"]+)",\s*"(\w+)",\s*"(\w+)"')
-# Routes marked through a variable; (object_scoped, module, action).
-DYNAMIC = {
-    'POST /api/v1/knowledge/search': (False, 'knowledge', 'view'),
-    'POST /api/v1/uploads': (False, 'conversation', 'change'),
-    'POST /api/v1/uploads/{id}/revoke': (False, 'conversation', 'change'),
-    'GET /api/v1/services/{id}/resilience': (True, 'services', 'view'),
-    'POST /api/v1/services/{id}/resilience/proposals': (True, 'proposals', 'change'),
-    'POST /api/v1/proposals/{id}/approve/options': (True, 'proposals', 'approve'),
-    'POST /api/v1/proposals/{id}/approve': (True, 'proposals', 'approve'),
-    'GET /api/v1/audit': (False, 'audit', 'view'),
-    'GET /api/v1/audit/{id}': (False, 'audit', 'view'),
-    'POST /api/v1/audit/export': (False, 'audit', 'view'),
-    'GET /api/v1/knowledge-sources': (True, 'knowledge', 'view'),
-    'POST /api/v1/knowledge-sources': (True, 'knowledge', 'manage'),
-    'GET /api/v1/connector-types/{type}': (False, 'connectors', 'view'),
-    'GET /api/v1/connectors': (False, 'connectors', 'view'),
-    'GET /api/v1/connectors/{id}': (False, 'connectors', 'view'),
-    'POST /api/v1/connectors': (False, 'connectors', 'manage'),
-    'POST /api/v1/connectors/{id}/activate': (False, 'connectors', 'manage'),
-    'PATCH /api/v1/connectors/{id}': (False, 'connectors', 'manage'),
-    'POST /api/v1/connectors/{id}/test': (False, 'connectors', 'manage'),
-    'PUT /api/v1/connectors/{id}/settings': (False, 'connectors', 'manage'),
-    'POST /api/v1/connectors/{id}/disable': (False, 'connectors', 'manage'),
-    'POST /api/v1/webhooks': (False, 'connectors', 'manage'),
-    'GET /api/v1/conversations': (True, 'conversation', 'view'),
-    'POST /api/v1/conversations': (False, 'conversation', 'change'),
-    'POST /api/v1/conversations/{id}/messages': (False, 'conversation', 'change'),
-    'POST /api/v1/alert-rules': (True, 'alert_rules', 'change'),
-    'PUT /api/v1/alert-rules/{id}': (True, 'alert_rules', 'change'),
-    'POST /api/v1/alert-rules/import': (True, 'alert_rules', 'change'),
-    'PUT /api/v1/investigation-templates/{id}': (True, 'canvas', 'change'),
-}
+PROBE = 'permissions'
 ROLES = ['admin', 'operator', 'approver1', 'viewer']
 # Readable only by the account that created the object (the sample ids come from admin's records).
 OWNER_ONLY = {'GET /api/v1/agent-runs/{id}/result'}
 DENIED = {403, 404}
+# List routes read for sample ids, and the path prefix their ids fill in.
+SAMPLES = {
+    '/services': '/services', '/alert-groups': '/alert-groups', '/incidents': '/incidents', '/alert-rules': '/alert-rules',
+    '/runbooks': '/runbooks', '/connectors': '/connectors', '/agents/lifecycle': '/agents', '/prompts': '/prompts',
+    '/audit': '/audit', '/members': '/members', '/roles': '/roles', '/silences': '/silences', '/canvases': '/canvases',
+    '/evals': '/evals', '/postmortems': '/postmortems', '/mcp-servers': '/mcp-servers', '/api-tokens': '/api-tokens',
+    '/agent-runs': '/agent-runs', '/eval-datasets': '/eval-datasets', '/trace-views': '/trace-views',
+    '/maintenance-windows': '/maintenance-windows', '/knowledge-sources': '/knowledge-sources',
+    '/knowledge-sources/registrations': '/knowledge-sources/registrations', '/investigation-templates': '/investigation-templates',
+    '/canvas-templates': '/canvas-templates', '/guardrails': '/guardrails', '/webhooks': '/webhooks', '/ingest/pull': '/ingest/pull',
+    '/notification-routes': '/notification-routes', '/memory/facts': '/memory/facts', '/config-sync': '/config-sync',
+}
 
 
-def routes():
-    out = {}
-    for f in list((ROOT / 'internal').rglob('*.go')) + list((ROOT / 'cmd').rglob('*.go')):
-        if f.name.endswith('_test.go'):
-            continue
-        text = f.read_text()
-        for m in MARK.finditer(text):
-            if m[4]:
-                out[f'{m[2]} {m[3]}'] = (bool(m[1]), m[4], m[5])
-        for m in TABLE.finditer(text):
-            if 'v3admin' in str(f):
-                out.setdefault(f'{m[1]} {m[2]}', (False, m[3], m[4]))
-    for key, value in DYNAMIC.items():
-        out.setdefault(key, value)
-    return out
+def scan(path=None):
+    """routescan output (see tools/acceptance/routescan). A fatal scan result
+    (an unresolved or conflicting mark) stops the run: the matrix would be wrong."""
+    if path:
+        return json.loads(Path(path).read_text())
+    proc = subprocess.run(['go', 'run', './tools/acceptance/routescan'], cwd=ROOT, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise SystemExit(f'routescan failed ({proc.returncode}):\n{proc.stderr}')
+    return json.loads(proc.stdout)
 
 
-def login(instance, account):
+def routes(scanned=None):
+    """{'METHOD /api/v1/path': (object_scoped, module, action)} for every V3 route in the matrix."""
+    scanned = scanned or scan()
+    return {r['pattern']: (r['object_scoped'], r['module'], r['action']) for r in scanned['routes'] if r['module']}
+
+
+def login(instance, account, probe=None):
     """Session cookie for a role account (no MFA on these accounts). A cached
     cookie that still answers GET /me is reused, so repeated runs stay under
-    the login rate limit."""
+    the login rate limit. probe tags the requests (X-Acceptance-Probe)."""
     cache_path = LOCAL / 'e2e' / f'cookies-{instance}.json'
     try:
         cache = json.loads(cache_path.read_text())
     except (OSError, ValueError):
         cache = {}
     cached = cache.get(account['email'])
-    if cached and call(instance, 'GET', '/me', cookie=cached)[0] == 200:
+    if cached and call(instance, 'GET', '/me', cookie=cached, probe=probe)[0] == 200:
         return cached
     ctx = ssl.create_default_context(cafile=str(LOCAL / 'tls/cert.pem'))
     body = json.dumps({'email': account['email'], 'password': account['password']}).encode()
-    req = urllib.request.Request(ORIGINS[instance] + '/api/v1/auth/login', body, method='POST',
-                                 headers={'Content-Type': 'application/json', 'Origin': ORIGINS[instance]})
+    headers = {'Content-Type': 'application/json', 'Origin': ORIGINS[instance]}
+    if probe:
+        headers['X-Acceptance-Probe'] = probe
+    req = urllib.request.Request(ORIGINS[instance] + '/api/v1/auth/login', body, method='POST', headers=headers)
     with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
         cookies = [h.split(';', 1)[0] for k, h in r.headers.items() if k.lower() == 'set-cookie']
     cache[account['email']] = '; '.join(cookies)
@@ -113,27 +99,46 @@ def login(instance, account):
 
 
 def grants(instance, email):
-    _, members = call(instance, 'GET', '/members')
+    _, members = call(instance, 'GET', '/members', probe=PROBE)
     mid = next(m['id'] for m in members['items'] if m.get('email') == email)
-    _, access = call(instance, 'GET', f'/members/{mid}/access')
+    _, access = call(instance, 'GET', f'/members/{mid}/access', probe=PROBE)
     return {(g['module'], g['action']) for r in access['roles'] for g in r.get('grants', [])}
 
 
+def first_id(body, depth=0):
+    """The id of the first object in the first non-empty list of a list response
+    (items, rules, agents, policies ... the key differs per module)."""
+    if depth > 3:
+        return None
+    if isinstance(body, list):
+        for item in body:
+            if isinstance(item, dict) and isinstance(item.get('id'), (str, int)) and str(item['id']):
+                return str(item['id'])
+        for item in body:
+            found = first_id(item, depth + 1)
+            if found:
+                return found
+    elif isinstance(body, dict):
+        for key in ('items', 'rules', 'agents', 'members', 'roles', 'silences', 'runs', 'tokens', 'servers', 'policies'):
+            found = first_id(body.get(key), depth + 1)
+            if found:
+                return found
+        for value in body.values():
+            if isinstance(value, (list, dict)):
+                found = first_id(value, depth + 1)
+                if found:
+                    return found
+    return None
+
+
 def sample_ids(instance):
-    """A real id per list route, read as admin; keys are the list path."""
+    """A real id per id prefix, read as admin; keys are the full /api/v1 prefix."""
     ids = {}
-    for path in ['/services', '/alert-groups', '/incidents', '/alert-rules', '/runbooks', '/connectors', '/agents/lifecycle',
-                 '/prompts', '/audit', '/members', '/roles', '/silences', '/canvases', '/evals', '/postmortems', '/mcp-servers',
-                 '/api-tokens', '/agent-runs', '/eval-datasets', '/trace-views', '/maintenance-windows', '/knowledge-sources',
-                 '/investigation-templates', '/canvas-templates', '/guardrails', '/webhooks', '/ingest/pull', '/notification-routes']:
-        status, body = call(instance, 'GET', path)
-        if status != 200 or not isinstance(body, dict):
-            continue
-        for key in ('items', 'rules', 'agents', 'members', 'roles', 'silences', 'runs', 'tokens', 'servers'):
-            items = body.get(key)
-            if isinstance(items, list) and items and isinstance(items[0], dict) and items[0].get('id'):
-                ids[path] = str(items[0]['id'])
-                break
+    for path, prefix in SAMPLES.items():
+        status, body = call(instance, 'GET', path, probe=PROBE)
+        found = first_id(body) if status == 200 else None
+        if found:
+            ids.setdefault('/api/v1' + prefix, found)
     return ids
 
 
@@ -156,23 +161,29 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('instance', choices=ORIGINS)
     ap.add_argument('--json')
+    ap.add_argument('--routes', help='saved routescan JSON instead of running go run ./tools/acceptance/routescan')
     a = ap.parse_args()
+    scanned = scan(a.routes)
+    info = {r['pattern']: r for r in scanned['routes']}
     secrets_ = json.loads((LOCAL / a.instance / 'secrets.json').read_text())
     accounts = secrets_['accounts']
     cookies = {'admin': None}
     effective = {'admin': grants(a.instance, secrets_['admin_email'])}
     for role in ROLES[1:]:
-        cookies[role] = login(a.instance, accounts[role])
+        cookies[role] = login(a.instance, accounts[role], probe=PROBE)
         effective[role] = grants(a.instance, accounts[role]['email'])
-    table = routes()
-    ids = {k.replace('/api/v1', ''): v for k, v in sample_ids(a.instance).items()}
-    ids = {('/api/v1' + k): v for k, v in ids.items()}
+    table = routes(scanned)
+    ids = sample_ids(a.instance)
+
+    def allowed_for(role, key, module, action):
+        return (module, action) in effective[role] and not (key in OWNER_ONLY and role != 'admin')
+
     results, problems, skipped = [], [], []
     for key in sorted(table):
         method, path = key.split(' ', 1)
         scoped, module, action = table[key]
         for role in ROLES:
-            allowed = (module, action) in effective[role] and not (key in OWNER_ONLY and role != 'admin')
+            allowed = allowed_for(role, key, module, action)
             if method != 'GET' and allowed:
                 continue  # positive writes are covered by the golden paths
             target = resolve(path, ids, dummy=method != 'GET')
@@ -180,7 +191,7 @@ def main():
                 skipped.append((key, role))
                 continue
             status, body = call(a.instance, method, target.replace('/api/v1', '', 1), None if method == 'GET' else {},
-                                cookie=cookies[role] if role != 'admin' else None, role='admin')
+                                cookie=cookies[role] if role != 'admin' else None, role='admin', probe=PROBE)
             code = body.get('error', {}).get('code') if isinstance(body, dict) and isinstance(body.get('error'), dict) else None
             if allowed:
                 ok = status not in (401, 403) and not (scoped and status == 404 and '{' in path)
@@ -190,7 +201,9 @@ def main():
                 ok = status == 403
             inconclusive = not ok and not allowed and scoped and method != 'GET' and status in (400, 409, 412, 422, 428, 501, 503)
             row = {'route': key, 'role': role, 'module': module, 'action': action, 'object_scoped': scoped,
-                   'allowed': allowed, 'status': status, 'code': code, 'ok': ok, 'inconclusive': inconclusive}
+                   'allowed': allowed, 'status': status, 'code': code, 'ok': ok, 'inconclusive': inconclusive,
+                   'probe': 'empty_body' if method != 'GET' else 'read',
+                   'registration': info[key]['registration'], 'source': info[key]['source']}
             results.append(row)
             if not ok and not inconclusive:
                 problems.append(row)
@@ -200,7 +213,19 @@ def main():
     for p in problems:
         print(f"  {p['route']:<60} {p['role']:<10} {'granted' if p['allowed'] else 'denied ':<8} {p['module']}.{p['action']:<7} -> {p['status']} {p['code'] or ''}")
     if a.json:
-        Path(a.json).write_text(json.dumps({'results': results, 'skipped': skipped, 'grants': {r: sorted(map(list, g)) for r, g in effective.items()}}, ensure_ascii=False, indent=1))
+        matrix = []
+        for key in sorted(table):
+            r = info[key]
+            granted = [role for role in ROLES if allowed_for(role, key, r['module'], r['action'])]
+            matrix.append({'route': key, 'method': r['method'], 'path': r['path'], 'module': r['module'], 'action': r['action'],
+                           'object_scoped': r['object_scoped'], 'write': r['write'], 'registration': r['registration'],
+                           'source': r['source'], 'allowed_roles': granted, 'denied_roles': [x for x in ROLES if x not in granted]})
+        Path(a.json).write_text(json.dumps({
+            'results': results, 'skipped': skipped, 'grants': {r: sorted(map(list, g)) for r, g in effective.items()},
+            'routes': matrix, 'scan': scanned['summary'],
+            'outside_matrix': [{'route': r['pattern'], 'reason': 'own account or composite'} for r in scanned['routes'] if not r['module']]
+            + [{'route': r['pattern'], 'reason': r['exempt']} for r in scanned['exempt']],
+        }, ensure_ascii=False, indent=1))
 
 
 if __name__ == '__main__':

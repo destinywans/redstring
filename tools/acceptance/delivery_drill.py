@@ -111,13 +111,23 @@ def main():
 
 def early_stages(a, log, check, save, app_id, sid):
 
-    # 1. Bad version through GitLab.
+    # 1. Bad version through GitLab. release-bad only reports an MR that is already merged, so a
+    # repeat run first opens the next drill round (d11.py bad-version --again).
+    _, state = d11('release-bad', '--check')
+    if 'already merged' in str(state.get('note', '')) or state.get('mr_state') == 'merged':
+        code, opened = d11('bad-version', '--again')
+        log['bad_version_again'] = opened
+        print(f"  previous round {state.get('round')} was merged; opened the next round: exit {code} {json.dumps(opened, ensure_ascii=False)[:200]}", flush=True)
+        if not check('next drill round opened', code == 0 and opened.get('ok'), json.dumps(opened)[:300]):
+            save()
+            sys.exit(2)
     print(f"{log['started_at']} releasing the bad version through GitLab (revision before {log['revision_before']})…", flush=True)
     code, bad = d11('release-bad')
     log['release_bad'] = bad
     log['released'] = round(time.time() - log['t0'])
     print(f"  +{log['released']:>4}s release-bad exit {code}: {json.dumps(bad, ensure_ascii=False)[:300]}", flush=True)
     if not check('bad version merged, pipeline passed and deployed', code == 0 and bad.get('deployment') and
+                 'already merged' not in str(bad.get('note', '')) and
                  bad.get('revision_after') and bad.get('revision_after') != bad.get('revision_before'), json.dumps(bad)[:300]):
         save()
         sys.exit(2)

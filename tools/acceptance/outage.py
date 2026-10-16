@@ -158,6 +158,10 @@ def kubernetes(report):
             code = body.get('error', {}).get('code') if isinstance(body, dict) and isinstance(body.get('error'), dict) else None
             degraded[p] = {'status': status, 'code': code, 'seconds': round(time.time() - t0, 1),
                            'unavailable': body.get('unavailable') if isinstance(body, dict) else None}
+            if p == '/topology' and isinstance(body, dict):
+                # PA-61: the freshness of each collection source; stale only after stale_after_seconds (300).
+                degraded[p]['collection'] = [{k: c.get(k) for k in ('source_kind', 'state', 'fresh_sources', 'sources', 'last_success_at')}
+                                             for c in body.get('collection') or [] if c.get('source_kind') == 'kubernetes']
         report['degraded'] = degraded
         shots = subprocess.run(['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', 'shot.spec.ts'], cwd=ROOT / 'web',
                                capture_output=True, text=True, timeout=600,
@@ -171,6 +175,12 @@ def kubernetes(report):
     report['restored'] = {p: call('prod', 'GET', p)[0] for p in paths}
     report['ok'] = all(v['status'] != 500 and v['seconds'] < 30 for v in report['degraded'].values()) and \
         report['restored'] == report['baseline']
+    # Past the freshness window the topology must say the collection failed, not draw an unexplained empty graph.
+    down = int(__import__('os').environ.get('K8S_DOWN_SECONDS', '40'))
+    states = {c.get('state') for c in report['degraded'].get('/topology', {}).get('collection') or []}
+    report['collection_expected'] = 'stale' if down >= 330 else 'fresh (latest snapshot, by design)'
+    if down >= 330:
+        report['ok'] = report['ok'] and bool(states) and states <= {'stale', 'partial', 'never'}
 
 
 def main():
@@ -182,6 +192,8 @@ def main():
     {'model': model, 'database': database, 'restart-midstream': restart_midstream, 'kubernetes': kubernetes}[a.outage](report)
     (OUT / f'{a.outage}.json').write_text(json.dumps(report, ensure_ascii=False, indent=1))
     print(json.dumps(report, ensure_ascii=False, indent=1)[:3000])
+    print(f"{'PASS' if report.get('ok') else 'FAIL'} {a.outage}")
+    sys.exit(0 if report.get('ok') else 1)
 
 
 if __name__ == '__main__':

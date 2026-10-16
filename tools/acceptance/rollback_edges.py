@@ -150,7 +150,10 @@ def main():
         log['proposal'] = pid
         check('propose (201)', status == 201 and pid, f'{status} {created}')
 
-        if a.drill == 'faulty-target':
+        if not pid:
+            # Nothing to approve: stop here instead of handing an empty id to the approval step.
+            print('  stopping: no proposal was created', flush=True)
+        elif a.drill == 'faulty-target':
             code, tail = approve(pid)
             check('two approvals', code == 0, ' | '.join(tail))
             ex = follow(pid, log)
@@ -248,6 +251,7 @@ def main():
     out = OUT / f'rollback-edge-{a.drill}.json'
     out.write_text(json.dumps(log, ensure_ascii=False, indent=2))
     print(f'report: {out}')
+    sys.exit(0 if passed == len(checks) else 1)
 
 
 if __name__ == '__main__':

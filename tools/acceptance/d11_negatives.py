@@ -23,6 +23,7 @@ Writes .local/acceptance/e2e/drills/d11-negatives-<part>.json. Lab containers ar
 stopped and started again; nothing else in the lab changes.
 """
 import argparse
+import base64
 import json
 import secrets
 import ssl
@@ -99,7 +100,11 @@ def changes_part():
     status, base = op('GET', f'/changes?{q}')
     check('baseline: changes view 200 with gitlab complete', status == 200 and (base.get('coverage') or {}).get('gitlab') == 'complete', base.get('coverage'))
     _, incidents = op('GET', '/incidents')
-    incident = next((i['id'] for i in incidents.get('items') or [] if i.get('title') == 'LabHigh5xxRate'), None)
+    # Only checkout-api has a GitLab project and a workload binding; order-api raises the same alert.
+    app_id = base64.urlsafe_b64decode(sid + '=' * (-len(sid) % 4)).decode().split('\x00')[0]
+    # List items carry no application, so read each LabHigh5xxRate incident until checkout-api's.
+    incident = next((i['id'] for i in incidents.get('items') or [] if i.get('title') == 'LabHigh5xxRate'
+                     and (op('GET', f"/incidents/{i['id']}")[1] or {}).get('application_id') == app_id), None)
 
     # GitLab paused.
     ok, out = docker('pause', GITLAB_CONTAINER)

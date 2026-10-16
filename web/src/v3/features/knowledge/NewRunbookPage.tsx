@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { API_MODE, api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import { AiAvatar, Badge, Btn, Col, Field, Icon, LabelChip, Mono, Muted, Row, Skeleton, Spacer, Strong, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
+import { Callout } from "../../ui/forms";
 import { useI18n } from "../../i18n";
 import "../../ui/forms.css";
 import "./knowledge.css";
@@ -15,12 +16,17 @@ type Draft = {
   title: string;
   applies_to: string[];
   trigger: string;
-  steps: { kind: "check" | "act" | "judge" | "verify"; title: string; body: string; tool?: { brand: string; text: string }; approval?: boolean }[];
+  /** The real draft calls an action step "action"; the sample calls it "act". */
+  steps: { kind: "check" | "act" | "action" | "judge" | "verify"; title: string; body: string; tool?: { brand: string; text: string }; approval?: boolean }[];
   sources: string[];
+  /** Hash of the source the outline came from; saving echoes it so a changed source is caught (409), PA-124. */
+  source_sha256?: string;
 };
 type Candidate = { id: string; title: string; severity: string; resolved: string; duration: string; evidence: number };
+/** A row of GET /postmortems: a runbook drafts from a published postmortem, by the postmortem's own ID. */
+type PostmortemRow = { id: string; title: string; status: string; date: string | null; incident_id?: string | null };
 
-const KIND_TONE: Record<Draft["steps"][number]["kind"], Tone> = { check: "info", act: "warn", judge: "neutral", verify: "ok" };
+const KIND_TONE: Record<Draft["steps"][number]["kind"], Tone> = { check: "info", act: "warn", action: "warn", judge: "neutral", verify: "ok" };
 
 /** "新建 Runbook" start dialog: pick a starting point; the AI drafts, a person reviews. */
 export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { open: boolean; onClose: () => void; initial?: Source }) {
@@ -30,10 +36,17 @@ export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { op
   const [src, setSrc] = useState<Source>(initial);
   // The sample preselects its sample postmortem; real mode preselects the first real candidate.
   const [pm, setPm] = useState(API_MODE === "mock" ? "INC-1042" : "");
-  const { data } = useGet<{ items: Candidate[] }>(open ? "/postmortems/candidates" : null);
+  // The sample lists its sample incidents; a real runbook drafts from a published postmortem (PA-124). The candidates
+  // endpoint lists incidents that still need a postmortem, which can never be a runbook source.
+  const sample = useGet<{ items: Candidate[] }>(open && API_MODE === "mock" ? "/postmortems/candidates" : null);
+  const real = useGet<{ items: PostmortemRow[] }>(open && API_MODE !== "mock" ? "/postmortems" : null);
+  const choices =
+    API_MODE === "mock"
+      ? (sample.data?.items ?? []).map((c) => ({ id: c.id, label: `${c.id} · ${c.title}`, at: c.resolved }))
+      : (real.data?.items ?? []).filter((r) => r.status === "published").map((r) => ({ id: r.id, label: r.incident_id ? `${r.incident_id} · ${r.title}` : r.title, at: r.date }));
   useEffect(() => {
-    if (!pm && data?.items[0]) setPm(data.items[0].id);
-  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!pm && choices[0]) setPm(choices[0].id);
+  }, [sample.data, real.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const opts: { key: Source; icon: IconName; title: string; sub: string; wide?: boolean }[] = [
     { key: "blank", icon: "file", title: tx("空白", "Blank"), sub: tx("从触发条件和第一步开始写", "Start from the trigger and the first step") },
     { key: "template", icon: "grid", title: tx("从模板", "From template"), sub: tx("服务不可用、容量不足、依赖超时等 8 个模板", "8 templates: outage, capacity, dependency timeouts…") },
@@ -89,11 +102,11 @@ export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { op
             </Row>
             {o.key === "postmortem" && src === "postmortem" && (
               <div className="v3-col" style={{ gap: 4 }} onClick={(e) => e.stopPropagation()}>
-                {data?.items.map((c) => (
+                {choices.map((c) => (
                   <label key={c.id} className="rb-pm">
                     <input type="radio" name="pm" checked={pm === c.id} onChange={() => setPm(c.id)} />
-                    <span className="grow ellipsis">{c.id} · {c.title}</span>
-                    <Muted size={11}>{tx("已发布 · {d}", "Published · {d}", { d: when.at(c.resolved) })}</Muted>
+                    <span className="grow ellipsis">{c.label}</span>
+                    <Muted size={11}>{tx("已发布 · {d}", "Published · {d}", { d: when.at(c.at) ?? "—" })}</Muted>
                   </label>
                 ))}
               </div>
@@ -113,17 +126,25 @@ export default function NewRunbookPage() {
   const source = (params.get("source") as Source) ?? "blank";
   const [dlg, setDlg] = useState(!params.get("source"));
   const blank = source === "blank";
-  const { data, isLoading } = useGet<Draft>(blank ? null : "/runbooks/draft", { source, from: params.get("from") });
+  const from = params.get("from");
+  const { data, isLoading, error } = useGet<Draft>(blank ? null : "/runbooks/draft", { source, from });
   const lists = usePickLists();
   const draft: Draft | undefined = blank ? { title: "", applies_to: [], trigger: "", steps: [], sources: [] } : data;
+  // The title is the user's to edit; saving sends what is in the field, not the draft's suggestion (PA-124).
+  const [title, setTitle] = useState("");
+  useEffect(() => setTitle(draft?.title ?? ""), [source, draft?.title]); // eslint-disable-line react-hooks/exhaustive-deps
   const [saving, setSaving] = useState<string | null>(null);
-  const kindLabel = { check: tx("检查", "Check"), act: tx("操作", "Action"), judge: tx("判断", "Decide"), verify: tx("验证", "Verify") };
+  const kindLabel = { check: tx("检查", "Check"), act: tx("操作", "Action"), action: tx("操作", "Action"), judge: tx("判断", "Decide"), verify: tx("验证", "Verify") };
   const save = async (mode: "draft" | "review") => {
     setSaving(mode);
     try {
-      await api("POST", "/runbooks", { body: { title: draft?.title || tx("未命名 Runbook", "Untitled runbook"), source, from: params.get("from"), steps: draft?.steps, status: mode } });
+      await api("POST", "/runbooks", {
+        body: { title: title.trim() || tx("未命名 Runbook", "Untitled runbook"), source, ...(blank ? {} : { from, expected_source_sha256: draft?.source_sha256 }), steps: draft?.steps ?? [], status: mode },
+      });
       toast(mode === "draft" ? tx("草稿已保存", "Draft saved") : tx("已提交复核，复核通过后 Agent 才会使用", "Submitted for review; agents use it only after approval"));
       if (mode === "review") nav("/runbooks");
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : tx("保存失败，请稍后重试", "Couldn't save; try again later"), { tone: "danger" });
     } finally {
       setSaving(null);
     }
@@ -141,10 +162,15 @@ export default function NewRunbookPage() {
               </>
             ) : (
               <>
+                {!blank && error && (
+                  <Callout tone="danger" icon="alert" action={<Btn h={26} onClick={() => setDlg(true)}>{tx("换一个起点", "Change starting point")}</Btn>}>
+                    {tx("没能从这个来源起草：{m}", "Couldn't draft from this source: {m}", { m: error instanceof ApiError ? error.message : tx("请稍后重试", "try again later") })}
+                  </Callout>
+                )}
                 <Row gap={8}>
-                  <input key={source + (draft?.title ?? "")} className="rb-title" defaultValue={draft?.title} placeholder={tx("Runbook 标题", "Runbook title")} aria-label={tx("标题", "Title")} />
+                  <input className="rb-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={tx("Runbook 标题", "Runbook title")} aria-label={tx("标题", "Title")} />
                   <Badge>{tx("草稿 v1", "Draft v1")}</Badge>
-                  {!blank && (
+                  {!blank && API_MODE === "mock" && (
                     <Badge tone="accent">
                       <Icon name="sparkles" size={11} />
                       {tx("AI 起草", "AI drafted")}
@@ -155,7 +181,8 @@ export default function NewRunbookPage() {
                   <Row gap={6} wrap>
                     {draft?.applies_to.map((s) => <Badge key={s}>{s}</Badge>)}
                     {draft?.trigger && <LabelChip k="trigger" v={draft.trigger} />}
-                    <AddChip label={tx("范围", "Scope")} free placeholder="service=payment-gateway" options={[...lists.services.map((s) => `service=${s.value}`), "env=prod", "team=trade"]} />
+                    {/* POST /runbooks takes no scope; the chip and its sample options belong to the sample data (PA-124). */}
+                    {API_MODE === "mock" && <AddChip label={tx("范围", "Scope")} free placeholder="service=payment-gateway" options={[...lists.services.map((s) => `service=${s.value}`), "env=prod", "team=trade"]} />}
                   </Row>
                 </Field>
                 <ol className="rb-steps">
@@ -216,7 +243,7 @@ export default function NewRunbookPage() {
                 ))}
               </Col>
             )}
-            {!blank && (
+            {!blank && API_MODE === "mock" && (
               <Col gap={6}>
                 <Muted size={11.5}>{tx("需要你确认", "Please confirm")}</Muted>
                 <Row gap={6} align="flex-start"><Icon name="alert" size={13} color="var(--warn)" /><Muted size={12}>{tx("判断阈值来自单次事件，建议补充历史数据", "Thresholds come from a single incident — add history")}</Muted></Row>

@@ -1123,6 +1123,8 @@ export type PullListItem = { id: string; name: string; application_id: string; e
 export type PullList = { items: PullListItem[] | null; empty_reason: EmptyReason; unavailable: Unavailable };
 export type PushEventType = { id: string; icon: string; name: string; schema: string; today: string; rejected: string; tone: Tone };
 export type PushView = {
+  /** "not_configured" until a Push source is configured for this instance. */
+  availability?: string;
   types: PushEventType[];
   endpoint: { method: string; path: string; host: string; headers: { k: string; v: string; note: string }[]; example: string; responses: { code: string; tone: Tone; text: string }[] };
   deliveries: { at: string; source: string; key: string; code: string; tone: Tone; result: string; ms: string }[];

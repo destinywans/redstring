@@ -7,6 +7,7 @@ import { DataTable } from "../../ui/data";
 import type { ContractKind, PullDraft, PullList, PushView } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Code, Col, Icon, KV, LabelChip, Mono, Muted, Num, Panel, Row, Segmented, Skeleton, Spacer, State, Stepper, Strong, TextLink, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
+import { Gated } from "../../ui/permission";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
@@ -17,7 +18,11 @@ export default function IngestPage() {
   const { tx } = useI18n();
   const { pathname } = useLocation();
   const mode = pathname.endsWith("/push") ? "push" : pathname.endsWith("/stack") ? "stack" : "pull";
-  const test = useSend<void, { code: number }>("POST", "/ingest/push/test");
+  // The test event needs the event type picked on the page (contract: { type }); it used to send none (422, PA-138).
+  const [pushType, setPushType] = useState("change");
+  const push = useGet<PushView>(mode === "pull" ? null : "/ingest/push");
+  const noPushSource = push.data?.availability === "not_configured";
+  const test = useSend<{ type: string }, { code: number }>("POST", "/ingest/push/test");
   const [params] = useSearchParams();
   const pullId = API_MODE === "mock" ? "pull-ops-metrics" : params.get("source");
   const pullTest = useSend<Record<string, never>, { ok: boolean; rows: number; dropped: number; captured_at: string }>("POST", `/ingest/pull/${pullId}/test`);
@@ -49,9 +54,11 @@ export default function IngestPage() {
             <Btn icon="key" to="/integrations/webhooks">
               {tx("新建令牌", "New token")}
             </Btn>
-            <Btn kind="primary" icon="send" loading={test.isPending} onClick={() => test.mutate(undefined, { onSuccess: (r) => toast(tx("测试事件已发送 · {c}", "Test event sent · {c}", { c: r.code })) })}>
-              {tx("发送测试事件", "Send test event")}
-            </Btn>
+            <Gated reason={noPushSource ? tx("这个实例还没有配置 Push 来源", "No Push source is configured on this instance") : null}>
+              <Btn kind="primary" icon="send" loading={test.isPending} onClick={() => test.mutate({ type: pushType }, { onSuccess: (r) => toast(tx("测试事件已发送 · {c}", "Test event sent · {c}", { c: r.code })) })}>
+                {tx("发送测试事件", "Send test event")}
+              </Btn>
+            </Gated>
           </>
         )
       }
@@ -72,7 +79,7 @@ export default function IngestPage() {
         <Spacer />
         <Muted size={11.5}>{tx("Pull 适合查询型数据（指标、日志、链路），Push 适合事件型数据（告警、变更、资源变更）", "Pull suits query data (metrics, logs, traces); Push suits events (alerts, changes, resource updates)")}</Muted>
       </nav>
-      {mode === "pull" ? <Pull id={pullId} /> : <Push stackOnly={mode === "stack"} />}
+      {mode === "pull" ? <Pull id={pullId} /> : <Push stackOnly={mode === "stack"} sel={pushType} setSel={setPushType} />}
     </Page>
   );
 }
@@ -382,11 +389,10 @@ function Pull({ id }: { id: string | null }) {
   );
 }
 
-function Push({ stackOnly }: { stackOnly: boolean }) {
+function Push({ stackOnly, sel, setSel }: { stackOnly: boolean; sel: string; setSel: (id: string) => void }) {
   const { tx } = useI18n();
   const when = useWhen();
   const { data: d } = useGet<PushView>("/ingest/push");
-  const [sel, setSel] = useState("change");
   const [deploy, setDeploy] = useState<"helm" | "compose">("helm");
   if (!d)
     return (

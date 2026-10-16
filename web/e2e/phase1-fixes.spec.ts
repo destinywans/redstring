@@ -560,3 +560,36 @@ test.describe("agent console writes as a viewer (PA-150)", () => {
     }
   });
 });
+
+test.describe("alert rule import, preview and dry run refusals (PA-151, PA-152)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const notConnected = (code: string, message: string) => (r: Route) => json(r, 503, { error: { code, message } });
+  test("a refused import or preview is said in words, not thrown", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await page.route(at("/alert-rules/import"), notConnected("not_connected", "Alert rule draft repository is not connected"));
+    await page.route(at("/alert-rules/preview"), notConnected("rule_assistant_not_connected", "Reviewed rule query catalog is not configured"));
+    const service = await page.goto(origin + "/healthz").then(() =>
+      page.evaluate(async () => ((await (await fetch("/api/v1/services", { headers: { "X-AIOps-Environment": "prod" } })).json()) as { items?: { id: string }[] }).items?.[0]?.id ?? null),
+    );
+    test.skip(!service, "no service in the catalog");
+    await page.goto(origin + `/alert-rules/new?tab=import&service=${encodeURIComponent(service!)}`);
+    await page.locator("textarea").first().fill("groups: []", { timeout: 20_000 });
+    await page.getByRole("button", { name: "解析" }).click();
+    await expect.poll(() => toasts(page)).toContain("规则草稿仓库还没有接入，暂时不能导入。");
+    await page.goto(origin + `/alert-rules/new?service=${encodeURIComponent(service!)}`);
+    await page.locator("textarea.mono").fill("sum(rate(http_requests_total[5m]))", { timeout: 20_000 });
+    await expect(page.getByText("预览还没有接入审过的查询目录。")).toBeVisible({ timeout: 10_000 });
+    expect(m.pageErrors).toEqual([]);
+  });
+  test("a dry run the rule's interval rules out says why", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route((u) => /\/api\/v1\/alert-rules\/[^/]+\/dry-run$/.test(u.pathname), notConnected("rule_interval_unavailable", "Rule evaluation interval is unsupported"));
+    await page.goto(origin + "/alert-rules");
+    const rule = page.locator("button.rule-item").last();
+    test.skip(!(await rule.waitFor({ timeout: 15_000 }).then(() => true, () => false)), "no rule listed");
+    await rule.click();
+    await page.getByRole("button", { name: "试运行（最近 6 小时）" }).click({ timeout: 20_000 });
+    await expect.poll(() => toasts(page)).toContain("这条规则的评估间隔不在 15 秒到 5 分钟之间，不能试运行。");
+  });
+});

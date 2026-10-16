@@ -116,7 +116,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--with-golden-api', action='store_true')
     ap.add_argument('--with-roles', action='store_true', help='viewer and operator crawls (zh dark), judged against the permission matrix')
-    ap.add_argument('--with-details', action='store_true', help='detail pages and their tabs (web/e2e/detail-crawl.spec.ts)')
+    ap.add_argument('--with-details', action='store_true', help='detail pages and their tabs (web/e2e/detail-pages.spec.ts)')
     ap.add_argument('--tag', default=time.strftime('%m%d-%H%M'))
     a = ap.parse_args()
     art = artifact(BIN)
@@ -154,7 +154,7 @@ def main():
                                cwd=ROOT / 'web', env=crawl_env))
             results.append(run(f'crawl summary {role}', ['python3', 'tools/acceptance/crawl-summary.py'], env={'CRAWL_ROLE': role}, parse=crawl_summary))
     if a.with_details:
-        results.append(run('detail pages and tabs', ['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', 'detail-crawl.spec.ts'],
+        results.append(run('detail pages and tabs', ['npx', 'playwright', 'test', '-c', 'e2e/playwright.config.ts', 'detail-pages.spec.ts'],
                            cwd=ROOT / 'web', env={'E2E_WORKERS': '4'}, timeout=2400))
         results.append(run('detail summary', ['python3', 'tools/acceptance/crawl-summary.py'], env={'CRAWL_OUT': 'e2e/detail-crawl'}, parse=crawl_summary))
     # The trace page opens on the Errors view, so the crawl never loads All; read every view directly (PA-87).

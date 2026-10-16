@@ -9,7 +9,8 @@
 - 环境恢复（10-16 14:50 起）：实验 `cluster.py up`（三节点 Ready，内核 7.0.0-38）；启动实验中间件、观测与企业组件 12 个容器；`enterprise/vault.py up` 重新注入 7 个路径（K8s 读令牌沿用文件中的旧令牌，到 10-18 13:58Z；回滚令牌新签，到 10-17 06:52Z），GitLab 起来后 `vault.py verify` 24 项全部通过；`delivery/lab.py resume`（GitLab 200）；`clock-watchdog.py check` 为 READY。验收 PG、邮件接收、TLS 代理启动。
 - 干净构建：Go 二进制在临时 worktree 从 5502f631 构建（`vcs.modified=false`），Web 从同一提交构建；旧产物备份为 `.local/acceptance/bin/aiops.6b206d22-dirty`、`.local/acceptance/web.6b206d22-dirty`；没有新迁移（最新 179，已在两验收库执行）。两个实例 `acceptance.py start all` 后均 healthy。
 - 工具补强交给两个子会话（各自 worktree，不碰实例）：t1-route-matrix（T0 静态比对、T1 `go/ast` 路由扫描与权限矩阵）、t2-coverage-tools（T2 代理日志与覆盖率、T3 轮次记录、T4 多角色对拍、T5 详情页对拍、凭据检查补全、regress.py 版本与写死调查）。约定接口 `api.call(..., probe=None)`。
-- 待用户：计数开始前审完 D35～D45，并确认 D22～D30 的审阅状态（D25、D29 已于 10-11 按设计图确认，D37 已确认方案 A）；DeepSeek 预算上限；其他 kind 集群是否暂停。
+- 待用户：计数开始前审完 D35～D45，并确认 D22～D30 的审阅状态（D25、D29 已于 10-11 按设计图确认，D37 已确认方案 A）。
+- 用户 10-16 另定：DeepSeek 不设预算上限（每轮记调用次数、异常提醒）；其他 kind 集群不暂停，对拍 worker 6 → 3（实测 5 个集群合计约 6.7 GiB、空闲不到 1 核，基线对拍时的负载主要来自对拍本身）。
 
 **此前验收：[CP-326](#cp-326-current)，2026-10-12 (+08)。本轮除性能与 24 小时外全部收尾：D11 补齐逐条比对与审计检查并对照设计图核对页面；配置提升首次接实验配置仓库，四类配置从 nonprod 导出、真人审批合并、prod 导入全部走通（Runbook 首次走通审核发布）；审阅页批准后状态按用户确认的方案 A 上线。登记 PA-01～PA-104 全部验证，最终回归 19/19。报告 https://claude.ai/artifact/CD6jdw84V8stiLQRsqvjHt 。**
 

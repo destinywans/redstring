@@ -182,7 +182,7 @@ def build():
     perm_line = []
     for inst, data in perm.items():
         results = data.get('results') or []
-        bad = [r for r in results if not r.get('ok') and not r.get('inconclusive')]
+        bad = [r for r in results if not r.get('ok') and not r.get('inconclusive') and not r.get('excluded')]
         perm_line.append((inst, len(results), len(bad)))
 
     p = []

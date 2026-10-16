@@ -75,6 +75,21 @@ def request_id():
     return f'{PREFIX}-{_secrets.token_hex(8)}'
 
 
+LIST_KEYS = ('items', 'rules', 'agents', 'members', 'roles', 'silences', 'runs', 'tokens', 'servers', 'policies', 'cases')
+
+
+def list_items(body, key=None):
+    """The objects of a list response: the body itself when it is a list, else the
+    first non-empty list under LIST_KEYS (or key). Never a nested or unrelated
+    list such as kpis or trend, whose ids are not object ids."""
+    rows = []
+    if isinstance(body, list):
+        rows = body
+    elif isinstance(body, dict):
+        rows = next((body[k] for k in ((key,) if key else LIST_KEYS) if isinstance(body.get(k), list) and body[k]), [])
+    return [r for r in rows if isinstance(r, dict) and isinstance(r.get('id'), (str, int)) and str(r['id'])]
+
+
 def walk(body, depth=0):
     """Every dict inside a JSON value, breadth first, a few levels deep."""
     level = [body]
@@ -102,33 +117,51 @@ class Sampler:
             self.cache[path] = body if status == 200 else None
         return self.cache[path]
 
-    def item(self, path, pred=lambda x: True):
-        """First object with an id in the list response that satisfies pred."""
-        for d in walk(self.get(path)):
-            if isinstance(d.get('id'), (str, int)) and str(d['id']) and pred(d):
-                return d
-        return None
+    def item(self, path, pred=lambda x: True, key=None):
+        """First object of the list response that satisfies pred."""
+        return next((d for d in list_items(self.get(path), key) if pred(d)), None)
 
-    def id(self, path, pred=lambda x: True):
-        found = self.item(path, pred)
+    def id(self, path, pred=lambda x: True, key=None):
+        found = self.item(path, pred, key)
         return str(found['id']) if found else None
 
     def field(self, path, *names):
-        for d in walk(self.get(path)):
+        """A field of the list's objects (document_id, execution_id ...)."""
+        for d in list_items(self.get(path)):
             for n in names:
                 if isinstance(d.get(n), (str, int)) and str(d[n]):
                     return str(d[n])
         return None
 
-    def app(self):
-        """An application id: services ids are base64url("<application>\\x00...")."""
-        sid = self.id('/services')
+    def app(self, sid=None):
+        """An application id: services ids are base64url("<application>\\x00<environment>")."""
+        sid = sid or self.id('/services')
         if not sid:
             return None
         try:
-            return base64.urlsafe_b64decode(sid + '=' * (-len(sid) % 4)).decode().split('\x00')[0]
+            return base64.urlsafe_b64decode(sid + '=' * (-len(sid) % 4)).decode().split('\x00')[0] or None
         except (ValueError, UnicodeDecodeError):
-            return self.field('/services', 'application_id')
+            return (self.item('/services') or {}).get('application_id')
+
+    def alert(self):
+        """An alert id: alert groups list their alerts under instances."""
+        for group in list_items(self.get('/alert-groups')):
+            for alert in group.get('instances') or []:
+                if isinstance(alert, dict) and alert.get('id'):
+                    return str(alert['id'])
+        return None
+
+    def incident_case(self):
+        """A human incident case (INC-...), the only kind whose status can be changed."""
+        return self.id('/incidents?status=all', lambda d: str(d['id']).startswith('INC-'))
+
+    def eval_case(self):
+        """A case of the first evaluation that lists cases (GET /evals/{id} has them)."""
+        for e in list_items(self.get('/evals'))[:10]:
+            case = next(iter(list_items(self.get(f"/evals/{e['id']}"), 'cases')), None)
+            if case:
+                return str(case['id'])
+        return None
 
     def environment(self):
         return self.env or (self.get('/instance') or {}).get('default_env') or DEFAULT_ENV[self.instance]
@@ -167,8 +200,10 @@ class Sampler:
 
 
 class Probe:
-    def __init__(self, guard, params=None, body=None, headers=None, effect=''):
-        self.guard, self.params, self.body, self.headers, self.effect = guard, params, body, headers, effect
+    """note: what the answer can and cannot prove for this route, copied to each row."""
+
+    def __init__(self, guard, params=None, body=None, headers=None, effect='', note=''):
+        self.guard, self.params, self.body, self.headers, self.effect, self.note = guard, params, body, headers, effect, note
 
     def build(self, s):
         """(path params, body, headers) for sampler s; a None param means no sample."""
@@ -191,7 +226,7 @@ def _inv_node(s):
 def _mcp_tool(s):
     sid = s.id('/mcp-servers')
     detail = s.get(f'/mcp-servers/{sid}') if sid else None
-    tool = next((d for d in walk(detail) if isinstance(d.get('name'), str) and ('tool_hash' in d or 'enabled' in d)), None)
+    tool = next((d for d in walk(detail) if isinstance(d.get('name'), str) and 'tool_hash' in d), None)
     return {'id': sid, 'name': tool and tool['name']}
 
 
@@ -232,21 +267,21 @@ PROBES = {
     'POST /api/v1/prompts/{id}/versions': Probe('creates', lambda s: {'id': s.id('/prompts')}, lambda s: {'text': PREFIX},
                                                 effect='a new version of an existing prompt (not published)'),
     'POST /api/v1/prompts/{id}/trial': Probe('missing', lambda s: {'id': s.id('/prompts')},
-                                             lambda s: {'case': f'{PREFIX}-missing', 'a': 'v1', 'b': 'v1'}),
+                                             lambda s: {'case': f'{PREFIX}-missing', 'a': 'v1', 'b': 'v2'}),
     'POST /api/v1/eval-datasets': Probe('creates', None, lambda s: {'name': tag(), 'source': 'manual'}, effect='a dataset'),
     'POST /api/v1/eval-datasets/{id}/items': Probe('missing', lambda s: {'id': s.id('/eval-datasets')},
                                                    lambda s: {'run_id': f'{PREFIX}-missing'}),
-    'POST /api/v1/evals': Probe('creates', None, lambda s: {'agent_id': s.id('/agents/lifecycle'), 'title': tag(),
-                                                            'baseline_version': 'v1', 'candidate_version': 'v1'},
-                                effect='an evaluation that is not executed'),
+    'POST /api/v1/evals': Probe('missing', None, lambda s: {'agent_id': s.id('/agents/lifecycle'), 'title': tag(),
+                                                            'baseline_version': 'v1', 'candidate_version': f'{PREFIX}-missing'}),
     'POST /api/v1/evals/{id}/execute': Probe('missing', lambda s: {'id': s.id('/evals')},
                                              lambda s: {'case_id': f'{PREFIX}-missing', 'request_key': request_id()}),
     'POST /api/v1/evals/{id}/cancel': Probe('terminal', lambda s: {'id': s.terminal('/evals')}),
     'POST /api/v1/eval-cases': Probe('creates', None, lambda s: {
         'agent_id': s.id('/agents/lifecycle'), 'title': tag(), 'input': PREFIX, 'queue': PREFIX,
-        'alert': {'sev': 'P4', 'title': PREFIX, 'labels': []}, 'evidence': [], 'expected': {'cause': PREFIX, 'advice': PREFIX},
+        'alert': {'sev': 'P4', 'title': PREFIX, 'labels': []}, 'evidence': [{'brand': 'manual', 'title': PREFIX, 'sub': PREFIX}],
+        'expected': {'cause': PREFIX, 'advice': PREFIX},
         'checks': [PREFIX]}, effect='an evaluation case'),
-    'POST /api/v1/eval-cases/{id}/labels': Probe('stale', lambda s: {'id': s.field('/evals', 'case_id')},
+    'POST /api/v1/eval-cases/{id}/labels': Probe('stale', lambda s: {'id': s.eval_case()},
                                                  lambda s: {'next': 'unsure', 'expected_revision': STALE}),
     # alert rules
     'POST /api/v1/alert-rules': Probe('creates', None, lambda s: {**_rule(s), 'mode': 'draft'}, effect='a draft rule (not enabled)'),
@@ -257,7 +292,7 @@ PROBES = {
         'yaml': f'groups:\n- name: {PREFIX}\n  rules:\n  - alert: {tag()}\n    expr: vector(0) > 1\n    for: 5m\n'},
         effect='draft rules (not enabled)'),
     'POST /api/v1/alert-rules/{id}/disable': Probe('missing', lambda s: {'id': s.id('/alert-rules')},
-                                                   lambda s: {'investigation_id': f'{PREFIX}-missing'}),
+                                                   lambda s: {'investigation_id': '0' * 32}),  # well-formed, never issued
     'POST /api/v1/alert-rules/generate': Probe('read_only', None, lambda s: {'text': 'error rate above 5% for 5 minutes',
                                                                               'application_id': s.app()},
                                                effect='one model call (draft text, not saved)'),
@@ -268,13 +303,15 @@ PROBES = {
     'POST /api/v1/executions/{id}/recheck': Probe('read_only', lambda s: {'id': s.field('/alert-rules', 'execution_id')},
                                                   effect='re-reads the rule state for one execution'),
     # events
-    'POST /api/v1/alerts/{id}/claim': Probe('stale', lambda s: {'id': s.field('/alert-groups', 'alert_id')},
+    'POST /api/v1/alerts/{id}/claim': Probe('stale', lambda s: {'id': s.alert()},
                                             lambda s: {'expected_revision': str(STALE)}),
-    'POST /api/v1/incidents': Probe('creates', None, lambda s: {
-        'title': tag(), 'severity': 'P4', 'env': s.environment(), 'services': [s.id('/services')], 'alert_ids': [],
-        'war_room': False, 'notify': False, 'status_page': False, 'open_canvas': False, 'participants': []},
-        effect='a P4 incident, no notification'),
-    'POST /api/v1/incidents/{id}/status': Probe('stale', lambda s: {'id': s.id('/incidents?status=all')},
+    # A real alert (its events.change is checked first) with a service that is not
+    # the alert's application: past the check the handler answers 409
+    # incident_scope_changed before writing.
+    'POST /api/v1/incidents': Probe('stale', None, lambda s: {
+        'title': tag(), 'severity': 'P4', 'env': s.environment(), 'services': [f'{PREFIX}-mismatch'], 'alert_ids': [s.alert()],
+        'war_room': False, 'notify': False, 'status_page': False, 'open_canvas': False, 'participants': []}),
+    'POST /api/v1/incidents/{id}/status': Probe('stale', lambda s: {'id': s.incident_case()},
                                                 lambda s: {'status': 'mitigated', 'expected_revision': STALE, 'request_id': request_id()}),
     'POST /api/v1/incidents/{id}/participants': Probe('creates', lambda s: {'id': s.terminal('/incidents?status=all') or s.id('/incidents?status=all')},
                                                       lambda s: {'names': [PREFIX]}, effect='a participant name on an incident'),
@@ -282,12 +319,14 @@ PROBES = {
                                                   lambda s: {'text': PREFIX}, effect='a manual timeline note on an incident'),
     'POST /api/v1/incidents/{id}/investigation': Probe('creates', lambda s: {'id': s.id('/incidents?status=all')}, lambda s: {},
                                                        effect='opens (or returns) the incident investigation'),
-    'POST /api/v1/maintenance-windows': Probe('creates', None, lambda s: {'schedule': 'once 2099-01-01T00:00:00Z/1h',
-                                                                          'matchers': [f'alertname={PREFIX}'], 'reason': PREFIX},
-                                              effect='a maintenance plan matching only alertname=acceptance-probe'),
+    'POST /api/v1/maintenance-windows': Probe('creates', None, lambda s: {
+        'schedule': 'once 2099-01-01T00:00:00Z/1h', 'reason': PREFIX,
+        'matchers': [f'application_id={s.app()}', f'environment={s.environment()}', f'alertname={PREFIX}']},
+        effect='a maintenance plan record for alertname=acceptance-probe in one application'),
     'POST /api/v1/silences': Probe('creates', None, lambda s: {
-        'investigation_id': s.investigation(), 'matchers': [{'name': 'alertname', 'op': '=', 'value': PREFIX}],
-        'duration_seconds': 1800, 'comment': PREFIX}, effect='a 30-minute silence matching only alertname=acceptance-probe'),
+        'investigation_id': s.investigation(), 'duration_seconds': 1800, 'comment': PREFIX,
+        'matchers': [{'name': 'application', 'op': '=', 'value': s.app()}, {'name': 'alertname', 'op': '=', 'value': PREFIX}]},
+        effect='a silence proposal (needs approval) for alertname=acceptance-probe in one application'),
     'DELETE /api/v1/silences/{id}': Probe('terminal', lambda s: {'id': s.terminal('/silences')},
                                           lambda s: {'investigation_id': s.investigation(), 'reason': PREFIX}),
     'POST /api/v1/silences/preview': Probe('read_only', None, lambda s: {'matchers': [{'k': 'alertname', 'op': '=', 'v': PREFIX}]}),
@@ -295,7 +334,7 @@ PROBES = {
     'POST /api/v1/canvases': Probe('creates', None, lambda s: {'title': tag(), 'kind': 'custom', 'goal': PREFIX,
                                                                'services': [], 'ai_draft': False}, effect='an empty canvas'),
     'PATCH /api/v1/investigations/{id}/nodes/{node}': Probe('stale', _inv_node,
-                                                            lambda s: {'title': PREFIX, 'expected_layout_version': STALE}),
+                                                            lambda s: {'x': 0, 'y': 0, 'expected_layout_version': STALE}),
     'POST /api/v1/investigations/{id}/branches': Probe('stale', _inv_node, lambda s: {
         'parent_id': (s.node(s.investigation()) or {}).get('id'), 'title': PREFIX, 'expected_parent_revision': STALE}),
     'POST /api/v1/investigations/{id}/writeback': Probe('stale', _inv_node, lambda s: {
@@ -322,10 +361,10 @@ PROBES = {
                                          effect='a published memory source titled acceptance-probe-... (can feed answers until withdrawn)'),
     'PUT /api/v1/memory/policy': Probe('stale', None, lambda s: {'expected_revision': STALE, 'ttl_days': 90, 'proposers': 'human'}),
     'PATCH /api/v1/postmortems/{id}': Probe('stale', lambda s: {'id': s.id('/postmortems/records')}, lambda s: {'status': 'draft'},
-                                            lambda s: {'If-Match': '"0"'}),
-    'POST /api/v1/postmortems': Probe('creates', None, lambda s: {'incident_id': s.terminal('/incidents?status=all'), 'sections': [],
-                                                                  'actions': [], 'status': 'draft'},
-                                      effect='a draft postmortem on a resolved incident'),
+                                            lambda s: {'If-Match': f'"{STALE}"'}),
+    'POST /api/v1/postmortems': Probe('stale', None, lambda s: {
+        'incident_id': s.terminal('/incidents?status=all') or s.id('/incidents?status=all'), 'source_revision': f'case:{STALE}',
+        'sections': [{'key': 'summary', 'title': PREFIX, 'text': PREFIX}], 'actions': [], 'status': 'draft'}),
     'POST /api/v1/postmortems/{id}/publish': Probe('terminal', lambda s: {'id': s.terminal('/postmortems/records')}),
     'POST /api/v1/runbooks/{id}/submit': Probe('terminal', lambda s: {'id': s.terminal('/runbooks')}),
     'POST /api/v1/runbooks/{id}/reviews': Probe('terminal', lambda s: {'id': s.terminal('/runbooks')},
@@ -371,8 +410,11 @@ PROBES = {
         'kind': 'rollout.pause', 'params': {'investigation_id': s.investigation(), 'reason': PREFIX,
                                             'desired': {'rollout_id': f'{PREFIX}-missing'}}}),
     'POST /api/v1/rollback-proposals': Probe('stale', None, lambda s: {
-        'investigation_id': s.investigation(), 'service_id': s.id('/services'), 'target_revision': f'{PREFIX}-missing',
-        'expected_template_digest': ZERO, 'reason': PREFIX}),
+        'investigation_id': s.investigation(), 'service_id': s.id('/services'), 'target_revision': str(STALE),
+        'expected_template_digest': ZERO, 'reason': PREFIX},
+        note='proposals.change is checked in the write transaction, after the Deployment digest; a role that can '
+             'read the Deployment (resources.view) gets 409 rollback_target_changed, which proves nothing. Only a '
+             'real digest and target would reach the check, and a missed check would then file a real proposal'),
     'PUT /api/v1/me/watched-services/{id}': Probe('own_pref', lambda s: {'id': s.id('/services')},
                                                   effect="the probing account's own watch list"),
     'DELETE /api/v1/me/watched-services/{id}': Probe('own_pref', lambda s: {'id': s.id('/services')},
@@ -529,6 +571,10 @@ def run(instance, table, effective, cookies, roles, scoped=None):
         envs = {e for e in ((visible.get('/instance') or {}).get('environments') or []) if isinstance(e, str)}
         envs |= {d['id'] for d in walk((visible.get('/instance') or {}).get('environments')) if isinstance(d.get('id'), str)}
         other = sorted(e for e in envs if e not in (scoped['environment'], 'all'))
+        # The default environment holds the lab data; others (dev, staging) may be empty.
+        default = (visible.get('/instance') or {}).get('default_env')
+        if default in other:
+            other.insert(0, other.pop(other.index(default)))
         foreign = Sampler(instance, other[0]) if other else None
         if not foreign:
             skipped.append(('*', 'scoped', 'no second environment on this instance'))
@@ -572,7 +618,8 @@ def run(instance, table, effective, cookies, roles, scoped=None):
             row = {'route': key, 'role': role, 'module': module, 'action': action, 'object_scoped': True, 'allowed': False,
                    'status': status, 'code': code, 'ok': ok, 'inconclusive': verdict in ('guard_hit', 'body_rejected', 'inconclusive'),
                    'probe': 'valid_body:' + ('foreign' if role == 'scoped' else 'visible'), 'guard': probe.guard,
-                   'verdict': verdict, 'target': params}
+                   'verdict': verdict, 'target': params, **({'note': probe.note} if probe.note else {}),
+                   'body_text': resp if isinstance(resp, str) else None}  # permissions.record() pops it
             if verdict == 'ACCEPTED':
                 created = resp.get('id') if isinstance(resp, dict) else None
                 row['cleanup'] = {'guard': probe.guard, 'effect': probe.effect or 'none expected (see guard)', 'created_id': created}

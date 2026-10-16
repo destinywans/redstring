@@ -865,3 +865,24 @@ test.describe("no pretend actions in real mode, second sweep (PA-163)", () => {
     await expect(page.getByRole("button", { name: "自定义事件 schema" })).toHaveCount(0);
   });
 });
+
+test.describe("agent release without a canary (PA-164)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  test("promote is disabled with the reason when no version is in canary", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const agent = await page.evaluate(async () => {
+      const h = { "X-AIOps-Environment": "prod" };
+      const b = (await (await fetch("/api/v1/agents/lifecycle", { headers: h })).json()) as { agents?: { id: string }[] };
+      for (const x of b.agents ?? []) {
+        const d = (await (await fetch(`/api/v1/agents/${x.id}`, { headers: h })).json()) as { release?: { to?: string } };
+        if (d.release && !d.release.to) return x.id;
+      }
+      return null;
+    });
+    test.skip(!agent, "every agent has a canary in progress");
+    await page.goto(origin + `/agents/${agent}`);
+    await expect(page.getByRole("button", { name: /^推进到/ })).toBeDisabled({ timeout: 20_000 });
+    await expect(page.getByText("发布 ·  灰度")).toHaveCount(0);
+  });
+});

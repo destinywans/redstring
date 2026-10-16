@@ -394,3 +394,72 @@ test.describe("guardrail switch (PA-142)", () => {
     expect(path).toMatch(/^\/api\/v1\/guardrails\/[^/]+$/);
   });
 });
+
+const MEMORY_VIEW = {
+  layers: [
+    { id: "service", name: "Service facts", count: 1, description: "Current published facts attributed to visible services", evidence: { kind: "current_published_facts", fact_ids: ["fact-svc"] } },
+    { id: "workspace", name: "Workspace facts", count: 1, description: "Current published facts explicitly scoped to the workspace", evidence: { kind: "current_published_facts", fact_ids: ["fact-ws"] } },
+  ],
+  services: [{ id: "svc-check", name: "checkout-api", count: 1 }],
+  service: null,
+  facts: [
+    { id: "fact-svc", fact: "检查用：服务事实", source: "memory-source-check", confidence: null, confirmed: null, recalls: null, expires: null, revision: 1, state: "candidate" },
+    { id: "fact-ws", fact: "检查用：工作区事实", source: "memory-source-check", confidence: null, confirmed: null, recalls: null, expires: null, revision: 1, state: "candidate" },
+  ],
+  conflicts: [],
+  conflict: { id: "conflict-check", a: { id: "fact-svc", text: "检查用：服务事实", source: "memory-source-" + "0".repeat(64) }, b: { id: "fact-ws", text: "检查用：工作区事实", source: "memory-source-check" } },
+  policy: null,
+  partial: true,
+};
+const MEMORY_POLICY = { ttl_days: 90, proposers: "human", revision: 3 };
+
+test.describe("memory page (PA-144, PA-145)", () => {
+  const pin = async (page: Page) => {
+    await page.route(at("/memory"), (r) => json(r, 200, MEMORY_VIEW));
+    await page.route(at("/memory/policy"), (r) => (r.request().method() === "GET" ? json(r, 200, MEMORY_POLICY) : r.fallback()));
+  };
+  test.describe("as an admin", () => {
+    test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+    test("server layers as tabs, no age on conflict sides, the policy shown, refusals in words", async ({ page }) => {
+      await page.addInitScript(zh);
+      await pin(page);
+      await page.route(at("/memory/facts/fact-svc"), (r) => (r.request().method() === "PATCH" ? json(r, 422, { error: { code: "invalid_memory_input", message: "Invalid memory operation" } }) : r.fallback()));
+      await page.goto(origin + "/memory");
+      const tabs = page.getByRole("tablist").first();
+      await expect(tabs).toContainText("工作区记忆", { timeout: 20_000 });
+      for (const fake of ["情景记忆", "语义记忆"]) await expect(tabs).not.toContainText(fake);
+      await expect(page.getByText("Service facts")).toHaveCount(0);
+      // Each layer lists only its own facts.
+      await expect(page.locator("tr", { hasText: "检查用：服务事实" })).toHaveCount(1);
+      await expect(page.locator("tr", { hasText: "检查用：工作区事实" })).toHaveCount(0);
+      await tabs.getByText("工作区记忆").click();
+      await expect(page.locator("tr", { hasText: "检查用：工作区事实" })).toHaveCount(1);
+      await expect(page.locator("tr", { hasText: "检查用：服务事实" })).toHaveCount(0);
+      // The server pairs conflict sides by ID, so the page claims no age.
+      const card = page.locator(".mem-conflict");
+      await expect(card).toBeVisible();
+      for (const age of ["较旧", "较新"]) await expect(card).not.toContainText(age);
+      await expect(page.getByText("未被召回 90 天后过期；仅人工可以提出记忆")).toBeVisible();
+      // An edit that isn't an excerpt of its source is refused in words.
+      await tabs.getByText("服务记忆").click();
+      await page.locator("tr", { hasText: "检查用：服务事实" }).getByRole("button", { name: "编辑" }).click();
+      await page.getByRole("dialog").locator("textarea").fill("检查用：改写成别的话");
+      await page.getByRole("dialog").getByRole("button", { name: "保存（需重新确认）" }).click();
+      await expect.poll(() => toasts(page)).toContain("修改后的内容必须是来源资料里的一段原文。");
+    });
+  });
+  test.describe("as a viewer", () => {
+    test.use({ storageState: statePath("prod", "viewer"), viewport: { width: 1440, height: 1000 } });
+    test("memory writes are disabled without knowledge.manage", async ({ page }) => {
+      await page.addInitScript(zh);
+      await pin(page);
+      await page.goto(origin + "/memory");
+      await expect(page.locator("tr", { hasText: "检查用：服务事实" })).toHaveCount(1, { timeout: 20_000 });
+      const row = page.locator("tr", { hasText: "检查用：服务事实" });
+      for (const name of ["确认", "编辑", "遗忘"]) await expect(row.getByRole("button", { name, exact: true })).toBeDisabled();
+      for (const name of ["保留 B，废弃 A", "保留 A，废弃 B", "记忆策略", "修改策略"]) await expect(page.getByRole("button", { name })).toBeDisabled();
+      // The policy itself stays readable.
+      await expect(page.getByText("未被召回 90 天后过期")).toBeVisible();
+    });
+  });
+});

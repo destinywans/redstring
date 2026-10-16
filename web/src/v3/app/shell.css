@@ -320,6 +320,21 @@ html[data-v3-density="compact"] .v3-content {
   color: var(--muted);
   cursor: help;
 }
+/* In the public demo the badge opens the project page: the arrow says it is a link, hover firms the
+   dashed border up; focus uses the global :focus-visible ring. */
+.mock-badge-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background-color 0.15s;
+}
+.mock-badge-link:hover {
+  border-style: solid;
+  color: var(--text);
+  background: var(--hover);
+}
 
 /* settings mode: the sidebar becomes the settings menu */
 .settings-sidebar { gap: 14px; }

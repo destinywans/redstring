@@ -11,7 +11,7 @@ import { RollbackDrawerHost } from "../features/events/RollbackProposal";
 import { BrandMark } from "../ui/BrandMark";
 import { PageBoundary } from "../ui/PageBoundary";
 import { LoadError } from "../ui/unknown";
-import { API_MODE, ApiError, useGet } from "../api/client";
+import { API_MODE, ApiError, DEMO_ABOUT_URL, useGet } from "../api/client";
 import type { Me, WatchedService } from "../api/types";
 import { EnvSwitch, useInstanceLoader } from "./EnvSwitch";
 import NoAccessPage, { signOutToLogin } from "../features/auth/NoAccessPage";
@@ -240,7 +240,7 @@ function useCrumbHref() {
  * explains the missing or failing source instead of an empty table or an endless skeleton.
  */
 export function Page({ crumbs, title, actions, children, ai = true, bodyClass, flush, error, errorSource }: { crumbs?: Crumb[]; title?: ReactNode; actions?: ReactNode; children: ReactNode; ai?: boolean; bodyClass?: string; flush?: boolean; error?: unknown; errorSource?: string }) {
-  const { tx } = useI18n();
+  const { tx, tl } = useI18n();
   const toggleAi = useAskAi((s) => s.toggle);
   const aiOpen = useAskAi((s) => s.isOpen);
   const hrefOf = useCrumbHref();
@@ -274,11 +274,24 @@ export function Page({ crumbs, title, actions, children, ai = true, bodyClass, f
             })}
           </nav>
         )}
-        {API_MODE === "mock" && (
-          <span className="mock-badge" title={tx("页面数据来自前端 mock，等待后端按 API 契约提供", "Page data is served by frontend mocks until the backend implements the API contract")}>
-            {tx("示意数据", "Sample data")}
-          </span>
-        )}
+        {API_MODE === "mock" &&
+          (DEMO_ABOUT_URL ? (
+            <a
+              className="mock-badge mock-badge-link"
+              href={tl(DEMO_ABOUT_URL)}
+              target="_blank"
+              rel="noopener"
+              title={tx("这是 Redstring 的示例数据演示，不连后端、不调用模型。点击在新标签页打开项目介绍。", "This is a Redstring demo on sample data: no backend, no model calls. Opens the project page in a new tab.")}
+              aria-label={tx("示意数据：在新标签页打开 Redstring 项目介绍", "Sample data: open the Redstring project page in a new tab")}
+            >
+              {tx("示意数据", "Sample data")}
+              <Icon name="arrow-up-right" size={11} />
+            </a>
+          ) : (
+            <span className="mock-badge" title={tx("页面数据来自前端 mock，等待后端按 API 契约提供", "Page data is served by frontend mocks until the backend implements the API contract")}>
+              {tx("示意数据", "Sample data")}
+            </span>
+          ))}
         <span style={{ flexGrow: 1 }} />
         {actions}
         <EnvSwitch />

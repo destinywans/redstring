@@ -7,6 +7,14 @@ import { currentEnv, useEnv } from "../app/environment";
 /** `mock` serves the contract from in-browser fixtures; `http` calls the Go API under /api/v1. */
 export const API_MODE: "mock" | "http" = import.meta.env.VITE_API_MODE === "http" ? "http" : "mock";
 
+/**
+ * The project page the sample-data badge links to, set only when building the public demo
+ * (`VITE_DEMO_ABOUT_URL`, with an optional English page in `VITE_DEMO_ABOUT_URL_EN`). Other builds
+ * leave it unset and the badge stays a plain label.
+ */
+const aboutZh = import.meta.env.VITE_DEMO_ABOUT_URL;
+export const DEMO_ABOUT_URL = aboutZh ? { zh: aboutZh, en: import.meta.env.VITE_DEMO_ABOUT_URL_EN || aboutZh } : null;
+
 export class ApiError extends Error {
   constructor(
     public status: number,

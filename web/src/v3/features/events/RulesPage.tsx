@@ -197,7 +197,12 @@ export default function RulesPage() {
                       const w = res.windows.map((x) => (x.includes("/") ? x.split("/").map((t) => when.clock(t) ?? t).join("–") : x));
                       setDry(res.would_fire ? tx("最近 6 小时会触发 {n} 次：{w}", "Would have fired {n}× in the last 6 h: {w}", { n: res.would_fire, w: w.join(tx("、", ", ")) }) : tx("最近 6 小时不会触发。", "Wouldn't have fired in the last 6 h."));
                     } catch (e) {
-                      toast(e instanceof ApiError ? e.message : tx("试运行失败，请稍后重试", "The dry run failed; try again later"), { tone: "danger" });
+                      // The server's reasons are English; the known ones are said in the page's language (PA-152).
+                      const known: Record<string, string> = {
+                        rule_interval_unavailable: tx("这条规则的评估间隔不在 15 秒到 5 分钟之间，不能试运行。", "This rule's evaluation interval isn't between 15 s and 5 min, so it can't be dry-run."),
+                        dry_run_unavailable: tx("还没有接入可查询历史的 Prometheus。", "No Prometheus with history is connected."),
+                      };
+                      toast(e instanceof ApiError ? known[e.code] ?? e.message : tx("试运行失败，请稍后重试", "The dry run failed; try again later"), { tone: "danger" });
                     }
                   }}
                 >

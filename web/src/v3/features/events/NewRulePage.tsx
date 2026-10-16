@@ -97,7 +97,7 @@ export default function NewRulePage() {
     const t = setTimeout(() => {
       api<Preview>("POST", "/alert-rules/preview", { body: { ...(real ? { application_id: app?.application } : {}), query, op, threshold: Number(threshold), for_minutes: Number(forMin), range } })
         .then((r) => live && setPreview(r))
-        .catch((e: unknown) => live && setPreview({ valid: false, error: e instanceof ApiError ? e.message : tx("暂时无法预览", "Preview is unavailable right now") }));
+        .catch((e: unknown) => live && setPreview({ valid: false, error: e instanceof ApiError && e.status === 503 && e.code === "rule_assistant_not_connected" ? tx("预览还没有接入审过的查询目录。", "Preview isn't connected to a reviewed query catalog.") : e instanceof ApiError ? e.message : tx("暂时无法预览", "Preview is unavailable right now") }));
     }, 300);
     return () => {
       live = false;
@@ -454,7 +454,20 @@ export default function NewRulePage() {
             <Row gap={8}>
               {API_MODE === "mock" && <Btn icon="download" onClick={() => toast(tx("已从 Prometheus · 生产 拉取 42 条规则", "Pulled 42 rules from Prometheus · prod"))}>{tx("从 Prometheus 拉取", "Pull from Prometheus")}</Btn>}
               <Spacer />
-              <Btn kind="primary" icon="upload" onClick={async () => setImported((await api<{ items: Imported[] }>("POST", "/alert-rules/import", { body: { yaml } })).items)}>{tx("解析", "Parse")}</Btn>
+              <Btn
+                kind="primary"
+                icon="upload"
+                onClick={async () => {
+                  // A refusal is said, not thrown (PA-151): without a draft repository the import can't export drafts.
+                  try {
+                    setImported((await api<{ items: Imported[] }>("POST", "/alert-rules/import", { body: { yaml } })).items);
+                  } catch (e) {
+                    toast(e instanceof ApiError && e.status === 503 && e.code === "not_connected" ? tx("规则草稿仓库还没有接入，暂时不能导入。", "The rule draft repository isn't connected, so rules can't be imported yet.") : e instanceof ApiError ? e.message : tx("解析失败，请稍后重试", "Couldn't parse; try again later"), { tone: "danger" });
+                  }
+                }}
+              >
+                {tx("解析", "Parse")}
+              </Btn>
             </Row>
           )}
           {imported && (

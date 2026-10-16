@@ -122,23 +122,26 @@ export default function MembersPage() {
               <div className="member-bulk-bar anim-rise">
                 <b>{tx("已选 {n} 人", "{n} selected", { n: checked.size })}</b>
                 <Spacer />
-                <Btn
-                  h={26}
-                  icon="shield"
-                  onClick={async () => {
-                    const v = await openForm({
-                      title: tx("为 {n} 人分配角色", "Assign a role to {n} people", { n: checked.size }),
-                      fields: [{ key: "role", label: tx("角色", "Role"), type: "select", options: (roleList?.items ?? []).filter((r) => r.kind !== "machine").map((r) => ({ value: r.name, label: r.name, hint: tx("{n} 人", "{n} people", { n: r.members }) })) }],
-                      submit: tx("分配", "Assign"),
-                    });
-                    if (v) {
-                      toast(tx("已为 {n} 人分配「{r}」，写入审计", "Assigned “{r}” to {n} people; audited", { n: checked.size, r: v.role }));
-                      setChecked(new Set());
-                    }
-                  }}
-                >
-                  {tx("分配角色", "Assign role")}
-                </Btn>
+                {/* Assigning roles has no real call here yet (PUT /members/{id}/access is API-only); sample data only (PA-134). */}
+                {API_MODE === "mock" && (
+                  <Btn
+                    h={26}
+                    icon="shield"
+                    onClick={async () => {
+                      const v = await openForm({
+                        title: tx("为 {n} 人分配角色", "Assign a role to {n} people", { n: checked.size }),
+                        fields: [{ key: "role", label: tx("角色", "Role"), type: "select", options: (roleList?.items ?? []).filter((r) => r.kind !== "machine").map((r) => ({ value: r.name, label: r.name, hint: tx("{n} 人", "{n} people", { n: r.members }) })) }],
+                        submit: tx("分配", "Assign"),
+                      });
+                      if (v) {
+                        toast(tx("已为 {n} 人分配「{r}」，写入审计", "Assigned “{r}” to {n} people; audited", { n: checked.size, r: v.role }));
+                        setChecked(new Set());
+                      }
+                    }}
+                  >
+                    {tx("分配角色", "Assign role")}
+                  </Btn>
+                )}
                 {/* There is no disable endpoint for members yet; sample data only. */}
                 {API_MODE === "mock" && (
                   <Btn h={26} kind="danger" onClick={() => { const n = checked.size; setChecked(new Set()); toast(tx("已停用 {n} 名成员", "Disabled {n} members", { n }), { undo: () => undefined }); }}>

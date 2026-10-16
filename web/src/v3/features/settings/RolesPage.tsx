@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { API_MODE, useGet, useSend } from "../../api/client";
 import type { Role, RoleDetail } from "../../api/types";
 import { AvatarGroup, Badge, Btn, Card, Chip, Col, Icon, Muted, Row, SearchBox, Section, Skeleton, Tabs, Tile, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -107,23 +107,26 @@ export default function RolesPage() {
                   <Muted>{r.desc}</Muted>
                 </Col>
                 <AvatarGroup names={r.member_names} />
-                <Btn
-                  h={28}
-                  icon="user"
-                  onClick={async () => {
-                    const v = await openForm({
-                      title: tx("管理「{r}」的成员", "Members of “{r}”", { r: r.name }),
-                      desc: tx("当前成员：{m}", "Current members: {m}", { m: r.member_names.join("、") || "—" }),
-                      fields: [
-                        { key: "add", label: tx("添加成员", "Add a member"), type: "select", options: lists.people.filter((p) => !r.member_names.includes(p.value)).slice(0, 8) },
-                      ],
-                      submit: tx("添加", "Add"),
-                    });
-                    if (v) toast(tx("已将 {p} 加入「{r}」，写入审计", "Added {p} to “{r}”; audited", { p: v.add, r: r.name }));
-                  }}
-                >
-                  {tx("管理成员", "Manage members")}
-                </Btn>
+                {/* Adding a member to a role has no real call yet; sample data only (PA-134). */}
+                {API_MODE === "mock" && (
+                  <Btn
+                    h={28}
+                    icon="user"
+                    onClick={async () => {
+                      const v = await openForm({
+                        title: tx("管理「{r}」的成员", "Members of “{r}”", { r: r.name }),
+                        desc: tx("当前成员：{m}", "Current members: {m}", { m: r.member_names.join("、") || "—" }),
+                        fields: [
+                          { key: "add", label: tx("添加成员", "Add a member"), type: "select", options: lists.people.filter((p) => !r.member_names.includes(p.value)).slice(0, 8) },
+                        ],
+                        submit: tx("添加", "Add"),
+                      });
+                      if (v) toast(tx("已将 {p} 加入「{r}」，写入审计", "Added {p} to “{r}”; audited", { p: v.add, r: r.name }));
+                    }}
+                  >
+                    {tx("管理成员", "Manage members")}
+                  </Btn>
+                )}
               </Row>
               <Row gap={6}>
                 <Muted>{tx("范围", "Scope")}</Muted>

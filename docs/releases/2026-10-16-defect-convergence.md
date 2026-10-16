@@ -19,7 +19,7 @@
 | PA-111 | P3 | Runbook 详情的适用范围显示 `app:<应用内部 ID> · env:prod`，不是服务名与环境名（同 PA-37 一类） | 待修。Linear WAN-441 | 首次路径 | 回归（T5）复核截图 | 0 |
 | PA-112 | P3 | 生产实例 Runbook 详情的试跑写着“在预发用只读步骤走一遍”“在预发试跑只读步骤”，生产实例只有 prod；需先核对 dry-run 在生产实例的实际行为再改文案 | 待修。Linear WAN-442 | 首次路径 | 回归（T5）复核截图 | 0 |
 | PA-113 | P3 | 中文界面下，从复盘起草（经配置提升导入）的 Runbook 步骤标题是英文（“Review: Incident summary” 等），同 PA-24 一类；需查清是起草模板写死英文还是导入时丢了语言。10-16 扫荡补充：根源是后端起草模板写死英文，复盘草稿的章节标题（“Incident summary”“Impact”“Root cause”）与时间线事件文字（`incident.mitigated`）同样是英文（PA-129 复核时发现） | 待修。Linear WAN-443 | 首次数据状态 | 回归（T5）复核截图 | 0 |
-| PA-114 | P2 | 模板页“新建模板”对话框列出全部画布并默认选中第一项（真实数据里是调查画布），保存 `POST /canvas-templates` 404“Source canvas not found”，前端未处理（未捕获的 `ApiError`），无任何提示、对话框不关；从通用画布保存可以 201，但提示写“团队模板”，实际是私人画布模板，且不显示在本页（本页列调查模板，空目录无说明）。WAN-125 实测结果 | 待修。扫荡截图 `e2e/sweep/wan125-save-template-*.png`。Linear WAN-444 | 首次路径 | 扫荡 | 1 |
+| PA-114 | P2 | 模板页“新建模板”对话框列出全部画布并默认选中第一项（真实数据里是调查画布），保存 `POST /canvas-templates` 404“Source canvas not found”，前端未处理（未捕获的 `ApiError`），无任何提示、对话框不关；从通用画布保存可以 201，但提示写“团队模板”，实际是私人画布模板，且不显示在本页（本页列调查模板，空目录无说明）。WAN-125 实测结果 | 已修复（WAN-444 提交，部署 23d34149）：只列通用画布、失败说明、提示写明在“新建画布”里可选用。真实数据：从通用画布保存 201。`phase1-fixes.spec.ts`。Linear WAN-444 | 首次路径 | 扫荡 | 1 |
 | PA-115 | 缺能力 | 调查模板没有创建途径（后端只有列表、编辑、启动），任何部署里目录都为空，“从模板启动调查”入口不可达；潜在缺陷：启动请求不带契约要求的 `inputs`（WAN-128） | 交用户决定是否补（需设计图）；不补则模板页说明（并入 PA-114）。Linear WAN-445 | 首次路径 | 扫荡（代码核对） | 1 |
 | PA-116 | P3 | `POST /canvases` 新建通用画布缺 `services` 时写库 NULL 撞非空约束，统一包成 503 `canvas_unavailable` 且不记日志；应 422 或当空列表。前端始终带 `services`，用户路径不受影响 | 待修。Linear WAN-446 | 首次路径 | 扫荡 | 1 |
 | PA-117 | P3 | 收件箱认领成功提示“已认领，值班升级已停止”（`InboxPage.tsx:45`），V3 没有值班升级（`/oncall-schedules` 503），同 PA-21/PA-30 一类 | 已修复（f063d809，部署 a2d861e9 干净构建），真实模式提示只写“已认领”；回归检查 `phase1-fixes.spec.ts` 在修复前失败、修复后通过。Linear WAN-447 | 首次路径 | 扫荡（代码与接口核对） | 1 |
@@ -67,6 +67,11 @@
 | PA-159 | P1 | Agent“回滚”“推进”必然失败：不带 `expected_revision`；真实模式门禁未知、推进总是放行，却没有放行原因输入 | 已修复（b457697c，部署 53df8657，当场修）：带修订；放行时用通用表单要原因（D55）。真实数据：回滚请求被接受，验收 Agent 没有上一个版本 → 409 `rollback_unavailable`（业务拒绝，英文提示记入英文汇总）；放行推进只做了固定返回验证（验收 Agent 无候选版本）。Linear WAN-489 | 首次路径 | 前端请求与契约核对 | 1 |
 | PA-160 | P3 | 调查画布拖动节点后位置保存必然 428（不带 `expected_layout_version`） | 已修复（779ad95e，部署 53df8657）。接口回读：带版本 200（0 → 1），旧版本 409。`phase1-fixes.spec.ts`（真实拖动）。Linear WAN-490 | 首次路径 | 前端请求与契约核对 | 1 |
 | PA-161 | P1 | Webhook 与 API：“新建 Webhook”假成功（示意地址 aiops.example.com）；新建 API 令牌恒 422（选项与契约不符）；成功弹窗显示前端随机生成的假密钥（修好 422 后会让用户保存无效密钥）；令牌页读 `/webhooks`（恒空）看不到也吊销不了真实令牌 | 已修复（WAN-491 提交，部署 53df8657，当场修）：新建 Webhook 与轮换只在示意模式；令牌按契约签发并显示 `secret_shown_once`；列表读 `/api-tokens`、吊销走 `DELETE`。真实数据：签发 1 小时令牌 201、显示服务端密钥、列表吊销 204。Linear WAN-491 | 首次路径 | 前端请求与契约核对 | 1 |
+| PA-162 | P2 | 审计日志“导出”拿不到文件：不带当前筛选，成功后只提示示意文案“完成后通过飞书通知”，丢弃返回的下载地址 | 已修复（7df3a596，部署 6c61dca4）：按列表筛选导出并直接下载。真实数据：导出 200 并下载。`phase1-fixes.spec.ts`。Linear WAN-492 | 首次路径 | 前端请求与契约核对 | 1 |
+| PA-163 | P1 | 真实模式下又一批假动作（PA-134/135 时漏掉的多行写法）：新建角色、连接器“编辑”（谎称“连接测试通过”）与“停用”、自定义事件 schema；MCP 停用、拉取请求模板编辑（暂不可达） | 已修复（WAN-493 提交，部署 6c61dca4，当场修）：只在示意模式出现（D52）；真实入口交用户决定。扫荡 `connector-actions`。`phase1-fixes.spec.ts`。Linear WAN-493 | 首次路径 | 静态排查 + 扫荡 | 1 |
+| PA-164 | P2 | Agent 没有进行中的灰度时，“推进到 …%”仍可点、发空的 `to` 必然被拒，面板标题“发布 ·  灰度”；界面不能从草稿版本发起灰度（缺能力部分交用户决定） | 已修复（4ca579d9，部署 23d34149）：无候选时禁用并说明。真实数据：接口开 v2 10% 灰度后界面放行推进到 50% 200（PA-159 真实验证）、回滚到 v1 200。`phase1-fixes.spec.ts`。Linear WAN-494 | 首次数据状态 | 扫荡 | 1 |
+| PA-165 | P2 | 对话附件上传必然失败：上传用的 XHR 不带 `X-AIOps-Environment`，422 `environment_required`，界面只得到“HTTP 422” | 已修复（WAN-495 提交，部署 87db4f62）。真实数据：附件上传 201。`phase1-fixes.spec.ts`。Linear WAN-495 | 首次路径 | 扫荡 | 1 |
+| PA-166 | P3 | 中文界面里仍显示的后端英文原文与原始 ID（汇总）：工具“审批”列 `No approval configured`、Agent 回滚业务拒绝原因、网页来源探测 501 原因、Agent 负责人显示用户 ID、版本表日期按浏览器语言 | 待修（建议后端按 `Accept-Language` 本地化、前端解析成员名），PA-121 不重复计。Linear WAN-496 | 首次路径 | 扫荡 | 1 |
 
 ## 阶段 0 记录
 
@@ -148,6 +153,12 @@
 - **1.7 第 5 步 · 63 条已调用写接口六层补核对（21:50 起）**：做法：`tools/acceptance/coverage.py` 重算调用情况（前端 102 个写接口，今天已调用 62、六层验证 17）；静态排查全部写请求的错误处理（→ PA-155）；把 63 条的前端请求体与契约逐条并排核对（`scratchpad/body-vs-contract.txt`），找“接口套件按契约调用都过、界面请求不符”的一类 → PA-157～161，其中契约“前端需对齐的已实现约束”表第一行（API 令牌）一直没改。后端 Go 自 5502f631 起无改动，阶段 0 套件的数据层结论仍对应当前后端。
   - **修复批 9～11（deb67c2f 21:48、4edc0c62 21:55、a6950b98 21:59、53df8657 22:08 部署，仅 Web）**：PA-151～161。`phase1-fixes.spec.ts` 37/37（新增检查在修复前的部署上逐条失败）。真实数据：调查画布派生 → 分支追问（DeepSeek 8.9 秒，回答引用 Prometheus/K8s/GitLab 证据并写明局限）→ 回写主线 200；角色、工作区保存与还原；API 令牌签发与吊销；节点位置版本回读。
   - DeepSeek：第 4、5 步合计 4 次（评测执行 2、通用画布 1、调查分支 1）。
+
+  - **继续（22:10–22:46）**：重复的假动作静态排查 → PA-163（P1）；审计导出 → PA-162；Agent 无候选灰度 → PA-164；对话附件 → PA-165；阶段 0 遗留 PA-114 修复。真实界面补页面层：个人资料、通知、AI 偏好保存与还原；服务映射自动发现；知识检索（200，耗时 10.8 秒、负载约 7，记为性能轮输入）；运行反馈与标注；提示词保存新版本；新建实验；Runbook 试跑与提交；新建 Agent；连接器测试与工具开关；审批员在审阅页拒绝提案；新建画布（AI 起草）与新对话（AI 读 Prometheus 并说明采样缺口）；Runbook 提升到生产（nonprod）与配置导入（prod，旧格式导出被按规则拒绝）；临时账号界面登录、退出另一会话（该会话随后 401）、退出登录（`account-security.spec.ts` 新增）；添加连接器（向导不认 `?type=`，建成一个未启用的 GitLab 登记，留作验收数据）；附件上传。
+  - **修复批 12～14（6c61dca4 22:19、23d34149 22:39、87db4f62 22:43 部署，仅 Web）**：PA-114、PA-162～165。`phase1-fixes.spec.ts` 42/42。
+  - **第 5 步结论**：`coverage.py` 前端 103 个写接口里六层齐全或明确归类 99 个；其余 4 个：`POST /inhibitions`（PA-123）、`POST /notification-routes`（PA-141）待用户定方案，`POST /investigations/{id}/evidence`（PA-105）、`POST /webhooks/{id}/redeliver`（PA-106）是已登记缺陷（PA-161 新接上的吊销令牌已补验：本人 204，他人与跨实例 404）。告警规则停用、执行重新核对、Agent 推进等少数条目的界面成功路径受数据或来源所限，在覆盖记录里逐条写明。
+  - DeepSeek：第 5 步约 3 次（调查分支追问 1、新建画布 AI 起草 1、新对话 1，另规则生成 503 未调用模型）；阶段 1 本会话合计约 7 次。
+- **清单 1.4 · 回滚“无写权限”反例（22:45，交回）**：只读核对实验集群：回滚账号 `aiops-lab/aiops-rollback` 的 Role 只对 checkout-api、order-api 有 get/patch，`kubectl auth can-i patch deployment/message-api --as …:aiops-rollback` 为 no，message-api Deployment 存在。前置条件只差产品部署配置：nonprod `AIOPS_V3_KUBERNETES_WRITE_BINDINGS`（`.local/acceptance/nonprod/server.env`、`extra.env`）的 `aiops-lab` 绑定里加入 `message-api`，然后只重启 nonprod，再跑 `rollback_edges.py write-forbidden --app message-api`。回滚令牌已轮换（到 10-17 14:45Z）。改绑定这一步被自动模式判为“授予权限”拦下，未做任何改动；需要用户确认是否这样配置（这条绑定会让产品在 nonprod 对 message-api 提供必然被 K8s 拒绝的回滚，正是反例要的状态，演练后保留还是撤回也请一并定）。
 
 ## 轮次记录
 

@@ -10,7 +10,7 @@ import { openForm, confirmAction, SecretBox } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 
 export default function WebhooksPage() {
-  const { tx } = useI18n();
+  const { tx, fmt } = useI18n();
   const when = useWhen();
   const { data } = useGet<WebhookView>("/webhooks");
   const [tab, setTab] = useState<"inbound" | "tokens" | "mcp" | "outbound">("inbound");
@@ -18,7 +18,14 @@ export default function WebhooksPage() {
   const [mcpOn, setMcpOn] = useState(true);
   const [revoked, setRevoked] = useState<Set<string>>(new Set());
   const redeliver = useSend<void>("POST", `/webhooks/${sel}/redeliver`);
-  const token = useSend<void, { id: string }>("POST", "/api-tokens");
+  const token = useSend<{ name: string; scopes: string[]; ttl: number | string }, { id: string; secret_shown_once?: string }>("POST", "/api-tokens", ["/api-tokens"]);
+  // Real tokens are listed and revoked through /api-tokens; /webhooks carries none (PA-161).
+  const realTokens = useGet<{ items: { id: string; name: string; scopes: string[]; created_at: string; expires_at: string; revoked_at: string | null }[] }>(API_MODE === "mock" ? null : "/api-tokens");
+  const revoke = useSend<{ id: string }>("DELETE", (b) => `/api-tokens/${b.id}`, ["/api-tokens"], () => undefined);
+  const tokenRows =
+    API_MODE === "mock"
+      ? (data?.tokens ?? []).filter((t) => !revoked.has(t.name)).map((t) => ({ key: t.name, id: null as string | null, name: t.name, scopes: t.scopes, used: t.used, expires: t.expires }))
+      : (realTokens.data?.items ?? []).filter((t) => !t.revoked_at).map((t) => ({ key: t.id, id: t.id as string | null, name: t.name, scopes: t.scopes, used: tx("创建于 {t}", "Created {t}", { t: fmt.dateTime(t.created_at) }), expires: tx("{t} 到期", "Expires {t}", { t: fmt.dateTime(t.expires_at) }) }));
   const hook = data?.inbound.find((h) => h.id === sel);
   return (
     <Page
@@ -26,7 +33,8 @@ export default function WebhooksPage() {
       crumbs={[tx("集成中心", "Integrations"), tx("Webhook 与 API", "Webhooks & API")]}
       actions={
         <>
-          <Btn
+          {/* No server creates inbound webhooks yet; the form and its sample endpoint stay in the sample (PA-161, D52). */}
+          {API_MODE === "mock" && <Btn
             icon="plus"
             onClick={async () => {
               const v = await openForm({
@@ -42,7 +50,7 @@ export default function WebhooksPage() {
             }}
           >
             {tx("新建 Webhook", "New webhook")}
-          </Btn>
+          </Btn>}
           <Btn
             kind="primary"
             icon="plus"
@@ -52,17 +60,19 @@ export default function WebhooksPage() {
                 title: tx("新建 API 令牌", "New API token"),
                 fields: [
                   { key: "name", label: tx("名称", "Name"), required: true, placeholder: "grafana-annotations" },
-                  { key: "scope", label: tx("权限", "Scope"), type: "select", options: [{ value: "read", label: tx("只读", "Read-only") }, { value: "events:write", label: tx("写入事件", "Write events") }] },
-                  { key: "ttl", label: tx("有效期", "Expires in"), type: "select", options: [{ value: "30d", label: tx("30 天", "30 days") }, { value: "90d", label: tx("90 天", "90 days") }, { value: "365d", label: tx("1 年", "1 year") }] },
+                  // The server issues read-connector tokens only, for 1 h / 1 d / 7 d / 30 d given in seconds (PA-161).
+                  { key: "scope", label: tx("权限", "Scope"), type: "select", options: API_MODE === "mock" ? [{ value: "read", label: tx("只读", "Read-only") }, { value: "events:write", label: tx("写入事件", "Write events") }] : [{ value: "connectors:view", label: tx("只读连接器", "Read connectors") }] },
+                  { key: "ttl", label: tx("有效期", "Expires in"), type: "select", options: API_MODE === "mock" ? [{ value: "30d", label: tx("30 天", "30 days") }, { value: "90d", label: tx("90 天", "90 days") }, { value: "365d", label: tx("1 年", "1 year") }] : [{ value: "3600", label: tx("1 小时", "1 hour") }, { value: "86400", label: tx("1 天", "1 day") }, { value: "604800", label: tx("7 天", "7 days") }, { value: "2592000", label: tx("30 天", "30 days") }] },
                 ],
                 submit: tx("创建令牌", "Create token"),
               });
               if (!v) return;
-              token.mutate({ name: v.name, scopes: [v.scope], ttl: v.ttl } as never, {
-                onSuccess: () =>
+              token.mutate({ name: v.name, scopes: [v.scope], ttl: API_MODE === "mock" ? v.ttl : Number(v.ttl) }, {
+                onSuccess: (r) =>
                   void confirmAction({
                     title: tx("令牌已创建", "Token created"),
-                    desc: <SecretBox label={tx("明文只显示这一次，请立即保存", "Shown only once — save it now")} value={`aiops_pat_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`} />,
+                    // The one secret the server shows once; the sample makes one up.
+                    desc: <SecretBox label={tx("明文只显示这一次，请立即保存", "Shown only once — save it now")} value={API_MODE === "mock" ? `aiops_pat_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}` : r?.secret_shown_once ?? ""} />,
                     confirm: tx("我已保存", "I saved it"),
                   }),
               });
@@ -78,7 +88,7 @@ export default function WebhooksPage() {
         onChange={setTab}
         options={[
           { value: "inbound", label: tx("入站 Webhook", "Inbound webhooks"), count: data?.inbound.length },
-          { value: "tokens", label: tx("API 令牌", "API tokens"), count: data?.tokens.length },
+          { value: "tokens", label: tx("API 令牌", "API tokens"), count: tokenRows.length },
           { value: "mcp", label: tx("MCP 服务", "MCP service"), count: 1 },
           { value: "outbound", label: tx("出站事件", "Outbound events"), count: data?.outbound.length },
         ]}
@@ -183,8 +193,8 @@ export default function WebhooksPage() {
             {data && tab === "tokens" && (
               <Card>
                 <ul className="plain-list" style={{ padding: "4px 16px" }}>
-                  {data.tokens.filter((t) => !revoked.has(t.name)).map((t) => (
-                    <li key={t.name}>
+                  {tokenRows.map((t) => (
+                    <li key={t.key}>
                       <Icon name="key" size={14} color="var(--muted)" />
                       <Col gap={4} grow>
                         <Strong>{t.name}</Strong>
@@ -198,7 +208,8 @@ export default function WebhooksPage() {
                         <Muted size={11.5}>{t.used}</Muted>
                       </Col>
                       <Muted size={11.5}>{t.expires}</Muted>
-                      <Btn
+                      {/* There is no rotate on the server; issue a new token and revoke the old one instead (PA-161). */}
+                      {API_MODE === "mock" && <Btn
                         h={26}
                         kind="ghost"
                         onClick={async () => {
@@ -207,16 +218,19 @@ export default function WebhooksPage() {
                         }}
                       >
                         {tx("轮换", "Rotate")}
-                      </Btn>
+                      </Btn>}
                       <Btn
                         h={26}
                         kind="danger"
                         onClick={async () => {
                           const ok = await confirmAction({ title: tx("吊销 {n}？", "Revoke {n}?", { n: t.name }), desc: tx("吊销立即生效，使用它的调用会返回 401。此操作不能撤销。", "Takes effect immediately; calls using it get 401. This cannot be undone."), confirm: tx("吊销", "Revoke"), danger: true });
-                          if (ok) {
+                          if (!ok) return;
+                          if (API_MODE === "mock" || !t.id) {
                             setRevoked((s) => new Set(s).add(t.name));
-                            toast(tx("{n} 已吊销", "{n} revoked", { n: t.name }));
+                            return toast(tx("{n} 已吊销", "{n} revoked", { n: t.name }));
                           }
+                          // Revoked only once the server says so.
+                          revoke.mutate({ id: t.id }, { onSuccess: () => toast(tx("{n} 已吊销", "{n} revoked", { n: t.name })) });
                         }}
                       >
                         {tx("吊销", "Revoke")}

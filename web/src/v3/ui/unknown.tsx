@@ -30,7 +30,7 @@ export function useReasonText() {
       case "not_generated":
         return { label: tx("尚未生成", "Not generated yet"), desc: tx("有新数据后会自动生成。", "It is generated when new data arrives."), configurable: false };
       case "unavailable":
-        return { label: tx("暂时不可用", "Temporarily unavailable"), desc: tx("来源连接失败或超时，稍后会自动重试。", "The source failed or timed out; it is retried automatically."), configurable: false };
+        return { label: tx("暂时不可用", "Temporarily unavailable"), desc: tx("来源连接失败或超时，刷新页面可再试一次。", "The source failed or timed out; refresh the page to try again."), configurable: false };
       case "search_unattested":
         return { label: tx("未声明搜索完整", "Search not declared complete"), desc: tx("这个部署没有声明 Tempo 搜索完整，无法给出分布和总数。", "This deployment doesn't declare Tempo search as complete, so no distributions or totals can be given."), configurable: false };
       case "incomplete_traces":

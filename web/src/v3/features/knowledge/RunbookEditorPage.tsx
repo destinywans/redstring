@@ -8,6 +8,7 @@ import { toast } from "../../ui/overlays";
 import { VBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import { PromoteButton } from "./PromoteDialog";
+import { useRunbookScope } from "./RunbooksPage";
 import "../../ui/forms.css";
 import "./knowledge.css";
 import { confirmAction } from "../../ui/demo";
@@ -19,6 +20,7 @@ export default function RunbookEditorPage() {
   const { tx } = useI18n();
   const when = useWhen();
   const { data: rb } = useGet<Runbook>(`/runbooks/${id}`);
+  const scopeLabel = useRunbookScope();
   const [accepted, setAccepted] = useState<"pending" | "yes" | "no">("pending");
   const [running, setRunning] = useState(false);
   const KIND: Record<RunbookStep["kind"], [Tone, string]> = { query: ["accent", tx("查询", "Query")], check: ["neutral", tx("判断", "Check")], action: ["warn", tx("动作", "Action")], verify: ["ok", tx("验证", "Verify")] };
@@ -88,7 +90,7 @@ export default function RunbookEditorPage() {
                 {tx("维护人", "Owner")} {rb.owner}
               </Muted>
               <Muted>·</Muted>
-              <Muted>{rb.scope}</Muted>
+              <Muted>{scopeLabel(rb.scope)}</Muted>
               <Muted>·</Muted>
               {rb.tags.map((t) => (
                 <Badge key={t}>{t}</Badge>

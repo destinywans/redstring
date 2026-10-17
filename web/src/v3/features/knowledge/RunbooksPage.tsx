@@ -14,6 +14,30 @@ import "./knowledge.css";
 import { ChipSelect, useFacet } from "../../ui/demo";
 import { PartialBanner, Unavailable, UnknownValue } from "../../ui/unknown";
 import { useWhen } from "../../ui/when";
+import { useNames } from "../../ui/names";
+
+/**
+ * A Runbook's scope with names (PA-111). The server sends "app:<application ID> · team:<team ID> · env:prod,staging"
+ * ("workspace" instead of the application when it isn't tied to one); parts that can't be resolved stay as sent.
+ */
+export function useRunbookScope() {
+  const { tx } = useI18n();
+  const names = useNames();
+  return (scope: string) =>
+    scope
+      .split(" · ")
+      .map((part) => {
+        if (part === "workspace") return tx("工作区", "Workspace");
+        const [, kind, value] = /^(app|env):(.*)$/.exec(part) ?? [];
+        if (kind === "app") return names.service(value) ?? part;
+        if (kind === "env") {
+          const labels = value.split(",").map((e) => names.env(e));
+          return labels.every((x) => x !== null) ? labels.join(tx("、", ", ")) : part;
+        }
+        return part;
+      })
+      .join(" · ");
+}
 
 export default function RunbooksPage() {
   const { tx } = useI18n();
@@ -26,6 +50,7 @@ export default function RunbooksPage() {
   const { data, isLoading } = useGet<{ items: RunbookSummary[]; counts: Record<string, number>; kpis: KpiT[] | null; suggestions: RunbookSuggestion[] | null; unknown_fields?: string[] }>("/runbooks", { tab, q });
   const FIELD: Record<string, string> = { refs_30d: tx("近 30 天引用", "Cited (30d)"), resolve_rate: tx("解决率", "Resolve rate"), kpis: tx("统计", "Statistics"), suggestions: tx("AI 维护建议", "AI maintenance"), verification_provenance: tx("验证来源", "Verification source") };
   const missing = [...new Set((data?.unknown_fields ?? []).map((f) => FIELD[f] ?? f))];
+  const scopeLabel = useRunbookScope();
   const fScope = useFacet(data?.items, (r) => r.scope);
   const fOwner = useFacet(data?.items, (r) => r.owner);
   const ST: Record<RunbookSummary["status"], [Tone, string]> = { published: ["ok", tx("已发布", "Published")], review: ["warn", tx("待复核", "In review")], draft: ["neutral", tx("草稿", "Draft")] };
@@ -57,7 +82,7 @@ export default function RunbooksPage() {
             <Row gap={8}>
               <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: data?.counts.all }, { value: "mine", label: tx("我维护的", "Mine"), count: data?.counts.mine }, { value: "review", label: tx("待复核", "In review"), count: data?.counts.review }, { value: "stale", label: tx("需要验证", "Needs verification"), count: data?.counts.stale }]} />
               <SearchBox placeholder={tx("搜索 Runbook", "Search runbooks")} value={q} onChange={setQ} width={220} />
-              <ChipSelect icon="filter" label={tx("适用范围", "Scope")} {...fScope.props} />
+              <ChipSelect icon="filter" label={tx("适用范围", "Scope")} {...fScope.props} options={fScope.props.options.map((o) => ({ ...o, label: scopeLabel(o.value) }))} />
               <ChipSelect icon="filter" label={tx("维护人", "Owner")} {...fOwner.props} />
             </Row>
             <Card style={{ overflow: "hidden" }}>
@@ -82,7 +107,7 @@ export default function RunbooksPage() {
                       </Row>
                     ),
                   },
-                  { key: "s", header: tx("适用范围", "Scope"), render: (r) => <Muted>{r.scope}</Muted> },
+                  { key: "s", header: tx("适用范围", "Scope"), render: (r) => <Muted>{scopeLabel(r.scope)}</Muted> },
                   { key: "o", header: tx("维护人", "Owner"), render: (r) => <Row gap={6}><Avatar name={r.owner} size={20} /><Muted>{r.owner}</Muted></Row> },
                   { key: "v", header: tx("版本", "Version"), render: (r) => <Row gap={6}><Mono color="var(--text)">{r.version}</Mono><State tone={ST[r.status][0]}>{ST[r.status][1]}</State></Row> },
                   { key: "n", header: tx("近 30 天引用", "Cited (30d)"), sort: (a, b) => (a.refs_30d ?? -1) - (b.refs_30d ?? -1), render: (r) => (r.refs_30d == null ? <UnknownValue /> : <Num>{r.refs_30d}</Num>) },

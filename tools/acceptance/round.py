@@ -14,7 +14,8 @@ start   artifact version (`go version -m` of .local/acceptance/bin/aiops: vcs.re
         and reads its JSON; --credentials-json FILE reuses a result, --skip-credentials leaves it empty), drill,
         role, task cards, data states.
 finish  host load again, exploration minutes, new defects, load exemptions, the streak and whether the round is
-        valid, then prints the Markdown paragraph for the registry.
+        valid, then prints the Markdown paragraph for the registry. --cards / --data-states / --first-combo record
+        what was actually done, replacing what start planned.
 
 Rules applied at finish (§2.2, §2.3):
   * a new P0/P1 sets the streak to 0, in a round that is void too; a void round otherwise leaves it unchanged;
@@ -42,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 BIN = LOCAL / 'bin/aiops'
 N = 5
 CAP = N + 5
-SEVERITIES = ('P0', 'P1', 'P2', 'P3', '缺能力')
+SEVERITIES = ('P0', 'P1', 'P2', 'P3', '缺能力', '缺来源')  # the last two never reset the streak (§2.3)
 NOVELTY = ('首次路径', '首次数据状态', '首次角色', '重复路径', '修复引入')
 FOUND_BY = ('回归', '演练', '任务卡', '自由探索', '用户亲测', '审查')
 LOAD_LIMIT = 24  # §2.3: 2 × 12 cores; timeouts above this load are re-run once below 12 before they count
@@ -269,6 +270,11 @@ def cmd_finish(a):
         print(f"WARNING: the deployed artifact changed during the round ({record['artifact'].get('revision')} -> {end_art.get('revision')}).", file=sys.stderr)
     if a.exploration_minutes is not None:
         record['exploration_minutes'] = a.exploration_minutes
+    # What was actually done replaces what start planned (cards skipped, a data state swapped, first-time combos
+    # only known at the end).
+    for key, value in (('cards', a.cards), ('data_states', a.data_states), ('first_time_combos', a.first_combo)):
+        if value is not None:
+            record[key] = value
     record['new_defects'] = [parse_defect(d) for d in a.defect or []] or record['new_defects']
     record['load_exemptions'] = a.load_exemptions if a.load_exemptions is not None else record['load_exemptions']
     reasons = [a.invalid_reason] if a.invalid_reason else []
@@ -382,6 +388,9 @@ def main():
     f.add_argument('--exploration-minutes', type=int)
     f.add_argument('--defect', action='append', help='ID,级别,新颖性,发现方式 (repeatable); 新颖性: ' + '/'.join(NOVELTY) + '; 发现方式: ' + '/'.join(FOUND_BY))
     f.add_argument('--load-exemptions', type=int)
+    f.add_argument('--cards', nargs='*', help='the task cards actually done (replaces the planned list)')
+    f.add_argument('--data-states', nargs='*', help='the data states actually run (replaces the planned list)')
+    f.add_argument('--first-combo', nargs='*', help='paths / data states run for the first time this round')
     f.add_argument('--invalid-reason', help='void the round with this reason (attach evidence in the registry)')
     f.add_argument('--binary', default=str(BIN))
     f.add_argument('--note')

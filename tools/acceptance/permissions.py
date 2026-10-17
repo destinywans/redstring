@@ -44,6 +44,7 @@ import argparse
 import json
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 import ssl
@@ -117,9 +118,19 @@ def login(instance, account, probe=None):
     headers = {'Content-Type': 'application/json', 'Origin': ORIGINS[instance]}
     if probe:
         headers['X-Acceptance-Probe'] = probe
-    req = urllib.request.Request(ORIGINS[instance] + '/api/v1/auth/login', body, method='POST', headers=headers)
-    with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
-        cookies = [h.split(';', 1)[0] for k, h in r.headers.items() if k.lower() == 'set-cookie']
+    # The login rate limit (429) is shared with the crawls that just signed in; wait it out a few times.
+    for attempt in range(4):
+        req = urllib.request.Request(ORIGINS[instance] + '/api/v1/auth/login', body, method='POST', headers=headers)
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=30) as r:
+                cookies = [h.split(';', 1)[0] for k, h in r.headers.items() if k.lower() == 'set-cookie']
+            break
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or attempt == 3:
+                raise
+            wait = int(e.headers.get('Retry-After') or 60)
+            print(f'  login rate limited for {account["email"].split("@")[0]}; retrying in {wait}s', file=sys.stderr, flush=True)
+            time.sleep(min(wait, 120))
     cache[account['email']] = '; '.join(cookies)
     cache_path.write_text(json.dumps(cache))
     cache_path.chmod(0o600)

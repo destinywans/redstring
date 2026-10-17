@@ -3,6 +3,7 @@ package v3proposals
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,6 +21,10 @@ type ProposalDecision struct {
 	Approvers []DecisionApprover `json:"approvers"`
 	// RejectedBy is set for a rejection.
 	RejectedBy *DecisionActor `json:"rejected_by"`
+	// Reason is what the rejecter wrote, trimmed; null when they wrote
+	// nothing and for any other state. The proposer reads it on the review
+	// page (PA-173).
+	Reason *string `json:"reason"`
 	// Revoked is set when an approval was withdrawn after it was given, for
 	// instance because an approver lost the authority; its execution is then
 	// refused.
@@ -47,11 +52,11 @@ type DecisionActor struct {
 // which says whether an executor took the approval up.
 func decisionTx(ctx context.Context, tx pgx.Tx, v record, execution *ProposalExecution) (*ProposalDecision, error) {
 	if v.Status == "rejected" {
-		var by, name string
+		var by, name, reason string
 		var at time.Time
-		err := tx.QueryRow(ctx, `SELECT p.rejected_by,COALESCE(NULLIF(btrim(u.name),''),p.rejected_by),p.rejected_at
+		err := tx.QueryRow(ctx, `SELECT p.rejected_by,COALESCE(NULLIF(btrim(u.name),''),p.rejected_by),p.rejected_at,p.rejection_reason
  FROM v3_proposals p LEFT JOIN users u ON u.id=p.rejected_by
- WHERE p.id=$1 AND p.rejected_by IS NOT NULL AND p.rejected_at IS NOT NULL`, v.ID).Scan(&by, &name, &at)
+ WHERE p.id=$1 AND p.rejected_by IS NOT NULL AND p.rejected_at IS NOT NULL`, v.ID).Scan(&by, &name, &at, &reason)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
@@ -59,8 +64,12 @@ func decisionTx(ctx context.Context, tx pgx.Tx, v record, execution *ProposalExe
 			return nil, err
 		}
 		when := at.UTC().Format(time.RFC3339)
-		return &ProposalDecision{State: "rejected", DecidedAt: when, Approvers: []DecisionApprover{},
-			RejectedBy: &DecisionActor{ID: by, Name: name, At: when}}, nil
+		out := &ProposalDecision{State: "rejected", DecidedAt: when, Approvers: []DecisionApprover{},
+			RejectedBy: &DecisionActor{ID: by, Name: name, At: when}}
+		if reason = strings.TrimSpace(reason); reason != "" {
+			out.Reason = &reason
+		}
+		return out, nil
 	}
 	var first, second string
 	var approvedAt, expiresAt time.Time

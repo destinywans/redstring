@@ -8,7 +8,7 @@ import { AiAvatar, Avatar, Brand, Btn, Card, Chip, Col, IconBtn, Input, KV, Mono
 import { MenuButton, toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
-import { Gate } from "../../ui/permission";
+import { Gated, useNeed } from "../../ui/permission";
 import { useCreateParam } from "../../ui/forms";
 import { NewIncidentDrawer } from "./CreateDrawers";
 import { IncidentChanges } from "./IncidentChanges";
@@ -32,6 +32,9 @@ export default function IncidentsPage() {
   const [draft, setDraft] = useState("");
   const [stage, setStage] = useState<number | null>(null);
   const [creating, setCreating] = useCreateParam("incident");
+  const needEvents = useNeed(["events", "change"]);
+  // PA-126: a real incident needs 1–20 of its alerts and this drawer can't pick any, so it starts from an alert instead.
+  const manualHeld = demo ? null : tx("事件要关联告警：请在收件箱的告警上选「创建事件」", "An incident needs its alerts: use “Create incident” on an alert in the inbox");
   const STATUS: Record<Incident["status"], [Tone, string]> = {
     active: ["danger", tx("进行中", "Active")],
     mitigated: ["accent", tx("已缓解", "Mitigated")],
@@ -65,7 +68,7 @@ export default function IncidentsPage() {
     }
   };
   return (
-    <Page flush crumbs={[tx("事件与告警", "Events"), tx("事件", "Incidents")]} actions={<Gate need={["events", "change"]}><Btn kind="primary" icon="plus" onClick={() => setCreating(true)}>{tx("新建事件", "New incident")}</Btn></Gate>}>
+    <Page flush crumbs={[tx("事件与告警", "Events"), tx("事件", "Incidents")]} actions={<Gated reason={needEvents ?? manualHeld} kind={needEvents ? "permission" : "availability"}><Btn kind="primary" icon="plus" onClick={() => setCreating(true)}>{tx("新建事件", "New incident")}</Btn></Gated>}>
       <NewIncidentDrawer open={creating} onClose={() => setCreating(false)} />
       <div className="v3-split">
         <div className="side" style={{ width: 340 }}>

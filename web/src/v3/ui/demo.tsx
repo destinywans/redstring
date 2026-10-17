@@ -5,6 +5,7 @@ import type { MembersView, ServiceCatalog } from "../api/types";
 import { Btn, Chip, Empty, Field, Icon, Input, Muted, Textarea, cx, type IconName } from "./core";
 import { Dialog, Popover, toast } from "./overlays";
 import { useI18n } from "../i18n";
+import { usePermission } from "./permission";
 import "./demo.css";
 
 /*
@@ -333,7 +334,9 @@ export function AddChip({
 /** Option lists for pickers: services from the catalog, people from the member directory. */
 export function usePickLists() {
   const { data: svc } = useGet<ServiceCatalog>("/services", undefined, { staleTime: 5 * 60_000 });
-  const { data: mem } = useGet<MembersView>("/members", { filter: "all" }, { staleTime: 5 * 60_000 });
+  // PA-126: the member list needs identity.view; roles without it get no people to pick instead of a 403.
+  const canSeeMembers = usePermission()(["identity", "view"]) === null;
+  const { data: mem } = useGet<MembersView>(canSeeMembers ? "/members" : null, { filter: "all" }, { staleTime: 5 * 60_000 });
   return {
     // Real service IDs are opaque; show the name and keep the ID as the value.
     services: (svc?.items ?? []).map((s) => ({ value: s.id, label: s.name, hint: s.tier })),

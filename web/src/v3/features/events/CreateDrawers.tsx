@@ -40,7 +40,16 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
   const [params] = useSearchParams();
   const alertIds = (params.get("alerts") ?? "").split(",").filter(Boolean).slice(0, 20);
   const drafted = API_MODE === "mock" || alertIds.length > 0;
-  const { data, refetch, isFetching } = useGet<IncidentDraft>(open && drafted ? "/incidents/draft" : null, API_MODE === "mock" ? undefined : { alerts: alertIds.join(",") }, { staleTime: 0 });
+  const { data, refetch, isFetching, error: draftError } = useGet<IncidentDraft>(open && drafted ? "/incidents/draft" : null, API_MODE === "mock" ? undefined : { alerts: alertIds.join(",") }, { staleTime: 0 });
+  // PA-126: a draft the server refuses (a resolved alert, one already linked to an incident) is said, not swallowed.
+  const DRAFT_REFUSAL: Record<string, string> = {
+    incident_conflict: tx("所选告警刚刚变化，或已经关联了事件。已恢复的告警不能再创建事件。", "The selected alert just changed or is already linked to an incident. A resolved alert can't start an incident."),
+    not_found: tx("所选告警已不可见。", "The selected alert is no longer available."),
+    invalid_alerts: tx("请选择 1～20 条不同的告警。", "Select 1–20 distinct alerts."),
+  };
+  const refused = drafted && !data && draftError
+    ? (draftError instanceof ApiError && DRAFT_REFUSAL[draftError.code ?? ""]) || tx("没能读取所选告警，请稍后重试", "Couldn't read the selected alerts; try again later")
+    : null;
   const [title, setTitle] = useState("");
   const [sev, setSev] = useState<Severity>("P1");
   const [impact, setImpact] = useState("");
@@ -71,14 +80,14 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
       onClose={onClose}
       width={540}
       title={tx("新建事件", "New incident")}
-      sub={drafted ? tx("从 {n} 条告警预填 · 可修改", "Pre-filled from {n} alerts · editable", { n: data?.alerts.length ?? 0 }) : tx("手动填写", "Fill in manually")}
+      sub={refused ? tx("没能从所选告警预填", "Couldn't pre-fill from the selected alerts") : drafted ? tx("从 {n} 条告警预填 · 可修改", "Pre-filled from {n} alerts · editable", { n: data?.alerts.length ?? 0 }) : tx("手动填写", "Fill in manually")}
       icon={<Tile icon="alert" tone="danger" size={30} />}
       footer={
         <>
           <Muted size={11.5}>{tx("创建后写入审计，并出现在收件箱", "Audited and added to the inbox")}</Muted>
           <Spacer />
           <Btn kind="ghost" onClick={onClose}>{tx("取消", "Cancel")}</Btn>
-          <Btn kind="primary" icon="check" loading={create.isPending} disabled={!title.trim()} onClick={submit}>{tx("创建事件", "Create incident")}</Btn>
+          <Btn kind="primary" icon="check" loading={create.isPending} disabled={!title.trim() || !!refused} onClick={submit}>{tx("创建事件", "Create incident")}</Btn>
         </>
       }
     >
@@ -87,6 +96,10 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
           <AiBanner action={<Btn kind="ghost" h={24} icon="rotate" loading={isFetching} onClick={() => void refetch()}>{tx("重新生成", "Regenerate")}</Btn>}>
             {tx("AI 根据 {n} 条告警预填了标题、级别和影响服务（虚线框），请确认后创建", "The AI pre-filled title, severity and services from {n} alerts (dashed) — confirm before creating", { n: data?.alerts.length ?? 0 })}
           </AiBanner>
+        ) : refused ? (
+          <Callout tone="danger" icon="alert">
+            {refused}
+          </Callout>
         ) : (
           drafted && (
             <Callout tone="accent" icon="info">

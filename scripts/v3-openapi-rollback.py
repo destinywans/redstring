@@ -28,12 +28,18 @@ S['V3RollbackVerificationPlan'] = obj({
 S['V3RollbackCandidate'] = obj({
     'revision':string(),
     'created_at':{'type':['string','null'],'format':'date-time'},
+    # PA-94/PA-172: when the revision took effect; null with a reason and bounds when unknown.
+    'at':{'type':['string','null'],'format':'date-time'},
+    'time_basis':string(enum=['replicaset_created','rollback_execution','gitlab_deployment','unknown']),
+    'time_unknown_reason':{'type':['string','null']},
+    'not_before':{'type':['string','null'],'format':'date-time'},
+    'not_after':{'type':['string','null'],'format':'date-time'},
     'change_cause':{'type':['string','null']},
     'current':v3_bool(),
     'containers':arr(ref('V3RollbackContainer')),
     'changes':arr(ref('V3RollbackChange')),
     'template_digest':string(pattern='^[0-9a-f]{64}$'),
-}, ['revision','created_at','change_cause','current','containers','changes','template_digest'])
+}, ['revision','created_at','at','time_basis','time_unknown_reason','not_before','not_after','change_cause','current','containers','changes','template_digest'])
 S['V3RollbackCandidates'] = obj({
     'service_id':string(),'application_id':string(),'environment_id':string(),
     'workload':v3_nullable(obj({

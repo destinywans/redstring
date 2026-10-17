@@ -40,3 +40,20 @@ func changeRevisions(rollouts *v3rollouts.Service) func(context.Context, core.Us
 		return out, nil
 	}
 }
+
+// rolloutRevisionTimes gives the rollback drawer the same revision times as
+// the changes page (PA-94, PA-172).
+func rolloutRevisionTimes(changes *v3changes.Service) func(context.Context, core.User, string, string) (map[string]v3rollouts.RevisionTime, error) {
+	return func(ctx context.Context, user core.User, app, env string) (map[string]v3rollouts.RevisionTime, error) {
+		revisions, err := changes.ReadRevisions(ctx, user, app, env)
+		if err != nil {
+			return nil, err
+		}
+		out := make(map[string]v3rollouts.RevisionTime, len(revisions))
+		for _, r := range revisions {
+			out[r.Revision] = v3rollouts.RevisionTime{At: r.At, TimeBasis: r.TimeBasis, TimeUnknownReason: r.TimeUnknownReason,
+				NotBefore: r.NotBefore, NotAfter: r.NotAfter}
+		}
+		return out, nil
+	}
+}

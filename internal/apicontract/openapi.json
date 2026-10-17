@@ -92387,6 +92387,42 @@
             ],
             "format": "date-time"
           },
+          "at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "time_basis": {
+            "type": "string",
+            "enum": [
+              "replicaset_created",
+              "rollback_execution",
+              "gitlab_deployment",
+              "unknown"
+            ]
+          },
+          "time_unknown_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "not_before": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "not_after": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
           "change_cause": {
             "type": [
               "string",
@@ -92417,6 +92453,11 @@
         "required": [
           "revision",
           "created_at",
+          "at",
+          "time_basis",
+          "time_unknown_reason",
+          "not_before",
+          "not_after",
           "change_cause",
           "current",
           "containers",

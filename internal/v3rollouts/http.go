@@ -130,14 +130,40 @@ func (s *Service) inspect(ctx context.Context, user core.User, app, env string, 
 	return in, nil
 }
 
+// candidateJSON's created_at is the ReplicaSet's creation. A reused
+// ReplicaSet keeps its old creation time, so at says when the revision took
+// effect, from time_basis, or is null with time_unknown_reason and the
+// not_before..not_after interval, as on the changes page (PA-94, PA-172).
 type candidateJSON struct {
-	Revision       string             `json:"revision"`
-	CreatedAt      *string            `json:"created_at"`
-	ChangeCause    *string            `json:"change_cause"`
-	Current        bool               `json:"current"`
-	Containers     []v3kube.Container `json:"containers"`
-	Changes        []v3kube.Change    `json:"changes"`
-	TemplateDigest string             `json:"template_digest"`
+	Revision          string             `json:"revision"`
+	CreatedAt         *string            `json:"created_at"`
+	At                *string            `json:"at"`
+	TimeBasis         string             `json:"time_basis"`
+	TimeUnknownReason *string            `json:"time_unknown_reason"`
+	NotBefore         *string            `json:"not_before"`
+	NotAfter          *string            `json:"not_after"`
+	ChangeCause       *string            `json:"change_cause"`
+	Current           bool               `json:"current"`
+	Containers        []v3kube.Container `json:"containers"`
+	Changes           []v3kube.Change    `json:"changes"`
+	TemplateDigest    string             `json:"template_digest"`
+}
+
+// RevisionTime is when a revision took effect (PA-94), as the change
+// service works it out for the same Deployment.
+type RevisionTime struct {
+	At                  *time.Time
+	TimeBasis           string
+	TimeUnknownReason   *string
+	NotBefore, NotAfter *time.Time
+}
+
+func rfc3339(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	v := t.UTC().Format(time.RFC3339)
+	return &v
 }
 
 type workloadJSON struct {
@@ -166,18 +192,27 @@ func (s *Service) plan(w v3telemetry.Workload) *v3proposals.RollbackVerification
 		MaxErrorRatio: v.MaxErrorRatio, MinRequestRate: v.MinRequestRate}
 }
 
-func candidateList(d v3kube.Deployment, revisions []v3kube.Revision) []candidateJSON {
+// candidateList takes each revision's time from times when the change
+// service gave one. Without it, a new ReplicaSet took effect when it was
+// created and a reused one's time is unknown.
+func candidateList(d v3kube.Deployment, revisions []v3kube.Revision, times map[string]RevisionTime) []candidateJSON {
 	current := v3kube.Digest(d.Spec.Template)
 	out := make([]candidateJSON, 0, len(revisions))
+	reusedReason := "replicaset_reused"
 	for _, r := range revisions {
 		c := candidateJSON{Revision: r.Revision, Current: r.Digest == current, Containers: v3kube.Containers(r.Template),
 			Changes: v3kube.Changes(d.Spec.Template, r.Template), TemplateDigest: r.Digest}
 		if c.Current {
 			c.Changes = []v3kube.Change{}
 		}
-		if r.CreatedAt != nil {
-			at := r.CreatedAt.UTC().Format(time.RFC3339)
-			c.CreatedAt = &at
+		c.CreatedAt = rfc3339(r.CreatedAt)
+		if t, ok := times[r.Revision]; ok {
+			c.At, c.TimeBasis, c.TimeUnknownReason = rfc3339(t.At), t.TimeBasis, t.TimeUnknownReason
+			c.NotBefore, c.NotAfter = rfc3339(t.NotBefore), rfc3339(t.NotAfter)
+		} else if len(r.History) == 0 && r.CreatedAt != nil {
+			c.At, c.TimeBasis = c.CreatedAt, "replicaset_created"
+		} else {
+			c.TimeBasis, c.TimeUnknownReason = "unknown", &reusedReason
 		}
 		if r.ChangeCause != "" {
 			cause := r.ChangeCause
@@ -248,7 +283,12 @@ func (s *Service) candidates(w http.ResponseWriter, r *http.Request) {
 		wl.Replicas.Desired, wl.Replicas.Updated, wl.Replicas.Available = d.Desired(), d.Status.UpdatedReplicas, d.Status.AvailableReplicas
 		out["workload"] = wl
 		if in.Blocked == "" {
-			out["candidates"] = candidateList(d, in.Revisions)
+			var times map[string]RevisionTime
+			if s.RevisionTimes != nil {
+				// A failed read leaves the fallback above; the list itself stays usable.
+				times, _ = s.RevisionTimes(r.Context(), httpapi.CurrentUser(r), app, env)
+			}
+			out["candidates"] = candidateList(d, in.Revisions, times)
 		}
 	}
 	if in.Blocked != "" {

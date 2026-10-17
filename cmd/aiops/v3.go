@@ -643,6 +643,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	rollouts.Register(api)
 	connector.Workloads = rollouts.ConnectorWorkloads
 	changes.Revisions = changeRevisions(rollouts)
+	rollouts.RevisionTimes = rolloutRevisionTimes(changes)
 	executions.Rollout = rollouts.Execution
 	executions.AlertRule = alertRuleWriter.ExecutionView
 	proposalService.RollbackReady = rollouts.Ready

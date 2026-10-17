@@ -69,3 +69,41 @@ test.describe("inbox investigate (PA-167)", () => {
     expect(page.url()).not.toContain("/canvases");
   });
 });
+
+/** A service ID from the catalog, read in the page. */
+async function someService(page: Page): Promise<string> {
+  const items = await page.evaluate(async () => {
+    const r = await fetch("/api/v1/services", { headers: { "X-AIOps-Environment": "prod" } });
+    return ((await r.json()) as { items?: { id: string }[] }).items ?? [];
+  });
+  test.skip(!items.length, "no service in the catalog");
+  return items[0].id;
+}
+
+test.describe("rollback drawer revision times (PA-172)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("a reused ReplicaSet's revision says its time is unknown, not its old creation", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const id = await someService(page);
+    const digest = "a".repeat(64);
+    const candidate = { change_cause: null, containers: [], changes: [], template_digest: digest };
+    await page.route(at(`/services/${id}/rollback-candidates`), (r) =>
+      json(r, 200, {
+        service_id: id, application_id: "app", environment_id: "prod", verification: null, blocked_reason: null, observed_at: "2026-10-17T10:40:00Z",
+        workload: { connector_id: "k8s", namespace: "lab", deployment: "checkout-api", uid: "u", paused: false, current_revision: "87", current_template_digest: digest, replicas: { desired: 1, updated: 1, available: 1 } },
+        candidates: [
+          { ...candidate, revision: "87", current: true, created_at: "2026-10-11T12:37:30Z", at: null, time_basis: "unknown", time_unknown_reason: "replicaset_reused", not_before: "2026-10-16T09:13:00Z", not_after: "2026-10-17T10:35:00Z" },
+          { ...candidate, revision: "86", current: false, created_at: "2026-10-16T07:57:00Z", at: "2026-10-16T07:57:00Z", time_basis: "replicaset_created", time_unknown_reason: null, not_before: null, not_after: null, template_digest: "b".repeat(64) },
+        ],
+      }),
+    );
+    await page.goto(origin + `/services/${encodeURIComponent(id)}`);
+    await page.getByRole("button", { name: "回滚" }).click({ timeout: 20_000 });
+    const drawer = page.getByRole("dialog");
+    await expect(drawer.getByText("修订 86", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(drawer).toContainText("时间未知 · 在");
+    await expect(drawer).not.toContainText("10月11日");
+  });
+});

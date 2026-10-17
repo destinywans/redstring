@@ -581,7 +581,25 @@ export type RollbackChange = { container: string; field: "image" | "env" | "reso
 export type RollbackContainer = { name: string; image: string };
 export type RollbackVerificationPlan = { observation_seconds: number; request_rate_query_id: string; error_ratio_query_id: string; sample_age_query_id: string; max_error_ratio: number; min_request_rate: number };
 export type RollbackBlockedReason = "workload_not_configured" | "rollback_not_allowed" | "write_not_approved" | "deployment_paused" | "credential_unavailable" | "workload_unavailable" | "executor_not_ready";
-export type RollbackCandidate = { revision: string; created_at: string | null; change_cause: string | null; current: boolean; containers: RollbackContainer[]; changes: RollbackChange[]; template_digest: string };
+/**
+ * created_at is the ReplicaSet's creation; a reused ReplicaSet keeps an older one, so `at` is when the revision took
+ * effect, or null with time_unknown_reason and the not_before..not_after interval (PA-94, PA-172). The time fields are
+ * absent from older servers and the sample.
+ */
+export type RollbackCandidate = {
+  revision: string;
+  created_at: string | null;
+  at?: string | null;
+  time_basis?: RevisionTimeBasis;
+  time_unknown_reason?: RevisionTimeUnknownReason | null;
+  not_before?: string | null;
+  not_after?: string | null;
+  change_cause: string | null;
+  current: boolean;
+  containers: RollbackContainer[];
+  changes: RollbackChange[];
+  template_digest: string;
+};
 export type RollbackCandidates = {
   service_id: string;
   application_id: string;

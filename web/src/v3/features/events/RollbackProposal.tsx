@@ -10,6 +10,7 @@ import { Gated } from "../../ui/permission";
 import { useI18n } from "../../i18n";
 import { InvestigationPicker, useOpenInvestigations } from "./SilenceProposal";
 import { BlockedCard, ChangeTags, PlanTiles, appOfService, envOfService, useBlockedText, useRollbackBlocked, useWhen } from "./rollback";
+import { useRevisionTime } from "../observe/revisionTime";
 
 /**
  * Rollback proposal drawer (approved design board §1; contract docs/api/v3-rollback.md §1–2). Opened from a service,
@@ -49,6 +50,7 @@ function RollbackProposalDrawer({ req, onClose }: { req: RollbackRequest; onClos
   const blockedText = useBlockedText();
   const permission = useRollbackBlocked();
   const fmtAt = useWhen().at;
+  const revTime = useRevisionTime();
   const { items: investigations, more: moreInvestigations } = useOpenInvestigations(true);
   // Also names the service in the header when the workload can't be read.
   const services = useGet<ServiceCatalog>("/services", undefined, { staleTime: 5 * 60_000 });
@@ -239,7 +241,16 @@ function RollbackProposalDrawer({ req, onClose }: { req: RollbackRequest; onClos
                   <span className="meta">
                     <b style={{ color: "var(--text)", fontSize: "var(--fs-sm)" }}>{tx("修订 {r}", "Revision {r}", { r: c.revision })}</b>
                     {c.current && <Badge tone="accent">{tx("当前", "Current")}</Badge>}
-                    {c.created_at && <span>{fmtAt(c.created_at)}</span>}
+                    {/* When the revision took effect, as on the changes page; a reused ReplicaSet's creation isn't it (PA-172). */}
+                    {c.at !== undefined ? (
+                      c.at ? (
+                        <span title={revTime.basis(c.time_basis) ?? undefined}>{fmtAt(c.at)}</span>
+                      ) : (
+                        <span title={revTime.reason(c.time_unknown_reason) ?? undefined}>{c.not_before || c.not_after ? revTime.between(c.not_before, c.not_after) : tx("时间未知", "Time unknown")}</span>
+                      )
+                    ) : (
+                      c.created_at && <span>{fmtAt(c.created_at)}</span>
+                    )}
                   </span>
                   <span className={cx("cause", !c.change_cause && "none")}>{c.change_cause ?? tx("未记录变更原因", "No change cause recorded")}</span>
                   <span className="meta">

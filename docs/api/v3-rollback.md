@@ -66,6 +66,7 @@
 
 **`candidates`**：
 - 列出 Deployment 仍拥有的 ReplicaSet 修订，新的在前；当前修订带 `current: true`，不能选。
+- `created_at` 是 ReplicaSet 的创建时间。Deployment 回到旧模板时 Kubernetes 复用旧 ReplicaSet，这个时间就早于修订实际生效的时间，所以修订的生效时间看 `at`，依据看 `time_basis`（`replicaset_created`、`rollback_execution`、`gitlab_deployment`），规则与变更页相同（PA-94）；`at` 为 `null` 时 `time_basis` 为 `unknown`，`time_unknown_reason` 说明原因，`not_before`/`not_after` 给出可能的区间（可为 `null`）。变更服务读不到时退回：新建的 ReplicaSet 取创建时间，复用的为 `null`、原因 `replicaset_reused`（PA-172）。
 - `changes` 是“回滚到该修订后，相对当前 template 会发生的变化”，`from` 是当前值，`to` 是回滚后的值。
 - `field` 取值：
   - `image`：镜像；

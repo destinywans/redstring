@@ -128,7 +128,7 @@ func (s *Service) ReadWorkload(ctx context.Context, user core.User, app, env str
 	for _, r := range in.Revisions {
 		reused[r.Revision] = len(r.History) > 0
 	}
-	for _, c := range candidateList(d, in.Revisions) {
+	for _, c := range candidateList(d, in.Revisions, nil) {
 		if len(out.Revisions) == maxWorkloadRevisions {
 			break
 		}

@@ -47,6 +47,10 @@ type Service struct {
 	Proposals     *v3proposals.Service
 	Metrics       MetricReader
 	Now           func() time.Time
+	// RevisionTimes says when each revision took effect (PA-94); the
+	// composition root reads it from the change service. Nil leaves the
+	// ReplicaSet-creation rule.
+	RevisionTimes func(ctx context.Context, user core.User, app, env string) (map[string]RevisionTime, error)
 
 	// Executor timing; zero values use the defaults below.
 	PollInterval   time.Duration

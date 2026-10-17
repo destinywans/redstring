@@ -606,7 +606,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 日期 | 变更 |
 | --- | --- |
-| 2026-10-17 | 缺陷收敛两轮之间：`GET /alerts/{id}` 新增 `group_id`（PA-167）；`GET /postmortems/draft` 的 `timeline` 含人工记录、状态事件写成文字（PA-169）；`GET /alert-groups` 新增 `last_seen` 并按它排序（PA-174）。 |
+| 2026-10-17 | 缺陷收敛两轮之间：`GET /alerts/{id}` 新增 `group_id`（PA-167）；`GET /postmortems/draft` 的 `timeline` 含人工记录、状态事件写成文字（PA-169）；`GET /alert-groups` 新增 `last_seen` 并按它排序（PA-174）；`GET /services/{id}/rollback-candidates` 的候选新增 `at`、`time_basis`、`time_unknown_reason`、`not_before`、`not_after`（PA-172，见回滚契约）。 |
 | 2026-10-10 | PA-19 第二阶段第 8 步：`AIOPS_V3_SOURCE_REGISTRY` 缺省改为 `unified`，全部读取方读统一登记，本契约里写成“`AIOPS_V3_UNIFIED_READERS` 含某读取方时”的行为即缺省行为；`legacy`、`compare` 只保留列出的读取方，作为回退保留到 P4。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-19 P4：删除 `legacy`、`compare` 模式和 `AIOPS_V3_SOURCE_REGISTRY`、`AIOPS_V3_UNIFIED_READERS`（设了只记一条警告），覆盖度、服务映射、日志、Trace、AI 指标与日志工具、`list_services` 只读统一登记，连接器详情 `tools` 无条件列出已保存开关；服务映射不再返回 `registry_cutover`、`registry_not_enabled`，已存绑定不再按遥测文件和 Kubernetes 登记校验；V3 实例不再注册 `internal/actions` 的旧回滚路由（404），迁移 173 让已批准、未执行的旧回滚计划到期。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-19 P4：V3 实例不再读 `AIOPS_TELEMETRY_CONFIG`（设了只记一条警告；旧模式和 `aiops connectors import-legacy` 照旧读）；客户端上限改取统一目录的 `limits`，Trace 搜索完整声明改为目录的 `tempo_search_fail_closed` 连接器列表。详见 [遥测来源统一登记](v3-telemetry-registry.md) |

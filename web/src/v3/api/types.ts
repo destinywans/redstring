@@ -106,7 +106,8 @@ export type ConversationSummary = {
   participants: string[];
   size: string;
   updated_at: string;
-  tokens: number;
+  /** Null when some reply's usage wasn't recorded (PA-187). */
+  tokens: number | null;
 };
 export type ConversationList = Page<ConversationSummary> & { stats: Kpi[]; counts: Record<"mine" | "team" | "triage" | "archived", number> };
 

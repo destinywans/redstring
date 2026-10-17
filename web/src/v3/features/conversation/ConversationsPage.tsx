@@ -120,7 +120,7 @@ export default function ConversationsPage() {
           <DataTable
             rows={(data ? paged.items : undefined)
               ?.filter((c) => fScope.test(c) && fState.test(c))
-              .sort((a, b) => (sort === "tokens" ? b.tokens - a.tokens : sort === "title" ? a.title.localeCompare(b.title) : 0))}
+              .sort((a, b) => (sort === "tokens" ? (b.tokens ?? -1) - (a.tokens ?? -1) : sort === "title" ? a.title.localeCompare(b.title) : 0))}
             loading={isLoading}
             rowKey={(c) => c.id}
             onRowClick={open}
@@ -149,7 +149,8 @@ export default function ConversationsPage() {
               { key: "people", header: tx("参与者", "People"), render: (c) => <AvatarGroup names={c.participants} /> },
               { key: "size", header: tx("规模", "Size"), render: (c) => <Num>{c.size}</Num> },
               { key: "updated", header: tx("最近活动", "Last activity"), render: (c) => <Muted>{fmt.ago(c.updated_at)}</Muted>, sort: (a, b) => a.updated_at.localeCompare(b.updated_at) },
-              { key: "tokens", header: "tokens", align: "right", render: (c) => <Num color="var(--muted)">{(c.tokens / 1000).toFixed(0)}k</Num>, sort: (a, b) => a.tokens - b.tokens },
+              // Unknown usage is null: a dash, not "0k" (PA-187, as PA-39).
+              { key: "tokens", header: "tokens", align: "right", render: (c) => <Num color="var(--muted)">{c.tokens == null ? "—" : `${(c.tokens / 1000).toFixed(0)}k`}</Num>, sort: (a, b) => (a.tokens ?? -1) - (b.tokens ?? -1) },
             ]}
           />
           {paged.hasMore && <LoadMore shown={paged.items.length} total={paged.total} step={Math.min(paged.pageSize, (paged.total ?? 0) - paged.items.length)} loading={paged.loading} onMore={() => void paged.more()} />}

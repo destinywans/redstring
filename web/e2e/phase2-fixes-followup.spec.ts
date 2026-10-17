@@ -20,7 +20,7 @@ const CATALOG = {
 test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
 
 test.describe("add chip search (PA-185)", () => {
-  test("a service is found by its name, not only its catalog ID", async ({ page }) => {
+  test("a service is found by its name and shows its name once added", async ({ page }) => {
     await page.addInitScript(zh);
     await page.route(at("/services"), (r) => json(r, 200, CATALOG));
     await page.goto(origin + "/canvases?new=plan");
@@ -28,6 +28,10 @@ test.describe("add chip search (PA-185)", () => {
     await dialog.getByRole("button", { name: /服务/ }).last().click({ timeout: 20_000 });
     await page.locator(".demo-add-search input").fill("后续检查");
     await expect(page.locator(".demo-menu button", { hasText: NAME })).toBeVisible();
+    // An added service shows its name, not its catalog ID (PA-166).
+    await page.locator(".demo-menu button", { hasText: NAME }).click();
+    await expect(dialog.locator(".demo-added")).toHaveText(NAME);
+    await expect(dialog).not.toContainText(SERVICE);
   });
 });
 

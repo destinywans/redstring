@@ -157,7 +157,7 @@ test.describe("agent owner and version dates (PA-166)", () => {
 test.describe("new incident drawer services (PA-166)", () => {
   test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
 
-  test("the drafted service and an added one show their catalog names", async ({ page }) => {
+  test("the drafted service shows its catalog name", async ({ page }) => {
     await page.addInitScript(zh);
     await routeCatalog(page);
     // The draft names its service by application ID.
@@ -172,11 +172,8 @@ test.describe("new incident drawer services (PA-166)", () => {
     const drawer = page.getByRole("dialog", { name: "新建事件" });
     await expect(drawer.getByText(NAME, { exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(drawer).not.toContainText(APP);
-    // The add chip is named by its field label and the services already added.
-    await drawer.getByRole("button", { name: /^影响服务/ }).click();
-    await page.locator(".demo-menu button", { hasText: NAME }).click();
-    await expect(drawer.locator(".demo-added")).toHaveText(NAME);
-    await expect(drawer).not.toContainText(SERVICE);
+    // Real mode offers no second service any more (PA-186); an added service's name is checked on the new canvas
+    // dialog instead (phase2-fixes-followup.spec.ts, PA-185).
   });
 });
 

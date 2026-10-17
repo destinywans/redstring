@@ -18,8 +18,10 @@ import (
 
 type incident struct {
 	id, title, summary, severity, status, alertStatus, owner, appID, env string
-	suspected                                                            bool
-	starts, updated                                                      time.Time
+	// linked alerts belong to a human-confirmed incident case; the incident
+	// list shows them through that case, so they are not counted twice.
+	suspected, linked bool
+	starts, updated   time.Time
 }
 
 type proposal struct {
@@ -34,7 +36,7 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 	}
 	incidents := make([]incident, 0)
 	proposals := make([]proposal, 0)
-	serviceViews, eventViews, proposalViews := 0, 0, 0
+	serviceViews, eventViews, proposalViews, openCases := 0, 0, 0, 0
 	for _, row := range targets {
 		if row.ServicesView {
 			serviceViews++
@@ -54,6 +56,11 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 			if len(incidents) > maxIncidents {
 				return errTooMany
 			}
+			cases, e := countOpenCases(ctx, tx, row)
+			if e != nil {
+				return e
+			}
+			openCases += cases
 		}
 		if row.ProposalsView {
 			proposalViews++
@@ -67,10 +74,17 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 			}
 		}
 	}
+	// Attention lists unclaimed incidents (D7). The open count matches the
+	// incident page's active tab instead: every unresolved alert that is not
+	// shown through a case, plus every unresolved case (PA-176, D58).
 	active := make([]incident, 0)
+	unresolved := openCases
 	for _, row := range incidents {
 		if row.status == "open" {
 			active = append(active, row)
+		}
+		if row.status != "resolved" && !row.linked {
+			unresolved++
 		}
 	}
 	sort.Slice(active, func(i, j int) bool { return active[i].updated.After(active[j].updated) })
@@ -86,7 +100,7 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 			Owner: row.owner, Href: incidentHref(row.id), AlertState: alertState(row.alertStatus)})
 	}
 	pending := len(proposals)
-	out.Greeting.Summary = t.summary(len(active), pending, eventViews > 0, proposalViews > 0)
+	out.Greeting.Summary = t.summary(unresolved, pending, eventViews > 0, proposalViews > 0)
 	if eventViews > 0 {
 		firing := map[[2]string]bool{}
 		for _, row := range incidents {
@@ -96,7 +110,7 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 		}
 		count := len(firing)
 		out.FiringServices = &count
-		out.KPIs = append(out.KPIs, KPI{ID: "incidents", Label: t.pick("可见未解决事件", "Visible open incidents"), Value: strconv.Itoa(len(active)), Series: []float64{}})
+		out.KPIs = append(out.KPIs, KPI{ID: "incidents", Label: t.pick("可见未解决事件", "Visible open incidents"), Value: strconv.Itoa(unresolved), Series: []float64{}})
 		out.Availability["incidents"] = "persisted_scoped"
 	} else {
 		out.Availability["incidents"] = "no_authorized_target"
@@ -243,7 +257,8 @@ func serviceName(targets []target, app, env string) string {
 
 func loadIncidents(ctx context.Context, tx pgx.Tx, row target) ([]incident, error) {
 	rows, err := tx.Query(ctx, `SELECT i.id,i.title,i.summary,i.severity,i.status,i.alert_status,
-	 i.suspected,COALESCE(u.name,''),i.starts_at,i.updated_at
+	 i.suspected,EXISTS(SELECT 1 FROM v3_incident_case_alerts l WHERE l.alert_id=i.id),
+	 COALESCE(u.name,''),i.starts_at,i.updated_at
 	 FROM ops_incidents i
 	 JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id
 	 AND e.key=$2 AND NOT e.archived
@@ -255,7 +270,7 @@ func loadIncidents(ctx context.Context, tx pgx.Tx, row target) ([]incident, erro
 	out := []incident{}
 	for rows.Next() {
 		v := incident{appID: row.AppID, env: row.Env}
-		if err = rows.Scan(&v.id, &v.title, &v.summary, &v.severity, &v.status, &v.alertStatus, &v.suspected, &v.owner, &v.starts, &v.updated); err != nil {
+		if err = rows.Scan(&v.id, &v.title, &v.summary, &v.severity, &v.status, &v.alertStatus, &v.suspected, &v.linked, &v.owner, &v.starts, &v.updated); err != nil {
 			break
 		}
 		out = append(out, v)
@@ -271,6 +286,17 @@ func loadIncidents(ctx context.Context, tx pgx.Tx, row target) ([]incident, erro
 		return nil, errTooMany
 	}
 	return out, nil
+}
+
+// countOpenCases counts the target's unresolved incident cases, the
+// human-confirmed incidents the incident page lists next to alert incidents.
+func countOpenCases(ctx context.Context, tx pgx.Tx, row target) (int, error) {
+	var n int
+	err := tx.QueryRow(ctx, `SELECT count(*) FROM v3_incident_cases c
+	 JOIN application_environments e ON e.id=c.environment_id AND e.application_id=c.application_id
+	 AND e.key=c.environment_key AND e.key=$2 AND NOT e.archived
+	 WHERE c.application_id=$1 AND c.status<>'resolved'`, row.AppID, row.Env).Scan(&n)
+	return n, err
 }
 
 func loadProposals(ctx context.Context, tx pgx.Tx, row target) ([]proposal, error) {

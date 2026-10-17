@@ -19,6 +19,8 @@ finish  host load again, exploration minutes, new defects, load exemptions, the 
 
 Rules applied at finish (§2.2, §2.3):
   * a new P0/P1 sets the streak to 0, in a round that is void too; a void round otherwise leaves it unchanged;
+  * a P0/P1 found between rounds (fixing, review, static checks) is kept in the previous round's record under
+    after_round_defects and resets the streak from then on: the round's own count stays as it was recorded;
   * void: --invalid-reason TEXT (attach evidence: watchdog output, container state), more than 2 load exemptions,
     or an artifact built from a modified tree (counted rounds only);
   * at most one counted round per calendar day (a second valid one the same day is flagged);
@@ -252,6 +254,9 @@ def streak_before(round_id, records):
             streak = 0
         elif r['valid']:
             streak += 1
+        # Found after the round, before the next one: the next round starts from 0.
+        if any(d['severity'] in ('P0', 'P1') for d in r.get('after_round_defects', [])):
+            streak = 0
     return streak
 
 

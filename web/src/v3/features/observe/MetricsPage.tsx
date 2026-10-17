@@ -18,6 +18,7 @@ import { Gate, useNeed } from "../../ui/permission";
 import "./observe.css";
 import { ChipSelect, RangeChip, AddChip, openExternal, openForm, usePickLists } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
+import { useNames } from "../../ui/names";
 
 export default function MetricsPage() {
   const { tx } = useI18n();
@@ -27,6 +28,9 @@ export default function MetricsPage() {
   const [params] = useSearchParams();
   const service = params.get("service") ?? (API_MODE === "mock" ? "checkout-api" : "");
   const lists = usePickLists();
+  // The service in the link is a catalog ID: titles and the service label show its catalog name (PA-166).
+  const names = useNames();
+  const serviceName = names.service(service) ?? service;
   const demo = API_MODE === "mock";
   const env = useEnv((s) => s.env);
   const [align, setAlign] = useState(false);
@@ -104,7 +108,7 @@ export default function MetricsPage() {
   const KPI_LABEL: Record<string, string> = { rps: tx("请求量", "Requests"), err: tx("错误率", "Error rate"), p99: tx("P99 延迟", "P99 latency"), wait: tx("等待", "Wait"), cpu: tx("CPU", "CPU") };
   const editSlo = async () => {
     const v = await openForm({
-      title: tx("SLO 设置 · {s}", "SLO settings · {s}", { s: service }),
+      title: tx("SLO 设置 · {s}", "SLO settings · {s}", { s: serviceName }),
       fields: [
         { key: "target", label: tx("可用性目标", "Availability target"), type: "select", initial: (demo ? "99.9" : sloCfg?.target) ?? "99.9", options: ["99.5", "99.9", "99.95", "99.99"].map((t) => ({ value: t, label: `${t}%` })) },
         { key: "window", label: tx("统计窗口", "Window"), type: "select", initial: (demo ? "30d" : sloCfg?.window) ?? "30d", options: [{ value: "7d", label: tx("7 天", "7 days") }, { value: "30d", label: tx("30 天", "30 days") }] },
@@ -166,9 +170,9 @@ export default function MetricsPage() {
             label={tx("看板", "Dashboard")}
             value={service}
             onChange={(v) => nav(`/metrics?service=${v}`)}
-            options={(lists.services.length ? lists.services : [{ value: service, label: service }]).map((s) => ({ value: s.value, label: tx("{s} 黄金信号", "{s} golden signals", { s: s.value }) }))}
+            options={(lists.services.length ? lists.services : [{ value: service, label: service }]).map((s) => ({ value: s.value, label: tx("{s} 黄金信号", "{s} golden signals", { s: s.label }) }))}
           />
-          <LabelChip k="service" v={service} />
+          <LabelChip k="service" v={serviceName} />
           <LabelChip k="env" v={demo ? "prod" : env || "—"} />
           {demo && <LabelChip k="pod" v={tx("全部 6", "all 6")} />}
           {demo && <AddChip label={tx("添加变量", "Add variable")} free placeholder="namespace=checkout" options={["namespace=checkout", "zone=sh-a", "version=v2.8.1"]} />}

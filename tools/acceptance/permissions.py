@@ -67,8 +67,7 @@ DENIED = {403, 404}
 # Registered defects: a failing answer that matches is reported as known_defect:<defect>,
 # not as a new mismatch. Remove an entry when the defect is fixed.
 KNOWN = [
-    {'route': 'POST /api/v1/silences', 'instances': {'nonprod'}, 'status': {501}, 'code': 'not_connected', 'defect': 'PA-108',
-     'why': 'checks the Alertmanager write binding before the permission'},
+    # PA-108 (POST /silences checked the write binding before the permission) was fixed in 83859f10.
 ]
 # List routes read for sample ids, and the path prefix their ids fill in.
 SAMPLES = {

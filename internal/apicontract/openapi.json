@@ -26426,7 +26426,7 @@
       "post": {
         "summary": "Create a persisted canvas or investigation",
         "operationId": "post_canvases",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and a current canvas.change grant. Generic canvases are private and require an environment grant; investigations require exactly one active mapped application and accept environment, application or owner-team grants. A private generic template can be reused only by its owner in the same environment; retained read-only steps are reset to unexecuted review state, and exact linked Runbook references require the saved document version, current publication, service scope and knowledge.view again. A new generic canvas starts as draft, without copied exchanges or execution results. Investigation IDs are persisted INV-* IDs with an initial branch and context. Canvas/branch records and creation audit commit together. Optional AI drafting uses one configured model, no tools, and a validated one-to-three-node JSON outline; it is explicitly unverified and a failure leaves no creation. Missing model returns 503 canvas_draft_unavailable. Investigation templates return 422 invalid_template. Persisted investigation graph detail is available at /investigations/{id}/canvas.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and a current canvas.change grant. Generic canvases are private and require an environment grant; they may omit services, which is stored as an empty list like services:[] (PA-116). Investigations require exactly one active mapped application and accept environment, application or owner-team grants. A private generic template can be reused only by its owner in the same environment; retained read-only steps are reset to unexecuted review state, and exact linked Runbook references require the saved document version, current publication, service scope and knowledge.view again. A new generic canvas starts as draft, without copied exchanges or execution results. Investigation IDs are persisted INV-* IDs with an initial branch and context. Canvas/branch records and creation audit commit together. Optional AI drafting uses one configured model, no tools, and a validated one-to-three-node JSON outline; it is explicitly unverified and a failure leaves no creation. Missing model returns 503 canvas_draft_unavailable. Investigation templates return 422 invalid_template. Persisted investigation graph detail is available at /investigations/{id}/canvas.",
         "responses": {
           "201": {
             "description": "Success",
@@ -80837,6 +80837,13 @@
                       }
                     ]
                   },
+                  "reason": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "What the rejecter wrote, trimmed; null when nothing was written and for any state other than rejected."
+                  },
                   "revoked": {
                     "oneOf": [
                       {
@@ -80872,6 +80879,7 @@
                   "decided_at",
                   "approvers",
                   "rejected_by",
+                  "reason",
                   "revoked"
                 ]
               },

@@ -220,7 +220,10 @@ export default function AlertsPage() {
                         </Badge>
                       ))}
                       <Spacer />
-                      <span className="since muted" style={{ fontSize: "var(--fs-sub)" }}>{when.at(g.since)}</span>
+                      {/* The row's time is the latest firing; the first one is in the tooltip (PA-174). */}
+                      <span className="since muted" style={{ fontSize: "var(--fs-sub)" }} title={g.last_seen && g.last_seen !== g.since ? tx("首次出现 {t}", "First seen {t}", { t: when.at(g.since) }) : undefined}>
+                        {when.at(g.last_seen ?? g.since)}
+                      </span>
                       <Row gap={4}>
                         {g.notify.channel && <Brand name={g.notify.channel} size={20} />}
                         <Muted size={11.5}>{g.notify.text}</Muted>

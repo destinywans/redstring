@@ -31,6 +31,31 @@ type GroupPolicySource interface {
 	ObserveGroupPolicy(context.Context, string, map[string]string) (v3alertmanager.GroupPolicyObservation, error)
 }
 
+// sortAlertGroups orders by severity, then the group that fired most
+// recently (PA-174); the ID only breaks ties so the order is stable.
+func sortAlertGroups(items []alertGroup) {
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].Severity != items[j].Severity {
+			return severityRank(items[i].Severity) < severityRank(items[j].Severity)
+		}
+		if items[i].LastSeen != items[j].LastSeen {
+			return lastSeenAfter(items[i].LastSeen, items[j].LastSeen)
+		}
+		return items[i].ID < items[j].ID
+	})
+}
+
+// lastSeenAfter compares two RFC 3339 last_seen values by time; fractional
+// seconds make plain string order unreliable.
+func lastSeenAfter(a, b string) bool {
+	ta, errA := time.Parse(time.RFC3339Nano, a)
+	tb, errB := time.Parse(time.RFC3339Nano, b)
+	if errA != nil || errB != nil {
+		return a > b
+	}
+	return ta.After(tb)
+}
+
 // These IDs describe a local aggregation of persisted incidents. They do not
 // identify an Alertmanager group or disclose its routing configuration.
 func localAlertGroupID(v incidentRecord) string {
@@ -61,23 +86,26 @@ type alertGroup struct {
 	Service  string  `json:"service"`
 	// AlertName is the members' alertname label (or the persisted alert title when the
 	// label is missing), null when members disagree (PA-130).
-	AlertName      *string              `json:"alert_name"`
-	SourceID       string               `json:"source_id"`
-	Fingerprint    string               `json:"fingerprint"`
-	EnvironmentID  string               `json:"environment_id"`
-	EnvironmentKey string               `json:"environment_key"`
-	Count          int                  `json:"count"`
-	CountKind      string               `json:"count_kind"`
-	State          string               `json:"state"`
-	Since          string               `json:"since"`
-	Notify         alertGroupNotify     `json:"notify"`
-	Badges         []badge              `json:"badges"`
-	Owner          *string              `json:"owner"`
-	Inhibited      *bool                `json:"inhibited"`
-	Instances      []alertGroupInstance `json:"instances"`
-	LocalGrouping  []string             `json:"local_grouping"`
-	Partial        bool                 `json:"partial"`
-	Unavailable    []string             `json:"unavailable"`
+	AlertName      *string `json:"alert_name"`
+	SourceID       string  `json:"source_id"`
+	Fingerprint    string  `json:"fingerprint"`
+	EnvironmentID  string  `json:"environment_id"`
+	EnvironmentKey string  `json:"environment_key"`
+	Count          int     `json:"count"`
+	CountKind      string  `json:"count_kind"`
+	State          string  `json:"state"`
+	Since          string  `json:"since"`
+	// LastSeen is the latest member's start: each new firing of the alert is
+	// a new member, so this is when the group last fired (PA-174).
+	LastSeen      string               `json:"last_seen"`
+	Notify        alertGroupNotify     `json:"notify"`
+	Badges        []badge              `json:"badges"`
+	Owner         *string              `json:"owner"`
+	Inhibited     *bool                `json:"inhibited"`
+	Instances     []alertGroupInstance `json:"instances"`
+	LocalGrouping []string             `json:"local_grouping"`
+	Partial       bool                 `json:"partial"`
+	Unavailable   []string             `json:"unavailable"`
 	// upstream holds the reconciled Alertmanager states of firing members
 	// (PA-47); they become localized badges.
 	upstream map[string]bool
@@ -87,6 +115,7 @@ type alertGroupAccumulator struct {
 	group       alertGroup
 	key         string
 	earliest    time.Time
+	latestStart time.Time
 	ownerID     string
 	ownerName   string
 	sharedOwner bool
@@ -251,7 +280,7 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...st
 		}
 		g := groups[id]
 		if g == nil {
-			g = &alertGroupAccumulator{key: key, earliest: v.StartsAt, ownerID: v.AssigneeID,
+			g = &alertGroupAccumulator{key: key, earliest: v.StartsAt, latestStart: v.StartsAt, ownerID: v.AssigneeID,
 				ownerName: v.Commander, sharedOwner: v.AssigneeID != "" && v.Commander != "", alertName: memberAlertName(v)}
 			g.group = alertGroup{
 				ID: id, Severity: severityCode,
@@ -260,8 +289,9 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...st
 				Service: v.ApplicationID, SourceID: v.SourceID, Fingerprint: v.Fingerprint,
 				EnvironmentID: v.EnvironmentID, EnvironmentKey: v.EnvironmentKey,
 				CountKind: "persisted_incidents", State: "resolved", Since: v.StartsAt.UTC().Format(time.RFC3339Nano),
-				Notify: alertGroupNotify{Text: text{}.notify(nil), Scope: "platform_queue"},
-				Badges: []badge{}, Instances: []alertGroupInstance{},
+				LastSeen: v.StartsAt.UTC().Format(time.RFC3339Nano),
+				Notify:   alertGroupNotify{Text: text{}.notify(nil), Scope: "platform_queue"},
+				Badges:   []badge{}, Instances: []alertGroupInstance{},
 				LocalGrouping: []string{"environment_id", "application_id", "source_id", "fingerprint"},
 				Partial:       true,
 				Unavailable: []string{"provider_grouping", "provider_labels", "current_value", "metric_series",
@@ -313,6 +343,10 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...st
 		if v.StartsAt.Before(g.earliest) {
 			g.earliest = v.StartsAt
 			g.group.Since = v.StartsAt.UTC().Format(time.RFC3339Nano)
+		}
+		if v.StartsAt.After(g.latestStart) {
+			g.latestStart = v.StartsAt
+			g.group.LastSeen = v.StartsAt.UTC().Format(time.RFC3339Nano)
 		}
 		if v.AssigneeID == "" || v.AssigneeID != g.ownerID || v.Commander == "" {
 			g.sharedOwner = false
@@ -504,12 +538,7 @@ func (s *Service) AlertGroups(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	counts["all"], counts["firing"], counts["pending"], counts["resolved"] = all, firing, pending, resolved
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].Severity != items[j].Severity {
-			return severityRank(items[i].Severity) < severityRank(items[j].Severity)
-		}
-		return items[i].ID < items[j].ID
-	})
+	sortAlertGroups(items)
 	if err := activeAlertReadSession(r.Context(), tx, r); err != nil {
 		respondAlertGroupError(w, err)
 		return

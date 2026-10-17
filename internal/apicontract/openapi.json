@@ -76506,6 +76506,10 @@
               "null"
             ]
           },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
           "notify": {
             "type": "object",
             "properties": {
@@ -76600,6 +76604,7 @@
           "count_kind",
           "state",
           "since",
+          "last_seen",
           "notify",
           "badges",
           "owner",

@@ -73,6 +73,8 @@ S['V3AlertGroupLocal'] = obj({
     'labels':arr(v3_object('k v')),'count':integer(minimum=1),
     # PA-130: the members' alertname (or persisted alert title); null when they disagree.
     'alert_name':{'type':['string','null']},
+    # PA-174: the latest member's start, when the group last fired; groups sort by severity, then this, newest first.
+    'last_seen':string(format='date-time'),
     'notify':obj({'channel':{'type':['string','null']},'text':string(),
         'status':{'type':['string','null']},'scope':string(enum=['platform_queue'])},
         ['channel','text','status','scope']),
@@ -81,7 +83,7 @@ S['V3AlertGroupLocal'] = obj({
     'instances':arr(ref('V3AlertGroupInstance')),
     'local_grouping':arr(string()),'partial':v3_bool(),'unavailable':arr(string())},
     ['id','severity','labels','service','alert_name','source_id','fingerprint','environment_id','environment_key','count','count_kind',
-     'state','since','notify','badges','owner','inhibited','instances','local_grouping','partial','unavailable'])
+     'state','since','last_seen','notify','badges','owner','inhibited','instances','local_grouping','partial','unavailable'])
 S['V3AlertGroupList'] = obj({'items':arr(ref('V3AlertGroupLocal')),
     'counts':obj({'all':integer(minimum=0),'firing':integer(minimum=0),
         'pending':integer(minimum=0),'resolved':integer(minimum=0),'silenced':{'type':'null'}},

@@ -313,6 +313,8 @@ export type AlertGroup = {
   count: number;
   state: "firing" | "pending" | "silenced" | "resolved";
   since: string;
+  /** When the group last fired (its latest member's start); absent from older servers and the sample (PA-174). */
+  last_seen?: string;
   notify: { channel?: string | null; text: string; status?: string | null };
   badges: { text: string; tone: Tone }[];
   owner?: string | null;

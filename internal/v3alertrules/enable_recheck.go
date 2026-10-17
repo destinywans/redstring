@@ -35,9 +35,6 @@ func (s *WriteService) Recheck(w http.ResponseWriter, r *http.Request) {
 
 func (s *WriteService) recheckExecution(ctx context.Context, env string, actor core.User, executionID string) (AlertRuleExecutionResult, error) {
 	var zero AlertRuleExecutionResult
-	if s.EnableApplier == nil {
-		return zero, problem(503, "enable_not_connected", "Alert rule executor is not connected")
-	}
 	if !hexID(executionID) {
 		return zero, problem(404, "not_found", "Execution not found")
 	}
@@ -58,6 +55,13 @@ func (s *WriteService) recheckExecution(ctx context.Context, env string, actor c
 	}
 	if err := s.authorizeTx(ctx, tx, actor, env, app); err != nil {
 		return zero, err
+	}
+	// The readback sources are named only to an authorized actor (PA-108).
+	if s.Reader.Source == nil {
+		return zero, problem(503, "not_connected", "Alert rule source is not connected")
+	}
+	if s.EnableApplier == nil {
+		return zero, problem(503, "enable_not_connected", "Alert rule executor is not connected")
 	}
 	if state != "pending_review" && state != "merged" && state != "awaiting_provider" && state != "enabled" && state != "disabled" {
 		return zero, problem(409, "execution_not_observable", "Only a merged or loading execution can be rechecked")

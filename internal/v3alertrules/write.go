@@ -95,6 +95,8 @@ func problem(status int, code, message string) error {
 	return &writeProblem{status: status, code: code, text: message}
 }
 
+// prerequisites checks what authorization itself needs. Which sources this
+// environment has is checked only after the actor is authorized (PA-108).
 func (s *WriteService) prerequisites(r *http.Request) (string, core.User, error) {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok || scope.All || len(scope.EnvironmentIDs) != 1 {
@@ -104,13 +106,31 @@ func (s *WriteService) prerequisites(r *http.Request) (string, core.User, error)
 	if actor.ID == "" || actor.Disabled {
 		return "", actor, problem(http.StatusForbidden, "forbidden", "A current user is required")
 	}
-	if s == nil || s.DB == nil || s.Access == nil || s.Reader == nil || s.Reader.Source == nil {
+	if s == nil || s.DB == nil || s.Access == nil || s.Reader == nil {
 		return "", actor, problem(http.StatusServiceUnavailable, "not_connected", "Alert rule source is not connected")
 	}
-	if _, ok := s.Reader.Source.(PromQLValidator); !ok {
-		return "", actor, problem(http.StatusServiceUnavailable, "not_connected", "PromQL syntax validation is not connected")
-	}
 	return scope.EnvironmentIDs[0], actor, nil
+}
+
+// sourceReady reports a missing rule source; call it once the actor is
+// authorized for the target.
+func (s *WriteService) sourceReady() error {
+	if s.Reader.Source == nil {
+		return problem(http.StatusServiceUnavailable, "not_connected", "Alert rule source is not connected")
+	}
+	if _, ok := s.Reader.Source.(PromQLValidator); !ok {
+		return problem(http.StatusServiceUnavailable, "not_connected", "PromQL syntax validation is not connected")
+	}
+	return nil
+}
+
+// writeSourcesReady reports a missing rule source or draft repository; call
+// it once the actor is authorized for the target.
+func (s *WriteService) writeSourcesReady() error {
+	if err := s.requireDraftRepository(); err != nil {
+		return err
+	}
+	return s.sourceReady()
 }
 
 func (s *WriteService) requireDraftRepository() error {
@@ -191,10 +211,6 @@ func (s *WriteService) Create(w http.ResponseWriter, r *http.Request) {
 		s.handleEnable(w, r, env, actor, key, input)
 		return
 	}
-	if err := s.requireDraftRepository(); err != nil {
-		writeError(w, err)
-		return
-	}
 	if err := draftMode(input.Mode); err != nil {
 		writeError(w, err)
 		return
@@ -204,19 +220,23 @@ func (s *WriteService) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if result, found, err := s.replay(r, actor, "create", key, digest, env, input.ApplicationID); err != nil {
-		writeError(w, err)
-		return
-	} else if found {
-		httpapi.WriteJSON(w, http.StatusCreated, result)
-		return
-	}
 	if err := validateDraftSpec(input.DraftRuleSpec, env, input.ApplicationID, s.Reader.ApplicationLabel(env, input.ApplicationID)); err != nil {
 		writeError(w, validationProblem(err))
 		return
 	}
 	if err := s.authorize(r.Context(), actor, env, input.ApplicationID); err != nil {
 		writeError(w, err)
+		return
+	}
+	if err := s.writeSourcesReady(); err != nil {
+		writeError(w, err)
+		return
+	}
+	if result, found, err := s.replay(r, actor, "create", key, digest, env, input.ApplicationID); err != nil {
+		writeError(w, err)
+		return
+	} else if found {
+		httpapi.WriteJSON(w, http.StatusCreated, result)
 		return
 	}
 	group, observed, err := s.inspectCandidates(r.Context(), env, input.ApplicationID, []DraftRuleSpec{input.DraftRuleSpec})
@@ -269,10 +289,6 @@ func (s *WriteService) Update(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &input) {
 		return
 	}
-	if err := s.requireDraftRepository(); err != nil {
-		writeError(w, err)
-		return
-	}
 	if err := draftMode(input.Rule.Mode); err != nil {
 		writeError(w, err)
 		return
@@ -280,13 +296,6 @@ func (s *WriteService) Update(w http.ResponseWriter, r *http.Request) {
 	digest, err := requestHash("update", env, id, input)
 	if err != nil {
 		writeError(w, err)
-		return
-	}
-	if result, found, err := s.replay(r, actor, "update", key, digest, env, input.Rule.ApplicationID); err != nil {
-		writeError(w, err)
-		return
-	} else if found {
-		httpapi.WriteJSON(w, http.StatusOK, result)
 		return
 	}
 	if input.ExpectedVersion < 1 {
@@ -299,6 +308,17 @@ func (s *WriteService) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := s.authorize(r.Context(), actor, env, input.Rule.ApplicationID); err != nil {
 		writeError(w, err)
+		return
+	}
+	if err := s.writeSourcesReady(); err != nil {
+		writeError(w, err)
+		return
+	}
+	if result, found, err := s.replay(r, actor, "update", key, digest, env, input.Rule.ApplicationID); err != nil {
+		writeError(w, err)
+		return
+	} else if found {
+		httpapi.WriteJSON(w, http.StatusOK, result)
 		return
 	}
 	group, observed, err := s.inspectCandidates(r.Context(), env, input.Rule.ApplicationID, []DraftRuleSpec{input.Rule})
@@ -339,10 +359,6 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &input) {
 		return
 	}
-	if err := s.requireDraftRepository(); err != nil {
-		writeError(w, err)
-		return
-	}
 	if input.Mode == "" {
 		input.Mode = "draft"
 	}
@@ -362,6 +378,10 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.authorize(r.Context(), actor, env, app); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.writeSourcesReady(); err != nil {
 		writeError(w, err)
 		return
 	}

@@ -57,7 +57,7 @@ type trialRecord struct {
 // a provider rule, GitLab MR, or notification. The accepted response is queued
 // only after a trusted isolated worker durably acknowledges the job.
 func (s *WriteService) handleTrial(w http.ResponseWriter, r *http.Request, env string, actor core.User, key string, spec DraftRuleSpec) {
-	if s == nil || s.DB == nil || s.Access == nil || s.Reader == nil || s.Reader.Source == nil || s.TrialRuntime == nil {
+	if s == nil || s.DB == nil || s.Access == nil || s.Reader == nil {
 		httpapi.Error(w, http.StatusServiceUnavailable, "dry_run_isolation_unavailable", "An application-isolated trial worker is unavailable")
 		return
 	}
@@ -73,6 +73,15 @@ func (s *WriteService) handleTrial(w http.ResponseWriter, r *http.Request, env s
 	}
 	if err := s.authorize(r.Context(), actor, env, spec.ApplicationID); err != nil {
 		writeError(w, err)
+		return
+	}
+	// Which sources this environment has is said only to an authorized actor (PA-108).
+	if err := s.sourceReady(); err != nil {
+		writeError(w, err)
+		return
+	}
+	if s.TrialRuntime == nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "dry_run_isolation_unavailable", "An application-isolated trial worker is unavailable")
 		return
 	}
 	// A trial for an existing provider identity could be mistaken for the live

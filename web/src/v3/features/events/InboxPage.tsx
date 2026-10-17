@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import { PartialBanner, UnknownValue } from "../../ui/unknown";
+import { PartialBanner, Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
 import type { AlertDetail, InboxItem } from "../../api/types";
 import { Badge, Brand, Btn, Card, Col, Dot, Icon, IconBtn, KV, LabelChip, Muted, Panel, Row, Sev, Skeleton, Spacer, State, Tabs, Tile, TextLink, Kbd, cx, type IconName, type Tone } from "../../ui/core";
 import { MenuButton, toast } from "../../ui/overlays";
@@ -252,7 +252,7 @@ export default function InboxPage() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const [tab, setTab] = useState<"all" | "mine" | "mentions" | "subscribed">("all");
-  const { data, isLoading } = useGet<{ items: InboxItem[]; counts: Record<string, number> }>("/inbox", { tab });
+  const { data, isLoading, error } = useGet<{ items: InboxItem[]; counts: Record<string, number> }>("/inbox", { tab });
   const [read, setRead] = useState<Set<string>>(new Set());
   const items = useMemo(() => data?.items ?? [], [data]);
   // Without an item in the URL, show the first item of the current list (never a fixture id).
@@ -325,6 +325,20 @@ export default function InboxPage() {
                 <Skeleton key={i} h={44} />
               ))}
             </Col>
+          )}
+          {/* A tab the server can't fill says why; an empty one says so, instead of a blank list (PA-178). */}
+          {!isLoading && error && !data ? (
+            error instanceof ApiError && error.code === "inbox_filter_unavailable" ? (
+              <Unavailable reason="unavailable" icon="inbox" title={tx("提及和订阅还没有来源", "Mentions and subscriptions have no source yet")} desc={tx("平台还没有记录谁被提及、谁订阅了什么，这个页签暂时不会有内容。", "The platform doesn't record mentions or subscriptions yet, so this tab stays empty for now.")} />
+            ) : (
+              <Unavailable reason={errorReason(error)} icon="inbox" title={tx("暂时读不到收件箱", "The inbox can't be read right now")} />
+            )
+          ) : (
+            !isLoading && data && !items.length && (
+              <div style={{ padding: 28, textAlign: "center" }}>
+                <Muted>{tx("没有数据", "No data")}</Muted>
+              </div>
+            )
           )}
           {days.map(([d, label]) => {
             const list = items.filter((i) => dayOf(i) === d);

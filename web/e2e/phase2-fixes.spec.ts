@@ -226,3 +226,14 @@ test.describe("audit share from the data (PA-183)", () => {
     await expect(page.locator("#root")).not.toContainText("全部可追溯到运行 ID");
   });
 });
+
+test.describe("inbox tabs without a source (PA-178)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+
+  test("mentions says why it is empty instead of a blank list", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/inbox");
+    await page.getByText("提及", { exact: true }).click({ timeout: 20_000 });
+    await expect(page.getByText("提及和订阅还没有来源")).toBeVisible({ timeout: 20_000 });
+  });
+});

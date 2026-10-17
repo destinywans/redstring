@@ -280,7 +280,9 @@ export function AddChip({
   const [q, setQ] = useState("");
   const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
   const all = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
-  const opts = all.filter((o) => !items.includes(o.value) && (!q || String(o.value).toLowerCase().includes(q.toLowerCase())));
+  // Search the shown name and hint too: service options carry opaque catalog IDs as values (PA-185).
+  const text = (o: ChipOption) => [o.value, typeof o.label === "string" ? o.label : "", typeof o.hint === "string" ? o.hint : ""].join(" ").toLowerCase();
+  const opts = all.filter((o) => !items.includes(o.value) && (!q || text(o).includes(q.toLowerCase())));
   // An added value shows its option's label: service options carry opaque catalog IDs as values (PA-166).
   const shown = (x: string) => all.find((o) => o.value === x)?.label ?? x;
   const add = (v: string) => {

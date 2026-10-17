@@ -182,7 +182,11 @@ test.describe("unknown revision time across days (PA-180)", () => {
         service_id: id, application_id: "app", environment_id: "prod", verification: null, blocked_reason: null, observed_at: new Date(now).toISOString(),
         workload: { connector_id: "k8s", namespace: "lab", deployment: "checkout-api", uid: "u", paused: false, current_revision: "87", current_template_digest: digest, replicas: { desired: 1, updated: 1, available: 1 } },
         // From yesterday to five minutes ago: the later bound is today.
-        candidates: [{ ...candidate, revision: "87", not_before: new Date(now - 26 * 3600_000).toISOString(), not_after: new Date(now - 5 * 60_000).toISOString() }],
+        // The drawer lists revisions only when one can be rolled back to, so a non-current one comes along.
+        candidates: [
+          { ...candidate, revision: "87", not_before: new Date(now - 26 * 3600_000).toISOString(), not_after: new Date(now - 5 * 60_000).toISOString() },
+          { ...candidate, revision: "86", current: false, template_digest: "b".repeat(64), at: "2026-10-16T07:57:00Z", time_basis: "replicaset_created", time_unknown_reason: null, not_before: null, not_after: null },
+        ],
       }),
     );
     await page.goto(origin + `/services/${encodeURIComponent(id)}`);

@@ -172,7 +172,8 @@ test.describe("new incident drawer services (PA-166)", () => {
     const drawer = page.getByRole("dialog", { name: "新建事件" });
     await expect(drawer.getByText(NAME, { exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(drawer).not.toContainText(APP);
-    await drawer.getByRole("button", { name: "服务", exact: true }).click();
+    // The add chip is named by its field label and the services already added.
+    await drawer.getByRole("button", { name: /^影响服务/ }).click();
     await page.locator(".demo-menu button", { hasText: NAME }).click();
     await expect(drawer.locator(".demo-added")).toHaveText(NAME);
     await expect(drawer).not.toContainText(SERVICE);

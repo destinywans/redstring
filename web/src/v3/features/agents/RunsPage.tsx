@@ -8,7 +8,7 @@ import { DataTable, Kpi, KpiRow } from "../../ui/data";
 import { StackedArea, VBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./agents.css";
-import { ChipSelect, RangeChip, openExternal, useFacet } from "../../ui/demo";
+import { ChipSelect, RangeChip, openExternal, useFacet, useRanges } from "../../ui/demo";
 import { Unavailable, UnknownValue } from "../../ui/unknown";
 import { useWhen } from "../../ui/when";
 
@@ -28,7 +28,10 @@ export default function RunsPage() {
   const demo = API_MODE === "mock";
   const [filter, setFilter] = useState<"all" | "failed" | "blocked" | "negative">("all");
   const [q, setQ] = useState("");
-  const { data } = useGet<RunsView>("/agent-runs", { filter });
+  // The range goes to the server, which bounds the list, counts and trend by it (PA-170).
+  const [range, setRange] = useState("24h");
+  const rangeLabel = useRanges().find((r) => r.value === range)?.label ?? range;
+  const { data } = useGet<RunsView>("/agent-runs", { filter, range });
   const st = (s: RunRow["status"]): [string, "ok" | "danger" | "warn" | "neutral"] =>
     (({ success: [tx("成功", "Success"), "ok"], failed: [tx("失败", "Failed"), "danger"], blocked: [tx("已拦截", "Blocked"), "warn"], running: [tx("运行中", "Running"), "neutral"] }) as Record<string, [string, "ok" | "danger" | "warn" | "neutral"]>)[s] ?? [s, "neutral"];
   // Real KPI labels come back in English; name the ones the server sends.
@@ -49,7 +52,7 @@ export default function RunsPage() {
       crumbs={[tx("Agent 运行台", "Agent console"), tx("运行与 Trace", "Runs & traces")]}
       actions={
         <>
-          <RangeChip />
+          <RangeChip value={range} onChange={setRange} />
           {/* No trace backend is connected for agent runs yet; the sample link points at a placeholder host. */}
           {demo && <Btn icon="external" onClick={() => openExternal("Langfuse", "https://langfuse.example.internal/project/aiops/traces")}>{tx("在 Langfuse 中打开", "Open in Langfuse")}</Btn>}
         </>
@@ -61,11 +64,11 @@ export default function RunsPage() {
           <Row gap={22} align="flex-start">
             <Col gap={8} style={{ flex: "1.7 1 0", minWidth: 0 }}>
               <Row gap={8}>
-                <Strong>{tx("运行趋势 · 最近 24 小时", "Runs · last 24 h")}</Strong>
+                <Strong>{tx("运行趋势 · {r}", "Runs · {r}", { r: rangeLabel })}</Strong>
                 <Spacer />
                 <Legend items={[[tx("成功", "Success"), "var(--c2)"], [tx("失败", "Failed"), "var(--c3)"], [tx("拦截", "Blocked"), "var(--c4)"]]} />
               </Row>
-              {data && !data.trend ? <Unavailable reason="not_generated" icon="trend" title={tx("暂无运行趋势", "No run trend yet")} desc={tx("有 Agent 运行记录后显示最近 24 小时的成功、失败和拦截。", "Successes, failures and blocks appear once agents have run.")} /> : data?.trend ? <StackedArea series={[data.trend.ok, data.trend.failed, data.trend.blocked]} colors={["var(--c2)", "var(--c3)", "var(--c4)"]} height={78} names={[tx("成功", "Success"), tx("失败", "Failed"), tx("拦截", "Blocked")]} labels={trendLabels(data.trend)} /> : <Skeleton h={78} />}
+              {data && !data.trend ? <Unavailable reason="not_generated" icon="trend" title={tx("暂无运行趋势", "No run trend yet")} desc={tx("有 Agent 运行记录后显示{r}的成功、失败和拦截。", "Successes, failures and blocks appear once agents have run.", { r: rangeLabel })} /> : data?.trend ? <StackedArea series={[data.trend.ok, data.trend.failed, data.trend.blocked]} colors={["var(--c2)", "var(--c3)", "var(--c4)"]} height={78} names={[tx("成功", "Success"), tx("失败", "Failed"), tx("拦截", "Blocked")]} labels={trendLabels(data.trend)} /> : <Skeleton h={78} />}
             </Col>
             <Col gap={8} style={{ flex: "1 1 0", minWidth: 0 }}>
               <Row gap={8}>

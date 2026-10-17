@@ -22,8 +22,8 @@ v3_route('get','/audit/{id}','Verify audit record chain and read redacted detail
     response=ref('V3AuditDetail'),
     desc='chain_ok validates the sealed prefix from migration time, not independent proof of pre-migration history.')
 v3_route('post','/audit/export','Create a scoped CSV export',
-    body=obj(fieldnames('filter q')),response=obj({'url':string()},['url']),
-    desc='Export is limited to 10,000 visible records and retained for one hour.')
+    body=obj({**fieldnames('filter q'),'range':string(enum=['15m','30m','1h','6h','24h','7d','30d'])}),response=obj({'url':string()},['url']),
+    desc='Export is limited to 10,000 visible records and retained for one hour. range bounds the export like GET /audit range, so it holds what the list shows (PA-170); without it every time is exported.')
 v3_route('get','/audit/exports/{id}','Download owner and environment-bound audit CSV',
     desc='Authenticated download checks the original environment set and export expiry.')
 P['/audit/exports/{id}']['get']['responses']['200']['content'] = {

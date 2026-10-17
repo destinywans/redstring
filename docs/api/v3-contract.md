@@ -422,7 +422,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | PUT | `/workspace` | 同上八字段完整对象（`brand` 含 `name,logo,pending`），`If-Match` 必须为 GET 返回的强 ETag；仅平台管理员且具全局 `workspace.manage` | 保存并审计后返回持久化对象及新 ETag；无前置条件 428、旧版 412 | implemented |
 | GET | `/audit` | `filter: all\|user\|agent\|system`, `q` | `AuditView`。`result` 增加 `pending`（生命周期中间步骤，最终结果在后续行）；无法归类的结果该行 `result: null`、`unavailable: {"result": "unavailable"}`，不再让整页 503（PA-42）；`result` 过滤也接受 `pending`；带 `application_id` 的行只按 `changes.environment_id` 所在环境列出，PA-93 之前漏写环境的执行器、画布回复等行不出现（见 [集成基线](v3-integration-baseline.md)） | implemented |
 | GET | `/audit/{id}` | | `AuditDetail`（含哈希链校验结果） | implemented |
-| POST | `/audit/export` | 过滤条件 | `{ url }` | implemented |
+| POST | `/audit/export` | 过滤条件：`filter`、`q`、`range`（与 `GET /audit` 的 `range` 相同，导出与列表同一时间范围，PA-170） | `{ url }` | implemented |
 
 `GET/PUT /me/profile` 按当前真人账号、活动 Cookie 会话和单环境查看权返回持久资料、通知、密码修改审计、全部活动会话及本地 MFA 登记；可选受信 HTTPS 身份证据来源再补联系人验证、飞书联系方式、组织规则、因子列表和会话设备/登录方式，且须与本实例持久登记一致。没有来源、来源失败或证据过期时这些字段为 `null`，`unavailable` 注明 `not_configured`、`unavailable` 或 `stale`（2026-10-09 生产验收修订 PA-16：原先整体 `503 identity_evidence_unavailable`，资料、通知和账号安全三页都打不开）。PUT 提交 GET 的完整视图，只改可编辑资料和通知偏好，事务内复核并审计；联系人、部门和安全字段（含未知字段）必须与当前视图一致。仓库尚无可提供全部设备/登录方式的权威生产者，真实来源与冻结页面未验收；见[本人资料证据边界](v3-profile-evidence.md)。会话删除是独立接口。
 
@@ -606,7 +606,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 日期 | 变更 |
 | --- | --- |
-| 2026-10-17 | 缺陷收敛两轮之间：`GET /alerts/{id}` 新增 `group_id`（PA-167）；`GET /postmortems/draft` 的 `timeline` 含人工记录、状态事件写成文字（PA-169）；`GET /alert-groups` 新增 `last_seen` 并按它排序（PA-174）；`GET /services/{id}/rollback-candidates` 的候选新增 `at`、`time_basis`、`time_unknown_reason`、`not_before`、`not_after`（PA-172，见回滚契约）。 |
+| 2026-10-17 | 缺陷收敛两轮之间：`GET /alerts/{id}` 新增 `group_id`（PA-167）；`GET /postmortems/draft` 的 `timeline` 含人工记录、状态事件写成文字（PA-169）；`GET /alert-groups` 新增 `last_seen` 并按它排序（PA-174）；`GET /services/{id}/rollback-candidates` 的候选新增 `at`、`time_basis`、`time_unknown_reason`、`not_before`、`not_after`（PA-172，见回滚契约）；`POST /audit/export` 接受 `range`（PA-170）。 |
 | 2026-10-10 | PA-19 第二阶段第 8 步：`AIOPS_V3_SOURCE_REGISTRY` 缺省改为 `unified`，全部读取方读统一登记，本契约里写成“`AIOPS_V3_UNIFIED_READERS` 含某读取方时”的行为即缺省行为；`legacy`、`compare` 只保留列出的读取方，作为回退保留到 P4。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-19 P4：删除 `legacy`、`compare` 模式和 `AIOPS_V3_SOURCE_REGISTRY`、`AIOPS_V3_UNIFIED_READERS`（设了只记一条警告），覆盖度、服务映射、日志、Trace、AI 指标与日志工具、`list_services` 只读统一登记，连接器详情 `tools` 无条件列出已保存开关；服务映射不再返回 `registry_cutover`、`registry_not_enabled`，已存绑定不再按遥测文件和 Kubernetes 登记校验；V3 实例不再注册 `internal/actions` 的旧回滚路由（404），迁移 173 让已批准、未执行的旧回滚计划到期。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-19 P4：V3 实例不再读 `AIOPS_TELEMETRY_CONFIG`（设了只记一条警告；旧模式和 `aiops connectors import-legacy` 照旧读）；客户端上限改取统一目录的 `limits`，Trace 搜索完整声明改为目录的 `tempo_search_fail_closed` 连接器列表。详见 [遥测来源统一登记](v3-telemetry-registry.md) |

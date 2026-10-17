@@ -10,7 +10,7 @@ import { StackedBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import { UnknownValue } from "../../ui/unknown";
 import "./settings.css";
-import { ChipSelect, useFacet, RangeChip } from "../../ui/demo";
+import { ChipSelect, useFacet, RangeChip, useRanges } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 
 export default function AuditPage() {
@@ -19,10 +19,13 @@ export default function AuditPage() {
   const [filter, setFilter] = useState<"all" | "user" | "agent" | "system">("all");
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<string | null>(null);
-  const { data } = useGet<AuditView>("/audit", { filter, q });
+  // The range goes to the server, which bounds the list, counts, chart and export by it (PA-170).
+  const [range, setRange] = useState("7d");
+  const rangeLabel = useRanges().find((r) => r.value === range)?.label ?? range;
+  const { data } = useGet<AuditView>("/audit", { filter, q, range });
   const fAct = useFacet(data?.items, (a) => a.action);
   const fRes = useFacet(data?.items, (a) => a.result ?? "unknown");
-  const exp = useSend<{ filter: string; q?: string }, { url: string }>("POST", "/audit/export");
+  const exp = useSend<{ filter: string; q?: string; range: string }, { url: string }>("POST", "/audit/export");
   const res = (r: AuditEntry["result"] | "unknown") =>
     r === "ok" ? ([tx("成功", "OK"), "ok"] as const) : r === "pending" ? ([tx("进行中", "Pending"), "accent"] as const) : r === "blocked" ? ([tx("已拦截", "Blocked"), "warn"] as const) : r === "failed" ? ([tx("失败", "Failed"), "danger"] as const) : ([tx("未知", "Unknown"), "neutral"] as const);
   const { data: d } = useGet<AuditDetail>(sel ? `/audit/${sel}` : null);
@@ -35,7 +38,7 @@ export default function AuditPage() {
         <Btn icon="download" loading={exp.isPending} onClick={() =>
             // Exports what the list shows and downloads the CSV the server returns (PA-162); the sample has no file.
             exp.mutate(
-              { filter, ...(q.trim() ? { q: q.trim() } : {}) },
+              { filter, range, ...(q.trim() ? { q: q.trim() } : {}) },
               {
                 onSuccess: (r) => {
                   if (API_MODE === "mock") return toast(tx("导出任务已创建，完成后通过飞书通知", "Export started — you'll be notified on Feishu"));
@@ -67,12 +70,12 @@ export default function AuditPage() {
               <ChipSelect label={tx("操作", "Action")} {...fAct.props} />
               <ChipSelect label={tx("结果", "Result")} {...fRes.props} options={fRes.props.options.map((o) => ({ ...o, label: res(o.value as AuditEntry["result"] | "unknown")[0] }))} />
               <Spacer />
-              <RangeChip defaultValue="7d" />
+              <RangeChip value={range} onChange={setRange} />
             </Row>
             <Card style={{ padding: "10px 14px" }}>
               <Col gap={6}>
                 <Row gap={8}>
-                  <Strong>{tx("操作量 · 最近 7 天", "Activity · last 7 days")}</Strong>
+                  <Strong>{tx("操作量 · {r}", "Activity · {r}", { r: rangeLabel })}</Strong>
                   <Muted size={11.5}>{tx("Agent 操作占 67%，全部可追溯到运行 ID", "67% are agent actions, all traceable to a run ID")}</Muted>
                   <Spacer />
                   <Legend items={[[tx("人员", "People"), "var(--c1)"], ["Agent", "var(--c6)"], [tx("系统", "System"), "var(--c5)"]]} />

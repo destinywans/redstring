@@ -190,3 +190,26 @@ test.describe("unknown revision time across days (PA-180)", () => {
     await expect(page.getByRole("dialog")).toContainText(/在 \d+月\d+日 \d\d:\d\d 到 \d+月\d+日 \d\d:\d\d 之间/, { timeout: 20_000 });
   });
 });
+
+test.describe("time ranges reach the server (PA-170)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  for (const [route, api, from] of [
+    ["/", "/home", "最近 24 小时"],
+    ["/settings/audit", "/audit", "最近 7 天"],
+    ["/agents/runs", "/agent-runs", "最近 24 小时"],
+  ] as const) {
+    test(`${route}: picking a range refetches with it`, async ({ page }) => {
+      await page.addInitScript(zh);
+      await page.goto(origin + route);
+      const asked = page.waitForRequest((r) => {
+        const u = new URL(r.url());
+        return u.pathname === "/api/v1" + api && u.searchParams.get("range") === "1h";
+      }, { timeout: 20_000 });
+      await page.getByRole("button", { name: from }).first().click({ timeout: 20_000 });
+      await page.getByRole("option", { name: "最近 1 小时" }).click();
+      await asked;
+      await expect(page.locator("#root")).not.toContainText(api === "/audit" ? "最近 7 天" : "最近 24 小时");
+    });
+  }
+});

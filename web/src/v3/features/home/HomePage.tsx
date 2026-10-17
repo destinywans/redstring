@@ -11,7 +11,7 @@ import { Sparkline, StackedBars, Axis } from "../../charts";
 import { useI18n } from "../../i18n";
 import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./home.css";
-import { ChipSelect, RangeChip, useFacet } from "../../ui/demo";
+import { ChipSelect, RangeChip, useFacet, useRanges } from "../../ui/demo";
 import { Unavailable, UnknownValue } from "../../ui/unknown";
 import { Gate, Gated, usePermission } from "../../ui/permission";
 import { useWhen } from "../../ui/when";
@@ -143,7 +143,10 @@ export default function HomePage() {
   const { tx, fmt } = useI18n();
   const when = useWhen();
   const nav = useNavigate();
-  const { data } = useGet<HomeSummary>("/home");
+  // The range goes to the server, which bounds the trend, activity and recent items by it (PA-170).
+  const [range, setRange] = useState("24h");
+  const rangeLabel = useRanges().find((r) => r.value === range)?.label ?? range;
+  const { data } = useGet<HomeSummary>("/home", { range });
   const can = usePermission();
   const chatBlocked = can(["conversation", "change"]);
   // Headline counts services whose alerts are still firing (PA-58), not attention rows.
@@ -164,7 +167,7 @@ export default function HomePage() {
       title={
         <Row gap={10}>
           <h1 style={{ fontSize: "var(--fs-lg)", fontWeight: 600 }}>{tx("总览", "Overview")}</h1>
-          <RangeChip />
+          <RangeChip value={range} onChange={setRange} />
         </Row>
       }
     >
@@ -321,11 +324,11 @@ export default function HomePage() {
           </Card>
           <Card className="home-card anim-rise">
             <CardHead
-              title={tx("告警趋势 · 24 小时", "Alert trend · 24h")}
+              title={tx("告警趋势 · {r}", "Alert trend · {r}", { r: rangeLabel })}
               right={<Legend items={[["P1", "var(--danger)"], ["P2", "var(--p2)"], ["P3", "var(--warn)"], ["P4", "var(--p4)"]]} />}
             />
             <div style={{ padding: "12px 16px 10px" }} className="v3-col">
-              {data && !data.alert_trend && <Unavailable reason={data.availability?.alert_trend === "no_authorized_target" ? "no_authorized_target" : data.availability?.alert_trend === "not_connected" ? "not_connected" : "not_generated"} icon="bell" source={tx("告警来源", "Alert source")} title={data.availability?.alert_trend === "not_connected" ? tx("未接入告警来源", "Alert source not connected") : undefined} desc={data.availability?.alert_trend === "not_connected" ? tx("连接 Alertmanager 后，这里显示最近 24 小时的告警数量和级别分布。", "Connect Alertmanager to see the last 24 hours of alerts by severity.") : undefined} />}
+              {data && !data.alert_trend && <Unavailable reason={data.availability?.alert_trend === "no_authorized_target" ? "no_authorized_target" : data.availability?.alert_trend === "not_connected" ? "not_connected" : "not_generated"} icon="bell" source={tx("告警来源", "Alert source")} title={data.availability?.alert_trend === "not_connected" ? tx("未接入告警来源", "Alert source not connected") : undefined} desc={data.availability?.alert_trend === "not_connected" ? tx("连接 Alertmanager 后，这里显示{r}的告警数量和级别分布。", "Connect Alertmanager to see alerts by severity for the {r}.", { r: rangeLabel }) : undefined} />}
               {data?.alert_trend && <StackedBars data={data.alert_trend.counts} colors={["var(--danger)", "var(--p2)", "var(--warn)", "var(--p4)"]} height={104} names={labels} labels={trendLabels} />}
               {data?.alert_trend && trendLabels.length > 0 && (
                 <Axis labels={[0, 0.25, 0.5, 0.75].map((f) => trendLabels[Math.floor(f * (trendLabels.length - 1))]).concat(tx("现在", "Now"))} />

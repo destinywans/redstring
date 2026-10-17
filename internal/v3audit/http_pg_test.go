@@ -213,6 +213,26 @@ func TestAuditRegisteredHTTPScopesListAndVerifiedDetail(t *testing.T) {
 	if body := w.Body.String(); !strings.Contains(body, "部署变更") || strings.Contains(body, "triage_test") || strings.Contains(body, "hidden_other") || strings.Contains(body, "private-test-value") {
 		t.Fatalf("incorrect scoped CSV: %q", body)
 	}
+	// PA-170: an export holds the list's time range.
+	for _, c := range []struct {
+		rangeValue string
+		want       bool
+	}{{"15m", false}, {"24h", true}} {
+		w = export(token, "dev", `{"filter":"user","range":"`+c.rangeValue+`"}`)
+		assertStatus(w, http.StatusOK)
+		var ranged struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &ranged); err != nil {
+			t.Fatal(err)
+		}
+		w = request(token, "", ranged.URL)
+		assertStatus(w, http.StatusOK)
+		if strings.Contains(w.Body.String(), "部署变更") != c.want {
+			t.Fatalf("export range %s: %q", c.rangeValue, w.Body.String())
+		}
+	}
+	assertStatus(export(token, "dev", `{"filter":"user","range":"2h"}`), http.StatusUnprocessableEntity)
 	// A lifecycle row is "pending" and an unclassifiable outcome degrades only
 	// its own row to a null result (PA-42) instead of failing the whole log.
 	var pendingID, oddID int64

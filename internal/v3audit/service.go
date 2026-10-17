@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/v3pagequery"
 )
 
 type Service struct {
@@ -95,6 +97,9 @@ func (s *Service) Register(api *httpapi.Server) {
 type query struct {
 	Filter string `json:"filter"`
 	Q      string `json:"q"`
+	// Range is the list's time range (GET /audit range), so an export holds
+	// what the list shows (PA-170); empty exports every time.
+	Range string `json:"range,omitempty"`
 }
 
 func parseQuery(q query) (query, error) {
@@ -446,8 +451,17 @@ func (s *Service) Export(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
+	var since time.Time
+	if input.Range != "" {
+		d, rangeErr := v3pagequery.ParseRange(url.Values{"range": {input.Range}}, 0)
+		if rangeErr != nil {
+			httpapi.Error(w, 422, "invalid_filter", "Use one supported audit range")
+			return
+		}
+		since = time.Now().UTC().Add(-d)
+	}
 	rows, err := s.DB.Query(r.Context(), visibleCTE+` SELECT id,created_at,actor_id,actor_kind,action,target,outcome
- FROM visible`+filterWhere+` ORDER BY id DESC LIMIT 10001`, envs, global, input.Filter, input.Q)
+ FROM visible`+filterWhere+` AND created_at>=$5 ORDER BY id DESC LIMIT 10001`, envs, global, input.Filter, input.Q, since)
 	if err != nil {
 		unavailable(w)
 		return

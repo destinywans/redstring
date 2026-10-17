@@ -3,7 +3,6 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import { currentEnv } from "../../app/environment";
 
 /** Sample-only references (chat C-320, run_7f3a, report EXE-51, sample evidence sources) never show in real mode. */
 const demo = API_MODE === "mock";
@@ -468,7 +467,9 @@ function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin, invest
                 />}
               </Row>
             ))}
-            {!n.evidence_refs?.length && <Muted>{tx("还没有证据，可以从左侧证据托盘拖入。", "No evidence yet — drag some in from the tray.")}</Muted>}
+            {!n.evidence_refs?.length && (
+              <Muted>{demo ? tx("还没有证据，可以从左侧证据托盘拖入。", "No evidence yet — drag some in from the tray.") : tx("还没有证据。AI 回复读取数据时，证据会记在这里。", "No evidence yet. When an AI reply reads data, the evidence is recorded here.")}</Muted>
+            )}
           </Col>
         )}
         {tab === "agent" && !demo && <Muted>{tx("这个节点还没有关联的 Agent 运行记录。", "No agent run is linked to this node yet.")}</Muted>}
@@ -788,6 +789,8 @@ export default function CanvasPage() {
       });
     }, 900);
   };
+  // Sample mode only (PA-105): there the tray holds the sample chat's parts. A real tray item is evidence already
+  // recorded on a branch, and V3 has no route to pin it to another one; write back › evidence only carries it to an ancestor.
   const addEvidence = (item: EvidenceTrayItem, clientX: number, clientY: number) => {
     const p = toCanvas(clientX, clientY);
     const parent = selected && selected.kind !== "evidence" ? selected : byId["b-inv"] ?? byId.root;
@@ -806,18 +809,8 @@ export default function CanvasPage() {
       context: { version: "—", tokens: 300, messages: 0, excludes: [] },
       versions: [],
     };
-    if (demo) {
-      setNodes((ns) => [...ns, node]);
-      return toast(tx("已成为「{p}」的证据节点", "Added as evidence of “{p}”", { p: parent.title }), { undo: () => setNodes((ns) => ns.filter((n) => n.id !== node.id)) });
-    }
-    // Real evidence is pinned on the server (immutable, human-pinned); the node appears once it is stored.
-    api("POST", `/investigations/${id}/evidence`, { body: { branch_id: parent.id, environment_id: currentEnv(), kind: item.kind, title: item.title, source: item.source, content: JSON.stringify(item.body) } }).then(
-      () => {
-        setNodes((ns) => [...ns, node]);
-        toast(tx("已成为「{p}」的证据节点", "Added as evidence of “{p}”", { p: parent.title }));
-      },
-      (e) => toast(e instanceof ApiError ? e.message : tx("没能加入证据，请稍后重试", "Couldn't add the evidence; try again later"), { tone: "danger" }),
-    );
+    setNodes((ns) => [...ns, node]);
+    toast(tx("已成为「{p}」的证据节点", "Added as evidence of “{p}”", { p: parent.title }), { undo: () => setNodes((ns) => ns.filter((n) => n.id !== node.id)) });
   };
 
   const setWriteback = (v: string | null) => {
@@ -899,12 +892,17 @@ export default function CanvasPage() {
               <Spacer />
               <IconBtn icon="x" label={tx("收起", "Hide")} size={24} onClick={() => setTray(false)} />
             </Row>
-            <Muted size={11.5}>{demo ? tx("来自对话 C-320 的部件，拖到画布上成为证据节点。", "Parts from chat C-320 — drag onto the canvas to add evidence.") : tx("拖到画布上成为证据节点。", "Drag onto the canvas to add evidence.")}</Muted>
+            <Muted size={11.5}>
+              {demo
+                ? tx("来自对话 C-320 的部件，拖到画布上成为证据节点。", "Parts from chat C-320 — drag onto the canvas to add evidence.")
+                : tx("本调查各分支已记录的证据。要带到上级分支，请用回写的“仅证据”。", "Evidence recorded on this investigation's branches. To carry some to a parent branch, write back with “Evidence only”.")}
+            </Muted>
             {data.tray.map((t) => (
               <div
                 key={t.id}
-                className="cv-tray-item lift"
-                draggable
+                className={cx("cv-tray-item", demo && "lift")}
+                draggable={demo}
+                style={demo ? undefined : { cursor: "default" }}
                 onDragStart={(e) => {
                   e.dataTransfer.setData("text/x-aiops-evidence", t.id);
                   e.dataTransfer.effectAllowed = "copy";
@@ -918,7 +916,7 @@ export default function CanvasPage() {
                     </span>
                     <Muted size={10.5}>{t.source}</Muted>
                   </Col>
-                  <Icon name="grid" size={13} color="var(--faint)" />
+                  {demo && <Icon name="grid" size={13} color="var(--faint)" />}
                 </Row>
                 {t.body.type === "chart" && <Sparkline values={t.body.values} width={190} height={26} color="var(--c1)" />}
               </div>
@@ -945,7 +943,7 @@ export default function CanvasPage() {
             if (!panned.current && !(pressedAt.current ?? (e.target as HTMLElement)).closest(".cv-node, .cv-toolbar, .cv-zoom, .cv-minimap, .dp")) setSel(null);
           }}
           onDragOver={(e) => {
-            if (e.dataTransfer.types.includes("text/x-aiops-evidence")) {
+            if (demo && e.dataTransfer.types.includes("text/x-aiops-evidence")) {
               e.preventDefault();
               setDropHint(true);
             }
@@ -997,7 +995,11 @@ export default function CanvasPage() {
           </div>
           {pendingHint}
           {dropHint && <div className="cv-drop-hint">{tx("松开：成为「{p}」的证据节点", "Release to add as evidence of “{p}”", { p: selected?.title ?? "" })}</div>}
-          <span className="cv-status">{tx("{b} 个分支 · {e} 个证据节点 · 拖入对话部件即可加入画布", "{b} branches · {e} evidence nodes · drag chat parts in", { b: nodes.filter((n) => n.kind === "branch").length, e: nodes.filter((n) => n.kind === "evidence").length })}</span>
+          <span className="cv-status">
+            {demo
+              ? tx("{b} 个分支 · {e} 个证据节点 · 拖入对话部件即可加入画布", "{b} branches · {e} evidence nodes · drag chat parts in", { b: nodes.filter((n) => n.kind === "branch").length, e: nodes.filter((n) => n.kind === "evidence").length })
+              : tx("{b} 个分支 · {e} 条证据", "{b} branches · {e} evidence", { b: nodes.filter((n) => n.kind === "branch").length, e: data?.tray.length ?? 0 })}
+          </span>
           {bounds && (
             <div className="cv-minimap" aria-label={tx("缩略图", "Minimap")}>
               <svg width="150" height="80" viewBox={`${bounds.minX} ${bounds.minY} ${bounds.maxX - bounds.minX} ${bounds.maxY - bounds.minY}`} preserveAspectRatio="xMidYMid meet">

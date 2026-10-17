@@ -11,6 +11,7 @@ import { Gate } from "../../ui/permission";
 import "./conversation.css";
 import { ChipSelect, useFacet } from "../../ui/demo";
 import { LoadMore, useMorePages } from "../../ui/loadMore";
+import { useNames } from "../../ui/names";
 
 export function PageHead({ title, desc, right }: { title: string; desc?: string; right?: React.ReactNode }) {
   return (
@@ -36,6 +37,9 @@ export default function ConversationsPage() {
   const paged = useMorePages("/conversations", listQuery, data);
   const [sort, setSort] = useState("recent");
   const fScope = useFacet(data ? paged.items : undefined, (c) => c.scope);
+  // The server's scope is "<service ID> · <environment ID>" (PA-166): show the catalog and environment names.
+  const names = useNames();
+  const scopeLabel = (scope: string) => scope.split(" · ").map((part) => names.service(part) ?? names.env(part) ?? part).join(" · ");
   const fState = useFacet(data ? paged.items : undefined, (c) => c.status);
   const STATUS: Record<ConversationSummary["status"], [Tone, string]> = {
     active: ["accent", tx("进行中", "Active")],
@@ -96,7 +100,7 @@ export default function ConversationsPage() {
               </span>
             )}
           />
-          <ChipSelect icon="filter" label={tx("范围", "Scope")} {...fScope.props} />
+          <ChipSelect icon="filter" label={tx("范围", "Scope")} {...fScope.props} options={fScope.props.options.map((o) => ({ ...o, label: scopeLabel(o.value) }))} />
           <ChipSelect icon="filter" label={tx("状态", "Status")} {...fState.props} options={fState.props.options.map((o) => ({ ...o, label: STATUS[o.value as ConversationSummary["status"]]?.[1] ?? o.value }))} />
           <Spacer />
           <ChipSelect
@@ -133,7 +137,7 @@ export default function ConversationsPage() {
                       <span className="ellipsis" style={{ fontWeight: 500 }}>
                         {c.title}
                       </span>
-                      <Muted size={11.5}>{c.scope}</Muted>
+                      <Muted size={11.5}>{scopeLabel(c.scope)}</Muted>
                     </Col>
                   </Row>
                 ),

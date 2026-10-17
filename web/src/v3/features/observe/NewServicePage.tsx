@@ -22,6 +22,9 @@ const SYSTEMS: { brand: string; zh: string; en: string; value: (w: Workload) => 
   { brand: "gitlab", zh: "代码", en: "Code", value: (w) => `${w.namespace}/${w.id}` },
 ];
 
+const SERVICE_NAME = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$/;
+const NAMESPACE_NAME = /^[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$/;
+
 /** /services/new — discover workloads in the experiment cluster (read-only) or fill in manually, then confirm owners, SLO and mappings. */
 export default function NewServicePage() {
   const { tx } = useI18n();
@@ -32,6 +35,9 @@ export default function NewServicePage() {
   const [focus, setFocus] = useState<string | null>(null);
   const [forms, setForms] = useState<Record<string, Form>>({});
   const [manual, setManual] = useState({ name: "", namespace: "" });
+  // The server's rules (internal/v3catalog): checked here so a bad name is caught before the request (PA-175).
+  const nameOk = SERVICE_NAME.test(manual.name.trim());
+  const namespaceOk = !manual.namespace.trim() || NAMESPACE_NAME.test(manual.namespace.trim());
   const [saving, setSaving] = useState(false);
   useEffect(() => {
     if (!data) return;
@@ -60,7 +66,15 @@ export default function NewServicePage() {
       toast(tx("已登记 {n} 个服务", "Registered {n} services", { n: r.created }));
       nav("/services");
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : String((e as Error).message), { tone: "danger" });
+      // The server's validation messages are English; say which field and what format in the page language (PA-175).
+      const invalid: Record<string, string> = {
+        "invalid service name, namespace or owner": tx("服务名或命名空间格式不对：服务名只能用字母、数字、点、下划线和连字符，命名空间只能用小写字母、数字、点和连字符，首尾都要是字母或数字", "The service name or namespace has the wrong format: names use letters, digits, dots, underscores and hyphens; namespaces use lowercase letters, digits, dots and hyphens; both start and end with a letter or digit"),
+        "duplicate service in request": tx("同一个服务填了两次", "The same service is listed twice"),
+        "invalid service tier": tx("服务等级只能是 T0～T3", "The tier must be T0 to T3"),
+        "SLO must be a percentage from 0 to 100": tx("SLO 要填 0～100 之间的百分比", "SLO must be a percentage from 0 to 100"),
+      };
+      const text = e instanceof ApiError ? (e.code === "invalid_service" ? (invalid[e.message] ?? tx("登记内容不符合要求，请检查各项格式", "The registration isn't valid; check each field's format")) : e.message) : String((e as Error).message);
+      toast(text, { tone: "danger" });
     } finally {
       setSaving(false);
     }
@@ -131,10 +145,10 @@ export default function NewServicePage() {
               </>
             ) : (
               <div className="f-grid2" style={{ maxWidth: 640 }}>
-                <Field label={tx("服务名", "Service name")}>
+                <Field label={tx("服务名", "Service name")} hint={manual.name.trim() && !nameOk ? tx("只能用字母、数字、点、下划线和连字符，首尾是字母或数字，最长 128 个字符", "Letters, digits, dots, underscores and hyphens, starting and ending with a letter or digit, up to 128 characters") : undefined}>
                   <Input value={manual.name} onChange={(e) => setManual({ ...manual, name: e.target.value })} placeholder="recommendation-api" mono />
                 </Field>
-                <Field label={tx("命名空间", "Namespace")}>
+                <Field label={tx("命名空间", "Namespace")} hint={!namespaceOk ? tx("只能用小写字母、数字、点和连字符，首尾是字母或数字，最长 63 个字符", "Lowercase letters, digits, dots and hyphens, starting and ending with a letter or digit, up to 63 characters") : undefined}>
                   <Input value={manual.namespace} onChange={(e) => setManual({ ...manual, namespace: e.target.value })} placeholder="trade" mono />
                 </Field>
               </div>
@@ -142,7 +156,7 @@ export default function NewServicePage() {
             <Row gap={8}>
               {mode === "discover" && <Muted size={12}>{tx("已选 {n} 个", "{n} selected", { n: chosen.length })}</Muted>}
               <Spacer />
-              <Btn kind="primary" icon="check" loading={saving} disabled={mode === "discover" ? !chosen.length : !manual.name.trim()} onClick={register}>
+              <Btn kind="primary" icon="check" loading={saving} disabled={mode === "discover" ? !chosen.length : !nameOk || !namespaceOk} onClick={register}>
                 {mode === "discover" ? tx("登记 {n} 个服务", "Register {n} services", { n: chosen.length }) : tx("登记服务", "Register service")}
               </Btn>
             </Row>

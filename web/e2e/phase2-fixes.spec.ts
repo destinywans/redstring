@@ -280,3 +280,22 @@ test.describe("source states say the actual cause (PA-171)", () => {
     await expect(page.locator("#root")).not.toContainText("来源连接失败或超时");
   });
 });
+
+test.describe("manual service registration (PA-175)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("a bad name is caught with its format, and a refusal is worded", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/services/new");
+    await page.getByRole("radio", { name: "手动填写" }).click({ timeout: 20_000 });
+    const name = page.getByPlaceholder("recommendation-api");
+    await name.fill("bad name!");
+    await expect(page.getByText("只能用字母、数字、点、下划线和连字符")).toBeVisible();
+    await expect(page.getByRole("button", { name: "登记服务" })).toBeDisabled();
+    // A refusal the form can't foresee is still said in the page language.
+    await page.route(at("/services"), (r) => (r.request().method() === "POST" ? json(r, 422, { error: { code: "invalid_service", message: "duplicate service in request" } }) : r.fallback()));
+    await name.fill("check-api");
+    await page.getByRole("button", { name: "登记服务" }).click();
+    await expect.poll(async () => (await toasts(page)).join(" ")).toContain("同一个服务填了两次");
+  });
+});

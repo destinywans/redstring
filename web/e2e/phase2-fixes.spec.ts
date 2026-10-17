@@ -166,3 +166,27 @@ test.describe("coverage shares the server can't give (PA-181)", () => {
     expect(text).toContain("—");
   });
 });
+
+test.describe("unknown revision time across days (PA-180)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("both bounds carry their date when they fall on different days", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const id = await someService(page);
+    const digest = "a".repeat(64);
+    const now = Date.now();
+    const candidate = { change_cause: null, containers: [], changes: [], template_digest: digest, current: true, created_at: "2026-10-11T12:37:30Z", at: null, time_basis: "unknown", time_unknown_reason: "replicaset_reused" };
+    await page.route(at(`/services/${id}/rollback-candidates`), (r) =>
+      json(r, 200, {
+        service_id: id, application_id: "app", environment_id: "prod", verification: null, blocked_reason: null, observed_at: new Date(now).toISOString(),
+        workload: { connector_id: "k8s", namespace: "lab", deployment: "checkout-api", uid: "u", paused: false, current_revision: "87", current_template_digest: digest, replicas: { desired: 1, updated: 1, available: 1 } },
+        // From yesterday to five minutes ago: the later bound is today.
+        candidates: [{ ...candidate, revision: "87", not_before: new Date(now - 26 * 3600_000).toISOString(), not_after: new Date(now - 5 * 60_000).toISOString() }],
+      }),
+    );
+    await page.goto(origin + `/services/${encodeURIComponent(id)}`);
+    await page.getByRole("button", { name: "回滚" }).click({ timeout: 20_000 });
+    await expect(page.getByRole("dialog")).toContainText(/在 \d+月\d+日 \d\d:\d\d 到 \d+月\d+日 \d\d:\d\d 之间/, { timeout: 20_000 });
+  });
+});

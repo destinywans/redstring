@@ -14,9 +14,15 @@ export function useRevisionTime() {
     /** A secondary line for a time taken from somewhere other than the ReplicaSet's creation; null otherwise. */
     basis: (b: RevisionTimeBasis | null | undefined) =>
       b === "rollback_execution" ? tx("时间取自回滚执行", "Time taken from the rollback execution") : b === "gitlab_deployment" ? tx("时间取自 GitLab 部署", "Time taken from the GitLab deployment") : null,
-    /** "Time unknown · between X and Y". */
-    between: (notBefore: string | null | undefined, notAfter: string | null | undefined) =>
-      tx("时间未知 · 在 {a} 到 {b} 之间", "Time unknown · between {a} and {b}", { a: when.short(notBefore ?? null) ?? "—", b: when.short(notAfter ?? null) ?? "—" }),
+    /**
+     * "Time unknown · between X and Y". When the bounds fall on different days both carry the date: the short form
+     * drops it for today, which made a bound reaching today read as the earlier day (PA-180).
+     */
+    between: (notBefore: string | null | undefined, notAfter: string | null | undefined) => {
+      const days = notBefore && notAfter && new Date(notBefore).toDateString() !== new Date(notAfter).toDateString();
+      const fmt = days ? when.at : when.short;
+      return tx("时间未知 · 在 {a} 到 {b} 之间", "Time unknown · between {a} and {b}", { a: fmt(notBefore ?? null) ?? "—", b: fmt(notAfter ?? null) ?? "—" });
+    },
     reason: (r: RevisionTimeUnknownReason | null | undefined) =>
       r
         ? ({

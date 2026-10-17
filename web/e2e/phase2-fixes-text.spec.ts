@@ -6,8 +6,9 @@ import { statePath } from "./support/global-setup";
  * Backend text in the request language (PA-113, PA-166; WAN-434 phase 2). Unlike phase2-fixes.spec.ts these checks
  * read the real deployed API from inside the page (so the session cookie applies), once with Accept-Language zh-CN
  * and once with en-US. They only send GET requests and never write. A check skips when the instance has no data for
- * it. Silence proposal reviews (PA-121), Agent lifecycle rejections and the source probe need a write and are covered
- * by the Go tests instead.
+ * it. Silence proposal reviews (PA-121), Agent lifecycle rejections and the source probe need a write, and the
+ * postmortem draft titles (PA-113) need a resolved incident without a postmortem, which the acceptance data never has:
+ * the Go tests cover those instead.
  *
  *   npx playwright test -c e2e/playwright.config.ts phase2-fixes-text.spec.ts
  */
@@ -52,17 +53,6 @@ for (const name of Object.keys(INSTANCES) as InstanceName[]) {
       }
     });
 
-    test("postmortem draft section titles (PA-113)", async ({ page }) => {
-      const { body: candidates } = await get<{ items?: { id: string }[] }>(page, env, "/postmortems/candidates", "zh-CN");
-      const id = candidates?.items?.[0]?.id;
-      test.skip(!id, "no resolved incident without a postmortem");
-      for (const [lang, titles] of both(["事件摘要", "影响", "根因"], ["Incident summary", "Impact", "Root cause"])) {
-        const { status, body } = await get<{ sections: { title: string }[] }>(page, env, `/postmortems/draft?incident=${encodeURIComponent(id!)}`, lang);
-        expect(status, lang).toBe(200);
-        expect(body.sections.map((s) => s.title), lang).toEqual(titles);
-      }
-    });
-
     test("Runbook drafted from a published postmortem (PA-113)", async ({ page }) => {
       const { body: list } = await get<{ items?: { id: string; status: string }[] }>(page, env, "/postmortems", "zh-CN");
       const published = list?.items?.find((p) => p.status === "published")?.id;
@@ -93,15 +83,17 @@ for (const name of Object.keys(INSTANCES) as InstanceName[]) {
       }
     });
 
-    test("Agent tool approval column (PA-166)", async ({ page }) => {
-      type Tools = { items: { approval: string }[] };
-      const probe = await get<Tools>(page, env, "/agent-tools", "zh-CN");
-      test.skip(probe.status !== 200 || !probe.body.items?.length, "no Agent tool is visible");
-      for (const [lang, allowed] of both(["无审批要求", "需人工批准"], ["No approval configured", "Human approval required"])) {
-        const { status, body } = await get<Tools>(page, env, "/agent-tools", lang);
-        expect(status, lang).toBe(200);
-        for (const item of body.items) expect(allowed, `${lang}: ${item.approval}`).toContain(item.approval);
-      }
-    });
+    // Only prod lists Agent tools in the acceptance data; nonprod would always skip, and regress.py fails a skip.
+    if (name === "prod")
+      test("Agent tool approval column (PA-166)", async ({ page }) => {
+        type Tools = { items: { approval: string }[] };
+        const probe = await get<Tools>(page, env, "/agent-tools", "zh-CN");
+        test.skip(probe.status !== 200 || !probe.body.items?.length, "no Agent tool is visible");
+        for (const [lang, allowed] of both(["无审批要求", "需人工批准"], ["No approval configured", "Human approval required"])) {
+          const { status, body } = await get<Tools>(page, env, "/agent-tools", lang);
+          expect(status, lang).toBe(200);
+          for (const item of body.items) expect(allowed, `${lang}: ${item.approval}`).toContain(item.approval);
+        }
+      });
   });
 }

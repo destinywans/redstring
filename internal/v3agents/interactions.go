@@ -447,10 +447,10 @@ func (s *Service) readToolCatalog(r *http.Request, tx pgx.Tx, envs []string, kin
 		if !visible {
 			continue
 		}
-		approval := "No approval configured"
+		approval := promptLocalized(r, "无审批要求", "No approval configured")
 		risk := "low"
 		if v.kind == "write" {
-			approval = "Human approval required"
+			approval = promptLocalized(r, "需人工批准", "Human approval required")
 			risk = "high"
 		}
 		items = append(items, map[string]any{"id": v.id, "name": v.name, "kind": v.kind, "risk": risk, "approval": approval, "agents": "", "envs": v.env, "calls": "—", "error": "—", "agent_id": "", "application_id": "", "environment_id": v.env, "brand": v.brand, "connector_id": v.connector, "registered_enabled": false, "executable": false, "execution_status": "not_connected", "metrics_basis": "recorded_run_spans_only", "metrics_complete": false, "catalog_only": true})

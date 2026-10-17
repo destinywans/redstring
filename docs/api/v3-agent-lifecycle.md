@@ -27,7 +27,7 @@
 
 首次稳定版没有当前稳定基线，而评测创建要求两个已登记且不同的非空版本；因此首次发布只能由符合条件的真人管理员提交非空放行原因。后续如需普通评测门禁完成首次发布，须另行定义基线来源，当前不把缺失基线伪装成评测通过。
 
-写响应返回递增 `revision`。运行器接通时 `release_effect: "governed_requests_consume_configuration"` 且 `routing_connected: true`；未接通时仍为 `configuration_saved_pending_activation` 和 false。`observed_traffic` 仍为 null。回滚响应中的 `configured_percent: 100` 是回滚目标稳定版的配置比例，`configured_canary_percent: 0` 表示金丝雀配置已清空，两者都不是实测流量。正式运行入口同样消费权限等级和环境上限，但不据此开放写执行。读写的归属、授权、版本检查、变更和审计应在同一事务完成。失败按现有 V3 错误包装返回；修订冲突为 `409 version_conflict`，不满足评测门禁或环境上限也是 409，输入不合法为 422，隐藏或不存在对象为 404，存储及权限检查不可用为 503。
+写响应返回递增 `revision`。运行器接通时 `release_effect: "governed_requests_consume_configuration"` 且 `routing_connected: true`；未接通时仍为 `configuration_saved_pending_activation` 和 false。`observed_traffic` 仍为 null。回滚响应中的 `configured_percent: 100` 是回滚目标稳定版的配置比例，`configured_canary_percent: 0` 表示金丝雀配置已清空，两者都不是实测流量。正式运行入口同样消费权限等级和环境上限，但不据此开放写执行。读写的归属、授权、版本检查、变更和审计应在同一事务完成。失败按现有 V3 错误包装返回；修订冲突为 `409 version_conflict`，不满足评测门禁或环境上限也是 409，输入不合法为 422，隐藏或不存在对象为 404，存储及权限检查不可用为 503。推进、回滚和等级调整的业务拒绝（`version_conflict`、`already_stable`、`stable_version_required`、`admin_override_required`、`eval_gate_unverified`、`rollback_unavailable`、`agent_level_cap`）的 `message` 按 `Accept-Language` 生成，Agent 页原样显示（PA-166）。
 
 ## 契约接线与冻结前端
 

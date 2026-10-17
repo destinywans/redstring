@@ -237,3 +237,17 @@ test.describe("inbox tabs without a source (PA-178)", () => {
     await expect(page.getByText("提及和订阅还没有来源")).toBeVisible({ timeout: 20_000 });
   });
 });
+
+test.describe("empty canvas and template lists (PA-182)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("say there is no data instead of a blank area", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/canvases"), (r) => json(r, 200, { items: [], counts: { all: 0 } }));
+    await page.route(at("/investigation-templates"), (r) => json(r, 200, { items: [], counts: { all: 0, official: 0, team: 0 } }));
+    await page.goto(origin + "/canvases");
+    await expect(page.getByText("没有数据", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await page.goto(origin + "/templates");
+    await expect(page.getByText("没有数据", { exact: true })).toBeVisible({ timeout: 20_000 });
+  });
+});

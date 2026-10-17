@@ -43,6 +43,12 @@ export default function TemplatesPage() {
             </Row>
             <div className="tpl-grid stagger">
               {isLoading && Array.from({ length: 6 }, (_, i) => <Skeleton key={i} h={136} style={{ borderRadius: 10 }} />)}
+              {/* An empty list says so, like the other lists, instead of a blank area (PA-182). */}
+              {data && !data.items.length && (
+                <div style={{ gridColumn: "1 / -1", padding: 28, textAlign: "center" }}>
+                  <Muted>{tx("没有数据", "No data")}</Muted>
+                </div>
+              )}
               {data?.items.map((t) => (
                 <button key={t.id} type="button" className={cx("tpl-card lift", sel?.id === t.id && "on")} onClick={() => setSel(t.id)} onDoubleClick={() => start(t)}>
                   <Row gap={8} style={{ width: "100%" }}>

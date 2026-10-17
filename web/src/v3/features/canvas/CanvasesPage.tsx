@@ -118,6 +118,12 @@ export default function CanvasesPage() {
         </Row>
         <div className="cv-grid stagger">
           {isLoading && Array.from({ length: 8 }, (_, i) => <Skeleton key={i} h={214} style={{ borderRadius: 10 }} />)}
+          {/* An empty list says so, like the other lists, instead of a blank area (PA-182). */}
+          {data && !data.items.some((cv) => fOwner.test(cv) && fSvc.test(cv) && fState.test(cv)) && (
+            <div style={{ gridColumn: "1 / -1", padding: 28, textAlign: "center" }}>
+              <Muted>{tx("没有数据", "No data")}</Muted>
+            </div>
+          )}
           {data?.items.filter((cv) => fOwner.test(cv) && fSvc.test(cv) && fState.test(cv)).map((cv) => (
             <a
               key={cv.id}

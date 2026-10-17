@@ -26,7 +26,7 @@ test.describe("add chip search (PA-185)", () => {
     await page.goto(origin + "/canvases?new=plan");
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: /服务/ }).last().click({ timeout: 20_000 });
-    await page.locator(".demo-menu input").fill("后续检查");
+    await page.locator(".demo-add-search input").fill("后续检查");
     await expect(page.locator(".demo-menu button", { hasText: NAME })).toBeVisible();
   });
 });

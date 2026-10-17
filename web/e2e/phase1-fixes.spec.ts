@@ -917,3 +917,16 @@ test.describe("conversation attachments (PA-165)", () => {
     await expect.poll(() => env, { timeout: 10_000 }).toBe("prod");
   });
 });
+
+test.describe("production config sync for other roles (PA-110)", () => {
+  test.use({ storageState: statePath("prod", "viewer"), viewport: { width: 1440, height: 1000 } });
+  test("a role without workspace.manage sees the lock and never requests the list", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await page.goto(origin + "/integrations/sync");
+    await expect(page.getByText("没有权限查看待导入的配置")).toBeVisible({ timeout: 20_000 });
+    await m.settle();
+    expect(m.api.filter((c) => c.path.startsWith("/config-sync"))).toEqual([]);
+    expect(m.pageErrors).toEqual([]);
+  });
+});

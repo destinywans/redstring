@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import type { SyncItem } from "../../api/types";
+import type { Me, SyncItem } from "../../api/types";
 import { Badge, Btn, Card, Empty, Skeleton } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { confirmAction } from "../../ui/demo";
 import { PageUnavailable } from "../../ui/unknown";
+import { usePermission } from "../../ui/permission";
 import { useI18n } from "../../i18n";
 import { useEnv } from "../../app/environment";
 import { PageHead } from "../conversation/ConversationsPage";
@@ -21,7 +22,12 @@ import "./integrations.css";
 export default function ConfigSyncPage() {
   const { tx } = useI18n();
   const prod = useEnv((s) => s.instance?.tier === "production");
-  const { data, refetch, error } = useGet<{ direction: "import" | "export"; items: SyncItem[] }>("/config-sync");
+  // PA-110: production lists config-sync only for a platform administrator with workspace.manage, though the route
+  // is marked workspace.view. Settle that from /me first instead of letting other roles hit a 403.
+  const me = useGet<Me>("/me");
+  const lacksManage = usePermission()(["workspace", "manage"]) !== null;
+  const held = prod && (!me.data && !me.error ? "waiting" : lacksManage ? "denied" : null);
+  const { data, refetch, error } = useGet<{ direction: "import" | "export"; items: SyncItem[] }>(held ? null : "/config-sync");
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, SyncItem>>({});
   const errorText = useConfigSyncError();
@@ -66,7 +72,7 @@ export default function ConfigSyncPage() {
       unverifiable: <Badge tone="warn">{tx("无法核验", "Unverifiable")}</Badge>,
     })[s];
   // Production needs a platform administrator with global workspace.manage to read the list (D44 wording elsewhere).
-  const forbidden = error instanceof ApiError && error.status === 403 && !data;
+  const forbidden = held === "denied" || (error instanceof ApiError && error.status === 403 && !data);
   return (
     <Page error={!data && !forbidden ? error : undefined} errorSource={tx("配置仓库", "configuration repository")} crumbs={[tx("集成中心", "Integrations"), tx("配置同步", "Config sync")]}>
       {forbidden ? (

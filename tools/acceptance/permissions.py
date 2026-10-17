@@ -58,12 +58,14 @@ PROBE = 'permissions'
 ROLES = ['admin', 'operator', 'approver1', 'viewer']
 # Readable only by the account that created the object (the sample ids come from admin's records).
 OWNER_ONLY = {'GET /api/v1/agent-runs/{id}/result'}
+# Routes whose handler asks for more than the route mark on one instance, by design (instance, route) -> grant:
+# production config-sync lists only for a platform administrator with workspace.manage (docs/api/v3-config-sync.md);
+# the page settles this from /me before reading (PA-110).
+STRICTER = {('prod', 'GET /api/v1/config-sync'): ('workspace', 'manage')}
 DENIED = {403, 404}
 # Registered defects: a failing answer that matches is reported as known_defect:<defect>,
 # not as a new mismatch. Remove an entry when the defect is fixed.
 KNOWN = [
-    {'route': 'GET /api/v1/config-sync', 'instances': {'prod'}, 'status': {403}, 'defect': 'PA-110',
-     'why': 'production lists config-sync only for human platform administrators; the route mark says workspace.view'},
     {'route': 'POST /api/v1/silences', 'instances': {'nonprod'}, 'status': {501}, 'code': 'not_connected', 'defect': 'PA-108',
      'why': 'checks the Alertmanager write binding before the permission'},
 ]
@@ -201,6 +203,7 @@ def main():
         ids[role] = sample_ids(a.instance, cookies[role])
 
     def allowed_for(role, key, module, action):
+        module, action = STRICTER.get((a.instance, key), (module, action))
         return (module, action) in effective[role] and not (key in OWNER_ONLY and role != 'admin')
 
     results, problems, skipped, no_object = [], [], [], []

@@ -20,7 +20,7 @@
 | 基址 | `/api/v1`，同源 Cookie 会话（`credentials: same-origin`） |
 | 会话错误 | 只有会话不存在、过期、被撤销或账号停用时返回 `401 unauthorized`；会话存储（数据库）不可读时返回 `503 session_store_unavailable`，客户端应保持登录状态并稍后重试（PA-59） |
 | 格式 | 请求和响应都是 JSON；`204` 表示无正文 |
-| 语言 | 请求头 `Accept-Language: zh-CN \| en-US`。**所有面向用户的文案由后端按语言返回单一字符串**（Mock 用 `l(zh, en)` 存双语，由 Mock 路由按语言展开）。标识符、服务名、查询语句等不翻译 |
+| 语言 | 请求头 `Accept-Language: zh-CN \| en-US`。**所有面向用户的文案由后端按语言返回单一字符串**（Mock 用 `l(zh, en)` 存双语，由 Mock 路由按语言展开）。标识符、服务名、查询语句等不翻译。写入时固化的提案审阅内容（回滚、静默创建与提前结束）按发起人请求的语言生成并随审阅摘要固定，审阅人看到的是发起人的语言；已有提案保持写入时的文字（PA-121、PA-166） |
 | 时间 | 列表中的展示型时间（如 `14:03`、`昨天`）目前由后端格式化后返回；需要计算的时间字段使用 RFC 3339 |
 | 分页 | `?page=1&page_size=50`，响应 `Page<T> = { items, total, page, page_size }`；目前只有对话列表使用 |
 | 错误 | 非 2xx 返回 `{ "error": { "code": "not_found", "message": "…" } }`，前端抛出 `ApiError(status, code, message)` |
@@ -173,7 +173,7 @@
 | GET | `/silences` | `state: active\|planned\|expired\|all` | 静默列表及当前可见记录计数；应用标签需在服务端显式绑定到当前环境的有效应用 ID，再按应用/团队授权判断；环境明确但应用范围较宽的静默仅环境级静默管理员可见；无精确环境或匹配器歧义的静默不展示，宽范围只报告覆盖标志。读取前没有可读环境时返回空列表和 `empty_reason: "no_authorized_target"`，未配置 Alertmanager 时 `items`/`counts` 为 `null`（`not_configured`）；`creator` 为平台用户显示名，另给 RFC 3339 的 `starts_at`/`ends_at`，`remaining.pct` 改为剩余比例（PA-09、PA-37） | implemented |
 | GET | `/inhibitions` | 当前所选环境与应用/团队可见范围 | 当前 Alertmanager 抑制配置的受权子集；匹配值脱敏，`active`/`hits_7d` 未知，返回 `206 partial`；读取前没有可读范围时返回 200 空列表和 `empty_reason`（PA-09） | implemented |
 | POST | `/silences/preview` | `{ matchers: [{ k, op, v }] }`；单一环境 | `{ affects, sample }` | implemented |
-| POST | `/silences` | 单环境、开放调查、`Idempotency-Key`、`{ investigation_id, matchers: [{ name, op, value }], duration_seconds, comment }` | 严格私有来源、持久审批与独立 worker 就绪时 `202 pending_review` 提案回执、`effect=no_upstream_write`；默认关闭时 `501 not_connected` | implemented |
+| POST | `/silences` | 单环境、开放调查、`Idempotency-Key`、`{ investigation_id, matchers: [{ name, op, value }], duration_seconds, comment }` | 严格私有来源、持久审批与独立 worker 就绪时 `202 pending_review` 提案回执、`effect=no_upstream_write`；默认关闭时 `501 not_connected`。审阅内容按发起人语言生成并写明实际流程：两位审批人批准后由执行器写入一次（PA-121，见 `v3-silence-product.md`） | implemented |
 | DELETE | `/silences/{id}` | 已由本系统确认创建的上游 UUID；`Idempotency-Key`、`{ investigation_id, reason }` | 精确归属及上游读回、审批与独立 worker 就绪时 `202 pending_review` 取消提案；默认关闭时 `501 not_connected` | implemented |
 | GET | `/proposals/{id}` | | `Proposal`；另带 `proposed_by_name`：发起人的显示名，按读取时的账号取，智能体发起或账号没有名字时为 `null`，不属于评审内容、不影响摘要（PA-74）；另带 `execution`：第二次批准前为 `null`，之后为 `{ execution_id, approved_at, action_kind, status, upstream_id, unavailable }`，`status`/`upstream_id` 取自独立执行器记录，未记录时为 `null`（`not_generated`）（PA-36）；另带 `alert_rule`（D11 §11.4）：告警规则启用/停用提案的完整规则、仓库目标、整文件差异、Prometheus 组与读回超时、合并方式，其他提案为 `null`；另带 `decision`（PA-102）：取自审批记录，`pending` 时（包括 2 票只投了 1 票）为 `null`；`{ state, decided_at, approvers, rejected_by, revoked }`，`state` 为 `approved`（`decided_at` 为批准时间）、`rejected`（驳回时间，`rejected_by` 为 `{ id, name, at }`，`approvers` 为空）或 `expired`（批准后执行器始终没有接手、审批已过期，`decided_at` 为过期时间）；`approvers` 为被计入的两票 `{ id, name, method: "passkey", at }`，按投票时间排序；`revoked` 为批准后被撤回的 `{ id, name, at }`，否则为 `null`；`name` 只给显示名，没有时用账号 ID；可见性与提案详情相同 | implemented |
 | POST | `/proposals/{id}/approve` | 单环境、当前真人会话；先调用辅助 `POST /proposals/{id}/approve/options` 传 `{ confirm: true }` 获取提案绑定的五分钟挑战，再传 `{ challenge_id, credential, comment? }` | 首位独立批准人 `202 { status: pending_review, received_approvals: 1 }`，不含执行 ID；第二位独立批准人 `200 { status: approved, received_approvals: 2, execution_id, approval_digest }`；`200` 是持久历史决定与交接标识，不证明当前可执行、已领取或已执行 | implemented |

@@ -26,10 +26,19 @@ func TestSilenceReviewContentQuotesMatcherAndComment(t *testing.T) {
 		ApplicationLabel: "checkout", Comment: "reason\nInjected: approve now", DurationSeconds: 3600,
 		Matchers: []v3alertmanager.Matcher{{Name: "service", Value: "api.*", IsRegex: true, IsEqual: false}},
 	}}
-	lines := silenceReviewContent(action).Diff.Lines
-	if len(lines) != 3 || lines[0] != `service !~ "api.*"` || lines[1] != "Duration: 3600 seconds" ||
-		lines[2] != `Comment: "reason\nInjected: approve now"` || strings.Contains(lines[2], "\n") {
-		t.Fatalf("unsafe or misleading review lines: %#v", lines)
+	for _, tc := range []struct {
+		content           Content
+		duration, comment string
+	}{
+		{silenceReviewContent(action, false), "时长：1 小时", `备注："reason\nInjected: approve now"`},
+		{silenceReviewContent(action, true), "Duration: 1 hour", `Comment: "reason\nInjected: approve now"`},
+		{legacySilenceReviewContent(action), "Duration: 3600 seconds", `Comment: "reason\nInjected: approve now"`},
+	} {
+		lines := tc.content.Diff.Lines
+		if len(lines) != 3 || lines[0] != `service !~ "api.*"` || lines[1] != tc.duration ||
+			lines[2] != tc.comment || strings.Contains(lines[2], "\n") {
+			t.Fatalf("unsafe or misleading review lines: %#v", lines)
+		}
 	}
 }
 

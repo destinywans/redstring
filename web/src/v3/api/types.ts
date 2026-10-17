@@ -1217,9 +1217,10 @@ export type ServiceMapping = {
 export type CoverageCell = { state: "ok" | "partial" | "missing" | "na" | "pull"; brand?: string; text?: string; href?: string };
 export type CoverageView = {
   kpis: Kpi[];
-  types: { label: string; pct: number; tone: Tone }[];
+  /** pct and score are null when the server can't give the share (PA-181). */
+  types: { label: string; pct: number | null; tone: Tone }[];
   columns: { id: string; label: string }[];
-  rows: { service: string; tier: string; cells: Record<string, CoverageCell>; owner?: string; score: number }[];
+  rows: { service: string; tier: string; cells: Record<string, CoverageCell>; owner?: string; score: number | null }[];
   impact: { answers: string; flagged: string; delta: string; lowered: string; by_type: { label: string; value: number; tone?: Tone }[]; eval_failures: number };
   fixes: { text: string; impact: string; action: string; href: string }[];
 };

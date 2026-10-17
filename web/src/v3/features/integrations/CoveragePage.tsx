@@ -19,7 +19,7 @@ export default function CoveragePage() {
   const fApp = useFacet(data?.rows, (r) => r.service);
   const [filter, setFilter] = useState<"all" | "t0" | "gaps">("gaps");
   const [q, setQ] = useState("");
-  const rows = data?.rows.filter((r) => (filter === "all" || (filter === "t0" ? r.tier === "T0" : r.score < 100)) && (!q || r.service.includes(q)) && fApp.test(r));
+  const rows = data?.rows.filter((r) => (filter === "all" || (filter === "t0" ? r.tier === "T0" : r.score == null || r.score < 100)) && (!q || r.service.includes(q)) && fApp.test(r));
   const Cell = ({ c }: { c?: CoverageCell }) => {
     if (!c) return null;
     if (c.state === "na") return <span style={{ color: "var(--faint)", fontSize: "var(--fs-sub)" }}>{tx("不适用", "N/A")}</span>;
@@ -76,10 +76,11 @@ export default function CoveragePage() {
               <Row gap={4}>
                 <Muted size={11.5}>{t.label}</Muted>
                 <Spacer />
-                <b className="tnum" style={{ fontSize: "var(--fs-body)", color: `var(--${t.tone})` }}>{t.pct}%</b>
+                {/* A share the server can't give is null: a dash, not a bare "%" (PA-181). */}
+                <b className="tnum" style={{ fontSize: "var(--fs-body)", color: t.pct == null ? "var(--muted)" : `var(--${t.tone})` }}>{t.pct == null ? "—" : `${t.pct}%`}</b>
               </Row>
               <span className="track">
-                <span style={{ width: `${t.pct}%`, background: `var(--${t.tone})` }} />
+                {t.pct != null && <span style={{ width: `${t.pct}%`, background: `var(--${t.tone})` }} />}
               </span>
             </div>
           ))}
@@ -153,9 +154,9 @@ export default function CoveragePage() {
                     <td>
                       <Row gap={6}>
                         <span className="track small">
-                          <span style={{ width: `${r.score}%`, background: `var(--${toneOf(r.score)})` }} />
+                          {r.score != null && <span style={{ width: `${r.score}%`, background: `var(--${toneOf(r.score)})` }} />}
                         </span>
-                        <b className="tnum" style={{ fontSize: "var(--fs-sub)", color: `var(--${toneOf(r.score)})` }}>{r.score}%</b>
+                        <b className="tnum" style={{ fontSize: "var(--fs-sub)", color: r.score == null ? "var(--muted)" : `var(--${toneOf(r.score)})` }}>{r.score == null ? "—" : `${r.score}%`}</b>
                       </Row>
                     </td>
                   </tr>

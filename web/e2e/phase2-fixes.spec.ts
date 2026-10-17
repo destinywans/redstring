@@ -150,3 +150,19 @@ test.describe("canvas toolbar as a viewer (PA-177)", () => {
     for (const name of ["派生", "回写"]) await expect(toolbar.getByRole("button", { name })).toBeDisabled({ timeout: 20_000 });
   });
 });
+
+test.describe("coverage shares the server can't give (PA-181)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("show a dash, not a bare percent sign", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/coverage"), (r) =>
+      json(r, 200, { kpis: [], types: [{ label: "检查用类型", pct: null, tone: "ok" }], columns: [], rows: [{ service: "检查用服务", tier: "T1", cells: {}, score: null }], impact: { answers: "", flagged: "", delta: "", lowered: "", by_type: [], eval_failures: 0 }, fixes: [] }),
+    );
+    await page.goto(origin + "/integrations/coverage");
+    await expect(page.getByText("检查用类型")).toBeVisible({ timeout: 20_000 });
+    const text = await page.locator("#root").innerText();
+    expect(text).not.toMatch(/(^|\s)%/m);
+    expect(text).toContain("—");
+  });
+});

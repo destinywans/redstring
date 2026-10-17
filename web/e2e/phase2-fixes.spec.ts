@@ -137,3 +137,16 @@ test.describe("canvas without a conversation (PA-168)", () => {
     await expect.poll(async () => (await toasts(page)).join(" ")).toContain("没有对应的对话");
   });
 });
+
+test.describe("canvas toolbar as a viewer (PA-177)", () => {
+  test.use({ storageState: statePath("prod", "viewer"), viewport: { width: 1440, height: 1000 } });
+
+  test("fork and write back are disabled with the grant they need", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const id = await someInvestigation(page);
+    await page.goto(origin + `/canvas/${id}`);
+    const toolbar = page.getByRole("toolbar", { name: "画布工具" });
+    for (const name of ["派生", "回写"]) await expect(toolbar.getByRole("button", { name })).toBeDisabled({ timeout: 20_000 });
+  });
+});

@@ -23,7 +23,7 @@ import { CompareDialog } from "./CompareDialog";
 import { DetailPanel, useFloatCover, usePinned } from "../../ui/DetailPanel";
 import "./canvas.css";
 import { openExternal } from "../../ui/demo";
-import { Gated } from "../../ui/permission";
+import { Gated, useNeed } from "../../ui/permission";
 import { useRollbackDrawer } from "../events/RollbackProposal";
 import { useRollbackBlocked } from "../events/rollback";
 
@@ -501,6 +501,7 @@ export default function CanvasPage() {
   const nav = useNavigate();
   const openRollback = useRollbackDrawer((x) => x.open);
   const rollbackBlocked = useRollbackBlocked();
+  const canvasChange = useNeed(["canvas", "change"]);
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const { data, isLoading } = useGet<CanvasGraph>(id ? `/investigations/${id}/canvas` : null);
@@ -1015,28 +1016,33 @@ export default function CanvasPage() {
             <IconBtn icon="fit" label={tx("适应画布", "Fit")} size={26} onClick={fit} />
           </div>
           <div className="cv-toolbar" role="toolbar" aria-label={tx("画布工具", "Canvas tools")} onPointerDown={(e) => e.stopPropagation()}>
-            <Btn kind="ghost" icon="fork" onClick={fork}>
-              {tx("派生", "Fork")}
-            </Btn>
+            {/* Forking and writing back change the investigation: gated like the rest of the toolbar (PA-177). */}
+            <Gated reason={canvasChange}>
+              <Btn kind="ghost" icon="fork" onClick={fork}>
+                {tx("派生", "Fork")}
+              </Btn>
+            </Gated>
             {/* Merging and comparing branches have no server side yet; they stay in the sample (PA-156, D52). */}
             {demo && (
               <Btn kind="ghost" icon="merge" onClick={() => toast(tx("请选择两个同级分支进行合并", "Select two sibling branches to merge"))}>
                 {tx("合并", "Merge")}
               </Btn>
             )}
-            <Btn
-              kind="ghost"
-              icon="writeback"
-              onClick={() => {
-                // Real write-backs start from the selected branch; the sample opens its sample branch.
-                if (demo) return setWriteback(sel ?? "b-amp");
-                const from = sel ? byId[sel] : undefined;
-                if (!from || from.kind === "root" || from.kind === "evidence") return toast(tx("先选中要回写的分支", "Select the branch to write back first"));
-                setWriteback(from.id);
-              }}
-            >
-              {tx("回写", "Write back")}
-            </Btn>
+            <Gated reason={canvasChange}>
+              <Btn
+                kind="ghost"
+                icon="writeback"
+                onClick={() => {
+                  // Real write-backs start from the selected branch; the sample opens its sample branch.
+                  if (demo) return setWriteback(sel ?? "b-amp");
+                  const from = sel ? byId[sel] : undefined;
+                  if (!from || from.kind === "root" || from.kind === "evidence") return toast(tx("先选中要回写的分支", "Select the branch to write back first"));
+                  setWriteback(from.id);
+                }}
+              >
+                {tx("回写", "Write back")}
+              </Btn>
+            </Gated>
             {demo && (
               <Btn kind={compare ? "soft" : "ghost"} icon="layers" onClick={() => setCompare((c) => !c)}>
                 {tx("对比", "Compare")}

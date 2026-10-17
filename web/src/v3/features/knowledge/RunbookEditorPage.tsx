@@ -214,7 +214,13 @@ export default function RunbookEditorPage() {
               )}
             </Section>
             <Section title={tx("试跑", "Dry run")}>
-              <Muted size={11.5}>{tx("在预发用只读步骤走一遍，确认查询与判断条件仍然有效。", "Walk through the read-only steps on staging to confirm queries and checks still work.")}</Muted>
+              {/* PA-112: the server only checks the saved steps (kinds, read-only flags, connectors) in the selected
+                  environment; it reaches no system and runs nothing. The staging walkthrough is the sample data's. */}
+              <Muted size={11.5}>
+                {API_MODE === "mock"
+                  ? tx("在预发用只读步骤走一遍，确认查询与判断条件仍然有效。", "Walk through the read-only steps on staging to confirm queries and checks still work.")
+                  : tx("检查每一步的类型、只读标记和连接器是否齐全；不连接任何系统，也不执行步骤。", "Checks each step's kind, read-only flag and connectors; it reaches no system and runs no step.")}
+              </Muted>
               <Btn
                 icon="play"
                 loading={running}
@@ -243,7 +249,7 @@ export default function RunbookEditorPage() {
                   }
                 }}
               >
-                {tx("在预发试跑只读步骤", "Dry-run on staging")}
+                {API_MODE === "mock" ? tx("在预发试跑只读步骤", "Dry-run on staging") : tx("校验只读步骤", "Check the read-only steps")}
               </Btn>
             </Section>
           </Col>

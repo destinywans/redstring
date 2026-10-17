@@ -273,7 +273,8 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 		}
 	}
 	if draft.Code != 200 || !strings.Contains(draft.Body.String(), `"draft_mode":"evidence_only"`) ||
-		!strings.Contains(draft.Body.String(), `"text":"investigation.closed"`) ||
+		// PA-169: lifecycle events are worded, not event codes.
+		!strings.Contains(draft.Body.String(), `"text":"调查结案"`) ||
 		!strings.Contains(draft.Body.String(), `"key":"root"`) ||
 		strings.Contains(draft.Body.String(), "connection_pool.max") {
 		t.Fatalf("draft invented incident details or missed evidence: %d %s", draft.Code, draft.Body.String())

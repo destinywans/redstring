@@ -280,7 +280,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | GET | `/runbooks/draft` | `source: template\|postmortem\|conversation\|import`, 必需 `from` | 有界、来源可核的确定性大纲及 `source_sha256`；不是 AI 生成或已核实操作步骤 | implemented |
 | POST | `/runbooks` | `{ title, source, from?, expected_source_sha256?, steps, status: draft\|review }`；非空白来源必需引用，空白来源不得填写 | `{ id }`；来源变更 409，写动作步骤必需 `approval`，不发布或执行 | implemented |
 | GET | `/postmortems/candidates` | | 旧事故的调查结案事件或手工事件的真实 resolved 状态事件；尚无复盘且当前受权，返回精确 `source_revision`，缺失时长/证据为未知 | implemented |
-| GET | `/postmortems/draft` | 必需 `incident`：当前受权且有真实解决来源的旧事故或手工事件 ID | 证据型部分草稿与精确 `source_revision`；旧事故另有 `source_close_event_seq`，无 Canvas 手工事件不虚构调查报告或调查事件时间线 | implemented |
+| GET | `/postmortems/draft` | 必需 `incident`：当前受权且有真实解决来源的旧事故或手工事件 ID | 证据型部分草稿与精确 `source_revision`；旧事故另有 `source_close_event_seq`，无 Canvas 手工事件不虚构调查报告或调查事件时间线。`timeline` 合并状态事件与事件页人工记录（截至结案，PA-169），状态事件按 `Accept-Language` 写成文字（如“事件已缓解”），不返回事件码 | implemented |
 | POST | `/postmortems` | `{ incident_id, source_revision?, source_close_event_seq?, sections, actions, status: draft\|review }`；手工事件必需 `source_revision`，旧事故仍接受结案序号 | `{ id }`；同事务复核精确解决来源及修订，变化时 409 要求重预览；写入复盘与审计，不触发外部动作 | implemented |
 | POST | `/knowledge-sources/test` | `{ type, url, secret_ref?, application_id, team_id?, spaces? }`；`type` 限受支持的公开 Web Markdown、绑定 GitLab Markdown/Confluence/Notion/飞书 Docx 或本人上传文本 | 即时受限只读探测；不证明持续健康、同步或索引 | implemented |
 | POST | `/knowledge-sources` | `{ name, type, url, secret_ref?, application_id, team_id?, spaces, schedule: "manual", chunk: "heading"\|"fixed", inherit_acl: true }`；类型与探测相同 | `{ id, status }`；登记不自动同步或索引 | implemented |
@@ -606,7 +606,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 日期 | 变更 |
 | --- | --- |
-| 2026-10-17 | 缺陷收敛两轮之间：`GET /alerts/{id}` 新增 `group_id`（PA-167）。 |
+| 2026-10-17 | 缺陷收敛两轮之间：`GET /alerts/{id}` 新增 `group_id`（PA-167）；`GET /postmortems/draft` 的 `timeline` 含人工记录、状态事件写成文字（PA-169）。 |
 | 2026-10-10 | PA-19 第二阶段第 8 步：`AIOPS_V3_SOURCE_REGISTRY` 缺省改为 `unified`，全部读取方读统一登记，本契约里写成“`AIOPS_V3_UNIFIED_READERS` 含某读取方时”的行为即缺省行为；`legacy`、`compare` 只保留列出的读取方，作为回退保留到 P4。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-19 P4：删除 `legacy`、`compare` 模式和 `AIOPS_V3_SOURCE_REGISTRY`、`AIOPS_V3_UNIFIED_READERS`（设了只记一条警告），覆盖度、服务映射、日志、Trace、AI 指标与日志工具、`list_services` 只读统一登记，连接器详情 `tools` 无条件列出已保存开关；服务映射不再返回 `registry_cutover`、`registry_not_enabled`，已存绑定不再按遥测文件和 Kubernetes 登记校验；V3 实例不再注册 `internal/actions` 的旧回滚路由（404），迁移 173 让已批准、未执行的旧回滚计划到期。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-19 P4：V3 实例不再读 `AIOPS_TELEMETRY_CONFIG`（设了只记一条警告；旧模式和 `aiops connectors import-legacy` 照旧读）；客户端上限改取统一目录的 `limits`，Trace 搜索完整声明改为目录的 `tempo_search_fail_closed` 连接器列表。详见 [遥测来源统一登记](v3-telemetry-registry.md) |

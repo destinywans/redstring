@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -87,7 +88,8 @@ func (s *Service) Draft(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "postmortems_unavailable", "Incident timeline is unavailable")
 		return
 	}
-	timeline := make([]map[string]string, 0)
+	t := draftTextFor(r.Header.Get("Accept-Language"))
+	entries := make([]timelineEntry, 0)
 	for rows.Next() {
 		var kind string
 		var at time.Time
@@ -98,15 +100,25 @@ func (s *Service) Draft(w http.ResponseWriter, r *http.Request) {
 		if kind == "investigation.closed" || kind == "incident.resolved" {
 			tone = "ok"
 		}
-		timeline = append(timeline, map[string]string{"at": at.UTC().Format(time.RFC3339), "text": kind, "tone": tone})
+		entries = append(entries, timelineEntry{at, t.event(kind), tone})
 	}
 	if err == nil {
 		err = rows.Err()
 	}
 	rows.Close()
+	if err == nil {
+		// The notes people added on the incident page belong in the review too
+		// (PA-169); they are read up to the close, like the lifecycle events.
+		entries, err = appendManualTimeline(ctx, tx, entries, id, *closed)
+	}
 	if err != nil {
 		httpapi.Error(w, 503, "postmortems_unavailable", "Incident timeline is unavailable")
 		return
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].at.Before(entries[j].at) })
+	timeline := make([]map[string]string, 0, len(entries))
+	for _, e := range entries {
+		timeline = append(timeline, map[string]string{"at": e.at.UTC().Format(time.RFC3339), "text": e.text, "tone": e.tone})
 	}
 	if len(timeline) > 200 {
 		httpapi.Error(w, 413, "timeline_too_large", "Incident timeline exceeds the draft limit")
@@ -140,4 +152,66 @@ func (s *Service) Draft(w http.ResponseWriter, r *http.Request) {
 		result["source_close_event_seq"] = *closeSeq
 	}
 	httpapi.WriteJSON(w, 200, result)
+}
+
+type timelineEntry struct {
+	at         time.Time
+	text, tone string
+}
+
+// appendManualTimeline adds the incident page's manual notes recorded up to
+// the close. Notes are stored under the alert or case ID the page showed.
+func appendManualTimeline(ctx context.Context, tx pgx.Tx, entries []timelineEntry, id string, closed time.Time) ([]timelineEntry, error) {
+	rows, err := tx.Query(ctx, `SELECT created_at,text FROM v3_incident_timeline
+ WHERE incident_id=$1 AND created_at<=$2 ORDER BY created_at,id LIMIT 201`, id, closed)
+	if err != nil {
+		return entries, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var at time.Time
+		var note string
+		if err := rows.Scan(&at, &note); err != nil {
+			return entries, err
+		}
+		entries = append(entries, timelineEntry{at, note, "info"})
+	}
+	return entries, rows.Err()
+}
+
+// draftText words the draft's lifecycle events in the request language
+// instead of their event codes (PA-169).
+type draftText struct{ en bool }
+
+func draftTextFor(acceptLanguage string) draftText {
+	return draftText{en: strings.HasPrefix(strings.ToLower(strings.TrimSpace(acceptLanguage)), "en")}
+}
+
+func (t draftText) pick(zh, en string) string {
+	if t.en {
+		return en
+	}
+	return zh
+}
+
+func (t draftText) event(code string) string {
+	switch code {
+	case "incident.mitigated":
+		return t.pick("事件已缓解", "Incident mitigated")
+	case "incident.resolved":
+		return t.pick("事件已解决", "Incident resolved")
+	case "investigation.created":
+		return t.pick("发起调查", "Investigation started")
+	case "investigation.closed":
+		return t.pick("调查结案", "Investigation closed")
+	case "branch.forked":
+		return t.pick("派生分支", "Branch forked")
+	case "branch.updated":
+		return t.pick("分支更新", "Branch updated")
+	case "branch.writeback":
+		return t.pick("分支结论回写", "Branch conclusions written back")
+	case "branch.reply_completed":
+		return t.pick("AI 回复完成", "AI reply completed")
+	}
+	return code
 }

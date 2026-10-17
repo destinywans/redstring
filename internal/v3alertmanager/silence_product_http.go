@@ -9,6 +9,7 @@ import (
 
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
@@ -156,7 +157,19 @@ func (s *Service) silenceProductRequest(w http.ResponseWriter, r *http.Request, 
 		httpapi.Error(w, http.StatusConflict, "single_environment_required", "Select one environment for a silence proposal")
 		return "", "", false
 	}
-	if s == nil || s.SilenceWorkflow == nil || s.Source == nil ||
+	env := scope.EnvironmentIDs[0]
+	// Refuse a caller who may write no silence here before saying which
+	// workflow or write binding this environment lacks (PA-108).
+	writer, err := s.silenceWriterInEnvironment(r.Context(), httpapi.CurrentUser(r), env)
+	if err != nil {
+		httpapi.Error(w, http.StatusServiceUnavailable, "silence_authorization_unavailable", "Silence authorization is unavailable")
+		return "", "", false
+	}
+	if !writer {
+		httpapi.Error(w, http.StatusForbidden, "forbidden", "Silence access is denied")
+		return "", "", false
+	}
+	if s.SilenceWorkflow == nil || s.Source == nil ||
 		create && s.SilenceCreateProposals == nil || !create && s.SilenceCancelProposals == nil {
 		httpapi.Error(w, http.StatusNotImplemented, "not_connected", "Silence approval and execution workflow is not connected")
 		return "", "", false
@@ -166,8 +179,6 @@ func (s *Service) silenceProductRequest(w http.ResponseWriter, r *http.Request, 
 		httpapi.Error(w, http.StatusNotImplemented, "not_connected", "A trusted Alertmanager write binding is not connected")
 		return "", "", false
 	}
-	env := scope.EnvironmentIDs[0]
-	var err error
 	if create {
 		err = s.SilenceWorkflow.CreateReady(r.Context(), env)
 	} else {
@@ -187,6 +198,57 @@ func (s *Service) silenceProductRequest(w http.ResponseWriter, r *http.Request, 
 		return "", "", false
 	}
 	return env, store.Hash(cookie.Value), true
+}
+
+// silenceWriterInEnvironment reports whether user may propose a silence for
+// some target in env: the environment itself, or a currently bound
+// application or its owning team. It only admits the request; the proposal
+// producer still authorizes the exact target.
+func (s *Service) silenceWriterInEnvironment(ctx context.Context, user core.User, env string) (bool, error) {
+	if s == nil || s.Catalog == nil || s.Access == nil {
+		return false, errors.New("silence authorization unavailable")
+	}
+	scopes := []rbac.V3Decision{{EnvironmentID: env}}
+	bound := make(map[string]bool, len(s.ApplicationBindings[env]))
+	for _, applicationID := range s.ApplicationBindings[env] {
+		if applicationID != "" {
+			bound[applicationID] = true
+		}
+	}
+	if len(bound) > 0 {
+		apps, err := s.Catalog.Applications(ctx, []string{env})
+		if err != nil {
+			return false, err
+		}
+		for _, app := range apps {
+			if app.EnvironmentID != env || !bound[app.ID] {
+				continue
+			}
+			scopes = append(scopes, rbac.V3Decision{EnvironmentID: env, ApplicationID: app.ID})
+			if app.OwnerTeamID != "" {
+				scopes = append(scopes, rbac.V3Decision{EnvironmentID: env, TeamID: app.OwnerTeamID})
+			}
+		}
+	}
+	for _, scope := range scopes {
+		writer := true
+		for _, need := range [][2]string{{"silences", "manage"}, {"proposals", "change"}} {
+			decision := scope
+			decision.Module, decision.Action = need[0], need[1]
+			allowed, err := silenceAllowed(ctx, s.Access, user, decision)
+			if err != nil {
+				return false, err
+			}
+			if !allowed {
+				writer = false
+				break
+			}
+		}
+		if writer {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func silenceProductKey(w http.ResponseWriter, r *http.Request) (string, bool) {

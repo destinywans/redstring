@@ -84,8 +84,12 @@ func activeClaimMember(m bulkMember) bool {
 		(m.AlertStatus == "firing" || m.AlertStatus == "pending")
 }
 
+// activeInvestigationMember counts only members whose alert is still firing or
+// pending, like a claim. A resolved occurrence keeps its old investigation link
+// (its incident stays investigating), and counting it made every later
+// investigate of the same group a conflict (PA-119).
 func activeInvestigationMember(m bulkMember) bool {
-	return m.Status == "open" || m.Status == "investigating"
+	return activeClaimMember(m)
 }
 
 func bulkCookie(r *http.Request) string {

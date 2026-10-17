@@ -234,6 +234,18 @@ func TestCanvasCreateRegisteredRoutePersistsAndAuthorizes(t *testing.T) {
 		t.Fatalf("generic audit mismatch: count=%d err=%v", audits, err)
 	}
 
+	// PA-116: services is optional; an omitted list is stored as empty, the
+	// same as services:[], instead of failing the NOT NULL column with a 503.
+	noServicesID := created(request(envToken, "dev", `{"title":"No services","kind":"analysis"}`), "CV-")
+	services = nil
+	if err := db.QueryRow(ctx, `SELECT services FROM v3_canvases WHERE id=$1`, noServicesID).Scan(&services); err != nil || services == nil || len(services) != 0 {
+		t.Fatalf("omitted services not stored as empty: services=%v err=%v", services, err)
+	}
+	var auditServices string
+	if err := db.QueryRow(ctx, `SELECT jsonb_typeof(changes->'services') FROM management_audit WHERE action='v3.canvas.created' AND target=$1`, noServicesID).Scan(&auditServices); err != nil || auditServices != "array" {
+		t.Fatalf("omitted services audit mismatch: type=%q err=%v", auditServices, err)
+	}
+
 	// An audit storage error must prevent a canvas without a matching receipt.
 	if _, err = db.Exec(ctx, `CREATE FUNCTION fail_canvas_create_audit() RETURNS trigger LANGUAGE plpgsql AS $$
  BEGIN IF NEW.action='v3.canvas.created' THEN RAISE EXCEPTION 'forced canvas audit failure'; END IF;

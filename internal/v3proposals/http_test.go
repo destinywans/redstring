@@ -365,7 +365,7 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 			return got.Decision
 		}
 		d := decision()
-		if d == nil || d.State != "approved" || d.DecidedAt == "" || len(d.Approvers) != 2 || d.RejectedBy != nil || d.Revoked != nil ||
+		if d == nil || d.State != "approved" || d.DecidedAt == "" || len(d.Approvers) != 2 || d.RejectedBy != nil || d.Revoked != nil || d.Reason != nil ||
 			d.Approvers[0].Name != "Reviewer" || d.Approvers[0].ID != reviewer.ID || d.Approvers[0].Method != "passkey" ||
 			d.Approvers[1].Name == "" || d.Approvers[0].At >= d.Approvers[1].At {
 			t.Fatalf("approved decision: %+v", d)
@@ -420,7 +420,7 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 	}
 	// PA-102: a rejection is the decision, whatever was approved before.
 	if d := proposal.Decision; d == nil || d.State != "rejected" || d.RejectedBy == nil || d.RejectedBy.ID != reviewer.ID ||
-		d.RejectedBy.Name != "Reviewer" || d.RejectedBy.At != d.DecidedAt || len(d.Approvers) != 0 {
+		d.RejectedBy.Name != "Reviewer" || d.RejectedBy.At != d.DecidedAt || len(d.Approvers) != 0 || d.Reason == nil || *d.Reason != "Unsafe" {
 		t.Fatalf("rejection decision: %+v", proposal.Decision)
 	}
 	assert(request(api, "POST", mainID, "/reject", "dev", reviewerToken, `{"comment":"Unsafe"}`, ""), 200, "")
@@ -484,6 +484,42 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 		if err := db.QueryRow(ctx, `SELECT a.actor_id,p.rejected_by FROM management_audit a JOIN v3_proposals p ON p.id=a.target
  WHERE a.action='v3.proposal.rejected' AND a.target=$1`, id).Scan(&actor, &rejectedBy); err != nil || actor != ids["approver"] || rejectedBy != ids["approver"] {
 			t.Fatalf("approver rejection audit: actor=%s rejected_by=%s err=%v", actor, rejectedBy, err)
+		}
+	})
+
+	// PA-173: the rejection reason reaches the proposer through the detail
+	// decision, trimmed; a rejection without one reports null.
+	t.Run("rejection-reason", func(t *testing.T) {
+		reason := func(id string) (any, bool) {
+			t.Helper()
+			w := request(api, "GET", id, "", "dev", reviewerToken, "", "")
+			assert(w, 200, "")
+			var got struct {
+				Decision map[string]any `json:"decision"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil || got.Decision == nil || got.Decision["state"] != "rejected" {
+				t.Fatalf("rejected detail: %s (%v)", w.Body.String(), err)
+			}
+			v, ok := got.Decision["reason"]
+			return v, ok
+		}
+		given := create("inv-1", "app-1", "dev")
+		assert(request(api, "POST", given, "/reject", "dev", reviewerToken, `{"comment":"  Rollback window overlaps the release freeze \n"}`, ""), 200, "")
+		if v, ok := reason(given); !ok || v != "Rollback window overlaps the release freeze" {
+			t.Fatalf("decision.reason = %#v (present %v), want the given reason", v, ok)
+		}
+		blank := create("inv-1", "app-1", "dev")
+		assert(request(api, "POST", blank, "/reject", "dev", reviewerToken, `{"comment":"   "}`, ""), 200, "")
+		if v, ok := reason(blank); !ok || v != nil {
+			t.Fatalf("decision.reason = %#v (present %v), want null", v, ok)
+		}
+		// A stored reason of only whitespace, as older rows may hold, is no
+		// reason either.
+		if _, err := db.Exec(ctx, `UPDATE v3_proposals SET rejection_reason=E' \n\t ' WHERE id=$1`, blank); err != nil {
+			t.Fatal(err)
+		}
+		if v, ok := reason(blank); !ok || v != nil {
+			t.Fatalf("whitespace decision.reason = %#v (present %v), want null", v, ok)
 		}
 	})
 

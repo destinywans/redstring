@@ -25,8 +25,10 @@ S['V3Proposal'] = obj({**fieldnames('id title impact proposed_by investigation_i
         'approvers':arr(obj({'id':string(),'name':string(description='Display name, or the account ID without one'),
             'method':string(enum=['passkey']),'at':string(format='date-time')},['id','name','method','at'])),
         'rejected_by':v3_nullable(obj({'id':string(),'name':string(),'at':string(format='date-time')},['id','name','at'])),
+        # PA-173: the rejection reason, shown to the proposer on the review page.
+        'reason':{'type':['string','null'],'description':'What the rejecter wrote, trimmed; null when nothing was written and for any state other than rejected.'},
         'revoked':v3_nullable(obj({'id':string(),'name':string(),'at':string(format='date-time')},['id','name','at']))},
-        ['state','decided_at','approvers','rejected_by','revoked']))},
+        ['state','decided_at','approvers','rejected_by','reason','revoked']))},
     ['id','title','status','risk','impact','reversible','proposed_by','proposed_by_name','proposed_at',
      'investigation_id','target','diff','method','evidence','verification',
      'verification_note','checklist','requirement','discussion','execution'])

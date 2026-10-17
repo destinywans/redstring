@@ -33,7 +33,10 @@ export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { op
   const { tx } = useI18n();
   const when = useWhen();
   const nav = useNavigate();
-  const [src, setSrc] = useState<Source>(initial);
+  // PA-124: real mode offers only the starting points it can draft from; templates, conversations and imports have
+  // no source picker yet (user decision 10-17), so they stay in the sample.
+  const offered = (key: Source) => API_MODE === "mock" || key === "blank" || key === "postmortem";
+  const [src, setSrc] = useState<Source>(offered(initial) ? initial : "postmortem");
   // The sample preselects its sample postmortem; real mode preselects the first real candidate.
   const [pm, setPm] = useState(API_MODE === "mock" ? "INC-1042" : "");
   // The sample lists its sample incidents; a real runbook drafts from a published postmortem (PA-124). The candidates
@@ -47,13 +50,14 @@ export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { op
   useEffect(() => {
     if (!pm && choices[0]) setPm(choices[0].id);
   }, [sample.data, real.data]); // eslint-disable-line react-hooks/exhaustive-deps
-  const opts: { key: Source; icon: IconName; title: string; sub: string; wide?: boolean }[] = [
+  const all: { key: Source; icon: IconName; title: string; sub: string; wide?: boolean }[] = [
     { key: "blank", icon: "file", title: tx("空白", "Blank"), sub: tx("从触发条件和第一步开始写", "Start from the trigger and the first step") },
     { key: "template", icon: "grid", title: tx("从模板", "From template"), sub: tx("服务不可用、容量不足、依赖超时等 8 个模板", "8 templates: outage, capacity, dependency timeouts…") },
     { key: "postmortem", icon: "writeback", title: tx("从复盘生成", "From a postmortem"), sub: tx("把复盘里的处置过程整理成可复用的步骤", "Turn the response in a postmortem into reusable steps"), wide: true },
     { key: "conversation", icon: "message", title: tx("从对话或画布生成", "From a conversation or canvas"), sub: tx("选一次调查，提取有效的取证与处置步骤", "Extract the useful evidence and fix steps from an investigation") },
     { key: "import", icon: "upload", title: tx("导入", "Import"), sub: tx("Markdown 文件或 Confluence 页面", "Markdown file or Confluence page") },
   ];
+  const opts = all.filter((o) => offered(o.key));
   const go = () => {
     onClose();
     nav(`/runbooks/new?source=${src}${src === "postmortem" ? `&from=${pm}` : ""}`);

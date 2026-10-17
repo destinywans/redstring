@@ -128,7 +128,8 @@ def login(instance, account, probe=None):
         except urllib.error.HTTPError as e:
             if e.code != 429 or attempt == 3:
                 raise
-            wait = int(e.headers.get('Retry-After') or 60)
+            retry_after = e.headers.get('Retry-After') or ''
+            wait = int(retry_after) if retry_after.isdigit() else 60
             print(f'  login rate limited for {account["email"].split("@")[0]}; retrying in {wait}s', file=sys.stderr, flush=True)
             time.sleep(min(wait, 120))
     cache[account['email']] = '; '.join(cookies)

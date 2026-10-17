@@ -23,3 +23,5 @@
 - 2026-10-09 用户要求以生产验收为目标做完整前后端联调与全量回归（计划见 `docs/plans/2026-10-09-production-acceptance.md`）：功能、权限、故障本轮做，性能与 24 小时后置；边测边修，界面改动先出设计图；AI 流程用 DeepSeek；允许在 aiops-test 三台 Lima 虚拟机 Kubernetes（显式 `.local/vm-cluster/kubeconfig`）上做写操作和受控故障注入，不碰其他集群和默认上下文。验收实例与数据只在 `.local/acceptance/` 和独立 PG `aiops-acceptance-pg`，不改现有业务库或 testlab 数据。无关联的测试并行执行。
 
 - 2026-10-16 用户批准缺陷收敛计划（WAN-434，`docs/plans/2026-10-16-defect-convergence.md`）：先过覆盖门槛，再连续 5 轮无新的 P0/P1；授权沿用 2026-10-09 的范围；收敛期间冻结新功能，缺陷修复不改外观，新界面元素先出设计图。性能/24 小时、环境广度、安全审查、运维能力不在本轮。
+
+- 2026-10-17 缺陷收敛阶段 2：每轮值班按 `docs/plans/2026-10-17-convergence-round.md` 执行，轮内由该会话独占检出目录与两个验收实例（D49 沿用）。任何会话在验收实例上部署或跑测试前先拿实例锁 `.local/acceptance/instance.lock`（JSON：owner、purpose、since），用完删掉；锁在别的会话手里且不到 12 小时就不动实例。

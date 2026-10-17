@@ -338,14 +338,21 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
  VALUES('runbook-message','runbook-conversation','user','Owner','[{"type":"text","markdown":"Look at queue depth before changing replicas"}]','completed')`); err != nil {
 		t.Fatal(err)
 	}
-	draft := func(source, from, token string) *httptest.ResponseRecorder {
+	draftIn := func(lang, source, from, token string) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(http.MethodGet, "/api/v1/runbooks/draft?source="+source+"&from="+from, nil)
 		r.Header.Set("X-AIOps-Environment", "dev")
+		if lang != "" {
+			r.Header.Set("Accept-Language", lang)
+		}
 		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
 		return w
+	}
+	draft := func(source, from, token string) *httptest.ResponseRecorder {
+		t.Helper()
+		return draftIn("", source, from, token)
 	}
 	for _, source := range []struct{ kind, ref, token, want string }{
 		{"template", "investigation", creatorToken, `"draft_mode":"template_outline"`},
@@ -442,6 +449,25 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	if err := json.Unmarshal(caseResponse.Body.Bytes(), &caseDraft); err != nil || caseResponse.Code != 200 || len(caseDraft.Steps) != 2 ||
 		caseDraft.Steps[1].Title != "Add a release gate" || !caseDraft.Steps[1].Approval || caseDraft.SourceSHA256 == "" {
 		t.Fatalf("manual incident postmortem draft: %d %s", caseResponse.Code, caseResponse.Body.String())
+	}
+	// PA-113: the generated title, outline and review step titles follow the
+	// request language; the postmortem's own section title and action text
+	// stay as they were saved.
+	for _, want := range []struct{ lang, title, outline, step string }{
+		{"zh-CN", "由复盘 INC-runbook-case 生成的 Runbook", "已发布复盘的章节和改进项是未经核实的来源记录，使用前请逐步核对。", "核对：What happened"},
+		{"en-US", "Runbook from postmortem INC-runbook-case", "Published postmortem sections and actions are unverified source notes. Review every step before use.", "Review: What happened"},
+	} {
+		var localized struct {
+			Title   string `json:"title"`
+			Outline string `json:"outline"`
+			Steps   []Step `json:"steps"`
+		}
+		w := draftIn(want.lang, "postmortem", "INC-runbook-case", creatorToken)
+		if err := json.Unmarshal(w.Body.Bytes(), &localized); err != nil || w.Code != 200 || len(localized.Steps) != 2 ||
+			localized.Title != want.title || localized.Outline != want.outline || localized.Steps[0].Title != want.step ||
+			localized.Steps[1].Title != "Add a release gate" {
+			t.Fatalf("%s postmortem draft text: %d %s", want.lang, w.Code, w.Body.String())
+		}
 	}
 	assert(create("postmortem", "runbook-case-pm", "dev", creatorToken), 201, "")
 	assert(draft("postmortem", "runbook-case-pm", otherToken), 422, "invalid_source")

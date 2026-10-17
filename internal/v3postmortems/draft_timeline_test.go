@@ -20,9 +20,31 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-// PA-169: a case's draft timeline carries the notes added on the incident
-// page, and its lifecycle events in words instead of event codes.
-func TestPostmortemDraftTimelineHasManualNotesInWords(t *testing.T) {
+// postmortemTextFixture is an isolated schema with one resolved manual
+// incident (INC-tl) that its author may read, and the postmortem routes.
+type postmortemTextFixture struct {
+	db     *pgxpool.Pool
+	api    *httpapi.Server
+	token  string
+	userID string
+}
+
+func (f postmortemTextFixture) get(t *testing.T, path, lang string) []byte {
+	t.Helper()
+	r := httptest.NewRequest("GET", path, nil)
+	r.Header.Set("X-AIOps-Environment", "dev")
+	r.Header.Set("Accept-Language", lang)
+	r.AddCookie(&http.Cookie{Name: "aiops_session", Value: f.token})
+	w := httptest.NewRecorder()
+	f.api.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Fatalf("GET %s: %d %s", path, w.Code, w.Body.String())
+	}
+	return w.Body.Bytes()
+}
+
+func newPostmortemTextFixture(t *testing.T) postmortemTextFixture {
+	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL required; creates and drops a random isolated schema")
@@ -114,22 +136,27 @@ func TestPostmortemDraftTimelineHasManualNotesInWords(t *testing.T) {
 		}); err != nil {
 		t.Fatal(err)
 	}
-	draft := func(lang string) []map[string]string {
-		t.Helper()
-		r := httptest.NewRequest("GET", "/api/v1/postmortems/draft?incident=INC-tl", nil)
-		r.Header.Set("X-AIOps-Environment", "dev")
-		r.Header.Set("Accept-Language", lang)
-		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
-		w := httptest.NewRecorder()
-		api.ServeHTTP(w, r)
-		var body struct {
-			Timeline []map[string]string `json:"timeline"`
-		}
-		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &body) != nil {
-			t.Fatalf("draft: %d %s", w.Code, w.Body.String())
-		}
-		return body.Timeline
+	return postmortemTextFixture{db: db, api: api, token: token, userID: user.ID}
+}
+
+type draftBody struct {
+	Timeline []map[string]string `json:"timeline"`
+	Sections []Section           `json:"sections"`
+}
+
+func (f postmortemTextFixture) draft(t *testing.T, lang string) draftBody {
+	t.Helper()
+	var body draftBody
+	if err := json.Unmarshal(f.get(t, "/api/v1/postmortems/draft?incident=INC-tl", lang), &body); err != nil {
+		t.Fatal(err)
 	}
+	return body
+}
+
+// PA-169: a case's draft timeline carries the notes added on the incident
+// page, and its lifecycle events in words instead of event codes.
+func TestPostmortemDraftTimelineHasManualNotesInWords(t *testing.T) {
+	f := newPostmortemTextFixture(t)
 	texts := func(items []map[string]string) []string {
 		out := []string{}
 		for _, item := range items {
@@ -137,11 +164,29 @@ func TestPostmortemDraftTimelineHasManualNotesInWords(t *testing.T) {
 		}
 		return out
 	}
-	zh := texts(draft("zh-CN"))
+	zh := texts(f.draft(t, "zh-CN").Timeline)
 	if strings.Join(zh, "|") != "事件已缓解|回滚 checkout-api 到修订 86|事件已解决" {
 		t.Fatalf("zh timeline: %q", zh)
 	}
-	if en := texts(draft("en-US")); strings.Join(en, "|") != "Incident mitigated|回滚 checkout-api 到修订 86|Incident resolved" {
+	if en := texts(f.draft(t, "en-US").Timeline); strings.Join(en, "|") != "Incident mitigated|回滚 checkout-api 到修订 86|Incident resolved" {
 		t.Fatalf("en timeline: %q", en)
+	}
+}
+
+// PA-113: the draft's section titles are in the request language.
+func TestPostmortemDraftSectionTitlesFollowRequestLanguage(t *testing.T) {
+	f := newPostmortemTextFixture(t)
+	titles := func(sections []Section) string {
+		out := []string{}
+		for _, section := range sections {
+			out = append(out, section.Key+"="+section.Title)
+		}
+		return strings.Join(out, "|")
+	}
+	if zh := titles(f.draft(t, "zh-CN").Sections); zh != "summary=事件摘要|impact=影响|root=根因" {
+		t.Fatalf("zh sections: %s", zh)
+	}
+	if en := titles(f.draft(t, "en-US").Sections); en != "summary=Incident summary|impact=Impact|root=Root cause" {
+		t.Fatalf("en sections: %s", en)
 	}
 }

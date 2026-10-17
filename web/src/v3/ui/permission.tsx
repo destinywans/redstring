@@ -19,6 +19,8 @@ const MODULES: Record<string, [string, string]> = {
   connectors: ["连接器与映射", "Connectors & mapping"],
   agents: ["Agent 配置与发布", "Agent config & release"],
   identity: ["成员与角色", "Members & roles"],
+  members: ["成员", "Members"],
+  roles: ["角色", "Roles"],
   audit: ["审计日志", "Audit log"],
   resources: ["资源目录与关系", "Resource catalog & relations"],
   workspace: ["工作区", "Workspace"],

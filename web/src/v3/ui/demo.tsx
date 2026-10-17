@@ -334,8 +334,8 @@ export function AddChip({
 /** Option lists for pickers: services from the catalog, people from the member directory. */
 export function usePickLists() {
   const { data: svc } = useGet<ServiceCatalog>("/services", undefined, { staleTime: 5 * 60_000 });
-  // PA-126: the member list needs identity.view; roles without it get no people to pick instead of a 403.
-  const canSeeMembers = usePermission()(["identity", "view"]) === null;
+  // PA-126: the member list needs members.view; roles without it get no people to pick instead of a 403.
+  const canSeeMembers = usePermission()(["members", "view"]) === null;
   const { data: mem } = useGet<MembersView>(canSeeMembers ? "/members" : null, { filter: "all" }, { staleTime: 5 * 60_000 });
   return {
     // Real service IDs are opaque; show the name and keep the ID as the value.

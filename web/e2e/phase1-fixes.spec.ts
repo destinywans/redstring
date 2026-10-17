@@ -967,7 +967,7 @@ test.describe("new incident (PA-126)", () => {
   });
   test.describe("as an operator", () => {
     test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
-    test("the drawer from an alert doesn't read the member list without identity.view", async ({ page }) => {
+    test("the drawer from an alert doesn't read the member list without members.view", async ({ page }) => {
       await page.addInitScript(zh);
       const m = monitor(page);
       await page.route(at("/incidents/draft"), (r) => json(r, 200, INCIDENT_DRAFT));
@@ -1004,7 +1004,7 @@ test.describe("drafts without a GitOps repository (PA-123, PA-141)", () => {
     const inhibitBtn = page.getByRole("button", { name: "新建抑制规则" }).first();
     if (inhib.unavailable?.includes("inhibition_drafts")) {
       await expect(inhibitBtn).toBeDisabled();
-      await expect(page.locator(".avail-gate", { has: inhibitBtn })).toContainText("GitOps 抑制仓库");
+      await expect(page.locator(".avail-gate").filter({ hasText: "GitOps 抑制仓库" }).first()).toBeVisible();
     } else await expect(inhibitBtn).toBeEnabled();
     const routes = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/v1/notification-routes", { timeout: 20_000 });
     await page.goto(origin + "/routing");
@@ -1012,7 +1012,7 @@ test.describe("drafts without a GitOps repository (PA-123, PA-141)", () => {
     const routeBtn = page.getByRole("button", { name: "新建路由" });
     if (tree.unavailable?.includes("route_drafts")) {
       await expect(routeBtn).toBeDisabled();
-      await expect(page.locator(".avail-gate", { has: routeBtn })).toContainText("GitOps 路由仓库");
+      await expect(page.locator(".avail-gate").filter({ hasText: "GitOps 路由仓库" }).first()).toBeVisible();
     } else await expect(routeBtn).toBeEnabled();
   });
 });

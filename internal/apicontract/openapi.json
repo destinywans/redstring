@@ -51995,7 +51995,7 @@
       "get": {
         "summary": "Read source-backed service resilience",
         "operationId": "get_services_id_resilience",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. The opaque service ID and selected environment must match. A complete current observation must cover rollout, breakers, rate limits, flags and HPA from authoritative sources for the exact application/environment. Missing, stale or mismatched fields return 503 resilience_source_unavailable; no zero or empty list represents unknown coverage. The domain route has no production reader until those scoped adapters are configured.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. The opaque service ID and selected environment must match. A complete current observation must cover rollout, breakers, rate limits, flags and HPA from authoritative sources for the exact application/environment. Without a configured reader the route returns 503 resilience_not_connected (PA-171); missing, stale or mismatched fields return 503 resilience_source_unavailable; no zero or empty list represents unknown coverage. The domain route has no production reader until those scoped adapters are configured.",
         "responses": {
           "200": {
             "description": "Success",

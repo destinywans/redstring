@@ -70,6 +70,9 @@ export default function MetricsPage() {
     ? tx("事件 · {a}–{b}", "Incident · {a}–{b}", { a: when.time(w.incident_start_at), b: when.time(w.incident_end_at ?? w.incident_start_at) })
     : null;
   const u = d.unavailable ?? {};
+  // The dashboard's not_configured means a panel's query isn't set up for this service, not that Prometheus is
+  // missing: the other panels may well come from it (PA-171).
+  const why = (r: string | undefined) => (r === "not_configured" ? "query_not_configured" : r);
   // Markers come from the platform's own release / rollback records (null when none fall in the window).
   // The sample data names its sample release; real mode only states what the record is.
   const markers = [
@@ -184,13 +187,13 @@ export default function MetricsPage() {
               {missingParts(u, "kpis").map((id) => (
                 <Card key={id} className="v3-kpi" style={{ flex: "1 1 0" }}>
                   <Muted>{KPI_LABEL[id] ?? id}</Muted>
-                  <UnknownValue reason={u[`kpis.${id}`]} source="Prometheus" />
+                  <UnknownValue reason={why(u[`kpis.${id}`])} source="Prometheus" />
                 </Card>
               ))}
             </div>
           ) : (
             <Card>
-              <Unavailable reason={u.kpis} source="Prometheus" title={tx("关键指标", "Key metrics")} icon="activity" />
+              <Unavailable reason={why(u.kpis)} source="Prometheus" title={tx("关键指标", "Key metrics")} icon="activity" />
             </Card>
           )}
           <div className="metrics-row">
@@ -209,12 +212,12 @@ export default function MetricsPage() {
                   <MarkersOverlay markers={markers} n={labels.length} band={incident} height={160} />
                 </StackedArea>
               ) : (
-                <Unavailable reason={u.requests} source="Prometheus" title={tx("请求量", "Requests")} icon="activity" />
+                <Unavailable reason={why(u.requests)} source="Prometheus" title={tx("请求量", "Requests")} icon="activity" />
               )}
             </Panel>
             <Panel title={sloTarget ? tx("SLO · 可用性 {t}%", "SLO · availability {t}%", { t: sloTarget }) : "SLO"} style={{ flex: "1 1 0" }} right={<Gate need={["services", "manage"]}><TextLink onClick={() => void editSlo()}>{tx("SLO 设置", "SLO settings")}</TextLink></Gate>}>
               {!d.slo ? (
-                <Unavailable reason={u.slo} source="Prometheus" title={tx("错误预算", "Error budget")} icon="shield" desc={!demo && !sloCfg?.target ? tx("还没有设置 SLO 目标；先在右上角设置目标，错误预算才能按指标计算。", "No SLO target yet; set one at the top right so the budget can be computed from metrics.") : undefined} />
+                <Unavailable reason={why(u.slo)} source="Prometheus" title={tx("错误预算", "Error budget")} icon="shield" desc={!demo && !sloCfg?.target ? tx("还没有设置 SLO 目标；先在右上角设置目标，错误预算才能按指标计算。", "No SLO target yet; set one at the top right so the budget can be computed from metrics.") : undefined} />
               ) : (
               <Col gap={9}>
                 <Row gap={16}>
@@ -231,7 +234,7 @@ export default function MetricsPage() {
                   <Row key={w} gap={8}>
                     <Muted>{tx("{w} 燃烧速率", "{w} burn", { w })}</Muted>
                     <Spacer />
-                    <UnknownValue reason={u[`slo.burn.${w}`]} source="Prometheus" />
+                    <UnknownValue reason={why(u[`slo.burn.${w}`])} source="Prometheus" />
                   </Row>
                 ))}
                 {d.slo.burn.map((b) => (
@@ -266,7 +269,7 @@ export default function MetricsPage() {
               }
             >
               {!d.latency ? (
-                <Unavailable reason={u.latency} source="Prometheus" title={tx("延迟分布", "Latency distribution")} icon="activity" />
+                <Unavailable reason={why(u.latency)} source="Prometheus" title={tx("延迟分布", "Latency distribution")} icon="activity" />
               ) : (
               <>
               <div style={{ height: 176 }} key={latMode} className="anim-fade">
@@ -304,7 +307,7 @@ export default function MetricsPage() {
             </Panel>
             <Panel title={tx("接口 P99 排行", "Endpoint P99")} style={{ flex: "1 1 0" }} right={<Badge>{tx("按 P99 ↓", "By P99 ↓")}</Badge>}>
               {!d.endpoints ? (
-                <Unavailable reason={u.endpoints} source="Prometheus" title={tx("接口排行", "Endpoint ranking")} icon="activity" />
+                <Unavailable reason={why(u.endpoints)} source="Prometheus" title={tx("接口排行", "Endpoint ranking")} icon="activity" />
               ) : (
                 <Col gap={10}>
                   <HBars items={d.endpoints.map((e) => ({ label: e.label, value: e.value, tone: e.tone }))} labelWidth={130} unit=" ms" />
@@ -331,7 +334,7 @@ export default function MetricsPage() {
             {d.instances ? (
               <SmallMultiples items={d.instances.map((i) => ({ label: i.label, values: i.values, tone: i.tone }))} cols={6} height={42} />
             ) : (
-              <Unavailable reason={u.instances} source="Prometheus" title={tx("实例", "Instances")} icon="cpu" />
+              <Unavailable reason={why(u.instances)} source="Prometheus" title={tx("实例", "Instances")} icon="cpu" />
             )}
           </Panel>
         </div>

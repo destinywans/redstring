@@ -255,7 +255,9 @@ func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.Reader == nil {
-		httpapi.Error(w, 503, "resilience_source_unavailable", "Five scoped resilience sources are not connected")
+		// Not connected is its own code, so the page doesn't call it a failed
+		// or timed-out source (PA-171).
+		httpapi.Error(w, 503, "resilience_not_connected", "Five scoped resilience sources are not connected")
 		return
 	}
 	o, err := s.Reader.ReadResilience(ctx, t.ApplicationID, t.EnvironmentID)

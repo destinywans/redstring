@@ -25,6 +25,13 @@ export function useReasonText() {
           desc: source ? tx("还没有连接{s}。", "{s} is not connected yet.", { s: source }) : tx("还没有连接这类数据来源。", "This data source is not connected yet."),
           configurable: true,
         };
+      // A source that is connected but has no query set up for this item (a metrics panel, PA-171).
+      case "query_not_configured":
+        return {
+          label: tx("未配置查询", "No query set up"),
+          desc: source ? tx("{s}已接入，但还没有为这一项配置查询。", "{s} is connected, but no query is set up for this item.", { s: source }) : tx("还没有为这一项配置查询。", "No query is set up for this item."),
+          configurable: true,
+        };
       case "no_authorized_target":
         return { label: tx("暂无可见对象", "Nothing visible"), desc: tx("当前环境里没有你有权查看的对象。", "There is nothing you can view in this environment."), configurable: false };
       case "not_generated":

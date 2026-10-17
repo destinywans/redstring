@@ -110,7 +110,7 @@ S['V3Resilience'] = obj({
     ['synced','rollout','breakers','breaker_timeline','breaker_note','limits','limit_note','flags','hpa','ai'])
 v3_route('get','/services/{id}/resilience','Read source-backed service resilience',
     response=ref('V3Resilience'),
-    desc='The opaque service ID and selected environment must match. A complete current observation must cover rollout, breakers, rate limits, flags and HPA from authoritative sources for the exact application/environment. Missing, stale or mismatched fields return 503 resilience_source_unavailable; no zero or empty list represents unknown coverage. The domain route has no production reader until those scoped adapters are configured.')
+    desc='The opaque service ID and selected environment must match. A complete current observation must cover rollout, breakers, rate limits, flags and HPA from authoritative sources for the exact application/environment. Without a configured reader the route returns 503 resilience_not_connected (PA-171); missing, stale or mismatched fields return 503 resilience_source_unavailable; no zero or empty list represents unknown coverage. The domain route has no production reader until those scoped adapters are configured.')
 def resilience_proposal(kind, desired):
     return obj({'kind':string(enum=[kind]),
         'params':obj({'investigation_id':string(minLength=1,maxLength=128),

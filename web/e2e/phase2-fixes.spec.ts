@@ -251,3 +251,32 @@ test.describe("empty canvas and template lists (PA-182)", () => {
     await expect(page.getByText("没有数据", { exact: true })).toBeVisible({ timeout: 20_000 });
   });
 });
+
+test.describe("source states say the actual cause (PA-171)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+
+  test("a metrics panel without its query doesn't say Prometheus is missing", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const id = await someService(page);
+    // The real answer is read again in the page (*.redstring.test resolves only through the browser's host rules),
+    // marked so this handler lets that read through, then patched.
+    await page.route(at("/metrics/dashboard"), async (r) => {
+      if (r.request().headers()["x-check-real"]) return r.fallback();
+      const body = (await page.evaluate(async (url) => (await fetch(url, { headers: { "x-check-real": "1", "X-AIOps-Environment": "prod" } })).json(), r.request().url())) as Record<string, unknown>;
+      return json(r, 200, { ...body, instances: null, unavailable: { ...((body.unavailable as object) ?? {}), instances: "not_configured" } });
+    });
+    await page.goto(origin + `/metrics?service=${encodeURIComponent(id)}`);
+    await expect(page.getByText("Prometheus已接入，但还没有为这一项配置查询。").first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("#root")).not.toContainText("还没有连接Prometheus");
+  });
+
+  test("resilience without sources says not connected, not a failed source", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const id = await someService(page);
+    await page.goto(origin + `/services/${encodeURIComponent(id)}/resilience`);
+    await expect(page.getByText("未接入", { exact: false }).first()).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("#root")).not.toContainText("来源连接失败或超时");
+  });
+});

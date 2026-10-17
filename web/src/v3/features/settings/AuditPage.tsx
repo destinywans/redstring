@@ -76,7 +76,12 @@ export default function AuditPage() {
               <Col gap={6}>
                 <Row gap={8}>
                   <Strong>{tx("操作量 · {r}", "Activity · {r}", { r: rangeLabel })}</Strong>
-                  <Muted size={11.5}>{tx("Agent 操作占 67%，全部可追溯到运行 ID", "67% are agent actions, all traceable to a run ID")}</Muted>
+                  {/* The sample's share and traceability claim stay in the sample; real mode works the share out from the counts (PA-183). */}
+                  {API_MODE === "mock" ? (
+                    <Muted size={11.5}>{tx("Agent 操作占 67%，全部可追溯到运行 ID", "67% are agent actions, all traceable to a run ID")}</Muted>
+                  ) : (
+                    !!data?.counts.all && <Muted size={11.5}>{tx("Agent 操作占 {p}%", "{p}% are agent actions", { p: Math.round(((data.counts.agent ?? 0) / data.counts.all) * 100) })}</Muted>
+                  )}
                   <Spacer />
                   <Legend items={[[tx("人员", "People"), "var(--c1)"], ["Agent", "var(--c6)"], [tx("系统", "System"), "var(--c5)"]]} />
                 </Row>

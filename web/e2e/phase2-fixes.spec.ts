@@ -213,3 +213,16 @@ test.describe("time ranges reach the server (PA-170)", () => {
     });
   }
 });
+
+test.describe("audit share from the data (PA-183)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("the agent share is worked out from the counts, not the sample's 67%", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/audit"), (r) => json(r, 200, { items: [], counts: { all: 8, user: 2, agent: 6, system: 0 }, volume: [[0, 0, 0]] }));
+    await page.goto(origin + "/settings/audit");
+    await expect(page.getByText("Agent 操作占 75%")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("#root")).not.toContainText("67%");
+    await expect(page.locator("#root")).not.toContainText("全部可追溯到运行 ID");
+  });
+});

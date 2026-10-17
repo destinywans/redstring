@@ -14,9 +14,13 @@ export default function WebhooksPage() {
   const when = useWhen();
   const { data } = useGet<WebhookView>("/webhooks");
   const [tab, setTab] = useState<"inbound" | "tokens" | "mcp" | "outbound">("inbound");
-  const [sel, setSel] = useState("gitlab");
+  // The sample opens on its GitLab hook, whose deliveries the fixture lists; real ids are `<kind>:<source>`, so a
+  // real page opens on the first hook the server lists (PA-106).
+  const [picked, setSel] = useState<string | null>(API_MODE === "mock" ? "gitlab" : null);
+  const sel = picked ?? data?.inbound[0]?.id ?? null;
   const [mcpOn, setMcpOn] = useState(true);
   const [revoked, setRevoked] = useState<Set<string>>(new Set());
+  // Redelivery is not served (docs/api/v3-contract.md, mock): the action stays in the sample (PA-106, D52).
   const redeliver = useSend<void>("POST", `/webhooks/${sel}/redeliver`);
   const token = useSend<{ name: string; scopes: string[]; ttl: number | string }, { id: string; secret_shown_once?: string }>("POST", "/api-tokens", ["/api-tokens"]);
   // Real tokens are listed and revoked through /api-tokens; /webhooks carries none (PA-161).
@@ -146,9 +150,11 @@ export default function WebhooksPage() {
                 <Panel
                   title={tx("最近投递 · {n}", "Recent deliveries · {n}", { n: hook?.name ?? "" })}
                   right={
-                    <TextLink icon="rotate" onClick={() => redeliver.mutate(undefined, { onSuccess: () => toast(tx("已重新投递最近一条事件", "Latest event redelivered")) })}>
-                      {tx("重新投递", "Redeliver")}
-                    </TextLink>
+                    API_MODE === "mock" && (
+                      <TextLink icon="rotate" onClick={() => redeliver.mutate(undefined, { onSuccess: () => toast(tx("已重新投递最近一条事件", "Latest event redelivered")) })}>
+                        {tx("重新投递", "Redeliver")}
+                      </TextLink>
+                    )
                   }
                 >
                   <table className="v3-table">

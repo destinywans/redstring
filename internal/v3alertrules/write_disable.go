@@ -40,21 +40,38 @@ func (s *WriteService) Disable(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *WriteService) handleDisable(w http.ResponseWriter, r *http.Request, env string, actor core.User, key, ruleID string, in disableRequest) {
-	if s.EnableApplier == nil {
-		writeError(w, problem(503, "rule_applier_not_connected", "Alert rule deployment target is not connected"))
+	// Only the rule source says which application a rule belongs to. As in
+	// the list, it is read only for someone who can see this environment's
+	// rules, and a rule they cannot see is not found; the deployment target
+	// and approval worker are checked once the actor is authorized (PA-108).
+	if s.Reader.Catalog == nil || s.Reader.Access == nil {
+		writeError(w, problem(503, "alert_rule_authorization_unavailable", "Alert rule authorization is unavailable"))
 		return
 	}
-	if s.EnableReady == nil || s.EnableReady(r.Context(), env) != nil {
-		writeError(w, problem(503, "enable_not_connected", "Alert rule approval worker is not connected"))
+	visible, status, err := s.Reader.authorizedApplications(r.Context(), actor, []string{env})
+	if status == http.StatusForbidden {
+		writeError(w, problem(404, "not_found", "Alert rule not found"))
 		return
 	}
-	if !validEnableInvestigationID(in.InvestigationID) || len(key) < 8 {
-		writeError(w, problem(422, "invalid_disable_request", "An investigation ID and an Idempotency-Key of at least eight characters are required"))
+	if err != nil {
+		writeError(w, problem(503, "alert_rule_authorization_unavailable", "Alert rule authorization is unavailable"))
+		return
+	}
+	if err := s.sourceReady(); err != nil {
+		writeError(w, err)
 		return
 	}
 	rule, app, err := s.observedRuleByID(r.Context(), env, ruleID)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if _, ok := visible[env][app]; !ok {
+		writeError(w, problem(404, "not_found", "Alert rule not found"))
+		return
+	}
+	if !validEnableInvestigationID(in.InvestigationID) || len(key) < 8 {
+		writeError(w, problem(422, "invalid_disable_request", "An investigation ID and an Idempotency-Key of at least eight characters are required"))
 		return
 	}
 	digest, err := requestHash("disable", env, ruleID, in)
@@ -63,6 +80,10 @@ func (s *WriteService) handleDisable(w http.ResponseWriter, r *http.Request, env
 		return
 	}
 	if _, err := s.enablePreflight(r.Context(), actor, env, app, in.InvestigationID, key, digest, alertRuleDisableKind); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.enableSourcesReady(r.Context(), env); err != nil {
 		writeError(w, err)
 		return
 	}

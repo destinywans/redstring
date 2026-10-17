@@ -87,14 +87,6 @@ func canonicalEnableJSON(raw []byte) ([]byte, error) {
 // handleEnable proposes the rule and its exact deployable plan (D11
 // decision 6): no nondeployable draft MR is exported first.
 func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env string, actor core.User, key string, in createRequest) {
-	if s.EnableApplier == nil {
-		writeError(w, problem(503, "rule_applier_not_connected", "Alert rule deployment target is not connected"))
-		return
-	}
-	if s.EnableReady == nil || s.EnableReady(r.Context(), env) != nil {
-		writeError(w, problem(503, "enable_not_connected", "Alert rule approval worker is not connected"))
-		return
-	}
 	if !validEnableInvestigationID(in.InvestigationID) || len(key) < 8 {
 		writeError(w, problem(422, "invalid_enable_request", "An investigation ID and an Idempotency-Key of at least eight characters are required"))
 		return
@@ -113,6 +105,10 @@ func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env 
 		return
 	}
 	if _, err := s.enablePreflight(r.Context(), actor, env, spec.ApplicationID, in.InvestigationID, key, digest, alertRuleEnableKind); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.enableSourcesReady(r.Context(), env); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -146,6 +142,23 @@ func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env 
 		return
 	}
 	httpapi.WriteJSON(w, http.StatusAccepted, result)
+}
+
+// enableSourcesReady reports a missing rule source, deployment target or
+// approval worker. Call it once enablePreflight has authorized the actor, so
+// the answer never tells an unauthorized one what this environment lacks
+// (PA-108).
+func (s *WriteService) enableSourcesReady(ctx context.Context, env string) error {
+	if err := s.sourceReady(); err != nil {
+		return err
+	}
+	if s.EnableApplier == nil {
+		return problem(503, "rule_applier_not_connected", "Alert rule deployment target is not connected")
+	}
+	if s.EnableReady == nil || s.EnableReady(ctx, env) != nil {
+		return problem(503, "enable_not_connected", "Alert rule approval worker is not connected")
+	}
+	return nil
 }
 
 // Canvas creates INV-prefixed IDs; legacy investigations retain naked IDs.

@@ -12,10 +12,14 @@ import { Unavailable, UnknownValue } from "../../ui/unknown";
 import { useAgentLabels } from "./LifecyclePage";
 import "./agents.css";
 import { openForm } from "../../ui/demo";
+import { useMemberNames } from "../../ui/names";
+import { useWhen } from "../../ui/when";
 
 export default function AgentPage() {
   const { tx } = useI18n();
   const lb = useAgentLabels();
+  const when = useWhen();
+  const people = useMemberNames();
   const { id = API_MODE === "mock" ? "investigator" : "" } = useParams();
   const demo = API_MODE === "mock";
   const { data: a, error } = useGet<AgentDetail>(id ? `/agents/${id}` : null);
@@ -41,6 +45,8 @@ export default function AgentPage() {
   const passed = !!a.release.gates?.every((g) => g.pass);
   const current = a.release.current ?? a.release.configured_canary_percent ?? 0;
   const noCandidate = !demo && !a.release.to;
+  // The owner is a user ID (PA-166). Without members.view only the viewer's own name resolves; others aren't named.
+  const owner = a.owner ? (people.member(a.owner) ?? (people.hidden ? tx("其他成员", "Another member") : a.owner)) : a.owner;
   return (
     <Page
       flush
@@ -88,7 +94,7 @@ export default function AgentPage() {
               <State tone={a.status === "canary" ? "accent" : "ok"} pulse={a.status === "canary"}>{lb.status(a.status)}</State>
             </Row>
             <Muted>
-              {a.summary} · {tx("负责人", "Owner")} {a.owner} · {tx("服务账号", "Service account")} {a.account ?? <UnknownValue reason="not_generated" />}
+              {a.summary} · {tx("负责人", "Owner")} {owner} · {tx("服务账号", "Service account")} {a.account ?? <UnknownValue reason="not_generated" />}
             </Muted>
           </Col>
         </Row>
@@ -148,7 +154,7 @@ export default function AgentPage() {
                             </Row>
                           </td>
                           <td>
-                            <Muted>{/^\d{4}-\d{2}-\d{2}T/.test(v.created) ? new Date(v.created).toLocaleString() : v.created}</Muted>
+                            <Muted>{when.at(v.created)}</Muted>
                           </td>
                         </tr>
                       ))}

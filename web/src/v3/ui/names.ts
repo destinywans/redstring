@@ -1,8 +1,9 @@
 import { useMemo } from "react";
-import { useGet } from "../api/client";
+import { API_MODE, useGet } from "../api/client";
 import { serviceApplicationId } from "../api/ids";
-import type { ServiceCatalog } from "../api/types";
+import type { Me, MembersView, ServiceCatalog } from "../api/types";
 import { useEnv } from "../app/environment";
+import { usePermission } from "./permission";
 
 /*
  * Names for the opaque IDs records carry (PA-111, PA-166). Each lookup gives null when it can't resolve the ID, so the
@@ -29,4 +30,27 @@ export function useNames() {
       env: (id: string | null | undefined) => (id ? (environments?.find((e) => e.id === id)?.label ?? null) : null),
     };
   }, [svc, environments]);
+}
+
+/**
+ * The member directory. It needs members.view: roles without it get no list instead of a 403 (PA-126), and real mode
+ * waits for /me so the read isn't sent before the grants are known. `hidden`: the directory can't be read here.
+ */
+export function useMembers() {
+  const { data: me, error: meError } = useGet<Me>("/me");
+  const need = usePermission()(["members", "view"]);
+  const known = API_MODE === "mock" || !!me || !!meError;
+  const readable = known && need === null;
+  const { data, error } = useGet<MembersView>(readable ? "/members" : null, { filter: "all" }, { staleTime: 5 * 60_000 });
+  return { me, items: data?.items, hidden: (known && !readable) || !!error };
+}
+
+/** User ID → member name; the viewer's own ID resolves without the directory. `hidden` as in useMembers. */
+export function useMemberNames() {
+  const { me, items, hidden } = useMembers();
+  return useMemo(() => {
+    const people = new Map((items ?? []).map((m) => [m.id, m.name]));
+    if (me) people.set(me.id, me.name);
+    return { member: (id: string | null | undefined) => (id ? (people.get(id) ?? null) : null), hidden };
+  }, [me, items, hidden]);
 }

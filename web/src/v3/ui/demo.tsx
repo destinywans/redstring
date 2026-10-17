@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { API_MODE, useGet } from "../api/client";
-import type { Me, MembersView, ServiceCatalog } from "../api/types";
+import type { ServiceCatalog } from "../api/types";
 import { Btn, Chip, Empty, Field, Icon, Input, Muted, Textarea, cx, type IconName } from "./core";
 import { Dialog, Popover, toast } from "./overlays";
 import { useI18n } from "../i18n";
-import { usePermission } from "./permission";
+import { useMembers } from "./names";
 import "./demo.css";
 
 /*
@@ -334,16 +334,12 @@ export function AddChip({
 /** Option lists for pickers: services from the catalog, people from the member directory. */
 export function usePickLists() {
   const { data: svc } = useGet<ServiceCatalog>("/services", undefined, { staleTime: 5 * 60_000 });
-  // PA-126: the member list needs members.view; roles without it get no people to pick instead of a 403. Real mode
-  // waits for /me so the read isn't sent before the grants are known.
-  const { data: me, error: meError } = useGet<Me>("/me");
-  const membersNeed = usePermission()(["members", "view"]);
-  const canSeeMembers = API_MODE === "mock" || ((!!me || !!meError) && membersNeed === null);
-  const { data: mem } = useGet<MembersView>(canSeeMembers ? "/members" : null, { filter: "all" }, { staleTime: 5 * 60_000 });
+  // PA-126: the member list needs members.view; roles without it get no people to pick instead of a 403.
+  const { items: members } = useMembers();
   return {
     // Real service IDs are opaque; show the name and keep the ID as the value.
     services: (svc?.items ?? []).map((s) => ({ value: s.id, label: s.name, hint: s.tier })),
-    people: (mem?.items ?? []).filter((m) => !m.agent && m.status === "active").map((m) => ({ value: m.name, label: m.name, hint: m.department })),
+    people: (members ?? []).filter((m) => !m.agent && m.status === "active").map((m) => ({ value: m.name, label: m.name, hint: m.department })),
   };
 }
 

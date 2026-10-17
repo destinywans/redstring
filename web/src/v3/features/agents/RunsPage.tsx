@@ -11,6 +11,7 @@ import "./agents.css";
 import { ChipSelect, RangeChip, openExternal, useFacet, useRanges } from "../../ui/demo";
 import { Unavailable, UnknownValue } from "../../ui/unknown";
 import { useWhen } from "../../ui/when";
+import { useNames } from "../../ui/names";
 
 const fmtMs = (ms: number) => (ms >= 60_000 ? `${Math.floor(ms / 60_000)} m ${String(Math.round((ms % 60_000) / 1000)).padStart(2, "0")} s` : ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`);
 const fmtTokens = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
@@ -20,6 +21,8 @@ const durationBuckets = (ms: number[]) => {
   for (const v of ms) out[Math.min(12, Math.floor(v / 10_000))]++;
   return out;
 };
+/** Real rows also carry the IDs behind their "<environment> / <application>" scope. */
+type ScopedRun = RunRow & { application_id?: string; environment_id?: string };
 
 export default function RunsPage() {
   const { tx } = useI18n();
@@ -32,6 +35,9 @@ export default function RunsPage() {
   const [range, setRange] = useState("24h");
   const rangeLabel = useRanges().find((r) => r.value === range)?.label ?? range;
   const { data } = useGet<RunsView>("/agent-runs", { filter, range });
+  // The scope names the application and environment by ID (PA-166): show the catalog and environment names.
+  const names = useNames();
+  const scopeOf = (r: ScopedRun) => (r.application_id && r.environment_id ? `${names.env(r.environment_id) ?? r.environment_id} / ${names.service(r.application_id) ?? r.application_id}` : r.scope);
   const st = (s: RunRow["status"]): [string, "ok" | "danger" | "warn" | "neutral"] =>
     (({ success: [tx("成功", "Success"), "ok"], failed: [tx("失败", "Failed"), "danger"], blocked: [tx("已拦截", "Blocked"), "warn"], running: [tx("运行中", "Running"), "neutral"] }) as Record<string, [string, "ok" | "danger" | "warn" | "neutral"]>)[s] ?? [s, "neutral"];
   // Real KPI labels come back in English; name the ones the server sends.
@@ -46,7 +52,7 @@ export default function RunsPage() {
   const fAgent = useFacet(data?.items, (r) => r.agent);
   const fVer = useFacet(data?.items, (r) => r.version);
   const fTrig = useFacet(data?.items, (r) => r.trigger);
-  const rows = data?.items.filter((r) => (!q || r.id.includes(q) || r.scope.includes(q)) && fAgent.test(r) && fVer.test(r) && fTrig.test(r));
+  const rows = data?.items.filter((r) => (!q || r.id.includes(q) || r.scope.includes(q) || scopeOf(r).includes(q)) && fAgent.test(r) && fVer.test(r) && fTrig.test(r));
   return (
     <Page
       crumbs={[tx("Agent 运行台", "Agent console"), tx("运行与 Trace", "Runs & traces")]}
@@ -125,7 +131,7 @@ export default function RunsPage() {
                 ),
               },
               { key: "trigger", header: tx("触发", "Trigger"), width: "15%", render: (r) => <Muted>{r.trigger}</Muted> },
-              { key: "scope", header: tx("范围", "Scope"), render: (r) => <Muted>{r.scope}</Muted> },
+              { key: "scope", header: tx("范围", "Scope"), render: (r) => <Muted>{scopeOf(r)}</Muted> },
               { key: "status", header: tx("状态", "Status"), render: (r) => <State tone={st(r.status)[1]} pulse={r.status === "running"}>{st(r.status)[0]}</State> },
               { key: "steps", header: demo ? tx("推理 · 工具", "Turns · tools") : tx("步骤", "Steps"), render: (r) => (r.steps == null ? <UnknownValue reason="not_generated" /> : <Num color="var(--muted)">{r.steps}</Num>) },
               { key: "tokens", header: "tokens", render: (r) => (r.tokens == null ? <UnknownValue reason="not_generated" /> : <Num>{typeof r.tokens === "number" ? fmtTokens(r.tokens) : r.tokens}</Num>) },

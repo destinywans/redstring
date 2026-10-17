@@ -863,7 +863,10 @@ export default function CanvasPage() {
               value="canvas"
               onChange={(v) => {
                 const conv = inv.conversation_id ?? (demo ? "C-320" : null);
-                if (v === "chat" && conv) nav(`/conversations/${conv}`);
+                if (v !== "chat") return;
+                if (conv) return nav(`/conversations/${conv}`);
+                // An investigation started from an alert has no conversation; say so instead of doing nothing (PA-168).
+                toast(tx("这个调查是从告警发起的，没有对应的对话；可以在画布上派生分支继续提问", "This investigation was started from an alert and has no conversation; fork a branch on the canvas to keep asking"));
               }}
               options={[
                 { value: "chat", label: tx("对话", "Chat"), icon: "message" },

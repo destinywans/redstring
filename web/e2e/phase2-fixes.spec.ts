@@ -107,3 +107,33 @@ test.describe("rollback drawer revision times (PA-172)", () => {
     await expect(drawer).not.toContainText("10月11日");
   });
 });
+
+/** An investigation canvas ID, read in the page. */
+async function someInvestigation(page: Page): Promise<string> {
+  const items = await page.evaluate(async () => {
+    const r = await fetch("/api/v1/canvases?kind=investigation", { headers: { "X-AIOps-Environment": "prod" } });
+    return ((await r.json()) as { items?: { id: string }[] }).items ?? [];
+  });
+  test.skip(!items.length, "no investigation canvas");
+  return items[0].id;
+}
+
+/** Answers GET /investigations/{id}/canvas with the real graph, its investigation patched. */
+async function patchCanvas(page: Page, id: string, patch: Record<string, unknown>) {
+  const real = (await page.evaluate(async (id) => (await fetch(`/api/v1/investigations/${id}/canvas`, { headers: { "X-AIOps-Environment": "prod" } })).json(), id)) as { investigation: object };
+  await page.route(at(`/investigations/${id}/canvas`), (r) => json(r, 200, { ...real, investigation: { ...real.investigation, ...patch } }));
+}
+
+test.describe("canvas without a conversation (PA-168)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("the chat switch says why there is no conversation", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const id = await someInvestigation(page);
+    await patchCanvas(page, id, { conversation_id: null });
+    await page.goto(origin + `/canvas/${id}`);
+    await page.getByRole("radio", { name: "对话" }).or(page.getByRole("button", { name: "对话", exact: true })).first().click({ timeout: 20_000 });
+    await expect.poll(async () => (await toasts(page)).join(" ")).toContain("没有对应的对话");
+  });
+});

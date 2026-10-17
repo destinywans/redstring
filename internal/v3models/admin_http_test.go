@@ -42,7 +42,7 @@ func readAdminResponse(t *testing.T, w *httptest.ResponseRecorder) adminView {
 }
 
 func TestModelAdminVisionReflectsConfiguredInputCapability(t *testing.T) {
-	view := buildAdminView("test", []inference.Model{
+	view := buildAdminView(adminText{}, "test", []inference.Model{
 		{ID: "image", Provider: "openai", API: "responses", ImageInput: true, PDFInput: true},
 		{ID: "text", Provider: "openai", API: "responses"},
 	}, "image", nil, nil, "", nil)
@@ -86,8 +86,25 @@ func TestModelAdminBoundViewObservationsAndHistoricalUse(t *testing.T) {
 		t.Fatalf("missing tool allowlist=%d %s", w.Code, w.Body.String())
 	}
 	service.ToolModels = map[string]bool{"openai:local": true}
-	dev := func() *httptest.ResponseRecorder {
-		return modelRequest(api, http.MethodGet, "/api/v1/models/admin", token, "dev", "")
+	devIn := func(lang string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/models/admin", nil)
+		r.Header.Set("X-AIOps-Environment", "dev")
+		r.Header.Set("Accept-Language", lang)
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	dev := func() *httptest.ResponseRecorder { return devIn("en-US") }
+	// PA-166: the table's "used by" and "who can use" columns, and the detail
+	// card, follow the request language.
+	if zh := readAdminResponse(t, devIn("zh-CN")); len(zh.Items) != 1 ||
+		zh.Items[0].UsedBy != "暂无使用记录" || zh.Items[0].Scope != "环境：dev；另受对话与画布访问权限限制" ||
+		zh.Items[0].Cost != "未配置" || zh.Detail.APIChain[0].Note != "唯一配置的接口；不自动回退。" ||
+		zh.Detail.Limits != "配置的上下文窗口：32768 tokens；输入预算：24576 tokens。" ||
+		!strings.Contains(strings.Join(zh.Detail.Checks, " "), "没有模型元数据检查记录。") ||
+		!strings.Contains(zh.Detail.Roles, "没有模型专属的角色绑定") {
+		t.Fatalf("zh admin text: %+v", zh)
 	}
 	initial := readAdminResponse(t, dev())
 	if len(initial.Providers) != 1 || initial.Providers[0].Status != "unverified" ||
@@ -141,6 +158,10 @@ func TestModelAdminBoundViewObservationsAndHistoricalUse(t *testing.T) {
 		!strings.Contains(used.Items[0].UsedBy, "1 recorded Agent LLM spans") ||
 		!strings.Contains(used.Detail.Agents, "No active Agent-model binding") {
 		t.Fatalf("historical associations missing or promoted into active bindings: %+v", used)
+	}
+	if zh := readAdminResponse(t, devIn("zh-CN")); zh.Items[0].UsedBy != "历史：1 次已完成的对话回合、1 次已完成的画布回合、1 条 Agent 模型调用记录" ||
+		zh.Detail.Agents != "没有生效的 Agent 与模型绑定；历史 Agent 模型调用 1 条。" {
+		t.Fatalf("zh historical use: %+v", zh)
 	}
 	if w := modelRequest(api, http.MethodGet, "/api/v1/models/admin", token, "all", ""); w.Code == http.StatusOK {
 		t.Fatalf("all-environment admin view unexpectedly succeeded: %s", w.Body.String())

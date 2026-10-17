@@ -66,7 +66,7 @@
 | GET | `/mentions/{kind}/{id}/preview` | | 当前有权六类对象的有证据预览；Runbook 缺失观测项明示，其他类别明确不可用 | implemented |
 | GET | `/commands` | | `{ items: CommandItem[] }`；仅经配置和授权的斜杠文字建议，不执行命令 | implemented |
 | GET | `/models` | | `ModelCatalog`：当前用户可用的模型、接口类型、推理强度档位与默认值 | implemented |
-| GET | `/models/admin` | 单一已授权环境 | `ModelAdminView`；仅服务端明确绑定到该环境的模型、进程配置与持久历史使用；状态保持未验证 | implemented |
+| GET | `/models/admin` | 单一已授权环境 | `ModelAdminView`；仅服务端明确绑定到该环境的模型、进程配置与持久历史使用；状态保持未验证。`used_by`、`scope`、`cost`、`note`、未指定提供方的名称及 `detail` 的说明文字按 `Accept-Language` 生成，接口名与模型 ID 不翻译（PA-166） | implemented |
 | POST | `/uploads` | multipart `file` + `kind`；链接与折叠粘贴用 JSON `{ kind, name, url \| text }` | `Upload`；单个 ≤ 20 MB，超出返回 413 | implemented |
 
 `GET /home` 已接入按当前会话、环境及服务/事件/提案/对话权限过滤的持久记录聚合。服务登记数、未解决事件数和待复核提案数仅表示当前可见数据库记录，不表示外部平台健康或告警接收完整性；可选趋势只统计已入库且可识别等级的接收记录，未知等级不从关注列表删除。关注项带 `alert_state`（`firing`/`resolved`，来源未给出时为 `null`），已恢复但未认领的事件仍列出；`firing_services` 是当前可见、告警仍在触发且非 AI 疑似的不同服务数，无事件查看权时为 `null`（PA-58，D7）。AI 简报、权威值班、服务健康、SLO 与建议没有可信生产者，保持 `null`、空数组与逐项 `availability`。冻结 `HomeSummary` 和首页会直接读取非空简报、趋势与健康字段，当前真实响应可能使页面报错；此处 `implemented` 只表示有来源部分的后端读取、授权、错误和可空契约代码完成，不表示页面或缺失生产者已验收。

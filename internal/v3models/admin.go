@@ -163,7 +163,7 @@ func (s *Service) admin(w http.ResponseWriter, r *http.Request) {
 		adminUnavailable(w)
 		return
 	}
-	view := buildAdminView(env, models, defaultModel, observations, usage, s.instanceID, s.ToolModels)
+	view := buildAdminView(adminTextFor(r), env, models, defaultModel, observations, usage, s.instanceID, s.ToolModels)
 	cookie, err := r.Cookie("aiops_session")
 	if err != nil {
 		httpapi.Error(w, http.StatusUnauthorized, "unauthorized", "Session is no longer active")
@@ -251,20 +251,20 @@ func readAdminUsage(ctx context.Context, tx pgx.Tx, env string, ids []string) (m
 	return result, nil
 }
 
-func buildAdminView(env string, models []inference.Model, defaultModel string, observations map[string]adminObservation, usage map[string]adminUsage, instanceID string, toolModels map[string]bool) adminView {
+func buildAdminView(t adminText, env string, models []inference.Model, defaultModel string, observations map[string]adminObservation, usage map[string]adminUsage, instanceID string, toolModels map[string]bool) adminView {
 	view := adminView{Providers: []adminProvider{}, Items: []adminItem{}}
 	providerIndexes := map[string]int{}
 	providerAPIs := map[string][]string{}
 	for _, model := range models {
-		provider := model.Provider
+		provider, name := model.Provider, model.Provider
 		if provider == "" {
-			provider = "Unspecified provider"
+			provider, name = "Unspecified provider", t.pick("未指定提供方", "Unspecified provider")
 		}
 		index, exists := providerIndexes[provider]
 		if !exists {
 			index = len(view.Providers)
 			providerIndexes[provider] = index
-			view.Providers = append(view.Providers, adminProvider{Brand: provider, Name: provider, Status: "unverified"})
+			view.Providers = append(view.Providers, adminProvider{Brand: provider, Name: name, Status: "unverified"})
 		}
 		p := &view.Providers[index]
 		p.Models++
@@ -288,52 +288,57 @@ func buildAdminView(env string, models []inference.Model, defaultModel string, o
 			ID: model.ID, Name: model.Name, Provider: model.Provider, Brand: provider,
 			Connector: "", API: model.API, Reasoning: adminReasoning{Kind: kind, Levels: levels},
 			Tools: model.Tools && toolModels[model.ID], Vision: model.ImageInput, ContextK: model.ContextWindow / 1024,
-			Cost: "Not configured", Note: "Bound for execution in this environment; enabled tool use is not a verified endpoint check.",
-			Available: true, UsedBy: usage[model.ID].description(), Scope: "Environment: " + env + "; subject to conversation/canvas access",
+			Cost: t.pick("未配置", "Not configured"),
+			Note: t.pick("已绑定到该环境用于执行；开启工具调用不代表已验证接口。",
+				"Bound for execution in this environment; enabled tool use is not a verified endpoint check."),
+			Available: true, UsedBy: usage[model.ID].description(t),
+			Scope:  t.pick("环境："+env+"；另受对话与画布访问权限限制", "Environment: "+env+"; subject to conversation/canvas access"),
 			Status: "unverified", IsDefault: model.ID == defaultModel,
 		})
 	}
 	for _, model := range models {
 		if model.ID == defaultModel {
-			view.Detail = adminModelDetail(model, observations[model.ID], usage[model.ID], instanceID)
+			view.Detail = adminModelDetail(t, model, observations[model.ID], usage[model.ID], instanceID)
 			break
 		}
 	}
 	return view
 }
 
-func (u adminUsage) description() string {
+func (u adminUsage) description(t adminText) string {
 	if u.Conversations == 0 && u.Canvases == 0 && u.AgentSpans == 0 {
-		return "No recorded use"
+		return t.pick("暂无使用记录", "No recorded use")
 	}
 	parts := []string{}
 	if u.Conversations > 0 {
-		parts = append(parts, fmt.Sprintf("%d completed conversation turns", u.Conversations))
+		parts = append(parts, fmt.Sprintf(t.pick("%d 次已完成的对话回合", "%d completed conversation turns"), u.Conversations))
 	}
 	if u.Canvases > 0 {
-		parts = append(parts, fmt.Sprintf("%d completed canvas turns", u.Canvases))
+		parts = append(parts, fmt.Sprintf(t.pick("%d 次已完成的画布回合", "%d completed canvas turns"), u.Canvases))
 	}
 	if u.AgentSpans > 0 {
-		parts = append(parts, fmt.Sprintf("%d recorded Agent LLM spans", u.AgentSpans))
+		parts = append(parts, fmt.Sprintf(t.pick("%d 条 Agent 模型调用记录", "%d recorded Agent LLM spans"), u.AgentSpans))
 	}
-	return "Historical: " + strings.Join(parts, ", ")
+	return t.pick("历史：", "Historical: ") + strings.Join(parts, t.pick("、", ", "))
 }
 
-func adminModelDetail(model inference.Model, observation adminObservation, usage adminUsage, instanceID string) adminDetail {
-	checks := []string{"Generation, streaming, tools, and vision have not been checked."}
+func adminModelDetail(t adminText, model inference.Model, observation adminObservation, usage adminUsage, instanceID string) adminDetail {
+	checks := []string{t.pick("尚未检查生成、流式、工具调用和看图能力。", "Generation, streaming, tools, and vision have not been checked.")}
 	var checkedAt *string
 	if observation.Status == "" {
-		checks = append(checks, "No model metadata check is recorded.")
+		checks = append(checks, t.pick("没有模型元数据检查记录。", "No model metadata check is recorded."))
 	} else if observation.InstanceID != instanceID {
-		checks = append(checks, "A metadata check belongs to another process instance; current process is unverified.")
+		checks = append(checks, t.pick("元数据检查属于另一个进程实例；当前进程未验证。",
+			"A metadata check belongs to another process instance; current process is unverified."))
 	} else {
 		stamp := observation.CheckedAt.UTC().Format(time.RFC3339)
 		checkedAt = &stamp
 		switch observation.Status {
 		case "verified":
-			checks = append(checks, "Local credential-free metadata lookup succeeded.")
+			checks = append(checks, t.pick("本地免凭据元数据查询成功。", "Local credential-free metadata lookup succeeded."))
 		case "error", "unsupported":
-			checks = append(checks, "Metadata lookup "+observation.Status+" (code: "+observation.ErrorCode+").")
+			checks = append(checks, t.pick("元数据查询结果："+observation.Status+"（代码："+observation.ErrorCode+"）。",
+				"Metadata lookup "+observation.Status+" (code: "+observation.ErrorCode+")."))
 		}
 	}
 	mapping := make([]adminMapping, 0, len(model.ReasoningLevels))
@@ -353,13 +358,31 @@ func adminModelDetail(model inference.Model, observation adminObservation, usage
 	}
 	return adminDetail{
 		Model:    model.ID,
-		APIChain: []adminAPIStep{{API: adminAPIName(model.API), Note: "Only configured API; no automatic fallback."}},
+		APIChain: []adminAPIStep{{API: adminAPIName(model.API), Note: t.pick("唯一配置的接口；不自动回退。", "Only configured API; no automatic fallback.")}},
 		Mapping:  mapping,
 		Checks:   checks, CheckedAt: checkedAt,
-		Roles:  "No model-specific role binding; conversation and canvas route grants plus environment scope apply.",
-		Agents: fmt.Sprintf("No active Agent-model binding; %d historical Agent LLM spans.", usage.AgentSpans),
-		Limits: fmt.Sprintf("Configured context window: %d tokens; input budget: %d tokens.", model.ContextWindow, model.InputBudget),
+		Roles: t.pick("没有模型专属的角色绑定；适用对话与画布的路由权限及环境范围。",
+			"No model-specific role binding; conversation and canvas route grants plus environment scope apply."),
+		Agents: fmt.Sprintf(t.pick("没有生效的 Agent 与模型绑定；历史 Agent 模型调用 %d 条。",
+			"No active Agent-model binding; %d historical Agent LLM spans."), usage.AgentSpans),
+		Limits: fmt.Sprintf(t.pick("配置的上下文窗口：%d tokens；输入预算：%d tokens。",
+			"Configured context window: %d tokens; input budget: %d tokens."), model.ContextWindow, model.InputBudget),
 	}
+}
+
+// adminText words the model page's columns and detail card in the request
+// language (PA-166). API names and identifiers stay as they are.
+type adminText struct{ en bool }
+
+func adminTextFor(r *http.Request) adminText {
+	return adminText{en: strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Accept-Language"))), "en")}
+}
+
+func (t adminText) pick(zh, en string) string {
+	if t.en {
+		return en
+	}
+	return zh
 }
 
 func adminAPIName(api string) string {

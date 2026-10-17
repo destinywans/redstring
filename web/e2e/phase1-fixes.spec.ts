@@ -244,6 +244,17 @@ test.describe("alert group names (PA-130)", () => {
     // The row shows the raw ID until the service catalog has loaded; the name must replace it.
     await expect.poll(() => head.innerText(), { timeout: 15_000, message: "a 32-hex application ID in the group row" }).not.toMatch(/\b[0-9a-f]{32}\b/);
   });
+
+  test("groups name their alert (PA-130 remainder)", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/alerts");
+    const groups = page.waitForResponse((r) => { const u = new URL(r.url()); return u.pathname === "/api/v1/alert-groups" && u.searchParams.get("state") === "resolved" && r.status() === 200; }, { timeout: 20_000 });
+    await page.getByText("已恢复", { exact: true }).click({ timeout: 20_000 });
+    const first = ((await (await groups).json()) as { items: { alert_name?: string | null }[] }).items[0];
+    test.skip(!first, "no alert group to read");
+    expect(first.alert_name, "alert_name on the first group").toBeTruthy();
+    await expect(page.locator(".alert-group .ag-head").first()).toContainText(first.alert_name!, { timeout: 15_000 });
+  });
 });
 
 test.describe("silences when Alertmanager can't be read (PA-131, PA-132)", () => {
@@ -925,8 +936,83 @@ test.describe("production config sync for other roles (PA-110)", () => {
     const m = monitor(page);
     await page.goto(origin + "/integrations/sync");
     await expect(page.getByText("没有权限查看待导入的配置")).toBeVisible({ timeout: 20_000 });
+    await m.quiet();
     await m.settle();
     expect(m.api.filter((c) => c.path.startsWith("/config-sync"))).toEqual([]);
     expect(m.pageErrors).toEqual([]);
+  });
+});
+
+const INCIDENT_DRAFT = {
+  title: "检查用事件", severity: "P2", severity_hint: "", env: "prod", services: [{ id: "svc-check", tier: null }], impact: null,
+  alerts: [{ id: "alert-check", severity: "P2", text: "LabHigh5xxRate · checkout-api", at: "2026-10-17T02:00:00Z" }],
+  commander: null, participants: null, war_room: null,
+};
+
+test.describe("new incident (PA-126)", () => {
+  test.describe("as an admin", () => {
+    test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+    test("manual entry is held with where to start instead; a refused draft is said", async ({ page }) => {
+      await page.addInitScript(zh);
+      await page.goto(origin + "/incidents");
+      const btn = page.getByRole("button", { name: "新建事件" });
+      await expect(btn).toBeDisabled({ timeout: 20_000 });
+      await expect(page.locator(".avail-gate")).toContainText("请在收件箱的告警上选「创建事件」");
+      await page.route(at("/incidents/draft"), (r) => json(r, 409, { error: { code: "incident_conflict", message: "Alert changed or is already linked to an incident" } }));
+      await page.goto(origin + "/incidents?new=incident&alerts=alert-check");
+      await expect(page.getByText("所选告警刚刚变化，或已经关联了事件")).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText(/已按所选 \d+ 条告警预填/)).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "创建事件" })).toBeDisabled();
+    });
+  });
+  test.describe("as an operator", () => {
+    test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+    test("the drawer from an alert doesn't read the member list without identity.view", async ({ page }) => {
+      await page.addInitScript(zh);
+      const m = monitor(page);
+      await page.route(at("/incidents/draft"), (r) => json(r, 200, INCIDENT_DRAFT));
+      await page.goto(origin + "/incidents?new=incident&alerts=alert-check");
+      await expect(page.getByText("已按所选 1 条告警预填", { exact: false })).toBeVisible({ timeout: 20_000 });
+      await m.quiet();
+      await m.settle();
+      expect(m.api.filter((c) => c.path.startsWith("/members"))).toEqual([]);
+      expect(m.pageErrors).toEqual([]);
+    });
+  });
+});
+
+test.describe("new runbook starting points (PA-124)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  test("real mode offers only blank and from a postmortem", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/runbooks");
+    await page.getByRole("button", { name: "新建 Runbook" }).click({ timeout: 20_000 });
+    const options = page.getByRole("radiogroup", { name: "起点" }).getByRole("radio");
+    await expect(options).toHaveCount(2);
+    const text = await page.getByRole("radiogroup", { name: "起点" }).innerText();
+    for (const held of ["从模板", "从对话或画布生成", "导入"]) expect.soft(text, held).not.toContain(held);
+  });
+});
+
+test.describe("drafts without a GitOps repository (PA-123, PA-141)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  test("new inhibition and new route are held with the reason when the list says so", async ({ page }) => {
+    await page.addInitScript(zh);
+    const inhibitions = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/v1/inhibitions", { timeout: 20_000 });
+    await page.goto(origin + "/silences");
+    const inhib = (await (await inhibitions).json().catch(() => ({}))) as { unavailable?: string[] };
+    const inhibitBtn = page.getByRole("button", { name: "新建抑制规则" }).first();
+    if (inhib.unavailable?.includes("inhibition_drafts")) {
+      await expect(inhibitBtn).toBeDisabled();
+      await expect(page.locator(".avail-gate", { has: inhibitBtn })).toContainText("GitOps 抑制仓库");
+    } else await expect(inhibitBtn).toBeEnabled();
+    const routes = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/v1/notification-routes", { timeout: 20_000 });
+    await page.goto(origin + "/routing");
+    const tree = (await (await routes).json().catch(() => ({}))) as { unavailable?: string[] };
+    const routeBtn = page.getByRole("button", { name: "新建路由" });
+    if (tree.unavailable?.includes("route_drafts")) {
+      await expect(routeBtn).toBeDisabled();
+      await expect(page.locator(".avail-gate", { has: routeBtn })).toContainText("GitOps 路由仓库");
+    } else await expect(routeBtn).toBeEnabled();
   });
 });

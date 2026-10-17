@@ -179,8 +179,9 @@ func appendManualTimeline(ctx context.Context, tx pgx.Tx, entries []timelineEntr
 	return entries, rows.Err()
 }
 
-// draftText words the draft's section titles and lifecycle events in the
-// request language instead of fixed English and event codes (PA-169, PA-113).
+// draftText words generated postmortem text in the request language instead
+// of fixed English and event codes: the draft's section titles and lifecycle
+// events (PA-169, PA-113) and the list's labels and unknown markers (PA-166).
 type draftText struct{ en bool }
 
 func draftTextFor(acceptLanguage string) draftText {

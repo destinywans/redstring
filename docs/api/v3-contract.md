@@ -212,7 +212,7 @@
 | GET | `/runbooks/{id}` | | 当前授权的结构化 Runbook；用量、事件关联与执行核验未知时可空 | implemented |
 | POST | `/runbooks/{id}/dry-run` | 当前对象需 `knowledge.manage`；验证持久化步骤并保存预览/审计，不执行外部动作 | 演练结果 | implemented |
 | POST | `/runbooks/{id}/submit` | 当前持久化草稿，无请求体 | 提交审核 | implemented |
-| GET | `/postmortems` | `tab?`, `q?`, `page?`, `page_size?` | 当前受权的旧事故或已解决手工事件复盘；无可信事故时长、趋势、影响与跟进时明确未知 | implemented |
+| GET | `/postmortems` | `tab?`, `q?`, `page?`, `page_size?` | 当前受权的旧事故或已解决手工事件复盘；无可信事故时长、趋势、影响与跟进时明确未知；KPI 标签与单位、根因类别 `cause` 与改进项 `actions` 里的“未知”按 `Accept-Language` 生成（PA-166） | implemented |
 | GET | `/memory` | `service?` | 当前受权、发布来源锚定的事实与真实冲突；置信度、召回和过期未知时可空 | implemented |
 | POST | `/memory/facts/{id}/{action}` | `action: confirm\|reject\|expire` | `{ fact, fact_redacted, partial, unavailable_fields }`；清理旧来源时事实正文脱敏 | implemented |
 | POST | `/memory/conflicts/resolve` | `{ keep, drop }`；均为真实事实 ID | `{ id, state, keep, drop }` | implemented |

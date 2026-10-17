@@ -190,3 +190,45 @@ func TestPostmortemDraftSectionTitlesFollowRequestLanguage(t *testing.T) {
 		t.Fatalf("en sections: %s", en)
 	}
 }
+
+// PA-166: the postmortem list's KPI labels and unknown markers follow the
+// request language.
+func TestPostmortemSummaryTextFollowsRequestLanguage(t *testing.T) {
+	f := newPostmortemTextFixture(t)
+	if _, err := f.db.Exec(t.Context(), `INSERT INTO v3_postmortems
+ (id,incident_id,application_id,environment_id,source_kind,source_case_status_event_id,sections,actions,status,created_by)
+ SELECT 'pm-tl','INC-tl','app','dev','case',se.id,'[]','[]','published',$1
+ FROM v3_incident_case_status_events se WHERE se.case_id='INC-tl' AND se.revision=3`, f.userID); err != nil {
+		t.Fatal(err)
+	}
+	// A manual incident has no measured duration, so only the count KPI shows.
+	for _, tc := range []struct{ lang, count, cause, actions string }{
+		{"zh-CN", "可见复盘数", "未知", "未知 / 0"},
+		{"en-US", "Visible postmortems", "Unknown", "unknown / 0"},
+	} {
+		var body PostmortemSummary
+		if err := json.Unmarshal(f.get(t, "/api/v1/postmortems", tc.lang), &body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.KPIs) != 1 || body.KPIs[0].Label != tc.count || body.KPIs[0].Value != "1" ||
+			len(body.Items) != 1 || body.Items[0].Cause != tc.cause || body.Items[0].Actions != tc.actions {
+			t.Fatalf("%s summary: %+v", tc.lang, body)
+		}
+	}
+}
+
+func TestPostmortemSummaryKPIsFollowRequestLanguage(t *testing.T) {
+	for _, tc := range []struct{ lang, count, mttr, unit string }{
+		{"zh-CN", "可见复盘数", "平均恢复时长（已报告事件）", "分钟"},
+		{"en-US", "Visible postmortems", "Mean resolution, reported incidents", "min"},
+	} {
+		kpis := summaryKPIs(draftTextFor(tc.lang), 3, 2, 1800)
+		if len(kpis) != 2 || kpis[0].Label != tc.count || kpis[0].Value != "3" ||
+			kpis[1].Label != tc.mttr || kpis[1].Unit != tc.unit || kpis[1].Value != "15.0" {
+			t.Fatalf("%s kpis: %+v", tc.lang, kpis)
+		}
+	}
+	if kpis := summaryKPIs(draftTextFor("zh-CN"), 0, 0, 0); len(kpis) != 1 {
+		t.Fatalf("unmeasured resolution became a KPI: %+v", kpis)
+	}
+}

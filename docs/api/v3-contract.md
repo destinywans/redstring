@@ -155,7 +155,7 @@
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
 | GET | `/inbox` | `filter: all\|mine\|mentions\|subscribed` | 当前授权的持久告警事件，以及分配给当前用户的告警、事件、提案（`kind: assignment`，`assignment_kind` 为对象类型，`href` 指向事件页 `/incidents/{id}` 或评审页 `/review/{id}`，PA-84）；已读及未接成员关系为 `null`/明确 503 | implemented |
-| GET | `/alerts/{id}` | | 当前授权的持久告警详情与本地通知台账；无精确发生记录来源的字段为 `null` 并列入 `unavailable` | implemented |
+| GET | `/alerts/{id}` | | 当前授权的持久告警详情与本地通知台账；无精确发生记录来源的字段为 `null` 并列入 `unavailable`。`group_id` 是该告警所在的本地告警组（与 `GET /alert-groups` 的 ID 相同），供 `POST /alert-groups/bulk` 发起调查（PA-167）；告警没有指纹时为 `null` | implemented |
 | POST | `/alerts/{id}/claim` | `{ expected_revision }`（取自详情读取） | 按当前修订原子认领、审计并返回更新后的持久告警详情；旧修订返回 412 | implemented |
 | GET | `/alert-groups` | `q`, `severity`, `env`, `state`, `show_inhibited` | 按持久事件本地聚合；指标、抑制及外部投递未知 | implemented |
 | GET | `/alert-groups/{id}/policy` | | 明确来源绑定下读取当前 Alertmanager 策略；缺来源时可空且列出 `unavailable` | implemented |
@@ -606,6 +606,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-10-17 | 缺陷收敛两轮之间：`GET /alerts/{id}` 新增 `group_id`（PA-167）。 |
 | 2026-10-10 | PA-19 第二阶段第 8 步：`AIOPS_V3_SOURCE_REGISTRY` 缺省改为 `unified`，全部读取方读统一登记，本契约里写成“`AIOPS_V3_UNIFIED_READERS` 含某读取方时”的行为即缺省行为；`legacy`、`compare` 只保留列出的读取方，作为回退保留到 P4。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-19 P4：删除 `legacy`、`compare` 模式和 `AIOPS_V3_SOURCE_REGISTRY`、`AIOPS_V3_UNIFIED_READERS`（设了只记一条警告），覆盖度、服务映射、日志、Trace、AI 指标与日志工具、`list_services` 只读统一登记，连接器详情 `tools` 无条件列出已保存开关；服务映射不再返回 `registry_cutover`、`registry_not_enabled`，已存绑定不再按遥测文件和 Kubernetes 登记校验；V3 实例不再注册 `internal/actions` 的旧回滚路由（404），迁移 173 让已批准、未执行的旧回滚计划到期。详见 [遥测来源统一登记](v3-telemetry-registry.md) |
 | 2026-10-10 | PA-19 P4：V3 实例不再读 `AIOPS_TELEMETRY_CONFIG`（设了只记一条警告；旧模式和 `aiops connectors import-legacy` 照旧读）；客户端上限改取统一目录的 `limits`，Trace 搜索完整声明改为目录的 `tempo_search_fail_closed` 连接器列表。详见 [遥测来源统一登记](v3-telemetry-registry.md) |

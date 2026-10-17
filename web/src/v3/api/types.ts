@@ -296,6 +296,8 @@ export type AlertDetail = {
   revision?: string;
   investigation_id?: string;
   assignee_id?: string;
+  /** The local alert group (GET /alert-groups) this alert counts in; null without a fingerprint (PA-167). */
+  group_id?: string | null;
   unavailable?: string[];
 };
 /** Real instances carry no current value, series or pending progress yet (null = unknown, never zero). */

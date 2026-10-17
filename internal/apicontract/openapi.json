@@ -76366,6 +76366,13 @@
               "change"
             ]
           },
+          "group_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The local alert group from GET /alert-groups that this alert counts in, for POST /alert-groups/bulk (PA-167); null when the alert has no fingerprint. It is not an Alertmanager group."
+          },
           "unavailable": {
             "type": "array",
             "items": {
@@ -76395,6 +76402,7 @@
           "grouping",
           "assignee_id",
           "investigation_id",
+          "group_id",
           "unavailable"
         ]
       },

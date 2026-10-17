@@ -1,0 +1,71 @@
+import { test, expect, type Page, type Route } from "@playwright/test";
+import { INSTANCES } from "./support/env";
+import { statePath } from "./support/global-setup";
+import { monitor } from "./support/monitor";
+
+/**
+ * Regression checks for the defects fixed during WAN-434 phase 2 (between rounds). As in phase1-fixes.spec.ts, each
+ * check pins the page to fixed API answers with page.route, so it runs on any data and never writes: the real-data
+ * verification is in the registry (docs/releases/2026-10-16-defect-convergence.md).
+ *
+ *   npx playwright test -c e2e/playwright.config.ts phase2-fixes.spec.ts
+ */
+const origin = INSTANCES.prod.origin;
+const zh = () => localStorage.setItem("aiops-v3-preferences", JSON.stringify({ locale: "zh-CN", theme: "light" }));
+const json = (route: Route, status: number, body: unknown) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+/** Text of every toast shown so far. */
+const toasts = (page: Page) => page.locator(".v3-toast").allInnerTexts();
+/** Matches one API path exactly, with or without a query string. */
+const at = (path: string) => (url: URL) => url.pathname === "/api/v1" + path;
+
+/** An alert ID from the inbox, read in the page so the session cookie applies. */
+async function someAlert(page: Page): Promise<string> {
+  const items = await page.evaluate(async () => {
+    const r = await fetch("/api/v1/inbox", { headers: { "X-AIOps-Environment": "prod" } });
+    return ((await r.json()) as { items?: { alert_id?: string }[] }).items ?? [];
+  });
+  const id = items.find((i) => i.alert_id)?.alert_id;
+  test.skip(!id, "no alert in the inbox to open");
+  return id!;
+}
+
+/** Answers GET /alerts/{id} with the real detail, patched. */
+async function patchAlert(page: Page, id: string, patch: Record<string, unknown>) {
+  const real = await page.evaluate(async (id) => (await fetch(`/api/v1/alerts/${id}`, { headers: { "X-AIOps-Environment": "prod" } })).json(), id);
+  await page.route(at(`/alerts/${id}`), (r) => json(r, 200, { ...(real as object), ...patch }));
+}
+
+test.describe("inbox investigate (PA-167)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+
+  test("starts the alert's group investigation and opens it", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await page.goto(origin + "/healthz");
+    const id = await someAlert(page);
+    await patchAlert(page, id, { investigation_id: "", triage: null, group_id: "group:check" });
+    let sent: Record<string, unknown> | null = null;
+    await page.route(at("/alert-groups/bulk"), (r) => {
+      sent = r.request().postDataJSON();
+      return json(r, 200, { action: "investigate", results: [{ id: "group:check", outcome: "investigating", matched: 1, changed: 1, investigation_id: "inv-check", proposal_id: null, error: null }] });
+    });
+    await page.route(at("/investigations/inv-check"), (r) => json(r, 404, { error: { code: "not_found", message: "check" } }));
+    await page.goto(origin + `/inbox?item=alert%3A${id}`);
+    await page.getByRole("button", { name: "发起调查" }).click({ timeout: 20_000 });
+    await expect(page).toHaveURL(/\/canvas\/inv-check$/);
+    expect(sent).toEqual({ action: "investigate", ids: ["group:check"] });
+    expect(m.pageErrors).toEqual([]);
+  });
+
+  test("a refused group says why in words", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    const id = await someAlert(page);
+    await patchAlert(page, id, { investigation_id: "", triage: null, group_id: "group:check" });
+    await page.route(at("/alert-groups/bulk"), (r) => json(r, 207, { action: "investigate", results: [{ id: "group:check", outcome: "conflict", matched: 1, changed: 0, investigation_id: null, proposal_id: null, error: "conflict" }] }));
+    await page.goto(origin + `/inbox?item=alert%3A${id}`);
+    await page.getByRole("button", { name: "发起调查" }).click({ timeout: 20_000 });
+    await expect.poll(async () => (await toasts(page)).join(" ")).toContain("请从事件页发起调查");
+    expect(page.url()).not.toContain("/canvases");
+  });
+});

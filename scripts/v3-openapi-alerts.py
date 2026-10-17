@@ -50,10 +50,11 @@ S['V3AlertDetail'] = obj({
     'grouping':obj({'group':{'type':'null'},'inhibited':{'type':'null'},
         'incident':obj({'id':string()},['id']),'change':{'type':'null'}},
         ['group','inhibited','incident','change']),
+    'group_id':{'type':['string','null'],'description':'The local alert group from GET /alert-groups that this alert counts in, for POST /alert-groups/bulk (PA-167); null when the alert has no fingerprint. It is not an Alertmanager group.'},
     'unavailable':arr(string())},
     ['id','revision','severity','title','state','source_id','source','env','since',
      'rule','triage','series','labels','summary','runbook','notifications','notifications_truncated',
-     'grouping','assignee_id','investigation_id','unavailable'])
+     'grouping','assignee_id','investigation_id','group_id','unavailable'])
 v3_route('get','/alerts/{id}','Read evidence-backed persisted alert detail',
     response=ref('V3AlertDetail'),
     desc='Resolves a persisted ops_incidents ID in the selected V3 environment. Current session, mapped application, current owner team, and events.view are checked under transaction locks before returning. revision is the incident-row xmin action token, not a representation ETag: notification status can change independently. Notification rows report local enqueue time and transport status only; at most the latest 500 are returned, with notifications_truncated and unavailable when more exist. The nonempty source_id is the persisted ingress identity, not proof that its configuration remains active. Provider name, original alert labels, metric series and threshold, rule, triage, runbook, real notification group, inhibition and change association have no exact occurrence binding; these fields are null and named in unavailable. grouping.incident.id is the linked human case when one is recorded for this exact alert and application/environment, otherwise the original persisted alert occurrence ID. Malformed severity/state or cross-scope records return 503, not a synthetic value. This is a backend nullable contract; the frozen AlertDetail page requires non-null fields and is not yet accepted.')

@@ -25,6 +25,7 @@ export function AlertDetailView({ id }: { id: string }) {
   const nav = useNavigate();
   const { data: a, refetch } = useGet<AlertDetail>(`/alerts/${id}`);
   const [claimed, setClaimed] = useState(false);
+  const [starting, setStarting] = useState(false);
   const demo = API_MODE === "mock";
   if (!a)
     return (
@@ -57,6 +58,31 @@ export function AlertDetailView({ id }: { id: string }) {
       toast(e instanceof ApiError ? e.message : tx("认领失败，请稍后重试", "Couldn't claim it; try again later"), { tone: "danger" });
     }
   };
+  // Start the investigation of the alert's group, as the alert page does, so it is linked to the alert (PA-167).
+  const investigate = async () => {
+    if (!a.group_id) return toast(tx("这条告警不属于任何告警组，请在告警页或事件页发起调查", "This alert belongs to no alert group; start the investigation from the Alerts or Incidents page"), { tone: "danger" });
+    setStarting(true);
+    try {
+      const r = await api<{ results: { outcome: string; investigation_id: string | null }[] }>("POST", "/alert-groups/bulk", {
+        body: { action: "investigate", ids: [a.group_id] },
+        headers: { "X-AIOps-Environment": a.env },
+      });
+      const item = r.results[0];
+      if (item?.investigation_id && ["investigating", "already_investigating"].includes(item.outcome)) return nav(`/canvas/${item.investigation_id}`);
+      const why: Record<string, string> = {
+        conflict: tx("这组告警已恢复，或历史记录关联了不同的调查，请从事件页发起调查", "The group has resolved, or its past alerts belong to different investigations; start one from the incident page"),
+        not_found: tx("告警组不存在，或你没有处理它的权限", "The group wasn't found, or you can't act on it"),
+        session_revoked: tx("会话已失效，请重新登录", "Your session ended; sign in again"),
+        human_required: tx("需要本人登录操作", "This needs a signed-in person"),
+        group_too_large: tx("告警组太大", "The group is too large"),
+      };
+      toast(why[item?.outcome ?? ""] ?? tx("没能发起调查，请稍后重试", "Couldn't start the investigation; try again later"), { tone: "danger" });
+    } catch (e) {
+      toast(e instanceof ApiError ? e.message : tx("没能发起调查，请稍后重试", "Couldn't start the investigation; try again later"), { tone: "danger" });
+    } finally {
+      setStarting(false);
+    }
+  };
   return (
     <div className="alert-detail anim-fade" key={id}>
       <Row gap={8} wrap>
@@ -78,9 +104,17 @@ export function AlertDetailView({ id }: { id: string }) {
             {isClaimed ? tx("已认领", "Claimed") : tx("认领", "Claim")}
           </Btn>
         </Gate>
-        <Btn icon="branch" to={investigation ? `/canvas/${investigation}` : demo ? "/canvas/INV-231" : "/canvases?new=investigation"}>
-          {investigation || demo ? tx("打开调查", "Open investigation") : tx("发起调查", "Investigate")}
-        </Btn>
+        {investigation || demo ? (
+          <Btn icon="branch" to={investigation ? `/canvas/${investigation}` : "/canvas/INV-231"}>
+            {tx("打开调查", "Open investigation")}
+          </Btn>
+        ) : (
+          <Gate need={["events", "change"]}>
+            <Btn icon="branch" disabled={starting} onClick={() => void investigate()}>
+              {tx("发起调查", "Investigate")}
+            </Btn>
+          </Gate>
+        )}
         <Btn icon="clock" to={demo ? "/silences?new=checkout-api" : "/silences"}>
           {demo ? tx("静默 1 小时", "Silence 1 h") : tx("静默", "Silence")}
         </Btn>

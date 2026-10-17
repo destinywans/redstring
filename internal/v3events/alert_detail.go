@@ -36,7 +36,11 @@ type AlertDetailResponse struct {
 	Grouping               alertDetailAssociations `json:"grouping"`
 	AssigneeID             string                  `json:"assignee_id"`
 	InvestigationID        string                  `json:"investigation_id"`
-	Unavailable            []string                `json:"unavailable"`
+	// GroupID is the local alert group (GET /alert-groups) this alert counts
+	// in, so the page can start the group investigation (PA-167). It is null
+	// when the alert has no fingerprint and so belongs to no group.
+	GroupID     *string  `json:"group_id"`
+	Unavailable []string `json:"unavailable"`
 }
 
 type alertNotification struct {
@@ -141,6 +145,7 @@ func (s *Service) alertDetailTx(ctx context.Context, tx pgx.Tx, v incidentRecord
 		Env: v.EnvironmentKey, Since: v.StartsAt.UTC().Format(time.RFC3339Nano),
 		Summary: v.Summary, Notifications: notifications, NotificationsTruncated: truncated,
 		AssigneeID: v.AssigneeID, InvestigationID: v.InvestigationID,
+		GroupID:     alertDetailGroupID(v),
 		Unavailable: []string{"source", "rule", "triage", "series", "labels", "runbook", "grouping.group", "grouping.inhibited", "grouping.change"},
 	}
 	if truncated {
@@ -162,6 +167,16 @@ func (s *Service) alertDetailTx(ctx context.Context, tx pgx.Tx, v incidentRecord
 		result.Grouping.Incident.ID = *caseID
 	}
 	return result, nil
+}
+
+// alertDetailGroupID is the same local group ID GET /alert-groups gives the
+// alert, or nil when the alert list would skip it for lack of a fingerprint.
+func alertDetailGroupID(v incidentRecord) *string {
+	if strings.TrimSpace(v.SourceID) == "" || strings.TrimSpace(v.Fingerprint) == "" {
+		return nil
+	}
+	id := localAlertGroupID(v)
+	return &id
 }
 
 func alertDetailSeverity(raw string) (string, bool) {

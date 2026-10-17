@@ -306,6 +306,8 @@ export type AlertGroup = {
   severity: Severity;
   labels: { k: string; v: string }[];
   service: string;
+  /** The members' alertname; null when they disagree, absent from older servers and the sample (PA-130). */
+  alert_name?: string | null;
   count: number;
   state: "firing" | "pending" | "silenced" | "resolved";
   since: string;

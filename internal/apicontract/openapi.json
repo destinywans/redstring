@@ -76492,6 +76492,12 @@
             "type": "integer",
             "minimum": 1
           },
+          "alert_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "notify": {
             "type": "object",
             "properties": {
@@ -76577,6 +76583,7 @@
           "severity",
           "labels",
           "service",
+          "alert_name",
           "source_id",
           "fingerprint",
           "environment_id",

@@ -70,6 +70,8 @@ S['V3AlertGroupLocal'] = obj({
     **fieldnames('id service source_id fingerprint environment_id environment_key count_kind state since'),
     'severity':string(enum=['P1','P2','P3','P4']),
     'labels':arr(v3_object('k v')),'count':integer(minimum=1),
+    # PA-130: the members' alertname (or persisted alert title); null when they disagree.
+    'alert_name':{'type':['string','null']},
     'notify':obj({'channel':{'type':['string','null']},'text':string(),
         'status':{'type':['string','null']},'scope':string(enum=['platform_queue'])},
         ['channel','text','status','scope']),
@@ -77,7 +79,7 @@ S['V3AlertGroupLocal'] = obj({
     'owner':{'type':['string','null']},'inhibited':{'type':'null'},
     'instances':arr(ref('V3AlertGroupInstance')),
     'local_grouping':arr(string()),'partial':v3_bool(),'unavailable':arr(string())},
-    ['id','severity','labels','service','source_id','fingerprint','environment_id','environment_key','count','count_kind',
+    ['id','severity','labels','service','alert_name','source_id','fingerprint','environment_id','environment_key','count','count_kind',
      'state','since','notify','badges','owner','inhibited','instances','local_grouping','partial','unavailable'])
 S['V3AlertGroupList'] = obj({'items':arr(ref('V3AlertGroupLocal')),
     'counts':obj({'all':integer(minimum=0),'firing':integer(minimum=0),

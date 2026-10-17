@@ -55,10 +55,13 @@ type alertGroupNotify struct {
 }
 
 type alertGroup struct {
-	ID             string               `json:"id"`
-	Severity       string               `json:"severity"`
-	Labels         []label              `json:"labels"`
-	Service        string               `json:"service"`
+	ID       string  `json:"id"`
+	Severity string  `json:"severity"`
+	Labels   []label `json:"labels"`
+	Service  string  `json:"service"`
+	// AlertName is the members' alertname label (or the persisted alert title when the
+	// label is missing), null when members disagree (PA-130).
+	AlertName      *string              `json:"alert_name"`
 	SourceID       string               `json:"source_id"`
 	Fingerprint    string               `json:"fingerprint"`
 	EnvironmentID  string               `json:"environment_id"`
@@ -88,6 +91,8 @@ type alertGroupAccumulator struct {
 	ownerName   string
 	sharedOwner bool
 	latest      *localNotification
+	alertName   string
+	mixedNames  bool
 }
 
 type localNotification struct {
@@ -247,7 +252,7 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...st
 		g := groups[id]
 		if g == nil {
 			g = &alertGroupAccumulator{key: key, earliest: v.StartsAt, ownerID: v.AssigneeID,
-				ownerName: v.Commander, sharedOwner: v.AssigneeID != "" && v.Commander != ""}
+				ownerName: v.Commander, sharedOwner: v.AssigneeID != "" && v.Commander != "", alertName: memberAlertName(v)}
 			g.group = alertGroup{
 				ID: id, Severity: severityCode,
 				Labels: []label{{K: "application_id", V: v.ApplicationID}, {K: "environment", V: v.EnvironmentKey},
@@ -268,6 +273,9 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...st
 			return nil, store.ErrInvalidReference
 		}
 		g.group.Count++
+		if g.alertName != memberAlertName(v) {
+			g.mixedNames = true
+		}
 		if groupBy != "" {
 			g.group.LocalGrouping = append([]string{"environment_id", "application_id"}, strings.Split(groupBy, ",")...)
 			g.group.Labels = []label{{K: "application_id", V: v.ApplicationID}, {K: "environment", V: v.EnvironmentKey}}
@@ -490,6 +498,7 @@ func (s *Service) AlertGroups(w http.ResponseWriter, r *http.Request) {
 		case "resolved":
 			resolved++
 		}
+		g.settleAlertName()
 		if state == "" || g.group.State == state {
 			items = append(items, g.group)
 		}
@@ -811,4 +820,23 @@ func (s *Service) AlertGroupPolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, http.StatusOK, result)
+}
+
+// settleAlertName sets alert_name once every member was added: the shared name, or null
+// when members disagree or carry none.
+func (g *alertGroupAccumulator) settleAlertName() {
+	g.group.AlertName = nil
+	if !g.mixedNames && g.alertName != "" {
+		name := g.alertName
+		g.group.AlertName = &name
+	}
+}
+
+// memberAlertName is one member's alert name: its alertname label, else the persisted
+// alert title (webhook ingestion stores the alertname there when labels were not kept).
+func memberAlertName(v incidentRecord) string {
+	if name := strings.TrimSpace(v.Labels["alertname"]); name != "" {
+		return name
+	}
+	return strings.TrimSpace(v.Title)
 }

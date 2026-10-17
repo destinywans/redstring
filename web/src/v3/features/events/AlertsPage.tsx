@@ -51,6 +51,8 @@ export default function AlertsPage() {
   const policyCause = policyMissing.map((u) => POLICY_CAUSE[u]).find(Boolean) ?? null;
   // Real groups name the application ID; show the catalog service (name, peek ID) for the same application and environment.
   const { data: catalog } = useGet<ServiceCatalog>(API_MODE === "mock" ? null : "/services", undefined, { staleTime: 5 * 60_000 });
+  // PA-130: the group's alert by name, unless a grouping label already shows it.
+  const nameOf = (g: AlertGroup) => (g.alert_name && !g.labels.some((l) => l.k === "alertname") ? g.alert_name : null);
   const svcOf = (g: AlertGroup) => {
     const hit = catalog?.items.find((x) => {
       const parts = serviceParts(x.id);
@@ -204,6 +206,7 @@ export default function AlertsPage() {
                       <ServicePeekLink id={svcOf(g).id}>
                         <LabelChip k="service" v={svcOf(g).name} />
                       </ServicePeekLink>
+                      {nameOf(g) && <LabelChip k="alertname" v={nameOf(g)!} />}
                       {g.labels.filter((l) => l.k !== "service" && l.k !== "application_id").map((l) => (
                         <LabelChip key={l.k} k={l.k} v={l.v} />
                       ))}
@@ -341,7 +344,7 @@ export default function AlertsPage() {
               <Muted size={11.5}>
                 {(() => {
                   const g = data?.items.find((x) => x.id === focus);
-                  return g && [svcOf(g).name, ...g.labels.filter((l) => l.k !== "service" && l.k !== "application_id").map((l) => l.v)].join(" / ");
+                  return g && [svcOf(g).name, nameOf(g), ...g.labels.filter((l) => l.k !== "service" && l.k !== "application_id").map((l) => l.v)].filter(Boolean).join(" / ");
                 })()}
               </Muted>
             </Col>

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -33,6 +34,13 @@ func creationUnavailable() *creationFailure {
 	return &creationFailure{503, "canvas_unavailable", "Canvas creation is unavailable"}
 }
 
+// creationError keeps the storage cause in the server log; the client still
+// gets the generic 503 (PA-116: a NULL constraint failure left no trace).
+func creationError(step string, err error) *creationFailure {
+	slog.Error("V3 canvas creation failed", "step", step, "error", err)
+	return creationUnavailable()
+}
+
 type mappedService struct {
 	environmentRow string
 	team           string
@@ -49,10 +57,10 @@ func (s *Service) prepareCreation(ctx context.Context, tx pgx.Tx, token string, 
 		return mappedService{}, &creationFailure{401, "unauthorized", "Login required"}
 	}
 	if err != nil {
-		return mappedService{}, creationUnavailable()
+		return mappedService{}, creationError("session", err)
 	}
 	if err = lockCanvasGrantSources(ctx, tx, sessionUser); err != nil {
-		return mappedService{}, creationUnavailable()
+		return mappedService{}, creationError("grant_sources", err)
 	}
 	policy := &rbac.V3Policy{Store: s.Store}
 	decision := rbac.V3Decision{Module: "canvas", Action: "change", EnvironmentID: env}
@@ -60,7 +68,7 @@ func (s *Service) prepareCreation(ctx context.Context, tx pgx.Tx, token string, 
 		if err = policy.AuthorizeWithTx(ctx, tx, user, decision); errors.Is(err, store.ErrForbidden) {
 			return mappedService{}, &creationFailure{403, "forbidden", "Canvas change permission is required"}
 		} else if err != nil {
-			return mappedService{}, creationUnavailable()
+			return mappedService{}, creationError("authorize", err)
 		}
 	}
 	service := mappedService{}
@@ -77,7 +85,7 @@ func (s *Service) prepareCreation(ctx context.Context, tx pgx.Tx, token string, 
 			continue
 		}
 		if err != nil {
-			return mappedService{}, creationUnavailable()
+			return mappedService{}, creationError("service", err)
 		}
 		if in.Kind == "investigation" {
 			service = mappedService{environmentRow: row, team: team}
@@ -93,7 +101,7 @@ func (s *Service) prepareCreation(ctx context.Context, tx pgx.Tx, token string, 
 			return mappedService{}, &creationFailure{403, "forbidden", "Canvas change permission is required"}
 		}
 		if err != nil {
-			return mappedService{}, creationUnavailable()
+			return mappedService{}, creationError("authorize", err)
 		}
 		return mappedService{}, &creationFailure{422, "invalid_service", "Service is not active in the selected environment"}
 	}
@@ -109,7 +117,7 @@ func (s *Service) prepareCreation(ctx context.Context, tx pgx.Tx, token string, 
 			return mappedService{}, &creationFailure{403, "forbidden", "Canvas change permission is required"}
 		}
 		if err != nil {
-			return mappedService{}, creationUnavailable()
+			return mappedService{}, creationError("authorize", err)
 		}
 	}
 	if missingService {
@@ -196,6 +204,10 @@ func (s *Service) createCanvas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.Title, in.Goal = strings.TrimSpace(in.Title), strings.TrimSpace(in.Goal)
+	// services is optional: omitted means none, as services:[] (PA-116).
+	if in.Services == nil {
+		in.Services = []string{}
+	}
 	if in.Title == "" || len([]rune(in.Title)) > 200 || len(in.Goal) > 10000 || !validStrings(in.Services) || len(in.TemplateID) > 200 {
 		(&creationFailure{422, "invalid_canvas", "Check title, goal, template and distinct service IDs"}).write(w)
 		return
@@ -223,7 +235,7 @@ func (s *Service) createCanvas(w http.ResponseWriter, r *http.Request) {
 	if in.AIDraft {
 		preflight, err := s.Store.DB.Begin(r.Context())
 		if err != nil {
-			creationUnavailable().write(w)
+			creationError("begin", err).write(w)
 			return
 		}
 		_, failure := s.prepareCreation(r.Context(), preflight, cookie.Value, user, env, in)
@@ -248,7 +260,7 @@ func (s *Service) createCanvas(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := s.Store.DB.Begin(r.Context())
 	if err != nil {
-		creationUnavailable().write(w)
+		creationError("begin", err).write(w)
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -268,7 +280,7 @@ func (s *Service) createCanvas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {
-		creationUnavailable().write(w)
+		creationError("commit", err).write(w)
 		return
 	}
 	httpapi.WriteJSON(w, 201, map[string]string{"id": id, "href": "/canvas/" + id})
@@ -311,7 +323,7 @@ func (s *Service) createGenericCanvas(ctx context.Context, tx pgx.Tx, user core.
 	_, err := tx.Exec(ctx, `INSERT INTO v3_canvases(id,owner_id,environment_id,title,kind,goal,services,nodes,edges,artifacts)
  VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10::jsonb)`, id, user.ID, env, in.Title, in.Kind, in.Goal, in.Services, mustJSON(nodes), mustJSON(edges), mustJSON(artifacts))
 	if err != nil {
-		return "", creationUnavailable()
+		return "", creationError("insert_canvas", err)
 	}
 	changes := mustJSON(map[string]any{"environment_id": env, "kind": in.Kind, "services": in.Services,
 		"template_id": in.TemplateID, "retained_runbooks": len(artifacts),
@@ -319,6 +331,7 @@ func (s *Service) createGenericCanvas(ctx context.Context, tx pgx.Tx, user core.
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,action,target,outcome,changes)
  VALUES($1,'v3.canvas.created',$2,'success',$3::jsonb)`, user.ID, id, changes)
 	if err != nil {
+		slog.Error("V3 canvas creation failed", "step", "audit", "error", err)
 		return "", &creationFailure{503, "audit_unavailable", "Canvas audit unavailable"}
 	}
 	return id, nil
@@ -334,7 +347,7 @@ func (s *Service) loadCreationTemplate(ctx context.Context, tx pgx.Tx, user core
 		return nil, nil, nil, false, &creationFailure{404, "template_not_found", "Template not found"}
 	}
 	if err != nil {
-		return nil, nil, nil, false, creationUnavailable()
+		return nil, nil, nil, false, creationError("template", err)
 	}
 	metadata, err := decodePrivateTemplateMetadata(rawNodes, templateOwner != "")
 	if err != nil {
@@ -374,43 +387,44 @@ func (s *Service) createInvestigationCanvas(ctx context.Context, tx pgx.Tx, user
 	_, err := tx.Exec(ctx, `INSERT INTO investigations(id,application_id,environment_id,title,goal,created_by)
  VALUES($1,$2,$3,$4,$5,$6)`, id, in.Services[0], service.environmentRow, in.Title, in.Goal, user.ID)
 	if err != nil {
-		return "", creationUnavailable()
+		return "", creationError("insert_investigation", err)
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO branches(id,investigation_id,title) VALUES($1,$2,'主调查')`, root, id); err != nil {
-		return "", creationUnavailable()
+		return "", creationError("insert_branch", err)
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO context_revisions(branch_id,revision,messages,provenance)
  VALUES($1,0,'[]'::jsonb,$2::jsonb)`, root, mustJSON(map[string]string{"kind": "initial"})); err != nil {
-		return "", creationUnavailable()
+		return "", creationError("insert_context", err)
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO events(investigation_id,branch_id,type,payload)
  VALUES($1,$2,'investigation.created',$3::jsonb)`, id, root, mustJSON(map[string]string{"id": id})); err != nil {
-		return "", creationUnavailable()
+		return "", creationError("insert_event", err)
 	}
 	for _, item := range draft {
 		branchID := store.ID()
 		_, err = tx.Exec(ctx, `INSERT INTO branches(id,investigation_id,parent_id,title,model_id,inherited_parent_revision,synced_parent_revision)
  VALUES($1,$2,$3,$4,$5,0,0)`, branchID, id, root, item.Title, modelID)
 		if err != nil {
-			return "", creationUnavailable()
+			return "", creationError("insert_draft_branch", err)
 		}
 		messages := []core.Message{{ID: store.ID(), Role: "assistant", Content: "AI 草稿（未经验证）：" + item.Summary, CreatedAt: time.Now().UTC(), ModelID: modelID}}
 		provenance := mustJSON(map[string]any{"kind": "ai_draft", "source_branch_id": root, "source_revision": 0, "model_id": modelID})
 		_, err = tx.Exec(ctx, `INSERT INTO context_revisions(branch_id,revision,messages,provenance)
  VALUES($1,0,$2::jsonb,$3::jsonb)`, branchID, mustJSON(messages), provenance)
 		if err != nil {
-			return "", creationUnavailable()
+			return "", creationError("insert_draft_context", err)
 		}
 		_, err = tx.Exec(ctx, `INSERT INTO events(investigation_id,branch_id,type,payload)
  VALUES($1,$2,'branch.forked',$3::jsonb)`, id, branchID, mustJSON(map[string]any{"parent_id": root, "parent_revision": 0, "source": "ai_draft"}))
 		if err != nil {
-			return "", creationUnavailable()
+			return "", creationError("insert_draft_event", err)
 		}
 	}
 	changes := mustJSON(map[string]any{"environment_id": env, "kind": in.Kind, "services": in.Services, "ai_draft": in.AIDraft, "model_id": modelID})
 	_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes)
  VALUES($1,$2,'v3.investigation_canvas.created',$3,'success',$4::jsonb)`, user.ID, in.Services[0], id, changes)
 	if err != nil {
+		slog.Error("V3 canvas creation failed", "step", "audit", "error", err)
 		return "", &creationFailure{503, "audit_unavailable", "Investigation audit unavailable"}
 	}
 	return id, nil

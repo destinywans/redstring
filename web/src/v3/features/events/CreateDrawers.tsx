@@ -9,6 +9,7 @@ import { useI18n } from "../../i18n";
 import { useCurrentEnv } from "../../app/EnvSwitch";
 import { ChipSelect, AddChip, usePickLists } from "../../ui/demo";
 import { useEnv } from "../../app/environment";
+import { useNames } from "../../ui/names";
 
 type IncidentDraft = {
   title: string;
@@ -35,6 +36,8 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
   const [extraSvc, setExtraSvc] = useState<string[]>([]);
   const [extraPeople, setExtraPeople] = useState<string[]>([]);
   const lists = usePickLists();
+  // The draft names its service by application ID: show the catalog name, or the ID when the catalog doesn't list it (PA-166).
+  const names = useNames();
   const nav = useNavigate();
   // A draft is built only from 1–20 selected alerts (?alerts=a,b); without them the form starts blank.
   const [params] = useSearchParams();
@@ -133,7 +136,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
             <Row gap={6} wrap style={{ minHeight: 30, padding: "0 6px" }}>
               {data?.services.map((s) => (
                 <span key={s.id} className="v3-row" style={{ gap: 4 }}>
-                  <Badge>{s.id}</Badge>
+                  <Badge>{names.service(s.id) ?? s.id}</Badge>
                   {s.tier && <Tier tier={s.tier} />}
                   {s.ai && <AiTag />}
                 </span>

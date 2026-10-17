@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { API_MODE, useGet } from "../api/client";
-import type { Me, MembersView, ServiceCatalog } from "../api/types";
+import type { ServiceCatalog } from "../api/types";
 import { Btn, Chip, Empty, Field, Icon, Input, Muted, Textarea, cx, type IconName } from "./core";
 import { Dialog, Popover, toast } from "./overlays";
 import { useI18n } from "../i18n";
-import { usePermission } from "./permission";
+import { useMembers } from "./names";
 import "./demo.css";
 
 /*
@@ -279,7 +279,10 @@ export function AddChip({
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
-  const opts = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o)).filter((o) => !items.includes(o.value) && (!q || String(o.value).toLowerCase().includes(q.toLowerCase())));
+  const all = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
+  const opts = all.filter((o) => !items.includes(o.value) && (!q || String(o.value).toLowerCase().includes(q.toLowerCase())));
+  // An added value shows its option's label: service options carry opaque catalog IDs as values (PA-166).
+  const shown = (x: string) => all.find((o) => o.value === x)?.label ?? x;
   const add = (v: string) => {
     const t = v.trim();
     if (!t || items.includes(t)) return;
@@ -289,14 +292,17 @@ export function AddChip({
   };
   return (
     <>
-      {items.map((x) => (
-        <span key={x} className="demo-added">
-          <span className="mono">{x}</span>
-          <button type="button" aria-label={tx("移除 {x}", "Remove {x}", { x })} onClick={() => set(items.filter((i) => i !== x))}>
-            <Icon name="x" size={11} />
-          </button>
-        </span>
-      ))}
+      {items.map((x) => {
+        const name = shown(x);
+        return (
+          <span key={x} className="demo-added">
+            <span className="mono">{name}</span>
+            <button type="button" aria-label={tx("移除 {x}", "Remove {x}", { x: typeof name === "string" ? name : x })} onClick={() => set(items.filter((i) => i !== x))}>
+              <Icon name="x" size={11} />
+            </button>
+          </span>
+        );
+      })}
       <span ref={setAnchor} className="demo-chip">
         <Chip icon="plus" onClick={() => setOpen((o) => !o)}>
           {label}
@@ -334,16 +340,12 @@ export function AddChip({
 /** Option lists for pickers: services from the catalog, people from the member directory. */
 export function usePickLists() {
   const { data: svc } = useGet<ServiceCatalog>("/services", undefined, { staleTime: 5 * 60_000 });
-  // PA-126: the member list needs members.view; roles without it get no people to pick instead of a 403. Real mode
-  // waits for /me so the read isn't sent before the grants are known.
-  const { data: me, error: meError } = useGet<Me>("/me");
-  const membersNeed = usePermission()(["members", "view"]);
-  const canSeeMembers = API_MODE === "mock" || ((!!me || !!meError) && membersNeed === null);
-  const { data: mem } = useGet<MembersView>(canSeeMembers ? "/members" : null, { filter: "all" }, { staleTime: 5 * 60_000 });
+  // PA-126: the member list needs members.view; roles without it get no people to pick instead of a 403.
+  const { items: members } = useMembers();
   return {
     // Real service IDs are opaque; show the name and keep the ID as the value.
     services: (svc?.items ?? []).map((s) => ({ value: s.id, label: s.name, hint: s.tier })),
-    people: (mem?.items ?? []).filter((m) => !m.agent && m.status === "active").map((m) => ({ value: m.name, label: m.name, hint: m.department })),
+    people: (members ?? []).filter((m) => !m.agent && m.status === "active").map((m) => ({ value: m.name, label: m.name, hint: m.department })),
   };
 }
 

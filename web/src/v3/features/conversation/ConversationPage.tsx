@@ -17,6 +17,7 @@ import { ArtifactPanel, ARTIFACT_ICON } from "./ArtifactPanel";
 import { useI18n } from "../../i18n";
 import { useNeed } from "../../ui/permission";
 import { useRollbackDrawer } from "../events/RollbackProposal";
+import { useNames } from "../../ui/names";
 import "./conversation.css";
 
 function MessageView({ m, conv, actions, onOpenArtifact }: { m: Message; conv: Conversation; actions: PartActions; onOpenArtifact: (id: string) => void }) {
@@ -117,7 +118,7 @@ const canvasHref = (conv?: Conversation) =>
       ? "/canvas/INV-231"
       : `/canvases?new=investigation${conv?.scope.service ? `&service=${encodeURIComponent(conv.scope.service)}` : ""}`;
 
-function SidePanel({ conv }: { conv: Conversation }) {
+function SidePanel({ conv, service }: { conv: Conversation; service: string | null }) {
   const { tx } = useI18n();
   const s = conv.side;
   const { used, budget } = s.context;
@@ -135,7 +136,7 @@ function SidePanel({ conv }: { conv: Conversation }) {
       <Col gap={6}>
         <Muted size={11.5}>{tx("作用域", "Scope")}</Muted>
         <Row gap={6} wrap>
-          {conv.scope.service && <Badge>{conv.scope.service}</Badge>}
+          {service && <Badge>{service}</Badge>}
           {conv.scope.env && <Env env={conv.scope.env} />}
         </Row>
         {conv.scope.inferred && <Muted>{tx("由 AI 从问题推断，你已确认", "Inferred by the AI and confirmed by you")}</Muted>}
@@ -210,6 +211,9 @@ export default function ConversationPage() {
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const { data: conv, isLoading, error } = useGet<Conversation>(`/conversations/${id}`);
+  // The scope names its service by catalog or application ID; show the catalog name when there is one (PA-166).
+  const names = useNames();
+  const service = conv?.scope.service ? (names.service(conv.scope.service) ?? conv.scope.service) : null;
   const [messages, setMessages] = useState<Message[]>([]);
   const [sending, setSending] = useState(false);
   const [choice, setChoice] = useState<ModelChoice | null>(() => (params.get("model") ? { model: params.get("model")!, reasoning: params.get("reasoning") ?? undefined } : null));
@@ -314,10 +318,10 @@ export default function ConversationPage() {
               { value: "canvas", label: tx("画布", "Canvas"), icon: "branch" },
             ]}
           />
-          {conv?.scope.service && (
+          {service && (
             <Badge>
               <Icon name="box" size={12} />
-              {conv.scope.service}
+              {service}
             </Badge>
           )}
           {conv?.scope.env && <Env env={conv.scope.env} />}
@@ -373,7 +377,7 @@ export default function ConversationPage() {
               turn={turn}
               choice={choice}
               onChoiceChange={setChoice}
-              attachments={conv?.scope.service ? [{ kind: "service", id: conv.scope.service, label: conv.scope.service }] : []}
+              attachments={conv?.scope.service && service ? [{ kind: "service", id: conv.scope.service, label: service }] : []}
               onSend={(t, att, x) => send(t || att.map((a) => a.label).join(" "), x.files, x.choice)}
             />
             <p className="hint">
@@ -395,7 +399,7 @@ export default function ConversationPage() {
             }}
           />
         ) : (
-          conv && <SidePanel conv={conv} />
+          conv && <SidePanel conv={conv} service={service} />
         )}
       </div>
     </Page>

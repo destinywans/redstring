@@ -467,6 +467,8 @@ export type ProposalDecision = {
   /** The two counted votes, in vote order; empty for a rejection. */
   approvers: { id: string; name: string; method: "passkey"; at: string }[];
   rejected_by: { id: string; name: string; at: string } | null;
+  /** PA-173: what the rejecter wrote, trimmed; null when nothing was written and for any other state. */
+  reason?: string | null;
   /** An approval withdrawn after it was given (its execution is refused). */
   revoked: { id: string; name: string; at: string } | null;
 };

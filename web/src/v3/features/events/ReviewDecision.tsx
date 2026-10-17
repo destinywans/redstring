@@ -69,14 +69,34 @@ export function ReviewDecision({ p, execBox }: { p: Proposal; execBox: ReactNode
 
   if (state === "rejected") {
     const at = p.decision?.rejected_by?.at ?? p.decision?.decided_at ?? null;
+    const by = p.decision?.rejected_by?.name;
+    // PA-173 (option A): the reason written at rejection, which only this card shows to the proposer.
+    const reason = p.decision?.reason?.trim();
     return (
       <Col gap={14} style={{ padding: 16 }}>
         {head(<Badge tone="danger">{tx("已拒绝", "Rejected")}</Badge>)}
-        {banner("danger", "x", tx("审批人拒绝了这个提案", "An approver rejected this proposal"), tx("没有执行，也不会执行。拒绝说明在下方讨论里。", "Nothing ran and nothing will. The reason is in the discussion below."))}
-        {at && (
-          <KV k={tx("拒绝于", "Rejected")} kw={64}>
-            {when.at(at)}
-          </KV>
+        {banner("danger", "x", tx("审批人拒绝了这个提案", "An approver rejected this proposal"), tx("没有执行，也不会执行。", "Nothing ran and nothing will."))}
+        <Col gap={6}>
+          <Muted size={11.5}>{tx("拒绝理由", "Reason")}</Muted>
+          {reason ? (
+            <div style={{ borderLeft: "2px solid var(--border-strong)", paddingLeft: 10, lineHeight: 1.6, fontSize: "var(--fs-sm)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{reason}</div>
+          ) : (
+            <Muted size={12.5}>{tx("拒绝时没有填写理由", "No reason was given")}</Muted>
+          )}
+        </Col>
+        {(by || at) && (
+          <Col gap={6}>
+            {by && (
+              <KV k={tx("拒绝人", "Rejected by")} kw={76}>
+                {by}
+              </KV>
+            )}
+            {at && (
+              <KV k={tx("拒绝于", "Rejected")} kw={76}>
+                {when.at(at)}
+              </KV>
+            )}
+          </Col>
         )}
         {repropose}
         {fold}

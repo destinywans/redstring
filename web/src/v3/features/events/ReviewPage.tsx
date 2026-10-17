@@ -314,7 +314,7 @@ export default function ReviewPage() {
         }
       >
         <Col gap={8}>
-          <Muted>{tx("说明拒绝原因，AI 会把它作为新的约束继续调查。", "Explain why; the AI uses it as a new constraint.")}</Muted>
+          <Muted>{tx("说明拒绝原因，发起人会在审阅页看到。", "Explain why; the proposer sees it on the review page.")}</Muted>
           <Textarea value={note} onChange={(e) => setNote(e.target.value)} autoFocus />
         </Col>
       </Dialog>

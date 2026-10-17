@@ -249,7 +249,8 @@ func TestSilenceListRegisteredHTTPUsesPersistedTeamAndAdministrativeScope(t *tes
 			Unavailable     []string `json:"unavailable"`
 		}
 		if err := json.Unmarshal(got.Body.Bytes(), &response); err != nil || got.Code != 206 || !response.Partial || response.UnscopedPresent != unscoped ||
-			len(response.Items) != len(indices) || strings.Join(response.Unavailable, ",") != "activity,hit_counts" {
+			// No reviewed GitOps inhibition repository here, so drafts are unavailable too (PA-123).
+			len(response.Items) != len(indices) || strings.Join(response.Unavailable, ",") != "activity,hit_counts,inhibition_drafts" {
 			t.Fatalf("inhibition scope/partial contract: status=%d body=%s err=%v", got.Code, got.Body.String(), err)
 		}
 		for i, index := range indices {

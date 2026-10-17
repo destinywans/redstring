@@ -273,6 +273,15 @@ func (s *Service) auditBoundConnectionTest(ctx context.Context, user core.User, 
 	return err
 }
 
+// localized picks the request language for text the wizard shows as it is
+// (PA-166).
+func localized(r *http.Request, zh, en string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Accept-Language"))), "en") {
+		return en
+	}
+	return zh
+}
+
 // Test fails closed until a source-specific read-only prober is installed.
 // The result is a point-in-time probe, not a persisted sync or index status.
 func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
@@ -289,7 +298,7 @@ func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 		if !identifier.MatchString(v.ApplicationID) ||
 			(v.TeamID != "" && !identifier.MatchString(v.TeamID)) ||
 			(boundExternalType(v.Type) && !validExternalSpaces(v.Type, v.Spaces)) {
-			httpapi.Error(w, 422, "invalid_source_scope", "Source test requires an exact application and source scope")
+			httpapi.Error(w, 422, "invalid_source_scope", localized(r, "来源测试需要明确的应用和来源范围", "Source test requires an exact application and source scope"))
 			return
 		}
 		app, team = v.ApplicationID, v.TeamID
@@ -310,13 +319,13 @@ func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !active {
-			httpapi.Error(w, 422, "invalid_source_scope", "Application/team is not active in the selected environment")
+			httpapi.Error(w, 422, "invalid_source_scope", localized(r, "所选环境中该应用或团队不可用", "Application/team is not active in the selected environment"))
 			return
 		}
 	}
 	prober, ok := s.Readers[v.Type].(ConnectionTester)
 	if !ok {
-		httpapi.Error(w, 501, "source_connection_test_unavailable", "No read-only connection prober is configured for this source type")
+		httpapi.Error(w, 501, "source_connection_test_unavailable", localized(r, "该类型的来源还没有配置只读连接探测", "No read-only connection prober is configured for this source type"))
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
@@ -361,14 +370,14 @@ func (s *Service) testConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !active {
-		httpapi.Error(w, 409, "source_scope_changed", "Application/team changed during source test")
+		httpapi.Error(w, 409, "source_scope_changed", localized(r, "测试期间应用或团队发生了变化", "Application/team changed during source test"))
 		return
 	}
 	if probeErr != nil {
-		httpapi.Error(w, 503, "source_connection_failed", "Read-only source connection failed")
+		httpapi.Error(w, 503, "source_connection_failed", localized(r, "只读连接来源失败", "Read-only source connection failed"))
 		return
 	}
-	result := map[string]any{"ok": true, "message": "Read-only source access succeeded",
+	result := map[string]any{"ok": true, "message": localized(r, "只读访问来源成功", "Read-only source access succeeded"),
 		"connected": true, "observed_at": time.Now().UTC(),
 		"persistent": false, "scope_verified": false}
 	if v.Type == "web" && v.SecretRef == "" {

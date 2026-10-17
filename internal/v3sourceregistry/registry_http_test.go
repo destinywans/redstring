@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -192,6 +193,23 @@ func TestSourceRegistrySingleConnectionAndRevokedGrants(t *testing.T) {
 	if probeResponse.Code != 200 || !strings.Contains(probeResponse.Body.String(), `"scope_verified":false`) ||
 		strings.Contains(probeResponse.Body.String(), "vault:") || reader.last.SourceType != "web" {
 		t.Fatalf("read-only source probe: %d %s", probeResponse.Code, probeResponse.Body.String())
+	}
+	// PA-166: the probe's result and its 501 reason follow the request language.
+	for _, tc := range []struct{ lang, body, status, want string }{
+		{"zh-CN", `{"type":"web","url":"https://wiki.example.invalid","secret_ref":"vault://kv/read#token"}`, "200", `"message":"只读访问来源成功"`},
+		{"en-US", `{"type":"web","url":"https://wiki.example.invalid","secret_ref":"vault://kv/read#token"}`, "200", `"message":"Read-only source access succeeded"`},
+		{"zh-CN", `{"type":"git","url":"https://git.example.invalid/docs","secret_ref":"vault://kv/read#token"}`, "501", `"message":"该类型的来源还没有配置只读连接探测"`},
+		{"en-US", `{"type":"git","url":"https://git.example.invalid/docs","secret_ref":"vault://kv/read#token"}`, "501", `"message":"No read-only connection prober is configured for this source type"`},
+	} {
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge-sources/test", strings.NewReader(tc.body))
+		r.Header.Set("X-AIOps-Environment", "dev")
+		r.Header.Set("Accept-Language", tc.lang)
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: adminSession})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		if strconv.Itoa(w.Code) != tc.status || !strings.Contains(w.Body.String(), tc.want) {
+			t.Fatalf("%s probe: %d %s; want %s %s", tc.lang, w.Code, w.Body.String(), tc.status, tc.want)
+		}
 	}
 	call := func(method, path string) *httptest.ResponseRecorder {
 		t.Helper()

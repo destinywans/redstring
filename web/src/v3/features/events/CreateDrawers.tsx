@@ -141,7 +141,9 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
                   {s.ai && <AiTag />}
                 </span>
               ))}
-              <AddChip label={tx("服务", "Service")} options={lists.services.filter((s) => !data?.services.some((x) => x.id === s.value))} value={extraSvc} onChange={setExtraSvc} />
+              {/* An incident covers exactly the service of its alerts (POST /incidents takes one); adding another
+                  always failed with 422, so it stays in the sample (PA-186, D52). */}
+              {API_MODE === "mock" && <AddChip label={tx("服务", "Service")} options={lists.services.filter((s) => !data?.services.some((x) => x.id === s.value))} value={extraSvc} onChange={setExtraSvc} />}
             </Row>
           </Suggested>
         </Field>

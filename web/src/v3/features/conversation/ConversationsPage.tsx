@@ -10,6 +10,7 @@ import { useI18n } from "../../i18n";
 import { Gate } from "../../ui/permission";
 import "./conversation.css";
 import { ChipSelect, useFacet } from "../../ui/demo";
+import { LoadMore, useMorePages } from "../../ui/loadMore";
 
 export function PageHead({ title, desc, right }: { title: string; desc?: string; right?: React.ReactNode }) {
   return (
@@ -29,10 +30,13 @@ export default function ConversationsPage() {
   const [tab, setTab] = useState<"mine" | "team" | "triage" | "archived">("mine");
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<string | undefined>();
-  const { data, isLoading } = useGet<ConversationList>("/conversations", { tab, q, mode });
+  const listQuery = { tab, q, mode };
+  const { data, isLoading } = useGet<ConversationList>("/conversations", listQuery);
+  // Later pages load on request (PA-133); facets and sorting work on what is loaded.
+  const paged = useMorePages("/conversations", listQuery, data);
   const [sort, setSort] = useState("recent");
-  const fScope = useFacet(data?.items, (c) => c.scope);
-  const fState = useFacet(data?.items, (c) => c.status);
+  const fScope = useFacet(data ? paged.items : undefined, (c) => c.scope);
+  const fState = useFacet(data ? paged.items : undefined, (c) => c.status);
   const STATUS: Record<ConversationSummary["status"], [Tone, string]> = {
     active: ["accent", tx("进行中", "Active")],
     waiting_approval: ["warn", tx("等待审批", "Awaiting approval")],
@@ -110,8 +114,8 @@ export default function ConversationsPage() {
         </Row>
         <Card style={{ overflow: "hidden" }}>
           <DataTable
-            rows={data?.items
-              .filter((c) => fScope.test(c) && fState.test(c))
+            rows={(data ? paged.items : undefined)
+              ?.filter((c) => fScope.test(c) && fState.test(c))
               .sort((a, b) => (sort === "tokens" ? b.tokens - a.tokens : sort === "title" ? a.title.localeCompare(b.title) : 0))}
             loading={isLoading}
             rowKey={(c) => c.id}
@@ -144,6 +148,7 @@ export default function ConversationsPage() {
               { key: "tokens", header: "tokens", align: "right", render: (c) => <Num color="var(--muted)">{(c.tokens / 1000).toFixed(0)}k</Num>, sort: (a, b) => a.tokens - b.tokens },
             ]}
           />
+          {paged.hasMore && <LoadMore shown={paged.items.length} total={paged.total} step={Math.min(paged.pageSize, (paged.total ?? 0) - paged.items.length)} loading={paged.loading} onMore={() => void paged.more()} />}
         </Card>
       </div>
     </Page>

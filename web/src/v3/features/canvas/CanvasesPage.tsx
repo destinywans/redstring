@@ -11,6 +11,7 @@ import { Gate } from "../../ui/permission";
 import { PageHead } from "../conversation/ConversationsPage";
 import "./canvases.css";
 import { ChipSelect, AddChip, useFacet, usePickLists } from "../../ui/demo";
+import { LoadMore, useMorePages } from "../../ui/loadMore";
 
 export const KIND_META: Record<CanvasKind, { icon: IconName; tone: Tone; zh: string; en: string; subZh: string; subEn: string }> = {
   investigation: { icon: "branch", tone: "accent", zh: "调查", en: "Investigation", subZh: "定位异常与根因", subEn: "Find anomalies and root causes" },
@@ -64,10 +65,14 @@ export default function CanvasesPage() {
   const [params, setParams] = useSearchParams();
   const [kind, setKind] = useState<CanvasKind | "all">("all");
   const [q, setQ] = useState("");
-  const { data, isLoading } = useGet<{ items: CanvasSummary[]; counts: Record<string, number> }>("/canvases", { kind: kind === "all" ? undefined : kind, q });
-  const fOwner = useFacet(data?.items, (cv) => cv.participants);
-  const fSvc = useFacet(data?.items, (cv) => cv.services);
-  const fState = useFacet(data?.items, (cv) => cv.status);
+  const listQuery = { kind: kind === "all" ? undefined : kind, q };
+  const { data, isLoading } = useGet<{ items: CanvasSummary[]; counts: Record<string, number>; total?: number; page?: number; page_size?: number }>("/canvases", listQuery);
+  // Later pages load on request (PA-133); facets work on what is loaded.
+  const paged = useMorePages("/canvases", listQuery, data);
+  const loaded = data ? paged.items : undefined;
+  const fOwner = useFacet(loaded, (cv) => cv.participants);
+  const fSvc = useFacet(loaded, (cv) => cv.services);
+  const fState = useFacet(loaded, (cv) => cv.status);
   const dlg = params.get("new") !== null;
   const setDlg = (open: boolean) => {
     const next = new URLSearchParams(params);
@@ -119,12 +124,12 @@ export default function CanvasesPage() {
         <div className="cv-grid stagger">
           {isLoading && Array.from({ length: 8 }, (_, i) => <Skeleton key={i} h={214} style={{ borderRadius: 10 }} />)}
           {/* An empty list says so, like the other lists, instead of a blank area (PA-182). */}
-          {data && !data.items.some((cv) => fOwner.test(cv) && fSvc.test(cv) && fState.test(cv)) && (
+          {loaded && !loaded.some((cv) => fOwner.test(cv) && fSvc.test(cv) && fState.test(cv)) && (
             <div style={{ gridColumn: "1 / -1", padding: 28, textAlign: "center" }}>
               <Muted>{tx("没有数据", "No data")}</Muted>
             </div>
           )}
-          {data?.items.filter((cv) => fOwner.test(cv) && fSvc.test(cv) && fState.test(cv)).map((cv) => (
+          {loaded?.filter((cv) => fOwner.test(cv) && fSvc.test(cv) && fState.test(cv)).map((cv) => (
             <a
               key={cv.id}
               href={cv.href}
@@ -155,6 +160,12 @@ export default function CanvasesPage() {
             </a>
           ))}
         </div>
+        {/* The grid has no card around it, so the footer carries its own border (PA-133). */}
+        {paged.hasMore && (
+          <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
+            <LoadMore shown={paged.items.length} total={paged.total} step={Math.min(paged.pageSize, (paged.total ?? 0) - paged.items.length)} loading={paged.loading} onMore={() => void paged.more()} />
+          </div>
+        )}
       </div>
       <NewCanvasDialog open={dlg} initialKind={(params.get("new") as CanvasKind) || "plan"} initialServices={params.getAll("service")} onClose={() => setDlg(false)} />
     </Page>

@@ -299,3 +299,49 @@ test.describe("manual service registration (PA-175)", () => {
     await expect.poll(async () => (await toasts(page)).join(" ")).toContain("同一个服务填了两次");
   });
 });
+
+test.describe("lists load more (PA-133)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const conv = (n: number) => ({ id: `conv-${n}`, title: `检查用对话 ${n}`, mode: "chat", status: "active", source: "manual", scope: "prod", participants: [], size: "1", updated_at: "2026-10-17T10:00:00Z", tokens: 0 });
+  const audit = (n: number) => ({ id: String(1000 - n), time: "2026-10-17T10:00:00Z", actor: { kind: "user", name: "check" }, action: `检查用操作 ${n}`, target: "t", result: "ok", source: "web" });
+  const canvas = (n: number) => ({ id: `cv-${n}`, title: `检查用画布 ${n}`, kind: "plan", status: "active", meta: "", participants: [], updated_at: "2026-10-17T10:00:00Z", href: `/canvases/cv-${n}`, services: [], thumb: { nodes: [], edges: [] } });
+
+  test("conversations: the next page joins the list", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/conversations"), (r) => {
+      const second = new URL(r.request().url()).searchParams.get("page") === "2";
+      return json(r, 200, { items: second ? [conv(3)] : [conv(1), conv(2)], total: 3, page: second ? 2 : 1, page_size: 2, stats: [], counts: { mine: 3, team: 0, triage: 0, archived: 0 } });
+    });
+    await page.goto(origin + "/conversations");
+    await expect(page.getByText("已显示 2 条，共 3 条")).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: "再加载 1 条" }).click();
+    await expect(page.getByText("检查用对话 3")).toBeVisible();
+    await expect(page.getByText("已显示 2 条，共 3 条")).toHaveCount(0);
+  });
+
+  test("audit: the cursor reads earlier records", async ({ page }) => {
+    await page.addInitScript(zh);
+    let cursor: string | null = null;
+    await page.route(at("/audit"), (r) => {
+      cursor = new URL(r.request().url()).searchParams.get("cursor");
+      return json(r, 200, cursor ? { items: [audit(3)], counts: { all: 3, user: 3, agent: 0, system: 0 }, volume: [[0, 0, 0]], next_cursor: "" } : { items: [audit(1), audit(2)], counts: { all: 3, user: 3, agent: 0, system: 0 }, volume: [[0, 0, 0]], next_cursor: "998" });
+    });
+    await page.goto(origin + "/settings/audit");
+    await expect(page.getByText("已显示 2 条，共 3 条")).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: "再加载 2 条" }).click();
+    await expect(page.getByText("检查用操作 3")).toBeVisible();
+    expect(cursor).toBe("998");
+  });
+
+  test("canvases: the next page joins the grid", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/canvases"), (r) => {
+      const second = new URL(r.request().url()).searchParams.get("page") === "2";
+      return json(r, 200, { items: second ? [canvas(3)] : [canvas(1), canvas(2)], counts: { all: 3 }, total: 3, page: second ? 2 : 1, page_size: 2 });
+    });
+    await page.goto(origin + "/canvases");
+    await expect(page.getByText("已显示 2 条，共 3 条")).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: "再加载 1 条" }).click();
+    await expect(page.getByText("检查用画布 3")).toBeVisible();
+  });
+});

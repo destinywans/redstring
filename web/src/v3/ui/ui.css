@@ -1069,3 +1069,13 @@
 .dt-scroll th {
   white-space: nowrap;
 }
+
+/* The footer of a list with more to load: what is shown, of how many, and the next page (PA-133, design A). */
+.v3-loadmore {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--sunken);
+}

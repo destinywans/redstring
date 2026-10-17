@@ -1465,6 +1465,8 @@ export type AuditView = {
   items: AuditEntry[];
   counts: Record<"all" | "user" | "agent" | "system", number>;
   volume: number[][];
+  /** Set when earlier records follow: GET /audit?cursor= reads the next 250 (PA-133). */
+  next_cursor?: string;
 };
 export type AuditDetail = { id: string; title: string; time: string; actor_kind: AuditEntry["actor"]["kind"]; actor_name: string; actor: { k: string; v: string }[]; links: { k: string; v: string; to: string }[]; payload: string; chain_ok: boolean };
 

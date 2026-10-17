@@ -11,6 +11,7 @@ import { useI18n } from "../../i18n";
 import { UnknownValue } from "../../ui/unknown";
 import "./settings.css";
 import { ChipSelect, useFacet, RangeChip, useRanges } from "../../ui/demo";
+import { LoadMore, useMorePages } from "../../ui/loadMore";
 import { useWhen } from "../../ui/when";
 
 export default function AuditPage() {
@@ -22,9 +23,12 @@ export default function AuditPage() {
   // The range goes to the server, which bounds the list, counts, chart and export by it (PA-170).
   const [range, setRange] = useState("7d");
   const rangeLabel = useRanges().find((r) => r.value === range)?.label ?? range;
-  const { data } = useGet<AuditView>("/audit", { filter, q, range });
-  const fAct = useFacet(data?.items, (a) => a.action);
-  const fRes = useFacet(data?.items, (a) => a.result ?? "unknown");
+  const listQuery = { filter, q, range };
+  const { data } = useGet<AuditView>("/audit", listQuery);
+  // Earlier records load on request through next_cursor (PA-133); facets work on what is loaded.
+  const paged = useMorePages("/audit", listQuery, data);
+  const fAct = useFacet(data ? paged.items : undefined, (a) => a.action);
+  const fRes = useFacet(data ? paged.items : undefined, (a) => a.result ?? "unknown");
   const exp = useSend<{ filter: string; q?: string; range: string }, { url: string }>("POST", "/audit/export");
   const res = (r: AuditEntry["result"] | "unknown") =>
     r === "ok" ? ([tx("成功", "OK"), "ok"] as const) : r === "pending" ? ([tx("进行中", "Pending"), "accent"] as const) : r === "blocked" ? ([tx("已拦截", "Blocked"), "warn"] as const) : r === "failed" ? ([tx("失败", "Failed"), "danger"] as const) : ([tx("未知", "Unknown"), "neutral"] as const);
@@ -90,7 +94,7 @@ export default function AuditPage() {
             </Card>
             <Card style={{ overflow: "hidden" }}>
               <DataTable<AuditEntry>
-                rows={data?.items.filter((a) => fAct.test(a) && fRes.test(a))}
+                rows={(data ? paged.items : undefined)?.filter((a) => fAct.test(a) && fRes.test(a))}
                 loading={!data}
                 rowKey={(a) => a.id}
                 rowHeight={40}
@@ -115,6 +119,7 @@ export default function AuditPage() {
                   { key: "source", header: tx("来源", "Source"), render: (a) => <Muted>{a.source}</Muted> },
                 ]}
               />
+              {paged.hasMore && <LoadMore shown={paged.items.length} total={data?.counts[filter]} step={paged.pageSize} loading={paged.loading} onMore={() => void paged.more()} />}
             </Card>
           </div>
         </div>

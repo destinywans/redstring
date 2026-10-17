@@ -58,9 +58,11 @@ func TestDraftGeneratedStepsMeetCreateByteLimits(t *testing.T) {
 	if !validSourceBody(strings.Repeat("汉", 5000)) {
 		t.Fatal("a multibyte source body below 16000 bytes should fit")
 	}
-	title := "Review: " + strings.Repeat("中", 190)
-	if err := validateCreate(createInput{Title: "Draft", Source: "blank", Steps: []Step{{Kind: "check", Title: title, Body: strings.Repeat("汉", 5000), Readonly: true}}}); err != nil {
-		t.Fatalf("generated section must round trip through create validation: %v", err)
+	for _, prefix := range []string{"Review: ", "核对："} {
+		title := prefix + strings.Repeat("中", 190)
+		if err := validateCreate(createInput{Title: "Draft", Source: "blank", Steps: []Step{{Kind: "check", Title: title, Body: strings.Repeat("汉", 5000), Readonly: true}}}); err != nil {
+			t.Fatalf("generated section must round trip through create validation: %v", err)
+		}
 	}
 }
 

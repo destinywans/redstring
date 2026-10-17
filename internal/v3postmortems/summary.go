@@ -104,6 +104,7 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 422, "invalid_pagination", "Page must be 1-1000 and page_size must be 1-1000")
 		return
 	}
+	words := draftTextFor(r.Header.Get("Accept-Language"))
 	all := make([]summaryItem, 0)
 	filtered := make([]summaryItem, 0)
 	var resolutionSeconds float64
@@ -199,14 +200,15 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 				httpapi.Error(w, 503, "source_unavailable", "Postmortem action count is unavailable")
 				return
 			}
-			actionStatus := "unknown / " + strconv.Itoa(len(actions))
+			// No completion producer exists, so completed actions stay unknown.
+			actionStatus := words.pick("未知", "unknown") + " / " + strconv.Itoa(len(actions))
 			status := v.status
 			if status == "review" {
 				status = "draft" // V3's two-state display treats unapproved review as unpublished.
 			}
 			item := summaryItem{ID: v.id, IncidentID: v.incident, Title: v.title, Severity: visibleSeverity,
 				Date: v.closed.UTC().Format(time.RFC3339), Duration: visibleDuration,
-				Cause: "Unknown", RootCause: rootCause, Actions: actionStatus, Status: status, WorkflowStatus: v.status}
+				Cause: words.pick("未知", "Unknown"), RootCause: rootCause, Actions: actionStatus, Status: status, WorkflowStatus: v.status}
 			all = append(all, item)
 			if len(all) > 1000 {
 				httpapi.Error(w, 413, "scope_too_large", "Postmortem collection exceeds the dashboard response limit")
@@ -239,13 +241,7 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 	if end > len(filtered) {
 		end = len(filtered)
 	}
-	// Values are computed from this authorized snapshot. No time-series
-	// producer exists, so each KPI's series remains null.
-	kpis := []summaryKPI{{ID: "postmortem_count", Label: "Visible postmortems", Value: strconv.Itoa(len(all))}}
-	if validDurations > 0 {
-		kpis = append(kpis, summaryKPI{ID: "reported_mttr", Label: "Mean resolution, reported incidents",
-			Value: strconv.FormatFloat(resolutionSeconds/60/float64(validDurations), 'f', 1, 64), Unit: "min"})
-	}
+	kpis := summaryKPIs(words, len(all), validDurations, resolutionSeconds)
 	unknown := []string{"kpis.series", "cause_category_distribution", "impact_minutes_by_service", "action_completion", "outstanding_followups", "mtta", "recurrence_rate"}
 	if validDurations == 0 {
 		unknown = append(unknown, "reported_mttr")
@@ -268,6 +264,18 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 		UnknownFields: unknown,
 		Page:          page, PageSize: pageSize, Total: len(filtered),
 	})
+}
+
+// summaryKPIs are computed from the authorized snapshot, labelled in the
+// request language (PA-166). No time-series producer exists, so each KPI's
+// series remains null.
+func summaryKPIs(t draftText, count, validDurations int, resolutionSeconds float64) []summaryKPI {
+	kpis := []summaryKPI{{ID: "postmortem_count", Label: t.pick("可见复盘数", "Visible postmortems"), Value: strconv.Itoa(count)}}
+	if validDurations > 0 {
+		kpis = append(kpis, summaryKPI{ID: "reported_mttr", Label: t.pick("平均恢复时长（已报告事件）", "Mean resolution, reported incidents"),
+			Value: strconv.FormatFloat(resolutionSeconds/60/float64(validDurations), 'f', 1, 64), Unit: t.pick("分钟", "min")})
+	}
+	return kpis
 }
 
 func summaryPagination(r *http.Request) (int, int, bool) {

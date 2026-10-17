@@ -259,6 +259,7 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert(request("POST", "/api/v1/agents/triage/rollout", viewerToken, "dev", withCurrentRevision(`{"to":"v1","percent":100,"override":true,"override_reason":"not admin"}`)), 403, `"code":"admin_override_required"`)
+	assert(requestLanguage("POST", "/api/v1/agents/triage/rollout", viewerToken, "dev", withCurrentRevision(`{"to":"v1","percent":100,"override":true,"override_reason":"not admin"}`), "zh-CN"), 403, "跳过评测门禁需要人类管理员")
 	assert(request("POST", "/api/v1/agents/triage/rollout", machineToken, "dev", withCurrentRevision(`{"to":"v1","percent":100,"override":true,"override_reason":"machine with admin role"}`)), 403, `"code":"forbidden"`)
 	var preRelease int
 	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_agent_release_events WHERE agent_id='triage'`).Scan(&preRelease); err != nil {
@@ -270,8 +271,17 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v1","percent":100}`)), 409, `"code":"eval_gate_unverified"`)
 	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "all", withCurrentRevision(`{"to":"v1","percent":100}`)), 409, `"code":"env_view_only"`)
 	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v1","percent":100,"override":true}`)), 422, `"code":"invalid_agent_request"`)
+	// PA-166: business rejections are worded in the request language.
+	assert(requestLanguage("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v1","percent":100}`), "zh-CN"), 409, "需要一次已保存且通过的评测")
+	assert(requestLanguage("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v1","percent":50}`), "zh-CN"), 409, "先设置稳定版本，再做灰度发布")
+	assert(requestLanguage("POST", "/api/v1/agents/triage/rollback", adminToken, "dev", withCurrentRevision(`{}`), "zh-CN"), 409, `"code":"rollback_unavailable","message":"没有可回滚到的上一个版本"`)
+	assert(requestLanguage("POST", "/api/v1/agents/triage/rollback", adminToken, "dev", withCurrentRevision(`{}`), "en-US"), 409, `"code":"rollback_unavailable","message":"No prior persisted version exists"`)
 	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v1","percent":100,"override":true,"override_reason":"Initial reviewed release"}`)), 200, `"routing_connected":false`)
+	assert(requestLanguage("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v1","percent":100}`), "zh-CN"), 409, "该版本已是稳定版本")
+	assert(requestLanguage("POST", "/api/v1/agents/triage/rollback", adminToken, "dev", withCurrentRevision(`{}`), "zh-CN"), 409, "没有可回滚到的上一个版本")
 	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v2","percent":50,"expected_revision":1}`), 409, `"code":"version_conflict"`)
+	assert(requestLanguage("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v2","percent":50,"expected_revision":1}`, "zh-CN"), 409, "Agent 配置已变化，请刷新后再操作")
+	assert(requestLanguage("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v2","percent":50,"expected_revision":1}`, "en-US"), 409, "Agent configuration changed; reload before writing")
 	detail := request("GET", "/api/v1/agents/triage", adminToken, "dev", "")
 	assert(detail, 200, `"configured_traffic":"100%"`)
 	if !strings.Contains(detail.Body.String(), `"traffic":null`) || !strings.Contains(detail.Body.String(), `"current":null`) {
@@ -306,6 +316,8 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	}
 	checkVersions(request("GET", "/api/v1/agents/triage", adminToken, "dev", ""), 100, true)
 	assert(request("PATCH", "/api/v1/agents/triage/level", adminToken, "dev", withCurrentRevision(`{"level":"L1"}`)), 409, `"code":"agent_level_cap"`)
+	assert(requestLanguage("PATCH", "/api/v1/agents/triage/level", adminToken, "dev", withCurrentRevision(`{"level":"L1"}`), "zh-CN"), 409, "超过该环境允许的最高等级")
+	assert(requestLanguage("PATCH", "/api/v1/agents/triage/level", adminToken, "dev", withCurrentRevision(`{"level":"L1"}`), "en-US"), 409, "Environment level cap would be exceeded")
 	if _, err = db.Exec(ctx, `INSERT INTO v3_agent_environment_limits(environment_id,max_level) VALUES('dev','L1')`); err != nil {
 		t.Fatal(err)
 	}

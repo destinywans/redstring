@@ -166,17 +166,7 @@ func loadReviewedSilenceCancel(ctx context.Context, tx pgx.Tx, proposalID, selec
 	if err != nil || computedRequestHash != requestHash {
 		return zero, ErrInvalidProposal
 	}
-	content := silenceCancelReviewContent(action)
-	if !validContent(content) {
-		return zero, ErrInvalidProposal
-	}
-	canonicalContent, err := canonicalProposalJSON(content)
-	if err != nil {
-		return zero, ErrInvalidProposal
-	}
-	storedContent, err := canonicalProposalJSON(json.RawMessage(contentRaw))
-	if err != nil || !bytes.Equal(canonicalContent, storedContent) ||
-		proposalDigest("aiops.v3.proposal.review.v1", canonicalContent) != result.ReviewContentDigest {
+	if !storedReviewMatches(silenceCancelReviewContents(action), contentRaw, result.ReviewContentDigest) {
 		return zero, ErrInvalidProposal
 	}
 	canonicalObserved, err := canonicalProposalJSON(json.RawMessage(observedRaw))

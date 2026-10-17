@@ -76,16 +76,20 @@ func (s *Service) loadDraftSource(r *http.Request, tx pgx.Tx, in createInput) (s
 		if len(sections)+len(actions) > 100 {
 			return binding, errSourceTooLarge
 		}
-		binding.Title = "Runbook from postmortem " + incidentID
-		binding.Outline = "Published postmortem sections and actions are unverified source notes. Review every step before use."
+		// The generated wording follows the request language (PA-113); the
+		// postmortem's own titles and text stay as they were saved.
+		t := draftTextFor(r)
+		binding.Title = t.pick("由复盘 "+incidentID+" 生成的 Runbook", "Runbook from postmortem "+incidentID)
+		binding.Outline = t.pick("已发布复盘的章节和改进项是未经核实的来源记录，使用前请逐步核对。",
+			"Published postmortem sections and actions are unverified source notes. Review every step before use.")
 		for _, section := range sections {
 			if !validSourceText(section.Title, 200) || !validSourceBody(section.Text) {
 				return binding, errSourceTooLarge
 			}
-			title := "Review: " + firstRunes(section.Title, 190)
+			title := t.pick("核对：", "Review: ") + firstRunes(section.Title, 190)
 			body := section.Text
 			if len([]rune(section.Title)) > 190 {
-				body = "Source section: " + section.Title + "\n\n" + body
+				body = t.pick("来源章节：", "Source section: ") + section.Title + "\n\n" + body
 				if !validSourceBody(body) {
 					return binding, errSourceTooLarge
 				}
@@ -221,6 +225,20 @@ func (s *Service) loadDraftSource(r *http.Request, tx pgx.Tx, in createInput) (s
 	}
 	binding.Steps = normalizeSteps(binding.Steps)
 	return binding, nil
+}
+
+// draftText words generated Runbook draft text in the request language.
+type draftText struct{ en bool }
+
+func draftTextFor(r *http.Request) draftText {
+	return draftText{en: strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Accept-Language"))), "en")}
+}
+
+func (t draftText) pick(zh, en string) string {
+	if t.en {
+		return en
+	}
+	return zh
 }
 
 func validSourceText(s string, max int) bool {

@@ -107,6 +107,8 @@
 
 **成功**：返回 `201 {"proposal_id": "…", "status": "pending", "action_kind": "kubernetes.deployment.rollback"}`。用同一个键、同一个请求体重放，返回 200 和同一提案；即使 Deployment 已经变化（例如回滚已执行）也一样。重放响应里的 `status` 是创建时的状态，当前状态以 `GET /proposals/{id}` 为准。
 
+**审阅内容的语言**：提案的审阅内容（标题、影响、执行方式、依据、恢复验证、核对清单、审批要求）在创建时按发起请求的 `Accept-Language` 生成（en 开头为英文，否则简体中文），随审阅摘要固定，之后不随审阅人的界面语言变化：中文界面发起的提案，英文界面的审阅人看到的仍是中文，反之亦然。已有提案保持写入时的文字（PA-166）。
+
 **权限**：
 - 人类会话，单一环境；
 - 该应用或所属团队的 `resources.view`、`resources.change`、`proposals.change`；

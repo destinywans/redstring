@@ -118,6 +118,7 @@ func (s *Server) Register(pattern, minRole string, h http.HandlerFunc) {
 			return
 		}
 		ctx := store.WithPrincipal(context.WithValue(r.Context(), userKey{}, u), u)
+		ctx = WithRequestLanguage(ctx, r.Header.Get("Accept-Language"))
 		r = r.WithContext(ctx)
 		if permission, ok := s.v3Routes[pattern]; ok {
 			scoped, allowed := s.authorizeV3Route(w, r, u, permission)

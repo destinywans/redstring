@@ -378,8 +378,14 @@ func (s *Service) beginLifecycleWrite(w http.ResponseWriter, r *http.Request) (p
 	return tx, a, true
 }
 
-func revisionConflict(w http.ResponseWriter) {
-	httpapi.Error(w, 409, "version_conflict", "Agent configuration changed; reload before writing")
+// lifecycleRejected writes a business rejection in the request language;
+// the Agent page shows the message as it is (PA-166).
+func lifecycleRejected(w http.ResponseWriter, r *http.Request, status int, code, zh, en string) {
+	httpapi.Error(w, status, code, promptLocalized(r, zh, en))
+}
+
+func revisionConflict(w http.ResponseWriter, r *http.Request) {
+	lifecycleRejected(w, r, 409, "version_conflict", "Agent 配置已变化，请刷新后再操作", "Agent configuration changed; reload before writing")
 }
 
 func (s *Service) finishLifecycleWrite(w http.ResponseWriter, r *http.Request, tx pgx.Tx) bool {
@@ -419,15 +425,15 @@ func (s *Service) Rollout(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	if body.ExpectedRevision != a.Revision {
-		revisionConflict(w)
+		revisionConflict(w, r)
 		return
 	}
 	if body.To == a.Stable {
-		httpapi.Error(w, 409, "already_stable", "Version is already stable")
+		lifecycleRejected(w, r, 409, "already_stable", "该版本已是稳定版本", "Version is already stable")
 		return
 	}
 	if body.Percent < 100 && a.Stable == "" {
-		httpapi.Error(w, 409, "stable_version_required", "Set a stable version before canary rollout")
+		lifecycleRejected(w, r, 409, "stable_version_required", "先设置稳定版本，再做灰度发布", "Set a stable version before canary rollout")
 		return
 	}
 	if body.Override {
@@ -445,7 +451,7 @@ func (s *Service) Rollout(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !admin {
-			httpapi.Error(w, 403, "admin_override_required", "Human administrator required for gate override")
+			lifecycleRejected(w, r, 403, "admin_override_required", "跳过评测门禁需要人类管理员", "Human administrator required for gate override")
 			return
 		}
 	}
@@ -489,7 +495,7 @@ func (s *Service) Rollout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if gateStatus != "passed" && !body.Override {
-		httpapi.Error(w, 409, "eval_gate_unverified", "A persisted passing evaluation is required")
+		lifecycleRejected(w, r, 409, "eval_gate_unverified", "需要一次已保存且通过的评测", "A persisted passing evaluation is required")
 		return
 	}
 	if gateStatus != "passed" {
@@ -554,7 +560,7 @@ func (s *Service) Rollback(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	if body.ExpectedRevision != a.Revision {
-		revisionConflict(w)
+		revisionConflict(w, r)
 		return
 	}
 	from := a.Stable
@@ -565,7 +571,7 @@ func (s *Service) Rollback(w http.ResponseWriter, r *http.Request) {
 		from = a.Canary
 		to = a.Stable
 		if to == "" {
-			httpapi.Error(w, 409, "rollback_unavailable", "No prior persisted version exists")
+			lifecycleRejected(w, r, 409, "rollback_unavailable", "没有可回滚到的上一个版本", "No prior persisted version exists")
 			return
 		}
 		_, err = tx.Exec(r.Context(), `UPDATE v3_agents SET canary_version=NULL,canary_percent=0,
@@ -574,7 +580,7 @@ func (s *Service) Rollback(w http.ResponseWriter, r *http.Request) {
 		_, err = tx.Exec(r.Context(), `UPDATE v3_agents SET stable_version=$2,previous_stable_version=$3,
  lifecycle_revision=lifecycle_revision+1,updated_at=now() WHERE id=$1`, a.ID, to, a.Stable)
 	} else {
-		httpapi.Error(w, 409, "rollback_unavailable", "No prior persisted version exists")
+		lifecycleRejected(w, r, 409, "rollback_unavailable", "没有可回滚到的上一个版本", "No prior persisted version exists")
 		return
 	}
 	if err != nil {
@@ -640,7 +646,7 @@ func (s *Service) Level(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	if body.ExpectedRevision != a.Revision {
-		revisionConflict(w)
+		revisionConflict(w, r)
 		return
 	}
 	// Lock the table as well as an existing cap row: an environment with no
@@ -658,7 +664,7 @@ func (s *Service) Level(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if levelNumber(body.Level) > levelNumber(max) {
-		httpapi.Error(w, 409, "agent_level_cap", "Environment level cap would be exceeded")
+		lifecycleRejected(w, r, 409, "agent_level_cap", "超过该环境允许的最高等级", "Environment level cap would be exceeded")
 		return
 	}
 	_, err = tx.Exec(r.Context(), `UPDATE v3_agents SET level=$2,

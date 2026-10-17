@@ -132,6 +132,19 @@ func TestAgentInteractionsHTTP(t *testing.T) {
 	if !strings.Contains(w.Body.String(), `"catalog_only":true`) {
 		t.Fatal(w.Body.String())
 	}
+	// PA-166: the catalog entry's approval column follows the request language.
+	for lang, approval := range map[string]string{"zh-CN": `"approval":"无审批要求"`, "en-US": `"approval":"No approval configured"`} {
+		r := httptest.NewRequest("GET", "/api/v1/agent-tools?connector=connector", nil)
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: "interaction-token"})
+		r.Header.Set("X-AIOps-Environment", "dev")
+		r.Header.Set("Accept-Language", lang)
+		localized := httptest.NewRecorder()
+		api.ServeHTTP(localized, r)
+		want(localized, 200)
+		if !strings.Contains(localized.Body.String(), approval) {
+			t.Fatalf("%s approval: %s", lang, localized.Body.String())
+		}
+	}
 	w = call("GET", "/api/v1/agent-tools?agent=agent", "", "dev")
 	want(w, 200)
 	if strings.Contains(w.Body.String(), `"catalog_only":true`) {

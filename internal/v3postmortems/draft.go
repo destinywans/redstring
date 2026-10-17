@@ -144,7 +144,7 @@ func (s *Service) Draft(w http.ResponseWriter, r *http.Request) {
 	}
 	result := map[string]any{
 		"incident": incident,
-		"sections": []Section{{Key: "summary", Title: "Incident summary", Text: summary}, {Key: "impact", Title: "Impact", Text: ""}, {Key: "root", Title: "Root cause", Text: ""}},
+		"sections": []Section{{Key: "summary", Title: t.section("summary"), Text: summary}, {Key: "impact", Title: t.section("impact"), Text: ""}, {Key: "root", Title: t.section("root"), Text: ""}},
 		"timeline": timeline, "actions": []Action{}, "source_revision": sourceRevision(kind, closeSeq, statusEventID),
 		"draft_mode": "evidence_only", "complete_v3_dto": false, "partial": true, "missing": missing,
 	}
@@ -179,8 +179,9 @@ func appendManualTimeline(ctx context.Context, tx pgx.Tx, entries []timelineEntr
 	return entries, rows.Err()
 }
 
-// draftText words the draft's lifecycle events in the request language
-// instead of their event codes (PA-169).
+// draftText words generated postmortem text in the request language instead
+// of fixed English and event codes: the draft's section titles and lifecycle
+// events (PA-169, PA-113) and the list's labels and unknown markers (PA-166).
 type draftText struct{ en bool }
 
 func draftTextFor(acceptLanguage string) draftText {
@@ -192,6 +193,20 @@ func (t draftText) pick(zh, en string) string {
 		return en
 	}
 	return zh
+}
+
+// section titles a draft section. A saved postmortem keeps the titles it
+// was saved with (PA-113).
+func (t draftText) section(key string) string {
+	switch key {
+	case "summary":
+		return t.pick("事件摘要", "Incident summary")
+	case "impact":
+		return t.pick("影响", "Impact")
+	case "root":
+		return t.pick("根因", "Root cause")
+	}
+	return key
 }
 
 func (t draftText) event(code string) string {

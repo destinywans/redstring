@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3alertmanager"
@@ -87,8 +88,7 @@ func silenceRequestHash(action SilenceActionSnapshot) (string, error) {
 	return proposalDigest("aiops.v3.silence.proposal.request.v1", raw), nil
 }
 
-func silenceReviewContent(action SilenceActionSnapshot) Content {
-	s := action.Silence
+func silenceMatcherLines(s v3alertmanager.ProposedSilenceCreate) []string {
 	lines := make([]string, 0, len(s.Matchers)+2)
 	for _, matcher := range s.Matchers {
 		op := "!="
@@ -104,7 +104,78 @@ func silenceReviewContent(action SilenceActionSnapshot) Content {
 		}
 		lines = append(lines, fmt.Sprintf("%s %s %q", matcher.Name, op, matcher.Value))
 	}
-	lines = append(lines, fmt.Sprintf("Duration: %d seconds", s.DurationSeconds), fmt.Sprintf("Comment: %q", s.Comment))
+	return lines
+}
+
+// silenceDuration words a silence length in whole hours, minutes or seconds.
+func silenceDuration(seconds int64, english bool) string {
+	n, zh, en := seconds, "秒", "second"
+	switch {
+	case seconds > 0 && seconds%3600 == 0:
+		n, zh, en = seconds/3600, "小时", "hour"
+	case seconds > 0 && seconds%60 == 0:
+		n, zh, en = seconds/60, "分钟", "minute"
+	}
+	if !english {
+		return fmt.Sprintf("%d %s", n, zh)
+	}
+	if n != 1 {
+		en += "s"
+	}
+	return fmt.Sprintf("%d %s", n, en)
+}
+
+// silenceReviewContent is a create proposal's review in the requester's
+// language (PA-121). It describes the flow that runs today: two approvals by
+// people other than the requester, then one write by the independent
+// executor, which starts the silence window.
+func silenceReviewContent(action SilenceActionSnapshot, english bool) Content {
+	s := action.Silence
+	duration := silenceDuration(s.DurationSeconds, english)
+	lines := append(silenceMatcherLines(s),
+		pick(english, "时长：", "Duration: ")+duration,
+		fmt.Sprintf(pick(english, "备注：%q", "Comment: %q"), s.Comment))
+	return Content{
+		Title: pick(english, fmt.Sprintf("静默应用 %s 的告警", s.ApplicationLabel),
+			fmt.Sprintf("Silence application %q", s.ApplicationLabel)),
+		Risk: "high",
+		Impact: pick(english,
+			fmt.Sprintf("批准后，执行器在 Alertmanager 中为该应用和环境写入静默，从写入时起 %s内匹配的告警不再发送通知。", duration),
+			fmt.Sprintf("Once approved, the executor writes the silence for this application and environment to Alertmanager; matching alerts stop notifying for %s from that moment.", duration)),
+		Reversible:      false,
+		ProposedBy:      s.ActorID,
+		InvestigationID: action.InvestigationID,
+		Target:          fmt.Sprintf("Alertmanager application=%q, %s=%q", s.ApplicationLabel, s.EnvironmentLabel, s.EnvironmentID),
+		Diff:            Diff{Path: "alertmanager/silences", Lines: lines},
+		Method: pick(english,
+			"两位审批人批准后，独立执行器复核提案摘要、当前范围、权限和 Alertmanager 绑定，然后只写入一次静默；不自动重试，结果不明时只读取 Alertmanager 核对，不会再次写入。",
+			"After two approvals, the independent executor rechecks the proposal digest, current scope, grants and Alertmanager binding, then writes the silence once. It never retries; an unknown outcome is only reconciled by reading Alertmanager, never by writing again."),
+		Evidence: []Evidence{{N: 1, Icon: "activity", Title: pick(english, "请求来源", "Request context"),
+			Desc: pick(english, "已登录成员发起，关联同一应用和环境中未结案的调查。",
+				"Requested by a signed-in person and linked to an open investigation in the same application and environment.")}},
+		Verification: []string{
+			pick(english, "执行前复核提案摘要、批准、当前应用、环境、权限和 Alertmanager 绑定；任何一项变化都不写入。",
+				"Before writing, the executor rechecks the proposal digest, approval, current application, environment, grants and Alertmanager binding; nothing is written if any of them changed."),
+			pick(english, "写入结果不明时只读取 Alertmanager 核对，不再次写入。",
+				"An unknown write outcome is only reconciled by reading Alertmanager; it is never written again."),
+		},
+		VerificationNote: pick(english, "提案时没有读取当前告警数量和上游静默状态。",
+			"No current alert count or upstream silence state was read at proposal time."),
+		Checklist: []string{
+			pick(english, "两位非发起人的审批人分别用通行密钥批准。", "Two approvers other than the requester each approve with a passkey."),
+			pick(english, "第二位批准后由执行器自动写入静默，不需要另行执行。",
+				"After the second approval the executor writes the silence automatically; there is no separate execution step."),
+		},
+		Requirement: pick(english, "待审期间不会写入 Alertmanager；第二位审批人批准后自动执行。",
+			"Nothing is written to Alertmanager while the review is pending; it runs automatically after the second approval."),
+	}
+}
+
+// legacySilenceReviewContent is the English review written before PA-121.
+// Proposals stored with it keep it; it is never written again.
+func legacySilenceReviewContent(action SilenceActionSnapshot) Content {
+	s := action.Silence
+	lines := append(silenceMatcherLines(s), fmt.Sprintf("Duration: %d seconds", s.DurationSeconds), fmt.Sprintf("Comment: %q", s.Comment))
 	return Content{
 		Title:           fmt.Sprintf("Silence application %q", s.ApplicationLabel),
 		Risk:            "high",
@@ -122,6 +193,31 @@ func silenceReviewContent(action SilenceActionSnapshot) Content {
 		Checklist:        []string{"Independent human approval with fresh passkey proof is required before execution."},
 		Requirement:      "This record is pending review and grants no permission to write to Alertmanager.",
 	}
+}
+
+// silenceReviewContents are the reviews a stored create proposal may carry.
+func silenceReviewContents(action SilenceActionSnapshot) []Content {
+	return []Content{silenceReviewContent(action, false), silenceReviewContent(action, true), legacySilenceReviewContent(action)}
+}
+
+// storedReviewMatches reports whether a stored review is exactly one of the
+// reviews the action can produce and still has its recorded digest. The
+// review is fixed when the proposal is written, in the requester's language.
+func storedReviewMatches(candidates []Content, stored []byte, digest string) bool {
+	canonicalStored, err := canonicalProposalJSON(json.RawMessage(stored))
+	if err != nil || proposalDigest("aiops.v3.proposal.review.v1", canonicalStored) != digest {
+		return false
+	}
+	for _, content := range candidates {
+		if !validContent(content) {
+			continue
+		}
+		canonical, err := canonicalProposalJSON(content)
+		if err == nil && bytes.Equal(canonical, canonicalStored) {
+			return true
+		}
+	}
+	return false
 }
 
 // CreateSilenceProposal persists a canonical, digest-bound action and the
@@ -272,7 +368,7 @@ func (s *Service) createSilenceProposal(ctx context.Context, actor core.User, se
 	if err != nil {
 		return zero, err
 	}
-	content := silenceReviewContent(action)
+	content := silenceReviewContent(action, httpapi.EnglishRequested(ctx))
 	if !validContent(content) {
 		return zero, ErrInvalidProposal
 	}
@@ -467,17 +563,7 @@ func loadSilenceActionWithTx(ctx context.Context, tx pgx.Tx, proposalID string) 
 		proposalDigest("aiops.v3.proposal.action.v1", canonicalAction) != actionDigest {
 		return zero, SilenceProposalResult{}, ErrInvalidProposal
 	}
-	content := silenceReviewContent(action)
-	if !validContent(content) {
-		return zero, SilenceProposalResult{}, ErrInvalidProposal
-	}
-	canonicalContent, err := canonicalProposalJSON(content)
-	if err != nil {
-		return zero, SilenceProposalResult{}, ErrInvalidProposal
-	}
-	canonicalStoredContent, err := canonicalProposalJSON(json.RawMessage(contentRaw))
-	if err != nil || !bytes.Equal(canonicalContent, canonicalStoredContent) ||
-		proposalDigest("aiops.v3.proposal.review.v1", canonicalContent) != contentDigest {
+	if !storedReviewMatches(silenceReviewContents(action), contentRaw, contentDigest) {
 		return zero, SilenceProposalResult{}, ErrInvalidProposal
 	}
 	result.ActionDigest = actionDigest

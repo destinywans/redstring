@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3alertmanager"
 )
@@ -115,7 +116,7 @@ func (p *SilenceProductProducer) WritePendingSilenceCancelWithTx(ctx context.Con
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return zero, err
 	}
-	content := silenceCancelReviewContent(action)
+	content := silenceCancelReviewContent(action, httpapi.EnglishRequested(ctx))
 	if !validContent(content) {
 		return zero, ErrInvalidProposal
 	}
@@ -165,7 +166,52 @@ func (p *SilenceProductProducer) WritePendingSilenceCancelWithTx(ctx context.Con
 		Status: "pending", ActionDigest: actionDigest}, nil
 }
 
-func silenceCancelReviewContent(action v3alertmanager.ProposedSilenceCancel) Content {
+// silenceCancelReviewContent is an early-end proposal's review in the
+// requester's language (PA-121): after two approvals the executor rereads
+// Alertmanager and expires the silence once.
+func silenceCancelReviewContent(action v3alertmanager.ProposedSilenceCancel, english bool) Content {
+	return Content{
+		Title: pick(english, fmt.Sprintf("提前结束应用 %s 的静默", action.ApplicationLabel),
+			fmt.Sprintf("Cancel application silence %q", action.ApplicationLabel)),
+		Risk: "high",
+		Impact: pick(english, "批准后，执行器让这条静默在 Alertmanager 中立即到期，匹配的告警恢复通知。",
+			"Once approved, the executor expires this silence in Alertmanager and matching alerts notify again."),
+		Reversible:      false,
+		ProposedBy:      action.ActorID,
+		InvestigationID: action.InvestigationID,
+		Target: fmt.Sprintf("Alertmanager silence %s, application=%q, %s=%q",
+			action.UpstreamID, action.ApplicationLabel, action.EnvironmentLabel, action.EnvironmentID),
+		Diff: Diff{Path: "alertmanager/silences/" + action.UpstreamID,
+			Lines: []string{pick(english, "创建操作：", "Create operation: ") + action.CreateOperationID,
+				pick(english, "观测到的静默摘要：", "Observed silence digest: ") + action.ObservedDigest,
+				pick(english, "原因：", "Reason: ") + action.Reason}},
+		Method: pick(english,
+			"只提前结束一条由 AIOps 创建并已确认的静默。两位审批人批准后，独立执行器重新完整读取 Alertmanager，静默仍与发起时观测到的一致才让它到期，只执行一次；不自动重试，结果不明时只读取核对。",
+			"Cancels one confirmed silence that AIOps created. After two approvals, the independent executor reads Alertmanager again in full and expires the silence once, only if it still matches what was observed at request time. It never retries; an unknown outcome is only reconciled by reading."),
+		Evidence: []Evidence{{N: 1, Icon: "activity", Title: pick(english, "归属核对", "Exact ownership observation"),
+			Desc: pick(english, "发起时，本地已确认的创建操作、上游操作标记、完整内容和当前应用、环境范围全部一致。",
+				"The local confirmed create operation, upstream operation marker, complete payload and current application/environment scope matched at request time.")}},
+		Verification: []string{
+			pick(english, "执行前复核提案摘要、批准、当前权限、连接器绑定和创建操作，并重新完整读取 Alertmanager；静默有任何变化都不写入。",
+				"Before expiring, the executor rechecks the proposal digest, approval, current grants, connector binding and create operation, and reads Alertmanager again in full; nothing is written if the silence changed."),
+			pick(english, "结果不明时只读取 Alertmanager 核对，不再次写入。",
+				"An unknown outcome is only reconciled by reading Alertmanager; it is never written again."),
+		},
+		VerificationNote: pick(english, "观测摘要是发起时的事实；之后上游有变化需要重新发起。",
+			"The observed digest is a request-time fact. Later upstream changes require a new request."),
+		Checklist: []string{
+			pick(english, "两位非发起人的审批人分别用通行密钥批准。", "Two approvers other than the requester each approve with a passkey."),
+			pick(english, "第二位批准后由执行器自动让静默到期，不需要另行执行。",
+				"After the second approval the executor expires the silence automatically; there is no separate execution step."),
+		},
+		Requirement: pick(english, "待审期间不会让任何静默到期；第二位审批人批准后自动执行。",
+			"No silence is expired while the review is pending; it runs automatically after the second approval."),
+	}
+}
+
+// legacySilenceCancelReviewContent is the English review written before
+// PA-121. Proposals stored with it keep it; it is never written again.
+func legacySilenceCancelReviewContent(action v3alertmanager.ProposedSilenceCancel) Content {
 	return Content{
 		Title:           fmt.Sprintf("Cancel application silence %q", action.ApplicationLabel),
 		Risk:            "high",
@@ -187,4 +233,11 @@ func silenceCancelReviewContent(action v3alertmanager.ProposedSilenceCancel) Con
 		Checklist:        []string{"Independent human approval with fresh passkey proof is required before execution."},
 		Requirement:      "This pending review grants no permission to delete or expire an upstream silence.",
 	}
+}
+
+// silenceCancelReviewContents are the reviews a stored early-end proposal
+// may carry.
+func silenceCancelReviewContents(action v3alertmanager.ProposedSilenceCancel) []Content {
+	return []Content{silenceCancelReviewContent(action, false), silenceCancelReviewContent(action, true),
+		legacySilenceCancelReviewContent(action)}
 }

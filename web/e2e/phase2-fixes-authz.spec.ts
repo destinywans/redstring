@@ -2,10 +2,10 @@ import { test, expect } from "@playwright/test";
 import { INSTANCES } from "./support/env";
 import { statePath } from "./support/global-setup";
 import { monitor } from "./support/monitor";
-import { zh, patchRead } from "./support/checks";
+import { zh, json, at, patchRead } from "./support/checks";
 
 /**
- * WAN-434 phase 2 checks for PA-106 (Webhook redelivery). Each check pins the page to fixed API
+ * WAN-434 phase 2 checks for PA-106 (Webhook redelivery and business 401s). Each check pins the page to fixed API
  * answers with page.route, so it runs on any data and never writes.
  *
  *   npx playwright test -c e2e/playwright.config.ts phase2-fixes-authz.spec.ts
@@ -39,5 +39,46 @@ test.describe("webhook redelivery (PA-106)", () => {
     await expect(page.getByText("重新投递", { exact: true })).toHaveCount(0);
     expect(redelivered).toEqual([]);
     expect(m.pageErrors).toEqual([]);
+  });
+});
+
+test.describe("business 401s (PA-106)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  // A route that checks its own credentials (an inbound receiver's source signature) answers like this.
+  const sourceRejected = { error: { code: "unauthorized", message: "Invalid source signature" } };
+
+  test("a business 401 with a live session stays on the page", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    await page.route(at("/webhooks"), (r) => json(r, 401, sourceRejected));
+    const checked = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/v1/auth/me", { timeout: 20_000 });
+    await page.goto(origin + "/integrations/webhooks");
+    // The client asks the session itself before signing out; the real session is alive.
+    expect((await checked).status()).toBe(200);
+    await page.waitForTimeout(1_500);
+    expect(new URL(page.url()).pathname).toBe("/integrations/webhooks");
+  });
+
+  test("a 401 while the session store is unavailable stays on the page (PA-59)", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    await page.route(at("/webhooks"), (r) => json(r, 401, sourceRejected));
+    await page.route(at("/auth/me"), (r) => json(r, 503, { error: { code: "session_store_unavailable", message: "Sessions cannot be checked right now; retry shortly" } }));
+    const checked = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/v1/auth/me", { timeout: 20_000 });
+    await page.goto(origin + "/integrations/webhooks");
+    expect((await checked).status()).toBe(503);
+    await page.waitForTimeout(1_500);
+    expect(new URL(page.url()).pathname).toBe("/integrations/webhooks");
+  });
+
+  test("a 401 whose session is gone still goes to sign-in", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/healthz");
+    // Both answers come from page.route: the real session stays signed in.
+    await page.route(at("/webhooks"), (r) => json(r, 401, { error: { code: "unauthorized", message: "Session expired" } }));
+    await page.route(at("/auth/me"), (r) => json(r, 401, { error: { code: "unauthorized", message: "Session expired" } }));
+    await page.goto(origin + "/integrations/webhooks");
+    await page.waitForURL((u) => u.pathname === "/login", { timeout: 20_000 });
+    expect(new URL(page.url()).searchParams.get("next")).toBe("/integrations/webhooks");
   });
 });

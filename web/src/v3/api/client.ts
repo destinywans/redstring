@@ -46,7 +46,25 @@ export const RETURN_TITLE_KEY = "aiops-v3-return-title";
 export const SIGNED_IN_KEY = "aiops-v3-signed-in";
 let redirecting = false;
 
-/** A 401 from any business call means the session is gone: go to /login and come back afterwards. */
+/**
+ * Whether a business call's 401 means the session is gone. Every server 401 says `unauthorized`, whether the session
+ * expired, was revoked or is missing, or a route checked its own credentials (an inbound receiver's source token or
+ * signature, PA-106), so the code cannot tell them apart. GET /auth/me checks the session alone: 401 only when no
+ * live session remains, 503 when the session store can't be read (PA-59). Anything but its 401 keeps the user signed
+ * in. Concurrent 401s share one check.
+ */
+let sessionCheck: Promise<boolean> | null = null;
+function sessionGone(): Promise<boolean> {
+  sessionCheck ??= fetch("/api/v1/auth/me", { credentials: "same-origin", headers: { "Accept-Language": currentLocale() } })
+    .then((r) => r.status === 401)
+    .catch(() => false)
+    .finally(() => {
+      sessionCheck = null;
+    });
+  return sessionCheck;
+}
+
+/** The session is gone: go to /login and come back afterwards. */
 function toLogin() {
   if (redirecting || location.pathname === "/login") return;
   redirecting = true;
@@ -93,7 +111,7 @@ export async function apiWithMeta<T>(
     },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
-  if (res.status === 401 && !path.startsWith("/auth/")) toLogin();
+  if (res.status === 401 && !path.startsWith("/auth/") && (await sessionGone())) toLogin();
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError(res.status, body?.error?.code ?? "request_failed", body?.error?.message ?? `HTTP ${res.status}`, body?.error ?? {});

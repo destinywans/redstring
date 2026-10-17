@@ -594,7 +594,7 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 		steps.prefix = "attempt"
 	}
 	budget := newToolBudget(maxTools)
-	model := &providerModel{provider: p, client: r.cfg.HTTPClient, history: append([]Message(nil), req.Messages[:len(req.Messages)-1]...), maxCalls: maxCalls, steps: steps, reasoning: req.Reasoning, budget: budget}
+	model := &providerModel{provider: p, client: r.cfg.HTTPClient, history: append([]Message(nil), req.Messages[:len(req.Messages)-1]...), maxCalls: maxCalls, steps: steps, reasoning: req.Reasoning, budget: budget, attemptID: req.AttemptID}
 	if len(req.Tools) > 16 {
 		return "", errors.New("too many evidence tools")
 	}

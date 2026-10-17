@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
@@ -26,6 +27,8 @@ type providerModel struct {
 	history         []Message
 	calls, maxCalls int
 	steps           *stepLog
+	// attemptID names the attempt in failure logs (PA-107).
+	attemptID string
 	// budget counts evidence reads; when it is used up, or on the last
 	// allowed model call, the call is made without tools (PA-52).
 	budget *toolBudget
@@ -123,8 +126,10 @@ func (p *providerModel) GenerateContent(ctx context.Context, req *model.LLMReque
 		if closing != "" {
 			disableTools(body, api)
 		}
+		callStarted := time.Now()
 		resp, err := post(ctx, p.client, p.provider, path, body)
 		if err != nil {
+			p.logFailure(ctx, err, callStarted)
 			yield(nil, err)
 			return
 		}
@@ -140,6 +145,8 @@ func (p *providerModel) GenerateContent(ctx context.Context, req *model.LLMReque
 			err = parseOpenAI(resp.Body, yield)
 		}
 		if err != nil && !errors.Is(err, errConsumerStopped) {
+			err = &callFailure{err: err, status: resp.StatusCode}
+			p.logFailure(ctx, err, callStarted)
 			yield(nil, err)
 		}
 	}
@@ -191,11 +198,12 @@ func post(ctx context.Context, c *http.Client, p Provider, path string, body any
 	}
 	resp, err := c.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("provider request failed: %w", err)
+		return nil, &callFailure{err: fmt.Errorf("provider request failed: %w", err)}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		code, typ := upstreamError(resp.Body)
 		resp.Body.Close()
-		return nil, fmt.Errorf("provider %s returned HTTP %d", p.Kind, resp.StatusCode)
+		return nil, &callFailure{err: fmt.Errorf("provider %s returned HTTP %d", p.Kind, resp.StatusCode), status: resp.StatusCode, code: code, typ: typ}
 	}
 	return resp, nil
 }

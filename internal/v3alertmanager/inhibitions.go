@@ -201,8 +201,12 @@ func (s *Service) Inhibitions(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", `"`+revisions[scope.EnvironmentIDs[0]]+`"`)
 	}
 	// Configured rules have no trustworthy per-rule activity or hit source.
+	unavailable := []string{"activity", "hit_counts"}
+	if len(scope.EnvironmentIDs) == 1 && !s.inhibitionDraftsReady(scope.EnvironmentIDs[0]) {
+		unavailable = append(unavailable, "inhibition_drafts")
+	}
 	httpapi.WriteJSON(w, http.StatusPartialContent, map[string]any{"items": items, "partial": true,
-		"unavailable": []string{"activity", "hit_counts"}, "unavailable_environments": []string{}, "unscoped_present": unscopedPresent,
+		"unavailable": unavailable, "unavailable_environments": []string{}, "unscoped_present": unscopedPresent,
 		"config_revisions": revisions, "observed_at": observedAt, "empty_reason": nil})
 }
 

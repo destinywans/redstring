@@ -103,27 +103,16 @@ func (s *Service) CreateNotificationRoute(w http.ResponseWriter, r *http.Request
 		httpapi.Error(w, http.StatusServiceUnavailable, "route_scope_unavailable", "Routing authorization snapshot is unavailable")
 		return
 	}
-	gitLabRepository, isGitLabRepository := s.RouteRepository.(*RouteGitLabRepository)
-	if s.RouteRepository == nil || isGitLabRepository && gitLabRepository == nil ||
-		s.RouteRepository.ProjectID() <= 0 ||
-		s.RouteRepository.ProjectID() != s.ConfigPromotionProjectID ||
-		s.RouteRepository.BranchPrefix() == "" ||
-		s.RouteRepository.TargetBranch() == "" || s.ConfigPromotionBranchPrefix == "" ||
-		s.ConfigPromotionTargetBranch == "" ||
-		s.RouteRepository.TargetBranch() == s.ConfigPromotionTargetBranch ||
-		strings.HasPrefix(s.RouteRepository.BranchPrefix(), s.ConfigPromotionBranchPrefix) ||
-		strings.HasPrefix(s.ConfigPromotionBranchPrefix, s.RouteRepository.BranchPrefix()) {
+	if !s.routeRepositoryReady() {
 		httpapi.Error(w, http.StatusNotImplemented, "not_connected", "A reviewed GitOps route repository is not connected")
 		return
 	}
-	envLabel := s.EnvironmentLabels[env]
-	source, ok := s.Source.(routeTreeSource)
-	client, isClient := s.Source.(*Client)
-	if envLabel == "" || envLabel == "application" || !alertLabelName.MatchString(envLabel) ||
-		!ok || source == nil || isClient && client == nil {
+	if !s.routeSourceReady(env) {
 		httpapi.Error(w, http.StatusNotImplemented, "not_connected", "An exact Alertmanager route source is not connected")
 		return
 	}
+	envLabel := s.EnvironmentLabels[env]
+	source := s.Source.(routeTreeSource)
 	var input routeDraftInput
 	if !httpapi.Decode(w, r, &input) {
 		return
@@ -305,4 +294,36 @@ func (s *Service) routeDraftApplication(ctx context.Context, env, appID string) 
 	}
 	app, status, err := s.routeTestApplication(ctx, env, providerApp)
 	return providerApp, app, status, err
+}
+
+// routeRepositoryReady says whether a reviewed GitOps route repository is configured,
+// separate from the configuration-promotion branches, the first condition
+// CreateNotificationRoute needs.
+func (s *Service) routeRepositoryReady() bool {
+	r := s.RouteRepository
+	gitLabRepository, isGitLabRepository := r.(*RouteGitLabRepository)
+	return r != nil && !(isGitLabRepository && gitLabRepository == nil) &&
+		r.ProjectID() > 0 && r.ProjectID() == s.ConfigPromotionProjectID &&
+		r.BranchPrefix() != "" && r.TargetBranch() != "" &&
+		s.ConfigPromotionBranchPrefix != "" && s.ConfigPromotionTargetBranch != "" &&
+		r.TargetBranch() != s.ConfigPromotionTargetBranch &&
+		!strings.HasPrefix(r.BranchPrefix(), s.ConfigPromotionBranchPrefix) &&
+		!strings.HasPrefix(s.ConfigPromotionBranchPrefix, r.BranchPrefix())
+}
+
+// routeSourceReady says whether env has an exact Alertmanager route source and
+// environment label, the second condition CreateNotificationRoute needs.
+func (s *Service) routeSourceReady(env string) bool {
+	envLabel := s.EnvironmentLabels[env]
+	source, ok := s.Source.(routeTreeSource)
+	client, isClient := s.Source.(*Client)
+	return envLabel != "" && envLabel != "application" && alertLabelName.MatchString(envLabel) &&
+		ok && source != nil && !(isClient && client == nil)
+}
+
+// routeDraftsReady says whether CreateNotificationRoute can export a draft for env
+// rather than answer 501 not_connected; GET /notification-routes names it in
+// unavailable as route_drafts otherwise so the page can hold the entry (PA-141).
+func (s *Service) routeDraftsReady(env string) bool {
+	return s.routeRepositoryReady() && s.routeSourceReady(env)
 }

@@ -7,6 +7,7 @@ import { Badge, Brand, Btn, Card, Chip, Col, Icon, Input, LabelChip, Muted, Row,
 import { useI18n } from "../../i18n";
 import { useCreateParam } from "../../ui/forms";
 import { NewRouteDrawer } from "./CreateDrawers";
+import { Gated, useNeed } from "../../ui/permission";
 import "./events.css";
 import { AddChip, SampleOnly } from "../../ui/demo";
 import { PartialBanner, Unavailable, UnknownValue } from "../../ui/unknown";
@@ -79,6 +80,12 @@ export default function RoutingPage() {
   const [tab, setTab] = useState("tree");
   // root is null (root_unavailable: not_configured) when no route branch matches this environment exactly.
   const { data, error } = useGet<{ root: RouteNode | RouteNodeRead | null; root_unavailable?: "not_configured" | null; config_revision?: string | null; partial?: boolean; unavailable?: string[] }>("/notification-routes");
+  // PA-141: a route draft needs the reviewed GitOps route repository and an exact Alertmanager source (route_drafts).
+  const needRoutes = useNeed(["alert_rules", "manage"]);
+  const routesHeld = API_MODE === "mock" ? null
+    : !data ? tx("暂时读不到路由配置，不能新建", "The routing configuration can't be read right now")
+    : data.unavailable?.includes("route_drafts") ? tx("这个环境还没接入经审查的 GitOps 路由仓库", "No reviewed GitOps route repository is connected for this environment")
+    : null;
   const root = useMemo(() => (data?.root ? normalizeRoute(data.root) : null), [data]);
   const [sel, setSel] = useState<RouteNode | null>(null);
   const [labels, setLabels] = useState(API_MODE === "mock" ? "service=checkout-api, env=prod, team=trade, severity=P1" : "");
@@ -108,7 +115,7 @@ export default function RoutingPage() {
     }
   };
   return (
-    <Page flush error={!data ? error : undefined} errorSource="Alertmanager" crumbs={[tx("事件与告警", "Events"), tx("通知与路由", "Routing")]} actions={<Btn kind="primary" icon="plus" onClick={() => setCreating(true)}>{tx("新建路由", "New route")}</Btn>}>
+    <Page flush error={!data ? error : undefined} errorSource="Alertmanager" crumbs={[tx("事件与告警", "Events"), tx("通知与路由", "Routing")]} actions={<Gated reason={needRoutes ?? routesHeld} kind={needRoutes ? "permission" : "availability"}><Btn kind="primary" icon="plus" onClick={() => setCreating(true)}>{tx("新建路由", "New route")}</Btn></Gated>}>
       <NewRouteDrawer open={creating} onClose={() => setCreating(false)} />
       <Tabs value={tab} onChange={setTab} options={[{ value: "tree", label: tx("路由树", "Route tree") }, { value: "receivers", label: tx("接收人", "Receivers") }, { value: "templates", label: tx("通知模板", "Templates") }, { value: "oncall", label: tx("值班与升级", "On-call & escalation") }, { value: "log", label: tx("发送记录", "Delivery log") }]} />
       <div className="v3-split">

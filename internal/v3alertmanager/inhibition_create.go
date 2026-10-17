@@ -75,14 +75,12 @@ func (s *Service) CreateInhibition(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, http.StatusNotImplemented, "not_connected", "A reviewed GitOps inhibition repository is not connected")
 		return
 	}
-	source, connected := s.Source.(inhibitionObservationSource)
-	client, isClient := s.Source.(*Client)
-	envLabel := s.EnvironmentLabels[env]
-	if !connected || source == nil || isClient && client == nil ||
-		envLabel == "" || envLabel == "application" || !policyLabelName.MatchString(envLabel) {
+	if !s.inhibitionSourceReady(env) {
 		httpapi.Error(w, http.StatusNotImplemented, "not_connected", "An exact Alertmanager inhibition source is not connected")
 		return
 	}
+	source := s.Source.(inhibitionObservationSource)
+	envLabel := s.EnvironmentLabels[env]
 	var input inhibitionDraftInput
 	if !httpapi.Decode(w, r, &input) {
 		return
@@ -150,6 +148,23 @@ func (s *Service) CreateInhibition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.exportInhibitionDraft(w, r, record, db, txAccess, env, app)
+}
+
+// inhibitionSourceReady says whether env has an exact Alertmanager inhibition
+// source and environment label, the second condition CreateInhibition needs.
+func (s *Service) inhibitionSourceReady(env string) bool {
+	source, connected := s.Source.(inhibitionObservationSource)
+	client, isClient := s.Source.(*Client)
+	envLabel := s.EnvironmentLabels[env]
+	return connected && source != nil && !(isClient && client == nil) &&
+		envLabel != "" && envLabel != "application" && policyLabelName.MatchString(envLabel)
+}
+
+// inhibitionDraftsReady says whether CreateInhibition can export a draft for env
+// rather than answer 501 not_connected; GET /inhibitions names it in unavailable
+// as inhibition_drafts otherwise so the page can hold the entry (PA-123).
+func (s *Service) inhibitionDraftsReady(env string) bool {
+	return s.inhibitionRepositoryReady() && s.inhibitionSourceReady(env)
 }
 
 func (s *Service) inhibitionRepositoryReady() bool {

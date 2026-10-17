@@ -92,6 +92,9 @@ func (s *Service) NotificationRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	unavailable := []string{"matcher_values", "receiver_names", "receiver_targets", "channel_types", "hits_24h", "on_call", "escalation", "current_interval_activity"}
+	if !s.routeDraftsReady(env) {
+		unavailable = append(unavailable, "route_drafts")
+	}
 	if noRoute {
 		// The configuration has no exact branch for this environment: a
 		// deployment state, not an outage. No revision is claimed for it.

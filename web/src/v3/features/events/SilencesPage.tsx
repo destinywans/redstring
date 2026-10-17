@@ -8,7 +8,7 @@ import { Avatar, Badge, Bar, Btn, Card, CardHead, Col, Icon, IconBtn, Input, Lab
 import { DataTable } from "../../ui/data";
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
-import { Gate } from "../../ui/permission";
+import { Gate, Gated, useNeed } from "../../ui/permission";
 import { useCreateParam } from "../../ui/forms";
 import { NewInhibitDrawer } from "./CreateDrawers";
 import { ExpireSilenceDialog, SilenceProposalDrawer, type SubmittedSilence } from "./SilenceProposal";
@@ -56,7 +56,14 @@ export default function SilencesPage() {
   const [tab, setTab] = useState("silences");
   const [ended, setEnded] = useState<Set<string>>(new Set());
   const list = useGet<SilenceList>("/silences", { state });
-  const inhib = useGet<{ items: Inhibition[]; empty_reason?: EmptyReason }>("/inhibitions");
+  const inhib = useGet<{ items: Inhibition[]; empty_reason?: EmptyReason; unavailable?: string[] }>("/inhibitions");
+  // PA-123: a draft needs the reviewed GitOps inhibition repository and an exact Alertmanager source; the list says
+  // inhibition_drafts when either is missing, and a failed read leaves nothing to draft against.
+  const needInhibit = useNeed(["silences", "manage"]);
+  const inhibitHeld = API_MODE === "mock" ? null
+    : inhib.error ? tx("暂时读不到抑制配置，不能新建", "The inhibition configuration can't be read right now")
+    : inhib.data?.unavailable?.includes("inhibition_drafts") ? tx("这个环境还没接入经审查的 GitOps 抑制仓库", "No reviewed GitOps inhibition repository is connected for this environment")
+    : null;
   // items null = no Alertmanager connected; [] with empty_reason = nothing visible to you (PA-09).
   const noAlertmanager = !!list.data && list.data.items === null;
   const [matchers, setMatchers] = useState(API_MODE === "mock" ? [{ k: "service", op: "=", v: "checkout-api" }, { k: "alertname", op: "=", v: "DownstreamTimeout" }] : [{ k: "application", op: "=", v: "" }]);
@@ -136,7 +143,7 @@ export default function SilencesPage() {
     .filter((s) => !q || s.matchers.some((m) => `${m.k}=${m.v}`.includes(q)))
     .map((s) => (ended.has(s.id) ? { ...s, state: "expired" as const } : s));
   return (
-    <Page flush crumbs={[tx("事件与告警", "Events"), tx("静默与抑制", "Silences")]} actions={<><Btn icon="plus" onClick={() => setInhibitOpen(true)}>{tx("新建抑制规则", "New inhibition")}</Btn><Gate need={["silences", "manage"]}><Btn kind="primary" icon="plus" onClick={real ? () => setProposing(true) : focusForm}>{real ? tx("提议静默", "Propose silence") : tx("新建静默", "New silence")}</Btn></Gate></>}>
+    <Page flush crumbs={[tx("事件与告警", "Events"), tx("静默与抑制", "Silences")]} actions={<><Gated reason={needInhibit ?? inhibitHeld} kind={needInhibit ? "permission" : "availability"}><Btn icon="plus" onClick={() => setInhibitOpen(true)}>{tx("新建抑制规则", "New inhibition")}</Btn></Gated><Gate need={["silences", "manage"]}><Btn kind="primary" icon="plus" onClick={real ? () => setProposing(true) : focusForm}>{real ? tx("提议静默", "Propose silence") : tx("新建静默", "New silence")}</Btn></Gate></>}>
       {real && <SilenceProposalDrawer open={proposing} onClose={() => setProposing(false)} onSubmitted={remember} />}
       {real && <ExpireSilenceDialog silenceId={expiring} onClose={() => setExpiring(null)} onSubmitted={() => qc.invalidateQueries({ predicate: (x) => x.queryKey[0] === "/silences" })} />}
       <NewInhibitDrawer open={inhibitOpen} onClose={() => setInhibitOpen(false)} />
@@ -227,7 +234,7 @@ export default function SilencesPage() {
             )}
             {tab !== "windows" && (
             <Card>
-              <CardHead title={tx("抑制规则", "Inhibition rules")} right={<Btn kind="ghost" icon="plus" h={26} onClick={() => setInhibitOpen(true)}>{tx("新建抑制规则", "New rule")}</Btn>} />
+              <CardHead title={tx("抑制规则", "Inhibition rules")} right={<Gated reason={needInhibit ?? inhibitHeld} kind={needInhibit ? "permission" : "availability"}><Btn kind="ghost" icon="plus" h={26} onClick={() => setInhibitOpen(true)}>{tx("新建抑制规则", "New rule")}</Btn></Gated>} />
               <ul>
                 {inhib.error && !inhib.data && (
                   <li className="inhibit-row">

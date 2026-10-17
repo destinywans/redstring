@@ -279,7 +279,10 @@ export function AddChip({
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [anchor, setAnchor] = useState<HTMLSpanElement | null>(null);
-  const opts = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o)).filter((o) => !items.includes(o.value) && (!q || String(o.value).toLowerCase().includes(q.toLowerCase())));
+  const all = options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
+  const opts = all.filter((o) => !items.includes(o.value) && (!q || String(o.value).toLowerCase().includes(q.toLowerCase())));
+  // An added value shows its option's label: service options carry opaque catalog IDs as values (PA-166).
+  const shown = (x: string) => all.find((o) => o.value === x)?.label ?? x;
   const add = (v: string) => {
     const t = v.trim();
     if (!t || items.includes(t)) return;
@@ -289,14 +292,17 @@ export function AddChip({
   };
   return (
     <>
-      {items.map((x) => (
-        <span key={x} className="demo-added">
-          <span className="mono">{x}</span>
-          <button type="button" aria-label={tx("移除 {x}", "Remove {x}", { x })} onClick={() => set(items.filter((i) => i !== x))}>
-            <Icon name="x" size={11} />
-          </button>
-        </span>
-      ))}
+      {items.map((x) => {
+        const name = shown(x);
+        return (
+          <span key={x} className="demo-added">
+            <span className="mono">{name}</span>
+            <button type="button" aria-label={tx("移除 {x}", "Remove {x}", { x: typeof name === "string" ? name : x })} onClick={() => set(items.filter((i) => i !== x))}>
+              <Icon name="x" size={11} />
+            </button>
+          </span>
+        );
+      })}
       <span ref={setAnchor} className="demo-chip">
         <Chip icon="plus" onClick={() => setOpen((o) => !o)}>
           {label}

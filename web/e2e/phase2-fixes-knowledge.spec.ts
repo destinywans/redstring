@@ -209,3 +209,47 @@ test.describe("runbook source names (PA-166)", () => {
     await expect(side).not.toContainText(PM);
   });
 });
+
+test.describe("memory source names (PA-166)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const TITLED = "memory-source-knowledge-titled";
+  const UNTITLED = "memory-source-knowledge-untitled";
+  const SOURCE_TITLE = "检查用来源资料";
+  const fact = (id: string, text: string, source: string, title: string | null) => ({
+    id, fact: text, source, source_title: title, source_version: 1, state: "candidate", environment_id: "prod", application_id: APP,
+    confidence: null, confirmed: null, recalls: null, expires: null, revision: 1, evidence: { document_id: source, version: 1 },
+  });
+  const MEMORY = {
+    layers: [
+      { id: "service", name: "Service facts", count: 2, description: "", evidence: { kind: "current_published_facts", fact_ids: ["fact-titled", "fact-untitled"] } },
+      { id: "workspace", name: "Workspace facts", count: 0, description: "", evidence: { kind: "current_published_facts", fact_ids: [] } },
+    ],
+    services: [{ id: SERVICE, application_id: APP, environment_id: "prod", name: NAME, key: "knowledge-check", count: 2, fact_ids: ["fact-titled", "fact-untitled"] }],
+    service: null,
+    facts: [fact("fact-titled", "检查用：有标题的来源", TITLED, SOURCE_TITLE), fact("fact-untitled", "检查用：没有标题的来源", UNTITLED, null)],
+    conflicts: [],
+    conflict: {
+      id: "conflict-knowledge-check", state: "open", environment_id: "prod", application_id: APP,
+      a: { id: "fact-titled", text: "检查用：有标题的来源", source: TITLED, source_title: SOURCE_TITLE },
+      b: { id: "fact-untitled", text: "检查用：没有标题的来源", source: UNTITLED, source_title: null },
+    },
+    policy: null,
+    partial: true,
+    unavailable_fields: ["working_layer", "episodic_layer", "semantic_layer", "confidence", "recalls", "expires", "policy"],
+  };
+
+  test("facts and the conflict name their source by title, and keep the ID without one", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/memory"), (r) => json(r, 200, MEMORY));
+    await page.goto(origin + "/memory");
+    const titled = page.locator("tr", { hasText: "检查用：有标题的来源" });
+    await expect(titled).toContainText(SOURCE_TITLE, { timeout: 20_000 });
+    await expect(titled).not.toContainText(TITLED);
+    // No title to show: the ID stays rather than a made-up name.
+    await expect(page.locator("tr", { hasText: "检查用：没有标题的来源" })).toContainText(UNTITLED);
+    const conflict = page.locator(".mem-conflict");
+    await expect(conflict).toContainText(SOURCE_TITLE);
+    await expect(conflict).not.toContainText(TITLED);
+    await expect(conflict).toContainText(UNTITLED);
+  });
+});

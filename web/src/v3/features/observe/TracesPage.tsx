@@ -53,9 +53,8 @@ export default function TracesPage() {
   const [source, setSource] = useState<string | undefined>(undefined);
   const activeSource = source && bound.includes(source) ? source : bound.length === 1 ? bound[0] : undefined;
   const teamViews = useGet<{ items: { id: string; name: string; query: string; owner: string }[] }>(real ? "/trace-views" : null, { scope });
-  // Saving and deleting team views need traces.manage (internal/v3traces/views.go, PA-228). The permission names
-  // have no "traces" entry yet, so the reason is worded here.
-  const noViews = useNeed(["traces", "manage"]) ? tx("需要 链路·管理 权限", "Needs Traces · Manage permission") : null;
+  // Saving and deleting team views need traces.manage (internal/v3traces/views.go, PA-228).
+  const noViews = useNeed(["traces", "manage"]);
   const setService = (v: string) => {
     const next = new URLSearchParams(params);
     if (v) next.set("service", v);

@@ -94,7 +94,7 @@ test.describe("settings pages a role can't view (PA-200)", () => {
     const m = monitor(page);
     await page.goto(origin + "/settings/workspace");
     await expectLock(page);
-    await expect(gateReason(page, "保存")).toHaveText("需要 工作区·管理 权限");
+    await expect(gateReason(page, "保存")).toHaveText("需要 工作区设置·管理 权限");
     expect(m.pageErrors).toEqual([]);
   });
 
@@ -105,7 +105,7 @@ test.describe("settings pages a role can't view (PA-200)", () => {
     await page.goto(origin + "/settings/workspace");
     await expect(page.getByText("基本信息", { exact: true })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("button", { name: "保存", exact: true })).toBeDisabled();
-    await expect(gateReason(page, "保存")).toHaveText("需要 工作区·管理 权限");
+    await expect(gateReason(page, "保存")).toHaveText("需要 工作区设置·管理 权限");
   });
 });
 

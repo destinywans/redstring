@@ -234,7 +234,16 @@ export default function RunbookEditorPage() {
                 <Row key={r.name} gap={8}>
                   <Avatar name={r.name} size={22} accent={r.state === "pending"} />
                   <span className="grow" style={{ fontSize: "var(--fs-sm)" }}>{r.name}</span>
-                  {r.state === "pending" ? <State tone="warn">{tx("待复核", "Pending")}</State> : <Muted size={11.5}>{tx("可选", "Optional")}</Muted>}
+                  {/* PA-211: real records list the reviewers who approved this version; a state this page doesn't know isn't "optional". */}
+                  {r.state === "pending" ? (
+                    <State tone="warn">{tx("待复核", "Pending")}</State>
+                  ) : r.state === "approved" ? (
+                    <State tone="ok">{tx("已批准", "Approved")}</State>
+                  ) : r.state === "optional" ? (
+                    <Muted size={11.5}>{tx("可选", "Optional")}</Muted>
+                  ) : (
+                    <UnknownValue />
+                  )}
                 </Row>
               ))}
             </Section>

@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { INSTANCES } from "./support/env";
 import { statePath } from "./support/global-setup";
 import { monitor } from "./support/monitor";
-import { at, en, json, zh } from "./support/checks";
+import { at, en, json, patchRead, zh } from "./support/checks";
 
 /**
  * Sweep by defect class, group 4 (WAN-434): observe, integrations, the roles / AI preferences / members settings and
@@ -516,5 +516,103 @@ test.describe("sidebar workspace name (PA-224)", () => {
     await page.getByRole("button", { name: "切换工作区" }).click({ timeout: 20_000 });
     await expect(page.getByText("检查工作区 · 当前工作区", { exact: true })).toBeVisible();
     await expect(page.getByText("交易平台", { exact: false })).toHaveCount(0);
+  });
+});
+
+type Grants = Record<string, Record<string, Record<string, string>>>;
+/** /me without the given "module.action" grants in every environment (the real answer, read in the page). */
+async function meWithout(page: Page, drop: string[]) {
+  await page.goto(origin + "/healthz");
+  await patchRead(page, "/me", (real: { permissions?: Grants }) => {
+    const permissions: Grants = {};
+    for (const [env, modules] of Object.entries(real.permissions ?? {})) {
+      permissions[env] = {};
+      for (const [module, actions] of Object.entries(modules ?? {})) permissions[env][module] = Object.fromEntries(Object.entries(actions).filter(([action]) => !drop.includes(`${module}.${action}`)));
+    }
+    return { ...real, permissions };
+  });
+}
+const gateReason = (page: Page, text: string) => page.locator(".perm-gate", { hasText: text }).locator(".sr-only");
+
+/**
+ * PA-228 (WAN-587): write entries that weren't gated by the module and action their routes declare — trace team views
+ * (traces.manage; delete had no confirmation), mapping discover / accept / edit (services.change), connector add and
+ * test, MCP tool switches (connectors.manage; a failed switch kept its new state), new API token and test event
+ * (connectors.manage).
+ */
+test.describe("write entries gated by their route's permission (PA-228)", () => {
+  const view = { id: "tv-check", name: "检查视图", query: "status=error", owner: "Check Owner" };
+
+  test("trace team views need traces.manage", async ({ page }) => {
+    await page.addInitScript(zh);
+    await meWithout(page, ["traces.manage"]);
+    await page.route(at("/trace-views"), (r) => json(r, 200, { items: [view] }));
+    await page.goto(origin + "/traces");
+    await expect(page.getByRole("button", { name: "保存为团队视图" })).toBeDisabled({ timeout: 20_000 });
+    await expect(gateReason(page, "保存为团队视图")).toHaveText("需要 链路·管理 权限");
+    await expect(page.getByRole("button", { name: "删除团队视图 检查视图" })).toBeDisabled();
+  });
+
+  test("deleting a trace team view asks first", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/trace-views"), (r) => json(r, 200, { items: [view] }));
+    let deleted = false;
+    await page.route(at("/trace-views/tv-check"), (r) => ((deleted = true), json(r, 409, { error: { code: "check", message: "check" } })));
+    await page.goto(origin + "/traces");
+    await page.getByRole("button", { name: "删除团队视图 检查视图" }).click({ timeout: 20_000 });
+    await expect(page.getByRole("dialog")).toContainText("检查视图");
+    await page.getByRole("button", { name: "取消", exact: true }).click();
+    expect(deleted).toBe(false);
+  });
+
+  test("mapping discover needs services.change", async ({ page }) => {
+    await page.addInitScript(zh);
+    await meWithout(page, ["services.change"]);
+    await page.goto(origin + "/integrations/mapping");
+    await expect(page.getByRole("button", { name: "自动发现" })).toBeDisabled({ timeout: 20_000 });
+    await expect(gateReason(page, "自动发现")).toHaveText("需要 服务目录·修改 权限");
+  });
+
+  test("adding a connector needs connectors.manage", async ({ page }) => {
+    await page.addInitScript(zh);
+    await meWithout(page, ["connectors.manage"]);
+    await page.goto(origin + "/integrations");
+    await expect(page.getByRole("button", { name: "添加连接器" })).toBeDisabled({ timeout: 20_000 });
+    await expect(gateReason(page, "添加连接器")).toHaveText("需要 连接器与映射·管理 权限");
+  });
+
+  test("a new API token needs connectors.manage", async ({ page }) => {
+    await page.addInitScript(zh);
+    await meWithout(page, ["connectors.manage"]);
+    await pinWebhooks(page);
+    await page.goto(origin + "/integrations/webhooks");
+    await expect(page.getByRole("button", { name: "新建 API 令牌" })).toBeDisabled({ timeout: 20_000 });
+    await expect(gateReason(page, "新建 API 令牌")).toHaveText("需要 连接器与映射·管理 权限");
+  });
+
+  test("a test event needs connectors.manage", async ({ page }) => {
+    await page.addInitScript(zh);
+    await meWithout(page, ["connectors.manage"]);
+    await page.route(at("/ingest/push"), (r) => json(r, 200, pushView()));
+    await page.goto(origin + "/integrations/ingest/push");
+    await expect(page.getByRole("button", { name: "发送测试事件" })).toBeDisabled({ timeout: 20_000 });
+    await expect(gateReason(page, "发送测试事件")).toHaveText("需要 连接器与映射·管理 权限");
+  });
+
+  test("an MCP tool switch the server refused goes back", async ({ page }) => {
+    await page.addInitScript(zh);
+    const server = { id: "mcp-check", brand: "mcp", name: "检查 MCP", desc: "", transport: "http", caps: "tools", trust: { label: "已审核", tone: "ok" }, apps: [], status: "ok", last: "" };
+    await page.route(at("/mcp-servers"), (r) => json(r, 200, { kpis: [], items: [server] }));
+    await page.route(at("/mcp-servers/mcp-check"), (r) =>
+      json(r, 200, { ...server, version: "1", counts: { tools: 1, resources: 0, prompts: 0 }, tools: [{ name: "get_check", desc: "", write: false, enabled: false, calls: "" }], resources: [], prompts: [], calls: [], trust_info: { readonly_check: "", scope: [], limit: "", auth: "" } }),
+    );
+    await page.route(at("/mcp-servers/mcp-check/tools/get_check"), (r) => json(r, 503, unavailable("mcp_unavailable")));
+    await page.goto(origin + "/integrations/mcp");
+    await page.getByText("检查 MCP", { exact: true }).click({ timeout: 20_000 });
+    const sw = page.locator("aside.aside").getByRole("switch", { name: "get_check" });
+    await expect(sw).toHaveAttribute("aria-checked", "false");
+    await sw.click();
+    await expect(sw).toHaveAttribute("aria-checked", "false", { timeout: 10_000 });
+    await expect(page.getByText("已开启 get_check")).toHaveCount(0);
   });
 });

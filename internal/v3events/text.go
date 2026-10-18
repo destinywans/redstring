@@ -63,6 +63,11 @@ func (t text) timing(key string) (label, help string) {
 
 func (t text) unrecorded() string { return t.pick("未记录", "Not recorded") }
 
+// severityHint explains the drafted incident severity (PA-166).
+func (t text) severityHint() string {
+	return t.pick("所选告警中的最高级别", "Highest severity among selected persisted alerts")
+}
+
 // upstreamBadges labels the reconciled Alertmanager state of a group's firing
 // incidents (PA-47) in a stable order.
 func (t text) upstreamBadges(kinds map[string]bool) []badge {

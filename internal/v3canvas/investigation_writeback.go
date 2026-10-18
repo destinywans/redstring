@@ -321,8 +321,8 @@ func (s *Service) investigationWritebackPreview(w http.ResponseWriter, r *http.R
 		return
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{
-		"from": map[string]any{"id": source.id, "title": source.title, "version": canvasVersion(source.revision)},
-		"to": map[string]any{"id": destination.id, "title": destination.title, "version": canvasVersion(destination.revision),
+		"from": map[string]any{"id": source.id, "title": branchTitle(source.title, source.parent, r.Header.Get("Accept-Language")), "version": canvasVersion(source.revision)},
+		"to": map[string]any{"id": destination.id, "title": branchTitle(destination.title, destination.parent, r.Header.Get("Accept-Language")), "version": canvasVersion(destination.revision),
 			"next_version": canvasVersion(destination.revision + 1), "hops": hops},
 		"source_revision": source.revision, "target_revision": destination.revision, "target": destination.id,
 		"conclusions": candidates, "timeline": timeline,

@@ -68,6 +68,13 @@ async function openIncident(page: Page, detail: Record<string, unknown>) {
   await page.goto(origin + `/incidents/${ID}`);
 }
 const panel = (page: Page, title: string) => page.locator(".v3-panel", { has: page.locator("h2", { hasText: new RegExp(`^${title}$`) }) });
+/** GET an API path in the page in one request language; { status, body }. Call after page.goto(origin + "/healthz"). */
+async function readIn(page: Page, path: string, language: string): Promise<{ status: number; body: any }> {
+  return page.evaluate(async ([p, l]) => {
+    const r = await fetch("/api/v1" + p, { headers: { "X-AIOps-Environment": "prod", "Accept-Language": l } });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  }, [path, language] as const);
+}
 /** The KV row of a panel whose key is exactly k. */
 const row = (page: Page, title: string, k: string) => panel(page, title).locator(".v3-kv").filter({ has: page.locator(".k", { hasText: new RegExp(`^${k}$`) }) });
 
@@ -147,7 +154,7 @@ test.describe("incident roles and links (PA-189)", () => {
 async function openDraft(page: Page) {
   await page.route(at("/incidents/draft"), (r) =>
     json(r, 200, {
-      title: "检查用事件", severity: "P2", severity_hint: "所选持久告警中的最高级别", env: "prod", services: [{ id: "app-check", tier: null }], impact: null,
+      title: "检查用事件", severity: "P2", severity_hint: "所选告警中的最高级别", env: "prod", services: [{ id: "app-check", tier: null }], impact: null,
       alerts: [{ id: "alert-check", severity: "P2", text: "LabHigh5xxRate", at: at0 }],
       commander: null, participants: null, war_room: null, source: "persisted_alerts", partial: true,
       unavailable: ["impact", "service.tier", "commander", "participants", "war_room", "ai_analysis"],
@@ -164,5 +171,56 @@ test.describe("new incident drawer times (PA-190)", () => {
     await expect(alertRow).toBeVisible({ timeout: 20_000 });
     await expect(alertRow).not.toContainText("2026-10-18T");
     await expect(alertRow).toContainText(/\d{1,2}:\d{2}/);
+  });
+});
+
+test.describe("server English in the incident flow (PA-166)", () => {
+  test("a refused create is said in Chinese; an unknown code keeps the server's message", async ({ page }) => {
+    await page.addInitScript(zh);
+    let answer = { status: 409, code: "incident_conflict", message: "Alert changed or is already linked to an incident" };
+    await page.route(at("/incidents"), (r) => (r.request().method() === "POST" ? json(r, answer.status, { error: { code: answer.code, message: answer.message } }) : r.fallback()));
+    await openDraft(page);
+    const drawer = page.getByRole("dialog", { name: "新建事件" });
+    await expect(drawer.locator(".f-alert-row", { hasText: "LabHigh5xxRate" })).toBeVisible({ timeout: 20_000 });
+    await drawer.getByRole("button", { name: "创建事件" }).click();
+    await expect(page.locator(".v3-toast", { hasText: "所选告警刚刚变化，或已经关联了事件" })).toBeVisible();
+    await expect(page.locator(".v3-toast", { hasText: "Alert changed or is already linked" })).toHaveCount(0);
+    answer = { status: 503, code: "check_unknown_code", message: "Check: unknown refusal" };
+    await drawer.getByRole("button", { name: "创建事件" }).click();
+    await expect(page.locator(".v3-toast", { hasText: "Check: unknown refusal" })).toBeVisible();
+  });
+
+  test("real data: the drafted severity hint follows the request language", async ({ page }) => {
+    await page.goto(origin + "/healthz");
+    const ids = ((await read(page, "/incidents?status=active")).body?.items ?? []).map((i: { id: string }) => i.id).slice(0, 30);
+    for (const id of ids) {
+      const path = `/incidents/draft?alerts=${encodeURIComponent(id)}`;
+      const zhDraft = await readIn(page, path, "zh-CN");
+      // Cases, resolved alerts and alerts already in an incident can't start one.
+      if (zhDraft.status !== 200) continue;
+      expect(zhDraft.body.severity_hint).toBe("所选告警中的最高级别");
+      expect((await readIn(page, path, "en-US")).body.severity_hint).toBe("Highest severity among selected persisted alerts");
+      return;
+    }
+    test.skip(true, "no alert that can start an incident");
+  });
+
+  test("real data: a root branch's fixed title follows the request language", async ({ page }) => {
+    await page.goto(origin + "/healthz");
+    const ids = ((await read(page, "/canvases?kind=investigation")).body?.items ?? []).map((i: { id: string }) => i.id).slice(0, 30);
+    let fixed = 0;
+    for (const id of ids) {
+      const path = `/investigations/${encodeURIComponent(id)}/canvas`;
+      const [zhGraph, enGraph] = [await readIn(page, path, "zh-CN"), await readIn(page, path, "en-US")];
+      if (zhGraph.status !== 200 || enGraph.status !== 200) continue;
+      const root = (g: { nodes: { kind: string; title: string }[] }) => g.nodes.find((n) => n.kind === "root")?.title;
+      const zhRoot = root(zhGraph.body);
+      const enRoot = root(enGraph.body);
+      // Alert-started investigations store "Main investigation", canvas-started ones "主调查".
+      if (zhRoot !== "主调查" && zhRoot !== "Main investigation" && enRoot !== "主调查" && enRoot !== "Main investigation") continue;
+      expect([zhRoot, enRoot], id).toEqual(["主调查", "Main investigation"]);
+      fixed++;
+    }
+    test.skip(fixed === 0, "no investigation whose root keeps its fixed title");
   });
 });

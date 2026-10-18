@@ -197,7 +197,7 @@ func (s *Service) IncidentDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, 200, map[string]any{
-		"title": alerts[0].Title, "severity": chosenSeverity, "severity_hint": "Highest severity among selected persisted alerts",
+		"title": alerts[0].Title, "severity": chosenSeverity, "severity_hint": textFor(r.Header.Get("Accept-Language")).severityHint(),
 		"env": alerts[0].EnvironmentKey, "services": []map[string]any{{"id": alerts[0].ApplicationID, "tier": nil}},
 		"impact": nil, "alerts": items, "commander": nil, "participants": nil, "war_room": nil,
 		"source": "persisted_alerts", "partial": true,

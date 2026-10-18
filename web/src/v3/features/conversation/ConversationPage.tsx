@@ -15,7 +15,7 @@ import { useModelCatalog, describeChoice } from "../../ui/ModelPicker";
 import { PartView, type PartActions } from "./Parts";
 import { ArtifactPanel, ARTIFACT_ICON } from "./ArtifactPanel";
 import { useI18n } from "../../i18n";
-import { useNeed } from "../../ui/permission";
+import { Gated, useNeed } from "../../ui/permission";
 import { useRollbackDrawer } from "../events/RollbackProposal";
 import { useNames } from "../../ui/names";
 import "./conversation.css";
@@ -120,6 +120,7 @@ const canvasHref = (conv?: Conversation) =>
 
 function SidePanel({ conv, service }: { conv: Conversation; service: string | null }) {
   const { tx } = useI18n();
+  const canvasBlocked = useNeed(["canvas", "change"]);
   const s = conv.side;
   const { used, budget } = s.context;
   const pct = used !== null && budget ? Math.round((100 * used) / budget) : null;
@@ -184,9 +185,12 @@ function SidePanel({ conv, service }: { conv: Conversation; service: string | nu
       <Divider />
       <Col gap={8}>
         <Muted size={11.5}>{tx("下一步", "Next")}</Muted>
-        <Btn icon="branch" to={canvasHref(conv)} style={{ justifyContent: "flex-start" }}>
-          {tx("转为画布", "Open as canvas")}
-        </Btn>
+        {/* Without an investigation this opens the new-investigation dialog, which needs canvas.change (PA-228). */}
+        <Gated reason={conv.investigation_id || API_MODE === "mock" ? null : canvasBlocked}>
+          <Btn icon="branch" to={canvasHref(conv)} style={{ justifyContent: "flex-start" }}>
+            {tx("转为画布", "Open as canvas")}
+          </Btn>
+        </Gated>
         {/* No backend writes a runbook draft from a chat or schedules a re-check yet: sample data only. */}
         {API_MODE === "mock" && (
           <>

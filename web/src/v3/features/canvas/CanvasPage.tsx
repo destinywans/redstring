@@ -1004,6 +1004,8 @@ export default function CanvasPage() {
                   if ((e.target as HTMLElement).closest("button,input")) return;
                   e.stopPropagation();
                   setSel(n.id);
+                  // Moving a node saves its layout (PATCH, canvas.change); without the grant it only selects (PA-228).
+                  if (canvasChange) return;
                   drag.current = { kind: "node", id: n.id, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y };
                   area.current?.setPointerCapture(e.pointerId);
                 }}

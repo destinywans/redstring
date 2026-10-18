@@ -7,6 +7,7 @@ import { Dialog, toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { useI18n } from "../../i18n";
 import { useWhen } from "../../ui/when";
+import { Gate } from "../../ui/permission";
 
 /** Preview of writing a descendant's conclusions back to an ancestor (main line). */
 export function WritebackDialog({ open, investigation, from, onClose, onDone }: { open: boolean; investigation: string; from: string; onClose: () => void; onDone: (version: string) => void }) {
@@ -77,9 +78,12 @@ export function WritebackDialog({ open, investigation, from, onClose, onDone }: 
           <Btn kind="ghost" onClick={onClose}>
             {tx("取消", "Cancel")}
           </Btn>
+          {/* POST /investigations/{id}/writeback needs canvas.change (PA-228). */}
+          <Gate need={["canvas", "change"]}>
           <Btn kind="primary" icon="writeback" loading={busy} disabled={!picked.size} onClick={confirm}>
             {tx("确认回写（主线 {v}）", "Write back (main {v})", { v: data?.to.next_version ?? "" })}
           </Btn>
+          </Gate>
         </>
       }
     >

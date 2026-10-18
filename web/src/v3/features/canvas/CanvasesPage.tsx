@@ -249,9 +249,12 @@ export function NewCanvasDialog({ open, onClose, initialKind = "plan", initialSe
           <Btn kind="ghost" onClick={onClose}>
             {tx("取消", "Cancel")}
           </Btn>
+          {/* POST /canvases needs canvas.change; ?new= links open this dialog from many pages (PA-228). */}
+          <Gate need={["canvas", "change"]}>
           <Btn kind="primary" icon="plus" loading={busy} onClick={create}>
             {tx("创建画布", "Create canvas")}
           </Btn>
+          </Gate>
         </>
       }
     >

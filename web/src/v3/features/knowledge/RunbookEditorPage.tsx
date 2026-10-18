@@ -15,6 +15,7 @@ import "./knowledge.css";
 import { confirmAction } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 import { UnknownValue } from "../../ui/unknown";
+import { Gate } from "../../ui/permission";
 
 /** One step's result from POST /runbooks/{id}/dry-run; `reasons` lists the conditions it failed (PA-194). */
 type DryRunCheck = { step: number; validated: boolean; reasons?: string[] };
@@ -122,6 +123,8 @@ export default function RunbookEditorPage() {
             {tx("预览", "Preview")}
           </Btn>
           <PromoteButton kind="runbooks" id={rb.id} title={rb.title} />
+          {/* POST /runbooks/{id}/submit and /dry-run need knowledge.manage (PA-228). */}
+          <Gate need={["knowledge", "manage"]}>
           <Btn
             kind="primary"
             icon="check"
@@ -137,6 +140,7 @@ export default function RunbookEditorPage() {
           >
             {tx("提交复核", "Submit for review")}
           </Btn>
+          </Gate>
         </>
       }
     >
@@ -292,6 +296,7 @@ export default function RunbookEditorPage() {
                   ? tx("在预发用只读步骤走一遍，确认查询与判断条件仍然有效。", "Walk through the read-only steps on staging to confirm queries and checks still work.")
                   : tx("检查每一步的类型、只读标记和连接器是否齐全；不连接任何系统，也不执行步骤。", "Checks each step's kind, read-only flag and connectors; it reaches no system and runs no step.")}
               </Muted>
+              <Gate need={["knowledge", "manage"]}>
               <Btn
                 icon="play"
                 loading={running}
@@ -322,6 +327,7 @@ export default function RunbookEditorPage() {
               >
                 {API_MODE === "mock" ? tx("在预发试跑只读步骤", "Dry-run on staging") : tx("校验只读步骤", "Check the read-only steps")}
               </Btn>
+              </Gate>
             </Section>
           </Col>
         </aside>

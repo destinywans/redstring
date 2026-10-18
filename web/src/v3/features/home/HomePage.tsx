@@ -95,7 +95,7 @@ function StatusRow({ data, onOpen }: { data?: HomeSummary; onOpen: (href: string
       ) : (
         <span className="home-stat">
           <span className="muted">{tx("值班", "On call")}</span>
-          <UnknownValue reason={data.availability?.oncall ?? "not_connected"} source={tx("值班系统", "On-call system")} />
+          <UnknownValue reason={data.availability?.oncall ?? "not_connected"} source={tx("值班系统", "on-call system")} />
         </span>
       )}
       <button ref={setAnchor} type="button" className="home-stat brief-btn" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
@@ -175,7 +175,7 @@ export default function HomePage() {
         <section className="home-center anim-rise">
           <div className="home-greet">
             <h2>
-              {greetingWord(tx)}，{data?.greeting.name ?? "…"}
+              {tx("{g}，{n}", "{g}, {n}", { g: greetingWord(tx), n: data?.greeting.name ?? "…" })}
             </h2>
             <p className="muted">
               {!data ? (
@@ -293,7 +293,7 @@ export default function HomePage() {
                   <tr key={s.id} className="clickable" style={{ height: 40 }} onClick={() => nav(`/services/${s.id}`)}>
                     <td>
                       <Row gap={8}>
-                        {s.status ? <Dot tone={s.status} size={7} pulse={s.status === "danger"} /> : <UnknownValue reason="not_connected" source={tx("服务健康来源", "Service health source")} label={<span style={{ width: 7 }}>·</span>} />}
+                        {s.status ? <Dot tone={s.status} size={7} pulse={s.status === "danger"} /> : <UnknownValue reason="not_connected" source={tx("服务健康来源", "service health source")} label={<span style={{ width: 7 }}>·</span>} />}
                         <span style={{ fontWeight: 500 }}>{s.name}</span>
                         {s.tier && <Tier tier={s.tier} />}
                       </Row>
@@ -309,10 +309,10 @@ export default function HomePage() {
                       )}
                     </td>
                     <td className="tnum" style={{ color: s.status === "warn" && s.p99?.endsWith(" s") ? "var(--warn)" : undefined }}>
-                      {s.p99 ?? <UnknownValue reason="not_connected" source={tx("延迟指标", "Latency metrics")} to="/integrations/mapping" />}
+                      {s.p99 ?? <UnknownValue reason="not_connected" source={tx("延迟指标", "latency metrics")} to="/integrations/mapping" />}
                     </td>
                     <td className="tnum" style={{ color: s.status === "danger" ? "var(--danger)" : s.status === "warn" && s.error_rate !== "0.0%" ? "var(--warn)" : undefined }}>
-                      {s.error_rate ?? <UnknownValue reason="not_connected" source={tx("错误率指标", "Error-rate metrics")} to="/integrations/mapping" />}
+                      {s.error_rate ?? <UnknownValue reason="not_connected" source={tx("错误率指标", "error-rate metrics")} to="/integrations/mapping" />}
                     </td>
                     <td>
                       {s.series?.length ? <Sparkline values={s.series} width={56} height={18} color={!s.status || s.status === "ok" ? "var(--accent)" : `var(--${s.status})`} /> : <UnknownValue />}

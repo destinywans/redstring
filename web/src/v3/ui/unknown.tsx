@@ -14,22 +14,39 @@ import "./unknown.css";
  */
 export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale" | "unmapped_relation" | (string & {});
 
+/**
+ * English source names arrive as "a log source", "log patterns" or "Prometheus". A heading or a "No … yet" sentence
+ * needs the bare noun phrase, capitalised when it starts a heading (PA-193); Chinese names pass through unchanged.
+ * `{s}` is the name as given, `{b}` the bare phrase and `{S}` the capitalised one.
+ */
+const bareSource = (s: string) => s.replace(/^(?:a|an|the)\s+/i, "");
+const sourceVars = (s: string) => {
+  const b = bareSource(s);
+  return { s, b, S: b.charAt(0).toUpperCase() + b.slice(1) };
+};
+
+/** `title` is the heading of a block that names its source; without one the block shows `label`. */
+type ReasonText = { label: string; title?: string; desc: string; configurable: boolean };
+
 export function useReasonText() {
   const { tx } = useI18n();
-  return (reason: UnknownReason | null | undefined, source?: string) => {
+  return (reason: UnknownReason | null | undefined, source?: string): ReasonText => {
+    const v = source ? sourceVars(source) : undefined;
     switch (reason) {
       case "not_connected":
       case "not_configured":
         return {
           label: tx("未接入", "Not connected"),
-          desc: source ? tx("还没有连接{s}。", "{s} is not connected yet.", { s: source }) : tx("还没有连接这类数据来源。", "This data source is not connected yet."),
+          title: v && tx("未接入{s}", "{S} not connected", v),
+          desc: v ? tx("还没有连接{s}。", "No {b} connected yet.", v) : tx("还没有连接这类数据来源。", "This data source is not connected yet."),
           configurable: true,
         };
       // A source that is connected but has no query set up for this item (a metrics panel, PA-171).
       case "query_not_configured":
         return {
           label: tx("未配置查询", "No query set up"),
-          desc: source ? tx("{s}已接入，但还没有为这一项配置查询。", "{s} is connected, but no query is set up for this item.", { s: source }) : tx("还没有为这一项配置查询。", "No query is set up for this item."),
+          title: v && tx("{s}未配置查询", "No query set up in {b}", v),
+          desc: v ? tx("{s}已接入，但还没有为这一项配置查询。", "{S} is connected, but no query is set up for this item.", v) : tx("还没有为这一项配置查询。", "No query is set up for this item."),
           configurable: true,
         };
       case "no_authorized_target":
@@ -80,6 +97,7 @@ function ConfigureAction({ to = "/integrations", compact }: { to?: string; compa
 
 /** Inline unknown value: a faint dash; hover or focus explains what is missing and how to fix it. */
 export function UnknownValue({ reason, source, to, label }: { reason?: UnknownReason | null; source?: string; to?: string; label?: ReactNode }) {
+  const { tx } = useI18n();
   const text = useReasonText()(reason, source);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const timer = useRef<number | undefined>(undefined);
@@ -110,10 +128,7 @@ export function UnknownValue({ reason, source, to, label }: { reason?: UnknownRe
             onMouseEnter={() => window.clearTimeout(timer.current)}
             onMouseLeave={hide}
           >
-            <b>
-              {source ? `${source}：` : ""}
-              {text.label}
-            </b>
+            <b>{source ? tx("{s}：{l}", "{S}: {l}", { ...sourceVars(source), l: text.label }) : text.label}</b>
             <span>{text.desc}</span>
             {text.configurable && <ConfigureAction to={to} compact />}
           </span>,
@@ -129,7 +144,7 @@ export function Unavailable({ reason, source, title, desc, icon = "plug", to }: 
   return (
     <div className="unk-block">
       <Tile icon={icon} size={30} />
-      <b>{title ?? (source && text.configurable ? `${text.label}${source}` : text.label)}</b>
+      <b>{title ?? text.title ?? text.label}</b>
       <p>{desc ?? text.desc}</p>
       {text.configurable && <ConfigureAction to={to} />}
     </div>
@@ -225,7 +240,7 @@ export function LoadError({ error, source, title, icon }: { error: unknown; sour
     <PageUnavailable
       icon={icon ?? (reason === "not_connected" ? "plug" : "alert")}
       configure={text.configurable}
-      title={title ?? (source && text.configurable ? `${text.label}${source}` : text.label)}
+      title={title ?? text.title ?? text.label}
       desc={text.desc}
       detail={admin && error instanceof ApiError ? `${error.status} ${error.code}` : undefined}
     />

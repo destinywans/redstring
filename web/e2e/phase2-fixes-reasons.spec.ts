@@ -11,6 +11,7 @@ import { at, en, json, read, zh } from "./support/checks";
  *
  *   PA-191 (WAN-548): a dependency list that the CMDB relations can't express, and an environment with no alert rule
  *   source, no longer read as "the source failed or timed out; refresh to try again".
+ *   PA-193 (WAN-550): English unknown blocks and the home greeting no longer glue words together.
  *
  *   npx playwright test -c e2e/playwright.config.ts phase2-fixes-reasons.spec.ts
  */
@@ -120,5 +121,63 @@ test.describe("an environment without an alert rule source (PA-191)", () => {
       await expect(page.getByText(failed)).toHaveCount(0);
       expect(m.pageErrors).toEqual([]);
     });
+  });
+});
+
+test.describe("English text around source names (PA-193)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const logs = {
+    total: null,
+    errors: null,
+    histogram: null,
+    items: [],
+    patterns: null,
+    unavailable: { total: "not_configured", errors: "not_configured", histogram: "not_configured", patterns: "not_connected" },
+  };
+
+  test("English: the log patterns block has a heading and a sentence, not glued words", async ({ page }) => {
+    await page.addInitScript(en);
+    await page.route(at("/logs"), (r) => json(r, 200, logs));
+    await page.goto(prod + "/logs");
+    const block = page.locator(".unk-block", { hasText: "Log patterns not connected" });
+    await expect(block).toBeVisible({ timeout: 20_000 });
+    await expect(block).toContainText("No log patterns connected yet.");
+    await expect(page.locator("#root")).not.toContainText("Not connectedlog patterns");
+    await expect(page.locator("#root")).not.toContainText("log patterns is not connected yet");
+  });
+
+  test("Chinese keeps 未接入日志模式", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/logs"), (r) => json(r, 200, logs));
+    await page.goto(prod + "/logs");
+    const block = page.locator(".unk-block", { hasText: "未接入日志模式" });
+    await expect(block).toBeVisible({ timeout: 20_000 });
+    await expect(block).toContainText("还没有连接日志模式。");
+  });
+
+  test("English: a source named with an article drops it in the heading and the sentence", async ({ page }) => {
+    await page.addInitScript(en);
+    await page.goto(prod + "/healthz");
+    const id = await checkoutApi(page);
+    const real = (await read(page, `/services/${id}`)).body;
+    await page.route(at(`/services/${id}`), (r) =>
+      json(r, 200, { ...real, deps: null, tabs: { ...real.tabs, deps: null }, unavailable: { ...real.unavailable, deps: "not_connected", "tabs.deps": "not_connected" } }),
+    );
+    await page.goto(prod + `/services/${id}`);
+    const block = page.locator(".unk-block", { hasText: "Topology source not connected" });
+    await expect(block).toBeVisible({ timeout: 20_000 });
+    await expect(block).toContainText("No topology source connected yet.");
+    await expect(page.locator("#root")).not.toContainText("Not connecteda topology source");
+  });
+
+  test("English: the greeting uses an English comma; Chinese keeps its own", async ({ page }) => {
+    await page.addInitScript(en);
+    await page.goto(prod + "/");
+    const greet = page.locator(".home-greet h2");
+    await expect(greet).toHaveText(/^Good (morning|afternoon|evening), \S/, { timeout: 20_000 });
+    await expect(greet).not.toContainText("，");
+    await page.addInitScript(zh);
+    await page.goto(prod + "/");
+    await expect(greet).toHaveText(/^(早上|中午|下午|晚上)好，\S/, { timeout: 20_000 });
   });
 });

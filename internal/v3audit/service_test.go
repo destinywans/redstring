@@ -23,12 +23,12 @@ func TestAuditFilterAndOutcomeMapping(t *testing.T) {
 		"denied": "blocked", "duplicate": "blocked", "invalid_event": "blocked", "failed": "failed",
 		"pending": "pending", "no_change": "ok",
 	} {
-		got, err := resultKind(value)
+		got, err := resultKind("check.action", value)
 		if err != nil || got != want {
 			t.Fatalf("outcome %q = %q, %v", value, got, err)
 		}
 	}
-	if _, err := resultKind("half_done"); err == nil {
+	if _, err := resultKind("check.action", "half_done"); err == nil {
 		t.Fatal("unknown outcome silently mapped")
 	}
 }
@@ -36,20 +36,56 @@ func TestAuditFilterAndOutcomeMapping(t *testing.T) {
 // PA-206: a write whose result wasn't confirmed (outcome unknown: a silence
 // awaiting its read-only check or a manual one, a draft whose result is
 // unknown) is not a failure, and a silence that lapsed before it was sent is
-// expired. The result filter selects the same outcomes.
+// expired. The result filter takes results, not outcomes.
 func TestAuditUnconfirmedAndExpiredOutcomes(t *testing.T) {
 	for value, want := range map[string]string{"unknown": "unconfirmed", "expired": "expired", "failed": "failed", "error": "failed"} {
-		got, err := resultKind(value)
+		got, err := resultKind("check.action", value)
 		if err != nil || got != want {
 			t.Fatalf("outcome %q = %q, %v; want %q", value, got, err, want)
 		}
 	}
-	for result, want := range map[string][]string{"unconfirmed": {"unknown"}, "expired": {"expired"}, "failed": {"failed", "failure", "error"}} {
+	for _, result := range []string{"ok", "pending", "blocked", "failed", "unconfirmed", "expired", "needs_attention"} {
 		r := httptest.NewRequest("GET", "/api/v1/audit?result="+result, nil)
 		q, err := parseAuditPage(r)
-		if err != nil || strings.Join(q.outcomes, ",") != strings.Join(want, ",") {
-			t.Fatalf("result=%s selects %v, %v; want %v", result, q.outcomes, err, want)
+		if err != nil || strings.Join(q.results, ",") != result {
+			t.Fatalf("result=%s selects %v, %v", result, q.results, err)
 		}
+	}
+	for _, result := range []string{"unknown", "success", "needs-attention"} {
+		if _, err := parseAuditPage(httptest.NewRequest("GET", "/api/v1/audit?result="+result, nil)); err == nil {
+			t.Fatalf("result=%s accepted", result)
+		}
+	}
+}
+
+// PA-230: a rollout records needs_attention for its progress steps too, so
+// those read by action; the same outcome on the step that stopped, or on an
+// alert rule MR whose remote changed, needs attention.
+func TestAuditRolloutStepsReadByAction(t *testing.T) {
+	for _, c := range []struct{ action, outcome, want string }{
+		{"v3.rollout.dispatching", "needs_attention", "pending"},
+		{"v3.rollout.verifying", "needs_attention", "pending"},
+		{"v3.rollout.unknown", "needs_attention", "unconfirmed"},
+		{"v3.rollout.needs_attention", "needs_attention", "needs_attention"},
+		{"v3.rollout.claimed", "needs_attention", "needs_attention"},
+		{"v3.rollout.dispatching", "failed", "failed"},
+		{"v3.alert_rule.enable.execution_state", "stale_remote", "needs_attention"},
+		{"v3.alert_rule.enable.execution_state", "Uncertain", "unconfirmed"},
+	} {
+		if got, err := resultKind(c.action, c.outcome); err != nil || got != c.want {
+			t.Fatalf("%s %s = %q, %v; want %q", c.action, c.outcome, got, err, c.want)
+		}
+	}
+	// The SQL holds only the fixed vocabulary, so it can be spliced into a query.
+	for _, table := range []map[string]string{resultKinds, rolloutStepKinds} {
+		for key, kind := range table {
+			if strings.ContainsAny(key+kind, "'\\") {
+				t.Fatalf("%q or result %q can't be quoted", key, kind)
+			}
+		}
+	}
+	if !strings.Contains(resultKindSQL, "WHEN action='v3.rollout.unknown' AND lower(outcome)='needs_attention' THEN 'unconfirmed'") {
+		t.Fatalf("rollout steps missing from %s", resultKindSQL)
 	}
 }
 

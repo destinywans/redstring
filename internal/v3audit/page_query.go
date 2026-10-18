@@ -8,9 +8,10 @@ import (
 )
 
 type auditPageQuery struct {
-	start             *time.Time
-	actions, outcomes []string
-	duration          time.Duration
+	start *time.Time
+	// results are page results (resultKind), not raw outcomes.
+	actions, results []string
+	duration         time.Duration
 }
 
 func parseAuditPage(r *http.Request) (auditPageQuery, error) {
@@ -33,17 +34,19 @@ func parseAuditPage(r *http.Request) (auditPageQuery, error) {
 	if e != nil {
 		return out, e
 	}
-	mapping := map[string][]string{"ok": {"success", "succeeded", "ok", "completed", "accepted", "test_accepted", "recorded", "pending_manual_cleanup", "no_change"}, "pending": {"pending"}, "blocked": {"blocked", "denied", "rejected", "duplicate", "invalid_event"}, "failed": {"failed", "failure", "error"}, "unconfirmed": {"unknown"}, "expired": {"expired"}}
-	out.outcomes = []string{}
+	known := map[string]bool{}
+	for _, kind := range resultKinds {
+		known[kind] = true
+	}
+	out.results = []string{}
 	for _, result := range results {
-		values, ok := mapping[result]
-		if !ok {
+		if !known[result] {
 			return out, v3pagequery.ErrInvalid
 		}
-		out.outcomes = append(out.outcomes, values...)
+		out.results = append(out.results, result)
 	}
 	return out, nil
 }
 func auditPageWhere(start int) string {
-	return fmt.Sprintf(` AND ($%d::timestamptz IS NULL OR created_at >= $%d) AND (cardinality($%d::text[])=0 OR action=ANY($%d)) AND (cardinality($%d::text[])=0 OR lower(outcome)=ANY($%d))`, start, start, start+1, start+1, start+2, start+2)
+	return fmt.Sprintf(` AND ($%d::timestamptz IS NULL OR created_at >= $%d) AND (cardinality($%d::text[])=0 OR action=ANY($%d)) AND (cardinality($%d::text[])=0 OR %s=ANY($%d))`, start, start, start+1, start+1, start+2, resultKindSQL, start+2)
 }

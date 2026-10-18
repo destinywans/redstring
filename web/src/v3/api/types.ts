@@ -1474,7 +1474,7 @@ export type SecurityView = {
 export type SecurityUnknownView = { [K in Exclude<keyof SecurityView, "unavailable">]: null } & { unavailable: Unavailable };
 export type SecurityRead = SecurityView | SecurityUnknownView;
 /** result "pending" = a lifecycle step whose outcome is a later row; null = unclassifiable (see unavailable.result). */
-export type AuditEntry = { id: string; time: string; actor: { kind: "user" | "agent" | "system"; name: string }; action: string; target: string; result: "ok" | "pending" | "blocked" | "failed" | "unconfirmed" | "expired" | null; source: string; unavailable?: Unavailable };
+export type AuditEntry = { id: string; time: string; actor: { kind: "user" | "agent" | "system"; name: string }; action: string; target: string; result: "ok" | "pending" | "blocked" | "failed" | "unconfirmed" | "expired" | "needs_attention" | null; source: string; unavailable?: Unavailable };
 export type AuditView = {
   items: AuditEntry[];
   counts: Record<"all" | "user" | "agent" | "system", number>;

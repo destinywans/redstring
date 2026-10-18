@@ -161,11 +161,14 @@ export default function NewRunbookPage() {
   const save = async (mode: "draft" | "review") => {
     setSaving(mode);
     try {
-      await api("POST", "/runbooks", {
+      const r = await api<{ id?: string }>("POST", "/runbooks", {
         body: { title: title.trim() || tx("未命名 Runbook", "Untitled runbook"), source, ...(blank ? {} : { from, expected_source_sha256: draft?.source_sha256 }), steps: draft?.steps ?? [], status: mode },
       });
       toast(mode === "draft" ? tx("草稿已保存", "Draft saved") : tx("已提交复核，复核通过后 Agent 才会使用", "Submitted for review; agents use it only after approval"));
+      // PA-243: every POST /runbooks creates a new runbook, so a saved draft leaves this page for its own; staying
+      // here let the next save or submit create a second one. Replace, so going back doesn't reopen the unsaved form.
       if (mode === "review") nav("/runbooks");
+      else nav(r?.id ? `/runbooks/${encodeURIComponent(r.id)}` : "/runbooks", { replace: true });
     } catch (e) {
       toast(e instanceof ApiError ? e.message : tx("保存失败，请稍后重试", "Couldn't save; try again later"), { tone: "danger" });
     } finally {

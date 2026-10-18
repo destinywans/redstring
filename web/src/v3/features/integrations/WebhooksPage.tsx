@@ -12,7 +12,12 @@ import { UnknownValue } from "../../ui/unknown";
 
 /** What the server has behind each part of the page; "not_connected" parts have no registry yet (sample data has none). */
 type WebhookAvailability = { inbound?: string; native_inbound?: string; api_tokens?: string; public_mcp?: string; outbound?: string; receipt_window?: string };
-type View = WebhookView & { availability?: WebhookAvailability };
+/** Real deliveries name their inbound entry (inbound[].id is "<source_id>:<event_type>"); sample ones don't (PA-227). */
+type Delivery = WebhookView["deliveries"][number] & { source_id?: string; event_type?: string };
+type View = Omit<WebhookView, "deliveries"> & { deliveries: Delivery[]; availability?: WebhookAvailability };
+
+/** 2xx accepted, 409 a duplicate the server ignored, anything else rejected. */
+const codeTone = (code: string) => (/^2/.test(code) ? "ok" : code === "409" ? "neutral" : "danger");
 
 export default function WebhooksPage() {
   const { tx, fmt } = useI18n();
@@ -38,6 +43,9 @@ export default function WebhooksPage() {
       ? (data?.tokens ?? []).filter((t) => !revoked.has(t.name)).map((t) => ({ key: t.name, id: null as string | null, name: t.name, scopes: t.scopes, used: t.used, expires: t.expires }))
       : (realTokens.data?.items ?? []).filter((t) => !t.revoked_at).map((t) => ({ key: t.id, id: t.id as string | null, name: t.name, scopes: t.scopes, used: tx("创建于 {t}", "Created {t}", { t: fmt.dateTime(t.created_at) }), expires: tx("{t} 到期", "Expires {t}", { t: fmt.dateTime(t.expires_at) }) }));
   const hook = data?.inbound.find((h) => h.id === sel);
+  // Native Alertmanager and GitLab receivers keep no per-delivery receipts; only generic Push entries list them (PA-227).
+  const native = API_MODE !== "mock" && !!hook && /^(alertmanager|gitlab):/.test(hook.id);
+  const deliveries = !hook || native ? [] : (data?.deliveries ?? []).filter((d) => (d.source_id === undefined ? API_MODE === "mock" && hook.status !== "error" : `${d.source_id}:${d.event_type}` === hook.id));
   return (
     <Page
       flush
@@ -177,12 +185,27 @@ export default function WebhooksPage() {
                       </tr>
                     </thead>
                     <tbody key={sel}>
-                      {(hook?.status === "error" ? [] : data.deliveries).map((d) => (
-                        <tr key={d.time} className="anim-fade" style={{ height: 32 }}>
+                      {hook?.status === "error" && (
+                        <tr>
+                          <td colSpan={4} style={{ padding: 16 }}>
+                            <div className="danger-note">
+                              <Icon name="alert" size={14} />
+                              <span>
+                                {API_MODE === "mock"
+                                  ? tx("最近 24 小时的投递都被拒绝（401）。检查 Grafana 联系点中的 Bearer 令牌是否已轮换。", "All deliveries in 24 h were rejected (401). Check whether the Bearer token in the Grafana contact point was rotated.")
+                                  : // The server marks a source error when its latest receipt in the window was 422 (internal/v3ingestpush/webhooks.go).
+                                    tx("最近一次投递没有通过事件校验（422），已被拒收。检查发送方的事件字段是否符合规范。", "The latest delivery failed event validation (422) and was rejected. Check that the sender's event fields follow the schema.")}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      {deliveries.map((d, i) => (
+                        <tr key={`${d.time}-${i}`} className="anim-fade" style={{ height: 32 }}>
                           <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{when.stamp(d.time)}</td>
                           <td className="mono" style={{ fontSize: "var(--fs-sub)" }}>{d.event}</td>
                           <td>
-                            <Badge tone="ok" mono>
+                            <Badge tone={codeTone(d.code)} mono>
                               {d.code}
                             </Badge>
                           </td>
@@ -191,13 +214,16 @@ export default function WebhooksPage() {
                           </td>
                         </tr>
                       ))}
-                      {hook?.status === "error" && (
+                      {hook && deliveries.length === 0 && hook.status !== "error" && (
                         <tr>
                           <td colSpan={4} style={{ padding: 16 }}>
-                            <div className="danger-note">
-                              <Icon name="alert" size={14} />
-                              <span>{tx("最近 24 小时的投递都被拒绝（401）。检查 Grafana 联系点中的 Bearer 令牌是否已轮换。", "All deliveries in 24 h were rejected (401). Check whether the Bearer token in the Grafana contact point was rotated.")}</span>
-                            </div>
+                            <Muted>
+                              {native
+                                ? hook.id.startsWith("gitlab:")
+                                  ? tx("原生来源不记录逐条投递。GitLab 历史投递没有记录所属的应用环境，次数未知。", "Native sources keep no per-delivery records. GitLab's past deliveries don't record their application environment, so the count is unknown.")
+                                  : tx("原生来源不记录逐条投递。24 小时次数按已入库的告警接收记录统计，不代表发送端一直健康。", "Native sources keep no per-delivery records. The 24 h count is the alerts received and stored, which doesn't show the sender stayed healthy.")
+                                : tx("最近 24 小时没有投递。", "No deliveries in the last 24 hours.")}
+                            </Muted>
                           </td>
                         </tr>
                       )}

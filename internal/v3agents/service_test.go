@@ -611,6 +611,9 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	}
 	assert(request("GET", "/api/v1/agent-runs/run1/trace", adminToken, "dev", ""), 200, `"partial":true`)
 	assert(request("POST", "/api/v1/agent-runs/run1/feedback", adminToken, "dev", `{"vote":"down"}`), 200, `"vote":"down"`)
+	// PA-237: the run detail carries each viewer's own saved vote, which the page highlights.
+	assert(request("GET", "/api/v1/agent-runs/run1", adminToken, "dev", ""), 200, `"feedback":{"up":0,"down":1,"my_vote":"down"}`)
+	assert(request("GET", "/api/v1/agent-runs/run1", viewerToken, "dev", ""), 200, `"feedback":{"up":0,"down":1,"my_vote":null}`)
 	if err = svc.RecordGuardEvent(ctx, GuardEvent{ID: "guard1", RunID: "run1", PolicyID: "mandatory", Action: "blocked", TargetKind: "tool", ReasonCode: "write_approval_required",
 		PolicyRevision: mandatoryDecision.Revision, ObservedAt: mandatoryDecision.ObservedAt}); err != nil {
 		t.Fatal(err)

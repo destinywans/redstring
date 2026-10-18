@@ -20,8 +20,12 @@ export default function RunDetailPage() {
   const { data: r, error } = useGet<RunDetail>(id ? `/agent-runs/${id}` : null);
   const [tab, setTab] = useState("trace");
   const [stepId, setStepId] = useState(demo ? "s2" : "");
-  const [vote, setVote] = useState<"up" | "down" | null>(null);
-  const feedback = useSend<{ vote: "up" | "down" }>("POST", `/agent-runs/${id}/feedback`);
+  // The highlight is the viewer's saved vote (feedback.my_vote, PA-237); the sample keeps it on the page.
+  const [sampleVote, setSampleVote] = useState<"up" | "down" | null>(null);
+  const saved = (r as (RunDetail & { feedback?: { my_vote: string | null } | null }) | undefined)?.feedback?.my_vote;
+  const vote = demo ? sampleVote : saved === "up" || saved === "down" ? saved : null;
+  // A vote rereads the run, and the run list's counts, so the highlight shows what the server saved.
+  const feedback = useSend<{ vote: "up" | "down" }>("POST", `/agent-runs/${id}/feedback`, ["/agent-runs"]);
   const step = r?.steps?.find((s) => s.id === stepId);
   // Steps are milliseconds from the run start; an unfinished run has no total, so scale to the last step.
   const total = r ? r.total ?? Math.max(1, ...(r.steps ?? []).map((s) => s.start + (s.dur ?? 0))) : 1;
@@ -41,8 +45,9 @@ export default function RunDetailPage() {
       { vote: v },
       {
         onSuccess: () => {
-          setVote(v);
-          toast(v === "up" ? tx("已标记为有用", "Marked helpful") : tx("已标记为无用，会进入改进队列", "Marked not helpful — added to the improvement queue"));
+          if (demo) setSampleVote(v);
+          // Votes are counted on the run; no improvement queue reads them.
+          toast(v === "up" ? tx("已标记为有用", "Marked helpful") : tx("已标记为无用", "Marked not helpful"));
         },
         onError: (e) => toast(e.message, { tone: "danger" }),
       },

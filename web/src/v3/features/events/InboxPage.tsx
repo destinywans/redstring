@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import { PartialBanner, Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
+import { LoadError, PartialBanner, Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
 import type { AlertDetail, InboxItem, Incident } from "../../api/types";
 import { Badge, Brand, Btn, Card, Col, Dot, Icon, IconBtn, KV, LabelChip, Muted, Panel, Row, Sev, Skeleton, Spacer, State, Tabs, Tile, TextLink, Kbd, cx, type IconName, type Tone } from "../../ui/core";
 import { MenuButton, toast } from "../../ui/overlays";
@@ -23,7 +23,7 @@ export function AlertDetailView({ id }: { id: string }) {
   const when = useWhen();
   const curEnv = useCurrentEnv();
   const nav = useNavigate();
-  const { data: a, refetch } = useGet<AlertDetail>(`/alerts/${id}`);
+  const { data: a, error, refetch } = useGet<AlertDetail>(`/alerts/${id}`);
   // PA-166: the real alert links its incident by ID only; the link reads the incident's title, or the ID when the
   // incident can't be read.
   const linked = API_MODE !== "mock" && a?.grouping.incident.id && !a.grouping.incident.label ? a.grouping.incident.id : null;
@@ -31,6 +31,8 @@ export function AlertDetailView({ id }: { id: string }) {
   const [claimed, setClaimed] = useState(false);
   const [starting, setStarting] = useState(false);
   const demo = API_MODE === "mock";
+  // A failed read (another environment's alert, a down source) says why instead of loading forever (PA-221).
+  if (!a && error) return <LoadError error={error} source={tx("告警记录", "alert records")} />;
   if (!a)
     return (
       <Col gap={12} style={{ padding: 20 }}>

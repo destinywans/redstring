@@ -1,6 +1,7 @@
 import type { CanvasNode } from "../../api/types";
 import { Badge, Btn, Col, Icon, IconBtn, KV, Row, Spacer, Strong, Tile } from "../../ui/core";
 import { useI18n } from "../../i18n";
+import { UnknownValue } from "../../ui/unknown";
 
 /** Side-by-side comparison of two canvas nodes, with a merge shortcut. */
 export function CompareDialog({ a, b, onClose, onMerge }: { a?: CanvasNode; b?: CanvasNode; onClose: () => void; onMerge: () => void }) {
@@ -24,7 +25,13 @@ export function CompareDialog({ a, b, onClose, onMerge }: { a?: CanvasNode; b?: 
         <Badge tone="ok">{tx("高", "High")}</Badge>
       </KV>
       <KV k={tx("上下文", "Context")} kw={48}>
-        {tx("{m} 条消息 · {t}k", "{m} messages · {t}k", { m: n.context.messages, t: (n.context.tokens / 1000).toFixed(1) })}
+        {n.context.tokens === null ? (
+          <>
+            {tx("{m} 条消息", "{m} messages", { m: n.context.messages })} · <UnknownValue reason="not_generated" />
+          </>
+        ) : (
+          tx("{m} 条消息 · {t}k", "{m} messages · {t}k", { m: n.context.messages, t: (n.context.tokens / 1000).toFixed(1) })
+        )}
       </KV>
     </Col>
   );

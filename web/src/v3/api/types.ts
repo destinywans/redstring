@@ -210,7 +210,8 @@ export type CanvasNode = {
   /** Conclusions written back into this node, with the nodes they came from (PA-62). */
   writebacks?: { received: number; sources: string[] };
   evidence?: EvidenceBody & { source: string; color: string };
-  context: { version: string; inherits?: string; tokens: number; messages: number; excludes: string[] };
+  /** tokens is null until the branch's current context is measured (PA-198). */
+  context: { version: string; inherits?: string; tokens: number | null; messages: number; excludes: string[] };
   versions: { v: string; text: string; at: string }[];
 };
 export type EvidenceTrayItem = { id: string; kind: "chart" | "log" | "table" | "diff"; title: string; source: string; body: EvidenceBody };
@@ -246,7 +247,8 @@ export type WritebackPreview = {
   conclusions: { id: string; text: string; evidence: string[]; recommended: boolean; tokens?: number }[];
   timeline: { v: string; text: string; meta: string; isNew?: boolean }[];
   checks: { tone: "ok" | "warn"; text: string }[];
-  budget: { before: number; after: number; limit: number };
+  /** null until the main line's context is measured (PA-198). */
+  budget: { before: number | null; after: number | null; limit: number | null };
   /** Real previews name the strict ancestor and both revisions the write must match. */
   target?: string;
   source_revision?: number;

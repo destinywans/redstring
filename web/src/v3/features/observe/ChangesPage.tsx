@@ -14,6 +14,8 @@ import { ChipSelect, usePickLists } from "../../ui/demo";
 import { parseStamp, useWhen } from "../../ui/when";
 import { useRollbackDrawer } from "../events/RollbackProposal";
 import { useRevisionTime } from "./revisionTime";
+import { useRollbackBlocked } from "../events/rollback";
+import { Gate, Gated } from "../../ui/permission";
 
 type Tab = "deployments" | "pipelines" | "merge_requests";
 type OpenRow = { pipeline_id: number; deployment_ids: number[] };
@@ -398,6 +400,7 @@ function PipelineDrawer({ serviceId, row, view, onClose }: { serviceId: string; 
   const nav = useNavigate();
   const offsetText = useOffsetText();
   const rollback = useRollbackDrawer((s) => s.open);
+  const rollbackBlocked = useRollbackBlocked();
   const { data: p, error, refetch } = useGet<GitLabPipelineDetail>(`/changes/pipelines/${row.pipeline_id}`, { service_id: serviceId });
   const mr = p && p.merge_request_iid !== null ? view.merge_requests?.find((m) => m.iid === p.merge_request_iid) : undefined;
   // The detail has no deployment IDs; they come from the list row (D11 §11.2).
@@ -416,8 +419,13 @@ function PipelineDrawer({ serviceId, row, view, onClose }: { serviceId: string; 
       sub={p ? [view.project.path, p.ref, p.sha.slice(0, 8), p.user?.username, when.short(p.created_at), dur(p.duration_seconds)].filter(Boolean).join(" · ") : undefined}
       footer={
         <>
-          <Btn kind="primary" icon="branch" onClick={ask}>{tx("带入调查", "Add to investigation")}</Btn>
-          <Btn icon="undo" onClick={() => { onClose(); rollback({ serviceId }); }}>{tx("提议回滚", "Propose rollback")}</Btn>
+          {/* It opens a new conversation (conversation.change); a rollback needs the rollback grants (PA-228). */}
+          <Gate need={["conversation", "change"]}>
+            <Btn kind="primary" icon="branch" onClick={ask}>{tx("带入调查", "Add to investigation")}</Btn>
+          </Gate>
+          <Gated reason={rollbackBlocked}>
+            <Btn icon="undo" onClick={() => { onClose(); rollback({ serviceId }); }}>{tx("提议回滚", "Propose rollback")}</Btn>
+          </Gated>
           <Spacer />
           {p?.web_url && <Btn kind="ghost" icon="external" onClick={() => window.open(p.web_url!, "_blank", "noopener")}>{tx("在 GitLab 中打开", "Open in GitLab")}</Btn>}
         </>

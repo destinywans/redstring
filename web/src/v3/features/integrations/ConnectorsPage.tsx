@@ -12,28 +12,36 @@ import "./integrations.css";
 import { openForm, confirmAction } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 import { Gated, useNeed } from "../../ui/permission";
+import { LoadError, UnknownValue, errorReason } from "../../ui/unknown";
 
 export const STATUS_TONE: Record<ConnectorStatus, Tone> = { ok: "ok", unverified: "warn", error: "danger" };
 
 export default function ConnectorsPage() {
   const { tx } = useI18n();
+  // Adding and testing connectors need connectors.manage, as their routes declare (PA-228).
+  const noManage = useNeed(["connectors", "manage"]);
   const when = useWhen();
   const nav = useNavigate();
   const [cat, setCat] = useState("all");
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<string | null>(null);
-  const { data, isLoading } = useGet<ConnectorList>("/connectors", { category: cat, q });
+  const { data, isLoading, error } = useGet<ConnectorList>("/connectors", { category: cat, q });
   const statusLabel = (s: ConnectorStatus) => ({ ok: tx("已连接", "Connected"), unverified: tx("未验证", "Unverified"), error: tx("异常", "Error") })[s];
   return (
     <Page
       flush
+      // A failed list says why instead of an empty card grid (PA-221).
+      error={!data ? error : undefined}
+      errorSource={tx("连接器登记", "connector registry")}
       crumbs={[tx("集成中心", "Integrations"), tx("连接器", "Connectors")]}
       actions={
         <>
           <SearchBox placeholder={tx("搜索连接器", "Search connectors")} value={q} onChange={setQ} width={200} />
-          <Btn kind="primary" icon="plus" to="/integrations/new">
-            {tx("添加连接器", "Add connector")}
-          </Btn>
+          <Gated reason={noManage}>
+            <Btn kind="primary" icon="plus" to="/integrations/new">
+              {tx("添加连接器", "Add connector")}
+            </Btn>
+          </Gated>
         </>
       }
     >
@@ -75,7 +83,7 @@ export default function ConnectorsPage() {
                 </button>
               ))}
               {data && (
-                <button type="button" className="conn-card add" onClick={() => nav("/integrations/new")}>
+                <button type="button" className="conn-card add" disabled={!!noManage} title={noManage ?? undefined} onClick={() => nav("/integrations/new")}>
                   <Icon name="plus" size={18} />
                   {tx("企业微信、Jira 等", "WeCom, Jira and more")}
                 </button>
@@ -93,7 +101,7 @@ export default function ConnectorsPage() {
 function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
   const { tx } = useI18n();
   const when = useWhen();
-  const { data: c, refetch } = useGet<ConnectorDetail>(`/connectors/${id}`);
+  const { data: c, refetch, error } = useGet<ConnectorDetail>(`/connectors/${id}`);
   const test = useSend<void, { ok: boolean; latency_ms: number }>("POST", `/connectors/${id}/test`);
   const [off, setOff] = useState<Set<string>>(new Set());
   // Real switches (D11): PATCH /connectors/{id} merges one tool's preference; the switch shows the pending value until
@@ -124,7 +132,9 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
   };
   return (
     <aside className="aside anim-slide" style={{ width: 360 }} key={id}>
-      {!c ? (
+      {!c && error ? (
+        <LoadError error={error} source={tx("连接器登记", "connector registry")} />
+      ) : !c ? (
         <Col gap={12} style={{ padding: 16 }}>
           <Skeleton h={40} />
           <Skeleton h={120} />
@@ -320,13 +330,15 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
               </Section>
             )}
             <Row gap={8}>
-              <Btn
-                icon="rotate"
-                loading={test.isPending}
-                onClick={() => test.mutate(undefined, { onSuccess: (r) => toast(tx("连接正常 · {n} ms", "Connection OK · {n} ms", { n: r.latency_ms })) })}
-              >
-                {tx("测试连接", "Test connection")}
-              </Btn>
+              <Gated reason={manage}>
+                <Btn
+                  icon="rotate"
+                  loading={test.isPending}
+                  onClick={() => test.mutate(undefined, { onSuccess: (r) => toast(tx("连接正常 · {n} ms", "Connection OK · {n} ms", { n: r.latency_ms })) })}
+                >
+                  {tx("测试连接", "Test connection")}
+                </Btn>
+              </Gated>
               {/* Editing settings (PUT /connectors/{id}/settings, POST …/activate) and disabling aren't wired; the sample
                   forms only showed a toast, so they stay in the sample (PA-163, D52). */}
               {API_MODE === "mock" && <Btn
@@ -377,13 +389,14 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
 function LowerSources() {
   const { tx } = useI18n();
   const prod = useEnv((s) => s.instance?.tier === "production");
-  const { data } = useGet<{ items: LowerSource[] }>(prod ? "/integrations/lower-sources" : null);
+  const { data, error } = useGet<{ items: LowerSource[] }>(prod ? "/integrations/lower-sources" : null);
   if (!prod) return null;
   return (
     <section className="v3-card lower-src">
       <div className="v3-card-head">
         <b style={{ fontSize: "var(--fs-lg)" }}>{tx("低环境只读来源", "Read-only lower-environment sources")}</b>
-        <Badge>{data?.items.length ?? 0}</Badge>
+        {/* A failed read is unknown, not 0 sources (PA-222). */}
+        <Badge>{data ? data.items.length : error ? <UnknownValue reason={errorReason(error)} source={tx("低环境来源", "lower-environment sources")} /> : "…"}</Badge>
         <Spacer />
         <Muted size={12}>{tx("只读、单向：生产可以读取低环境用于对比，低环境不能访问生产", "Read-only, one-way: production may read lower environments for comparison; they can never reach production")}</Muted>
         {/* There is no endpoint to add a lower-environment source from here; the button only explained (PA-135). */}

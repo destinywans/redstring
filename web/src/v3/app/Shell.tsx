@@ -68,6 +68,10 @@ function Sidebar() {
   const me = useGet<Me>("/me");
   const watched = useGet<{ items: WatchedService[] }>("/me/watched-services");
   const newChatBlocked = useNeed(["conversation", "change"]);
+  // The workspace menu names the real workspace (it was always the sample's "Trading platform", PA-224); without
+  // workspace.view, or before it loads, it just says "current workspace".
+  const noWorkspace = useNeed(["workspace", "view"]);
+  const workspace = useGet<{ name: string }>(noWorkspace ? null : "/workspace", undefined, { staleTime: 5 * 60_000 });
   const navTo = useNavigate();
   return (
     <nav className="v3-sidebar" aria-label={tx("主导航", "Main navigation")}>
@@ -82,7 +86,7 @@ function Sidebar() {
             </span>
           )}
           items={[
-            { label: tx("交易平台 · 当前工作区", "Trading · current workspace"), icon: "check", active: true },
+            { label: workspace.data?.name ? tx("{n} · 当前工作区", "{n} · current workspace", { n: workspace.data.name }) : tx("当前工作区", "Current workspace"), icon: "check", active: true },
             { label: tx("工作区设置", "Workspace settings"), icon: "sliders", onSelect: () => navTo("/settings/workspace") },
             { label: tx("成员与权限", "Members & access"), icon: "users", onSelect: () => navTo("/settings/members") },
           ]}
@@ -117,7 +121,14 @@ function Sidebar() {
         <h2 className="nav-head">{tx("关注的服务", "Watched services")}</h2>
         {watched.data?.items.map((s) => (
           <Link key={s.id} to={`/services/${s.id}`} className="watched">
-            <Dot tone={s.status} size={7} pulse={s.status === "danger"} />
+            {/* The server sends status null when it has no current status evidence: a neutral dot that says so, not no dot (PA-222). */}
+            {s.status ? (
+              <Dot tone={s.status} size={7} pulse={s.status === "danger"} />
+            ) : (
+              <span title={tx("状态未知：现在拿不到这个服务的状态证据", "Status unknown: no current status evidence for this service")} style={{ display: "inline-flex" }}>
+                <Dot tone="neutral" size={7} />
+              </span>
+            )}
             <span className="ellipsis grow">{s.name}</span>
             {s.signal && (
               <span className="tnum" style={{ fontSize: "var(--fs-sub)", color: `var(--${s.status === "ok" ? "muted" : s.status})` }}>

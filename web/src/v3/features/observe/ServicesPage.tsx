@@ -13,6 +13,43 @@ import { LoadError, PartialBanner, UnknownValue, anyReason, unknownLabels } from
 import { ChipSelect } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 
+/**
+ * A service status and where it comes from. The server derives it from the SLO burn and firing alerts
+ * (internal/v3serviceviews/facts.go): warn also means a budget under half or a 1 h burn ≥ 1 with no alert firing,
+ * so it reads "needs attention", not "alerting" (PA-209).
+ */
+export function useServiceStatus() {
+  const { tx } = useI18n();
+  return (status: string) =>
+    status === "danger"
+      ? { label: tx("异常", "Degraded"), hint: tx("1 小时燃烧率 ≥ 10、错误预算耗尽，或有严重告警在触发", "1 h burn ≥ 10, error budget used up, or a critical alert firing") }
+      : status === "warn"
+        ? { label: tx("需要关注", "Needs attention"), hint: tx("错误预算剩余不到一半、1 小时燃烧率 ≥ 1，或有非严重告警在触发", "Error budget under half, 1 h burn ≥ 1, or a non-critical alert firing") }
+        : status === "ok"
+          ? { label: tx("正常", "Healthy"), hint: tx("错误预算与燃烧率正常，没有告警在触发", "Error budget and burn are fine and no alert is firing") }
+          : { label: status, hint: "" };
+}
+
+export function ServiceState({ status }: { status: "ok" | "warn" | "danger" }) {
+  const text = useServiceStatus()(status);
+  return (
+    <span title={text.hint}>
+      <State tone={status} pulse={status === "danger"}>
+        {text.label}
+      </State>
+    </span>
+  );
+}
+
+/**
+ * Tier, team, on-call and SLO target are registration fields: the server's not_configured there means nobody filled
+ * them in, not a missing integration (PA-223).
+ */
+export const filledReason = (reason: string | null | undefined) => (reason === "not_configured" ? "not_filled" : reason);
+
+/** Error budget left as a tone, by the service status rules: used up is danger, under half warn (PA-224). */
+export const budgetTone = (left: number) => (left <= 0 ? "danger" : left < 50 ? "warn" : "ok");
+
 /** Header + tab strip shared by the service detail views. */
 export function ServiceHeader({ s }: { s: ServiceDetail }) {
   const { tx } = useI18n();
@@ -35,13 +72,11 @@ export function ServiceHeader({ s }: { s: ServiceDetail }) {
           <Col gap={2} grow>
             <Row gap={8} wrap>
               <h1 style={{ fontSize: 18, fontWeight: 600 }}>{s.name}</h1>
-              {s.tier ? <Tier tier={s.tier} /> : <Badge><UnknownValue reason={s.unavailable.tier} label={tx("等级 —", "Tier —")} /></Badge>}
-              {s.team ? <Badge>{s.team}</Badge> : <Badge><UnknownValue reason={s.unavailable.team} label={tx("团队 —", "Team —")} /></Badge>}
+              {s.tier ? <Tier tier={s.tier} /> : <Badge><UnknownValue reason={filledReason(s.unavailable.tier)} label={tx("等级 —", "Tier —")} /></Badge>}
+              {s.team ? <Badge>{s.team}</Badge> : <Badge><UnknownValue reason={filledReason(s.unavailable.team)} label={tx("团队 —", "Team —")} /></Badge>}
               <Env env={s.env} />
               {s.status ? (
-                <State tone={s.status} pulse={s.status === "danger"}>
-                  {s.status === "danger" ? tx("异常", "Degraded") : s.status === "warn" ? tx("告警", "Alerting") : tx("正常", "Healthy")}
-                </State>
+                <ServiceState status={s.status} />
               ) : (
                 <Badge><UnknownValue reason={s.unavailable.status} source="Prometheus" label={tx("状态 —", "Status —")} /></Badge>
               )}
@@ -74,12 +109,13 @@ export default function ServicesPage() {
   const { tx } = useI18n();
   const when = useWhen();
   const nav = useNavigate();
+  const statusText = useServiceStatus();
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
   const [tier, setTier] = useState<string | undefined>();
   const { data, isLoading, error } = useGet<ServiceCatalog>("/services", { q, tier });
   const { data: me } = useGet<Me>("/me");
-  const { data: watched } = useGet<{ items: WatchedService[] }>("/me/watched-services");
+  const { data: watched, error: watchedError } = useGet<{ items: WatchedService[] }>("/me/watched-services");
   const [sort, setSort] = useState("status");
   const RANK: Record<string, number> = { danger: 0, warn: 1, ok: 2 };
   const rank = (status: string | null) => (status ? RANK[status] : 3);
@@ -118,7 +154,7 @@ export default function ServicesPage() {
                   onChange={() => f.key === "tier" && setTier((t) => (t === it.label ? undefined : it.label))}
                   label={
                     <span>
-                      {it.label} <span className="muted">{it.count}</span>
+                      {f.key === "status" ? statusText(it.label).label : it.label} <span className="muted">{it.count}</span>
                     </span>
                   }
                 />
@@ -143,7 +179,7 @@ export default function ServicesPage() {
               ))}
             </KpiRow>
             <Row gap={8}>
-              <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: data?.items.length }, { value: "mine", label: tx("我负责的", "Mine"), count: data?.items.filter((s) => s.oncall === me?.name || s.team === me?.team).length }, { value: "watched", label: tx("我关注的", "Watched"), count: data ? data.items.filter((s) => watched?.items.some((w) => w.id === s.id)).length : undefined }]} />
+              <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: data?.items.length }, { value: "mine", label: tx("我负责的", "Mine"), count: data?.items.filter((s) => s.oncall === me?.name || s.team === me?.team).length }, { value: "watched", label: tx("我关注的", "Watched"), count: data && watched ? data.items.filter((s) => watched.items.some((w) => w.id === s.id)).length : undefined }]} />
               <SearchBox placeholder={tx("搜索服务", "Search services")} value={q} onChange={setQ} />
               <span style={{ flexGrow: 1 }} />
               <ChipSelect
@@ -161,6 +197,10 @@ export default function ServicesPage() {
               />
             </Row>
             {unknownFields.length > 0 && <PartialBanner fields={unknownFields} />}
+            {/* The watched list that can't be read is not "no watched services" (PA-222). */}
+            {tab === "watched" && watchedError && !watched ? (
+              <LoadError error={watchedError} source={tx("关注列表", "watched services")} />
+            ) : (
             <Card style={{ overflow: "hidden" }}>
               <DataTable
                 rows={data?.items
@@ -176,13 +216,13 @@ export default function ServicesPage() {
                 rowHeight={52}
                 columns={[
                   { key: "n", header: tx("服务", "Service"), width: "19%", render: (s) => <Row gap={10}><Tile icon="box" size={26} /><Col gap={0} style={{ minWidth: 0 }}><span className="ellipsis" style={{ fontWeight: 600 }}>{s.name}</span><Muted size={11.5}>{s.desc}</Muted></Col></Row> },
-                  { key: "t", header: tx("等级", "Tier"), render: (s) => (s.tier ? <Tier tier={s.tier} /> : <UnknownValue reason={s.unavailable.tier} to="/services/new" />) },
-                  { key: "team", header: tx("团队", "Team"), render: (s) => (s.team ? <Muted>{s.team}</Muted> : <UnknownValue reason={s.unavailable.team} />) },
-                  { key: "o", header: tx("值班", "On call"), render: (s) => (s.oncall ? <Row gap={6}><Avatar name={s.oncall} size={20} /><Muted>{s.oncall}</Muted></Row> : <UnknownValue reason={s.unavailable.oncall} />) },
-                  { key: "st", header: tx("状态", "Status"), sort: (a, b) => rank(a.status) - rank(b.status), render: (s) => (s.status ? <State tone={s.status} pulse={s.status === "danger"}>{s.status === "danger" ? tx("异常", "Degraded") : s.status === "warn" ? tx("有告警", "Alerting") : tx("正常", "Healthy")}</State> : <UnknownValue reason={s.unavailable.status} source="Prometheus" />) },
+                  { key: "t", header: tx("等级", "Tier"), render: (s) => (s.tier ? <Tier tier={s.tier} /> : <UnknownValue reason={filledReason(s.unavailable.tier)} to="/services/new" />) },
+                  { key: "team", header: tx("团队", "Team"), render: (s) => (s.team ? <Muted>{s.team}</Muted> : <UnknownValue reason={filledReason(s.unavailable.team)} />) },
+                  { key: "o", header: tx("值班", "On call"), render: (s) => (s.oncall ? <Row gap={6}><Avatar name={s.oncall} size={20} /><Muted>{s.oncall}</Muted></Row> : <UnknownValue reason={filledReason(s.unavailable.oncall)} />) },
+                  { key: "st", header: tx("状态", "Status"), sort: (a, b) => rank(a.status) - rank(b.status), render: (s) => (s.status ? <ServiceState status={s.status} /> : <UnknownValue reason={s.unavailable.status} source="Prometheus" />) },
                   { key: "slo", header: tx("SLO / 错误预算", "SLO / budget"), sort: (a, b) => (a.slo.budget_left ?? 101) - (b.slo.budget_left ?? 101), render: (s) =>
                       s.slo.target === null ? (
-                        <UnknownValue reason={anyReason(s.unavailable, "slo.target", "slo.budget_left")} to={`/services/${s.id}`} />
+                        <UnknownValue reason={filledReason(anyReason(s.unavailable, "slo.target", "slo.budget_left"))} to={`/services/${s.id}`} />
                       ) : (
                         <Col gap={3}>
                           <Row gap={4}>
@@ -199,6 +239,7 @@ export default function ServicesPage() {
                 ]}
               />
             </Card>
+            )}
             <Row gap={6}>
               <Dot tone="accent" size={6} />
               <Muted size={11.5}>{tx("点击服务查看详情；在“流量与韧性”中查看灰度、熔断、限流与降级开关。", "Open a service for details; see canary, breakers, rate limits and flags under “Traffic & resilience”.")}</Muted>

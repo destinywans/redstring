@@ -9,7 +9,7 @@ import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { Axis, Gauge, Lines, Swimlane } from "../../charts";
 import { useI18n } from "../../i18n";
-import { ServiceHeader } from "./ServicesPage";
+import { ServiceHeader, budgetTone, filledReason } from "./ServicesPage";
 import "./observe.css";
 import { openExternal } from "../../ui/demo";
 import { Gated } from "../../ui/permission";
@@ -128,11 +128,11 @@ export default function ServiceDetailPage() {
         <div className="svc-grid">
           <Panel title={s.slo.target ? tx("SLO · 可用性 {t}", "SLO · availability {t}", { t: s.slo.target }) : "SLO"}>
             {s.slo.target === null && s.slo.budget_left === null && s.slo.availability === null ? (
-              <Unavailable reason={anyReason(u, "slo.target", "slo.budget_left", "slo.availability")} title="SLO" icon="shield" />
+              <Unavailable reason={u["slo.target"] ? filledReason(u["slo.target"]) : anyReason(u, "slo.budget_left", "slo.availability")} title="SLO" icon="shield" />
             ) : (
               <Row gap={14}>
                 {s.slo.budget_left !== null ? (
-                  <Gauge pct={s.slo.budget_left / 100} size={128} tone="warn" label={`${s.slo.budget_left}%`} sub={tx("错误预算剩余", "budget left")} />
+                  <Gauge pct={s.slo.budget_left / 100} size={128} tone={budgetTone(s.slo.budget_left)} label={`${s.slo.budget_left}%`} sub={tx("错误预算剩余", "budget left")} />
                 ) : (
                   <Col gap={4} align="center" style={{ width: 128 }}>
                     <Muted size={11.5}>{tx("错误预算剩余", "budget left")}</Muted>
@@ -143,7 +143,7 @@ export default function ServiceDetailPage() {
                   <Row gap={6}>
                     <Muted>{tx("目标", "Target")}</Muted>
                     <Spacer />
-                    {s.slo.target !== null ? <Num>{s.slo.target}</Num> : <UnknownValue reason={u["slo.target"]} />}
+                    {s.slo.target !== null ? <Num>{s.slo.target}</Num> : <UnknownValue reason={filledReason(u["slo.target"])} />}
                   </Row>
                   <Row gap={6}>
                     <Muted>{tx("本月可用性", "This month")}</Muted>

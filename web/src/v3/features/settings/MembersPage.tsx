@@ -9,6 +9,7 @@ import { Dialog, toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./settings.css";
 import { ChipSelect, useFacet, openForm } from "../../ui/demo";
+import { UnknownValue } from "../../ui/unknown";
 
 export default function MembersPage() {
   const { tx } = useI18n();
@@ -40,7 +41,8 @@ export default function MembersPage() {
     ) : m === "none" ? (
       <Badge tone="warn">{tx("未启用", "Off")}</Badge>
     ) : (
-      <Muted>—</Muted>
+      // "na" is unknown without a trusted 2FA source, not "off" (docs/api/v3-contract.md, PA-166).
+      <UnknownValue reason="not_tracked" />
     );
   const src = (s: Member["source"]) =>
     s === "feishu" ? (

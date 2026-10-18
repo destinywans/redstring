@@ -7,7 +7,7 @@ import { DataTable } from "../../ui/data";
 import type { ContractKind, PullDraft, PullList, PushView } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Code, Col, Icon, KV, LabelChip, Mono, Muted, Num, Panel, Row, Segmented, Skeleton, Spacer, State, Stepper, Strong, TextLink, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
-import { Gated } from "../../ui/permission";
+import { Gated, useNeed } from "../../ui/permission";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
@@ -22,6 +22,8 @@ export default function IngestPage() {
   const [pushType, setPushType] = useState("change");
   const push = useGet<PushView>(mode === "pull" ? null : "/ingest/push");
   const noPushSource = push.data?.availability === "not_configured";
+  // A test event needs connectors.manage, as POST /ingest/push/test declares (PA-228); that comes before availability.
+  const noManage = useNeed(["connectors", "manage"]);
   const test = useSend<{ type: string }, { code: number }>("POST", "/ingest/push/test");
   const [params] = useSearchParams();
   const pullId = API_MODE === "mock" ? "pull-ops-metrics" : params.get("source");
@@ -54,7 +56,7 @@ export default function IngestPage() {
             <Btn icon="key" to="/integrations/webhooks">
               {tx("新建令牌", "New token")}
             </Btn>
-            <Gated reason={noPushSource ? tx("这个实例还没有配置 Push 来源", "No Push source is configured on this instance") : null} kind="availability">
+            <Gated reason={noManage ?? (noPushSource ? tx("这个实例还没有配置 Push 来源", "No Push source is configured on this instance") : null)} kind={noManage ? "permission" : "availability"}>
               <Btn kind="primary" icon="send" loading={test.isPending} onClick={() => test.mutate({ type: pushType }, { onSuccess: (r) => toast(tx("测试事件已发送 · {c}", "Test event sent · {c}", { c: r.code })) })}>
                 {tx("发送测试事件", "Send test event")}
               </Btn>
@@ -398,8 +400,10 @@ function Pull({ id }: { id: string | null }) {
 function Push({ stackOnly, sel, setSel }: { stackOnly: boolean; sel: string; setSel: (id: string) => void }) {
   const { tx } = useI18n();
   const when = useWhen();
-  const { data: d } = useGet<PushView>("/ingest/push");
+  const { data: d, error } = useGet<PushView>("/ingest/push");
   const [deploy, setDeploy] = useState<"helm" | "compose">("helm");
+  // A failed read says why instead of an endless skeleton (PA-221).
+  if (!d && error) return <LoadError error={error} source={tx("事件接入", "event push")} />;
   if (!d)
     return (
       <div className="v3-content">
@@ -408,6 +412,9 @@ function Push({ stackOnly, sel, setSel }: { stackOnly: boolean; sel: string; set
     );
   const t = d.types.find((x) => x.id === sel)!;
   const path = d.endpoint.path.replace("/change", `/${sel}`);
+  // The server offers no starter stack yet (no components or manifests); the one-step deploy, the download and the docs
+  // link stay in the sample (PA-220, D52).
+  const hasStack = !!(d.stack.helm || d.stack.compose);
   const curl = `curl -X POST https://${d.endpoint.host}${path} \\\n  -H "Authorization: Bearer $TOKEN" \\\n  -H "Idempotency-Key: $(uuidgen)" \\\n  -d @event.json`;
   const stack = (
     <aside className={cx("aside", stackOnly && "anim-slide")} style={{ width: stackOnly ? 520 : 360, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -419,6 +426,10 @@ function Push({ stackOnly, sel, setSel }: { stackOnly: boolean; sel: string; set
         </Col>
         <State tone={d.stack.enabled ? "ok" : "neutral"}>{d.stack.enabled ? tx("已启用", "Enabled") : tx("未启用", "Not enabled")}</State>
       </Row>
+      {!hasStack ? (
+        <Muted>{tx("平台还没有提供配套栈的部署清单。没有现成的观测系统时，请自行部署观测组件，再到集成中心添加连接器。", "The platform doesn't provide starter stack manifests yet. Without an observability stack, deploy the components yourself, then add connectors in Integrations.")}</Muted>
+      ) : (
+      <>
       <p style={{ margin: 0, fontSize: "var(--fs-sm)", lineHeight: 1.6 }}>
         {tx("一键部署开源观测组件。部署完成后自动创建连接器并映射服务，", "Deploy open-source observability components in one step. Connectors and service mappings are created automatically; ")}
         <b>{tx("平台仍把它当作外部系统对接，不存储遥测数据", "the platform still treats them as external systems and stores no telemetry")}</b>。
@@ -450,10 +461,14 @@ function Push({ stackOnly, sel, setSel }: { stackOnly: boolean; sel: string; set
         >
           {tx("生成部署清单", "Generate manifests")}
         </Btn>
-        <Btn kind="ghost" icon="book" onClick={() => openExternal(tx("部署说明", "Deployment docs"), "https://docs.example.internal/aiops/starter-stack")}>
-          {tx("查看说明", "Docs")}
-        </Btn>
+        {API_MODE === "mock" && (
+          <Btn kind="ghost" icon="book" onClick={() => openExternal(tx("部署说明", "Deployment docs"), "https://docs.example.internal/aiops/starter-stack")}>
+            {tx("查看说明", "Docs")}
+          </Btn>
+        )}
       </Row>
+      </>
+      )}
     </aside>
   );
   return (

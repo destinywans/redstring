@@ -15,7 +15,7 @@ const toneOf = (p: number) => (p >= 85 ? "ok" : p >= 60 ? "warn" : "danger");
 
 export default function CoveragePage() {
   const { tx } = useI18n();
-  const { data } = useGet<CoverageView>("/coverage");
+  const { data, error } = useGet<CoverageView>("/coverage");
   const fApp = useFacet(data?.rows, (r) => r.service);
   const [filter, setFilter] = useState<"all" | "t0" | "gaps">("gaps");
   const [q, setQ] = useState("");
@@ -49,6 +49,9 @@ export default function CoveragePage() {
   };
   return (
     <Page
+      // A failed read says why instead of skeleton KPIs and matrix (PA-221).
+      error={!data ? error : undefined}
+      errorSource={tx("覆盖度", "coverage")}
       crumbs={[tx("集成中心", "Integrations"), tx("数据覆盖度", "Data coverage")]}
       actions={
         <>

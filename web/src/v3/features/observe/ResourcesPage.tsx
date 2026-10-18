@@ -126,7 +126,7 @@ function visibleRows(tree: Topology["tree"], toggled: Set<number>) {
 export default function ResourcesPage() {
   const { tx } = useI18n();
   // While a collector is behind, check again every minute so the notice clears (and the minutes tick) on its own.
-  const { data: rawTopology, refetch: topoRefetch } = useGet<RawTopology>("/topology", undefined, {
+  const { data: rawTopology, refetch: topoRefetch, error: topoError } = useGet<RawTopology>("/topology", undefined, {
     refetchInterval: (q) => ((q.state.data?.collection ?? []).some((c) => c.state !== "fresh") ? 60_000 : false),
   });
   const stale = useStaleCollectors(rawTopology?.collection);
@@ -264,6 +264,9 @@ export default function ResourcesPage() {
   return (
     <Page
       flush
+      // A failed read (503, 422 scope too broad) says why instead of an endless skeleton (PA-221).
+      error={!rawTopology ? topoError : undefined}
+      errorSource={tx("资源拓扑", "topology")}
       crumbs={[tx("资源与观测", "Resources"), tx("资源与拓扑", "Topology")]}
       actions={
         <>
@@ -396,7 +399,7 @@ export default function ResourcesPage() {
                           <Muted size={11}>{r.kind}</Muted>
                         </span>
                         <span>
-                          {r.status ? <State tone={r.status}>{r.status === "danger" ? tx("异常", "Degraded") : r.status === "warn" ? tx("待定", "Warning") : tx("正常", "Healthy")}</State> : <UnknownValue reason="not_connected" source={tx("健康状态来源", "Health source")} />}
+                          {r.status ? <State tone={r.status}>{r.status === "danger" ? tx("异常", "Degraded") : r.status === "warn" ? tx("警告", "Warning") : tx("正常", "Healthy")}</State> : <UnknownValue reason="not_connected" source={tx("健康状态来源", "Health source")} />}
                         </span>
                         <span className="tnum">{r.replicas}</span>
                         <span className="v3-row" style={{ gap: 4 }}>{r.cpu !== undefined && <><Bar pct={r.cpu} tone={r.cpu > 80 ? "danger" : r.cpu > 65 ? "warn" : "ok"} width={70} /><Muted size={11.5}>{r.cpu}%</Muted></>}</span>

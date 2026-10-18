@@ -12,7 +12,7 @@ import "./unknown.css";
  * reason when it has no trustworthy evidence; the UI shows that honestly and never renders an
  * unknown as 0, "healthy" or "not on call".
  */
-export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale" | "unmapped_relation" | (string & {});
+export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale" | "unmapped_relation" | "not_tracked" | "not_filled" | (string & {});
 
 /**
  * English source names arrive as "a log source", "log patterns" or "Prometheus". A heading or a "No … yet" sentence
@@ -68,6 +68,11 @@ export function useReasonText() {
           desc: tx("CMDB 里有关联不能对应到你可见的服务之间的依赖（比如非依赖类关系或共享资源），为免列表不完整，这里不列出。", "Some CMDB relations don't map to dependencies between services you can see (such as non-dependency relations or shared resources), so no list is shown rather than an incomplete one."),
           configurable: false,
         };
+      // Front-end reasons for fields no integration can supply: nothing records them yet, or nobody filled them in.
+      case "not_tracked":
+        return { label: tx("未记录", "Not recorded"), desc: tx("平台目前不记录这项数据。", "The platform doesn't record this yet."), configurable: false };
+      case "not_filled":
+        return { label: tx("未填写", "Not filled in"), desc: tx("还没有人填写这项信息。", "Nobody has filled this in yet."), configurable: false };
       default:
         return { label: tx("暂无数据", "No data"), desc: tx("后端没有给出这项数据。", "The server returned no value for this."), configurable: false };
     }
@@ -231,6 +236,9 @@ export function LoadError({ error, source, title, icon }: { error: unknown; sour
   const reasonText = useReasonText();
   if (error instanceof ApiError && error.status === 403)
     return <PageUnavailable icon="lock" configure={false} title={tx("没有权限查看", "You can't view this")} desc={tx("需要管理员在当前环境授予查看权限。", "An admin needs to grant view access in this environment.")} />;
+  // A page read per environment refuses "all environments"; picking one is the fix, not a retry (PA-221).
+  if (error instanceof ApiError && error.status === 422 && error.code === "invalid_environment")
+    return <PageUnavailable icon="layers" configure={false} title={tx("需要选择一个环境", "Choose one environment")} desc={tx("这一页按单个环境显示，先在右上角选择一个具体环境再查看。", "This page shows one environment at a time; choose a single environment (top right) to see it.")} />;
   // A missing record is not a source failure and retrying won't bring it back (PA-125).
   if (error instanceof ApiError && error.status === 404)
     return <PageUnavailable icon="search" configure={false} title={tx("找不到这条记录", "Not found")} desc={tx("它可能不存在，或在当前环境里看不到。", "It may not exist, or isn't visible in this environment.")} detail={admin ? `${error.status} ${error.code}` : undefined} />;

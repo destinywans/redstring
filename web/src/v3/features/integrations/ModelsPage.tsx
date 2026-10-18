@@ -13,12 +13,13 @@ const API_LABEL = { responses: "Responses", chat_completions: "Chat Completions"
 /** Integrations › Models: which models exist, which API each uses, effort levels, defaults and who may use them. */
 export default function ModelsPage() {
   const { tx } = useI18n();
-  const { data } = useGet<ModelAdminView>("/models/admin");
+  const { data, error } = useGet<ModelAdminView>("/models/admin");
   const [sel, setSel] = useState("openai:gpt-5");
   const m = data?.items.find((x) => x.id === sel);
   const detail = data?.detail.model === sel ? data.detail : null;
   return (
-    <Page crumbs={[tx("集成中心", "Integrations"), tx("模型", "Models")]} actions={<Btn kind="primary" icon="plus" to="/integrations/new">{tx("添加模型连接器", "Add model connector")}</Btn>}>
+    // A failed read says why (422 asks for one environment) instead of a skeleton (PA-221).
+    <Page error={!data ? error : undefined} errorSource={tx("模型登记", "model registry")} crumbs={[tx("集成中心", "Integrations"), tx("模型", "Models")]} actions={<Btn kind="primary" icon="plus" to="/integrations/new">{tx("添加模型连接器", "Add model connector")}</Btn>}>
       <div className="v3-content">
         <PageHead
           title={tx("模型", "Models")}

@@ -6,6 +6,8 @@ import { Badge, Brand, Btn, Card, Col, Icon, IconBtn, KV, Mono, Muted, Num, Row,
 import { Kpi, KpiRow } from "../../ui/data";
 import { toast, MenuButton } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
+import { LoadError } from "../../ui/unknown";
+import { Gated, useNeed } from "../../ui/permission";
 import "./integrations.css";
 import { confirmAction } from "../../ui/demo";
 
@@ -13,7 +15,8 @@ const ST: Record<McpServer["status"], Tone> = { ok: "ok", pending: "warn", error
 
 export default function McpPage() {
   const { tx } = useI18n();
-  const { data } = useGet<McpList>("/mcp-servers");
+  const { data, error } = useGet<McpList>("/mcp-servers");
+  const noManage = useNeed(["connectors", "manage"]);
   const [sel, setSel] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [ignored, setIgnored] = useState(false);
@@ -23,13 +26,19 @@ export default function McpPage() {
   return (
     <Page
       flush
+      // A failed list says why instead of skeleton KPIs (PA-221).
+      error={!data ? error : undefined}
+      errorSource={tx("MCP 登记", "MCP registry")}
       crumbs={[tx("集成中心", "Integrations"), tx("MCP 服务器", "MCP servers")]}
       actions={
         <>
           <SearchBox placeholder={tx("搜索服务器或工具", "Search servers or tools")} value={q} onChange={setQ} width={200} />
-          <Btn kind="primary" icon="plus" to="/integrations/new">
-            {tx("登记 MCP 服务器", "Register MCP server")}
-          </Btn>
+          {/* Registering and switching tools need connectors.manage, as the MCP routes declare (PA-228). */}
+          <Gated reason={noManage}>
+            <Btn kind="primary" icon="plus" to="/integrations/new">
+              {tx("登记 MCP 服务器", "Register MCP server")}
+            </Btn>
+          </Gated>
         </>
       }
     >
@@ -142,13 +151,16 @@ export default function McpPage() {
 
 function McpAside({ id, onClose }: { id: string; onClose: () => void }) {
   const { tx } = useI18n();
-  const { data: s } = useGet<McpDetail>(`/mcp-servers/${id}`);
+  const { data: s, error } = useGet<McpDetail>(`/mcp-servers/${id}`);
   const [tab, setTab] = useState<"tools" | "resources" | "prompts" | "calls">("tools");
   const [on, setOn] = useState<Record<string, boolean>>({});
   const toggle = useSend<{ name: string; enabled: boolean }>("PATCH", (b) => `/mcp-servers/${id}/tools/${b.name}`);
+  const noManage = useNeed(["connectors", "manage"]);
   return (
     <aside className="aside anim-slide" style={{ width: 400, display: "flex", flexDirection: "column" }} key={id}>
-      {!s ? (
+      {!s && error ? (
+        <LoadError error={error} source={tx("MCP 登记", "MCP registry")} />
+      ) : !s ? (
         <Col gap={12} style={{ padding: 16 }}>
           <Skeleton h={40} />
           <Skeleton h={200} />
@@ -193,18 +205,35 @@ function McpAside({ id, onClose }: { id: string; onClose: () => void }) {
                           <Muted size={11.5}>{t.desc}</Muted>
                         </Col>
                         <Muted size={11.5}>{t.calls}</Muted>
+                        <Gated reason={noManage}>
                         <Toggle
                           on={enabled}
                           label={t.name}
                           onChange={(v) => {
                             setOn((m) => ({ ...m, [t.name]: v }));
-                            toggle.mutate({ name: t.name, enabled: v });
-                            toast(
-                              t.write && v ? tx("{t} 已开启：Agent 只能以提案方式调用", "{t} enabled: agents can only use it via proposals", { t: t.name }) : v ? tx("已开启 {t}", "{t} enabled", { t: t.name }) : tx("已关闭 {t}", "{t} disabled", { t: t.name }),
-                              { undo: () => setOn((m) => ({ ...m, [t.name]: !v })) },
+                            const done = () =>
+                              toast(t.write && v ? tx("{t} 已开启：Agent 只能以提案方式调用", "{t} enabled: agents can only use it via proposals", { t: t.name }) : v ? tx("已开启 {t}", "{t} enabled", { t: t.name }) : tx("已关闭 {t}", "{t} disabled", { t: t.name }), API_MODE === "mock" ? { undo: () => setOn((m) => ({ ...m, [t.name]: !v })) } : undefined);
+                            // Real mode says it's on only once the server agrees, and a refused switch goes back (PA-228); the
+                            // sample's local undo would leave the server unchanged, so it stays in the sample.
+                            if (API_MODE === "mock") {
+                              toggle.mutate({ name: t.name, enabled: v });
+                              return done();
+                            }
+                            toggle.mutate(
+                              { name: t.name, enabled: v },
+                              {
+                                onSuccess: done,
+                                onError: () =>
+                                  setOn((m) => {
+                                    const next = { ...m };
+                                    delete next[t.name];
+                                    return next;
+                                  }),
+                              },
                             );
                           }}
                         />
+                        </Gated>
                       </li>
                     );
                   })}

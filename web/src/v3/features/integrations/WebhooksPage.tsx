@@ -8,11 +8,24 @@ import { useI18n } from "../../i18n";
 import "./integrations.css";
 import { openForm, confirmAction, SecretBox } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
+import { UnknownValue } from "../../ui/unknown";
+import { Gate } from "../../ui/permission";
+
+/** What the server has behind each part of the page; "not_connected" parts have no registry yet (sample data has none). */
+type WebhookAvailability = { inbound?: string; native_inbound?: string; api_tokens?: string; public_mcp?: string; outbound?: string; receipt_window?: string };
+/** Real deliveries name their inbound entry (inbound[].id is "<source_id>:<event_type>"); sample ones don't (PA-227). */
+type Delivery = WebhookView["deliveries"][number] & { source_id?: string; event_type?: string };
+type View = Omit<WebhookView, "deliveries"> & { deliveries: Delivery[]; availability?: WebhookAvailability };
+
+/** 2xx accepted, 409 a duplicate the server ignored, anything else rejected. */
+const codeTone = (code: string) => (/^2/.test(code) ? "ok" : code === "409" ? "neutral" : "danger");
 
 export default function WebhooksPage() {
   const { tx, fmt } = useI18n();
   const when = useWhen();
-  const { data } = useGet<WebhookView>("/webhooks");
+  const { data, error } = useGet<View>("/webhooks");
+  // The platform serves no public MCP and sends no outbound events yet: say so rather than show a switched-on server or 0 (PA-208).
+  const outboundConnected = data?.availability?.outbound !== "not_connected";
   const [tab, setTab] = useState<"inbound" | "tokens" | "mcp" | "outbound">("inbound");
   // The sample opens on its GitLab hook, whose deliveries the fixture lists; real ids are `<kind>:<source>`, so a
   // real page opens on the first hook the server lists (PA-106).
@@ -31,9 +44,15 @@ export default function WebhooksPage() {
       ? (data?.tokens ?? []).filter((t) => !revoked.has(t.name)).map((t) => ({ key: t.name, id: null as string | null, name: t.name, scopes: t.scopes, used: t.used, expires: t.expires }))
       : (realTokens.data?.items ?? []).filter((t) => !t.revoked_at).map((t) => ({ key: t.id, id: t.id as string | null, name: t.name, scopes: t.scopes, used: tx("创建于 {t}", "Created {t}", { t: fmt.dateTime(t.created_at) }), expires: tx("{t} 到期", "Expires {t}", { t: fmt.dateTime(t.expires_at) }) }));
   const hook = data?.inbound.find((h) => h.id === sel);
+  // Native Alertmanager and GitLab receivers keep no per-delivery receipts; only generic Push entries list them (PA-227).
+  const native = API_MODE !== "mock" && !!hook && /^(alertmanager|gitlab):/.test(hook.id);
+  const deliveries = !hook || native ? [] : (data?.deliveries ?? []).filter((d) => (d.source_id === undefined ? API_MODE === "mock" && hook.status !== "error" : `${d.source_id}:${d.event_type}` === hook.id));
   return (
     <Page
       flush
+      // A failed read says why instead of an endless skeleton (PA-221).
+      error={!data ? error : undefined}
+      errorSource={tx("Webhook 概览", "webhook overview")}
       crumbs={[tx("集成中心", "Integrations"), tx("Webhook 与 API", "Webhooks & API")]}
       actions={
         <>
@@ -55,6 +74,8 @@ export default function WebhooksPage() {
           >
             {tx("新建 Webhook", "New webhook")}
           </Btn>}
+          {/* Issuing a token needs connectors.manage, as POST /api-tokens declares (PA-228). */}
+          <Gate need={["connectors", "manage"]}>
           <Btn
             kind="primary"
             icon="plus"
@@ -84,6 +105,7 @@ export default function WebhooksPage() {
           >
             {tx("新建 API 令牌", "New API token")}
           </Btn>
+          </Gate>
         </>
       }
     >
@@ -93,8 +115,8 @@ export default function WebhooksPage() {
         options={[
           { value: "inbound", label: tx("入站 Webhook", "Inbound webhooks"), count: data?.inbound.length },
           { value: "tokens", label: tx("API 令牌", "API tokens"), count: tokenRows.length },
-          { value: "mcp", label: tx("MCP 服务", "MCP service"), count: 1 },
-          { value: "outbound", label: tx("出站事件", "Outbound events"), count: data?.outbound.length },
+          { value: "mcp", label: tx("MCP 服务", "MCP service"), count: data?.availability?.public_mcp === "not_connected" ? undefined : 1 },
+          { value: "outbound", label: tx("出站事件", "Outbound events"), count: outboundConnected ? data?.outbound.length : undefined },
         ]}
       />
       <div className="v3-split">
@@ -133,11 +155,16 @@ export default function WebhooksPage() {
                               <Muted>{h.verify}</Muted>
                             </Row>
                           </td>
+                          {/* Native GitLab can't attribute past receipts, so its count is unknown (PA-222); no receipt means none in 24 h. */}
+                          <td>{h.count === "unknown" ? <UnknownValue reason="not_tracked" /> : <Num>{h.count}</Num>}</td>
                           <td>
-                            <Num>{h.count}</Num>
-                          </td>
-                          <td>
-                            <Muted>{h.last_at ? `${h.last_code ?? "—"} · ${when.short(h.last_at)}` : tx("未知", "Unknown")}</Muted>
+                            {h.last_at ? (
+                              <Muted>{`${h.last_code ?? "—"} · ${when.short(h.last_at)}`}</Muted>
+                            ) : h.count === "unknown" ? (
+                              <UnknownValue reason="not_tracked" />
+                            ) : (
+                              <Muted>{tx("24 小时内没有", "None in 24 h")}</Muted>
+                            )}
                           </td>
                           <td>
                             {/* PA-202: the server says ok, error or unverified (a native source's health is never verified); only error is an error. */}
@@ -170,12 +197,27 @@ export default function WebhooksPage() {
                       </tr>
                     </thead>
                     <tbody key={sel}>
-                      {(hook?.status === "error" ? [] : data.deliveries).map((d) => (
-                        <tr key={d.time} className="anim-fade" style={{ height: 32 }}>
+                      {hook?.status === "error" && (
+                        <tr>
+                          <td colSpan={4} style={{ padding: 16 }}>
+                            <div className="danger-note">
+                              <Icon name="alert" size={14} />
+                              <span>
+                                {API_MODE === "mock"
+                                  ? tx("最近 24 小时的投递都被拒绝（401）。检查 Grafana 联系点中的 Bearer 令牌是否已轮换。", "All deliveries in 24 h were rejected (401). Check whether the Bearer token in the Grafana contact point was rotated.")
+                                  : // The server marks a source error when its latest receipt in the window was 422 (internal/v3ingestpush/webhooks.go).
+                                    tx("最近一次投递没有通过事件校验（422），已被拒收。检查发送方的事件字段是否符合规范。", "The latest delivery failed event validation (422) and was rejected. Check that the sender's event fields follow the schema.")}
+                              </span>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      {deliveries.map((d, i) => (
+                        <tr key={`${d.time}-${i}`} className="anim-fade" style={{ height: 32 }}>
                           <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{when.stamp(d.time)}</td>
                           <td className="mono" style={{ fontSize: "var(--fs-sub)" }}>{d.event}</td>
                           <td>
-                            <Badge tone="ok" mono>
+                            <Badge tone={codeTone(d.code)} mono>
                               {d.code}
                             </Badge>
                           </td>
@@ -184,13 +226,16 @@ export default function WebhooksPage() {
                           </td>
                         </tr>
                       ))}
-                      {hook?.status === "error" && (
+                      {hook && deliveries.length === 0 && hook.status !== "error" && (
                         <tr>
                           <td colSpan={4} style={{ padding: 16 }}>
-                            <div className="danger-note">
-                              <Icon name="alert" size={14} />
-                              <span>{tx("最近 24 小时的投递都被拒绝（401）。检查 Grafana 联系点中的 Bearer 令牌是否已轮换。", "All deliveries in 24 h were rejected (401). Check whether the Bearer token in the Grafana contact point was rotated.")}</span>
-                            </div>
+                            <Muted>
+                              {native
+                                ? hook.id.startsWith("gitlab:")
+                                  ? tx("原生来源不记录逐条投递。GitLab 历史投递没有记录所属的应用环境，次数未知。", "Native sources keep no per-delivery records. GitLab's past deliveries don't record their application environment, so the count is unknown.")
+                                  : tx("原生来源不记录逐条投递。24 小时次数按已入库的告警接收记录统计，不代表发送端一直健康。", "Native sources keep no per-delivery records. The 24 h count is the alerts received and stored, which doesn't show the sender stayed healthy.")
+                                : tx("最近 24 小时没有投递。", "No deliveries in the last 24 hours.")}
+                            </Muted>
                           </td>
                         </tr>
                       )}
@@ -250,7 +295,12 @@ export default function WebhooksPage() {
               </Card>
             )}
             {data && tab === "mcp" && <McpOut data={data} on={mcpOn} setOn={setMcpOn} />}
-            {data && tab === "outbound" && (
+            {data && tab === "outbound" && !outboundConnected && (
+              <Card style={{ padding: 16 }}>
+                <OutboundNotConnected />
+              </Card>
+            )}
+            {data && tab === "outbound" && outboundConnected && (
               <Card>
                 <ul className="plain-list" style={{ padding: "4px 16px" }}>
                   {data.outbound.map((o) => (
@@ -270,9 +320,11 @@ export default function WebhooksPage() {
         {data && tab === "inbound" && (
           <aside className="aside" style={{ width: 380, padding: 16, display: "flex", flexDirection: "column", gap: 18 }}>
             <Section title={tx("API 令牌", "API tokens")} right={<TextLink onClick={() => setTab("tokens")}>{tx("管理", "Manage")}</TextLink>}>
+              {/* The same tokens the API token tab lists: real ones come from /api-tokens, not /webhooks (PA-208). */}
+              {tokenRows.length === 0 && <Muted size={11.5}>{tx("还没有 API 令牌。", "No API tokens yet.")}</Muted>}
               <ul className="plain-list col">
-                {data.tokens.map((t) => (
-                  <li key={t.name}>
+                {tokenRows.map((t) => (
+                  <li key={t.key}>
                     <Row gap={6}>
                       <Icon name="link" size={14} />
                       <b style={{ fontSize: "var(--fs-sm)" }}>{t.name}</b>
@@ -293,6 +345,7 @@ export default function WebhooksPage() {
             </Section>
             <McpOut data={data} on={mcpOn} setOn={setMcpOn} compact />
             <Section title={tx("出站事件", "Outbound events")}>
+              {!outboundConnected && <OutboundNotConnected />}
               <Col gap={8}>
                 {data.outbound.map((o) => (
                   <KV key={o.event} k={o.event} kw={84}>
@@ -311,8 +364,15 @@ export default function WebhooksPage() {
   );
 }
 
-function McpOut({ data, on, setOn, compact }: { data: WebhookView; on: boolean; setOn: (v: boolean) => void; compact?: boolean }) {
+function OutboundNotConnected() {
   const { tx } = useI18n();
+  return <Muted size={11.5}>{tx("未接入：平台还没有出站事件投递，这里暂时没有可配置的事件。", "Not connected: the platform doesn't send outbound events yet, so there is nothing to configure here.")}</Muted>;
+}
+
+function McpOut({ data, on, setOn, compact }: { data: View; on: boolean; setOn: (v: boolean) => void; compact?: boolean }) {
+  const { tx } = useI18n();
+  // Real mode shows what the server says: mcp.enabled, and no address, tools or clients while public MCP isn't served (PA-208).
+  const served = data.availability?.public_mcp !== "not_connected";
   const body = (
     <Col gap={8}>
       <Row gap={10}>
@@ -322,19 +382,25 @@ function McpOut({ data, on, setOn, compact }: { data: WebhookView; on: boolean; 
           <Muted size={11.5}>{tx("让其他 Agent 查询事件与 Runbook", "Lets other agents query incidents and runbooks")}</Muted>
         </Col>
         {/* Turning the MCP server on/off has no endpoint yet; real mode shows the state read-only. */}
-        <Toggle on={on} disabled={API_MODE !== "mock"} onChange={(v) => { setOn(v); toast(v ? tx("MCP 服务已开启", "MCP service enabled") : tx("MCP 服务已关闭", "MCP service disabled"), { undo: () => setOn(!v) }); }} label={tx("MCP 服务", "MCP service")} />
+        <Toggle on={API_MODE === "mock" ? on : data.mcp.enabled} disabled={API_MODE !== "mock"} onChange={(v) => { setOn(v); toast(v ? tx("MCP 服务已开启", "MCP service enabled") : tx("MCP 服务已关闭", "MCP service disabled"), { undo: () => setOn(!v) }); }} label={tx("MCP 服务", "MCP service")} />
       </Row>
-      <Code>{data.mcp.url}</Code>
-      <Row gap={4} wrap>
-        {data.mcp.tools.map((t) => (
-          <Badge key={t} tone="accent" mono>
-            {t}
-          </Badge>
-        ))}
-      </Row>
-      <KV k={tx("允许的客户端", "Allowed clients")} kw={84}>
-        {data.mcp.clients}
-      </KV>
+      {!served ? (
+        <Muted size={11.5}>{tx("未接入：平台目前还没有对外提供 MCP 服务，没有地址、工具或允许的客户端。", "Not connected: the platform doesn't serve MCP yet, so there is no address, tool or allowed client.")}</Muted>
+      ) : (
+        <>
+          {data.mcp.url && <Code>{data.mcp.url}</Code>}
+          <Row gap={4} wrap>
+            {data.mcp.tools.map((t) => (
+              <Badge key={t} tone="accent" mono>
+                {t}
+              </Badge>
+            ))}
+          </Row>
+          <KV k={tx("允许的客户端", "Allowed clients")} kw={84}>
+            {data.mcp.clients === "unknown" ? <UnknownValue reason="not_tracked" /> : data.mcp.clients}
+          </KV>
+        </>
+      )}
     </Col>
   );
   return compact ? <Section title={tx("作为 MCP 服务对外提供", "Serve as an MCP server")}>{body}</Section> : <Card style={{ padding: 16 }}>{body}</Card>;

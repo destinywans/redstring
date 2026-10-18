@@ -17,7 +17,10 @@ import { useRevisionTime } from "./revisionTime";
 
 type Tab = "deployments" | "pipelines" | "merge_requests";
 type OpenRow = { pipeline_id: number; deployment_ids: number[] };
-const TONE: Record<string, Tone> = { success: "ok", merged: "ok", failed: "danger", running: "accent", pending: "accent", opened: "accent", created: "neutral", canceled: "neutral", skipped: "neutral", closed: "neutral", locked: "neutral", blocked: "warn", manual: "neutral" };
+const TONE: Record<string, Tone> = {
+  success: "ok", merged: "ok", failed: "danger", running: "accent", pending: "accent", opened: "accent", created: "neutral", canceled: "neutral", skipped: "neutral", closed: "neutral", locked: "neutral", blocked: "warn", manual: "neutral",
+  waiting_for_resource: "accent", preparing: "accent", waiting_for_callback: "accent", canceling: "neutral", scheduled: "neutral",
+};
 
 /** "Started 3 min after the change" from offset_seconds (alert start minus change time). */
 export function useOffsetText() {
@@ -33,6 +36,9 @@ function statusLabel(tx: (zh: string, en: string) => string, s: string) {
   const L: Record<string, [string, string]> = {
     success: ["成功", "Succeeded"], failed: ["失败", "Failed"], running: ["运行中", "Running"], pending: ["等待中", "Pending"], created: ["已创建", "Created"],
     canceled: ["已取消", "Canceled"], skipped: ["已跳过", "Skipped"], blocked: ["受阻", "Blocked"], manual: ["待手动", "Manual"],
+    // Every other state the server lets through (validPipelineStatus), in words rather than GitLab's raw value (PA-166).
+    waiting_for_resource: ["等待资源", "Waiting for resource"], preparing: ["准备中", "Preparing"], waiting_for_callback: ["等待回调", "Waiting for callback"],
+    canceling: ["取消中", "Canceling"], scheduled: ["已排期", "Scheduled"],
     merged: ["已合并", "Merged"], opened: ["打开中", "Open"], closed: ["已关闭", "Closed"], locked: ["已锁定", "Locked"],
   };
   const l = L[s];
@@ -430,8 +436,9 @@ function PipelineDrawer({ serviceId, row, view, onClose }: { serviceId: string; 
               <div key={s.name} className="dag-stage">
                 <Muted size={11}>{s.name}</Muted>
                 {s.jobs.map((j) => (
-                  <span key={j.id} className={cx("dag-job", JOB[j.status] ?? "pending", j.manual && "manual")} title={dur(j.duration_seconds) ?? undefined}>
-                    <Icon name={j.status === "success" ? "check" : j.status === "failed" ? "x" : j.status === "running" ? "rotate" : "clock"} size={12} />
+                  // A canceled, skipped or manual job isn't waiting: its icon and tooltip say which it is (PA-166).
+                  <span key={j.id} className={cx("dag-job", JOB[j.status] ?? "pending", j.manual && "manual")} title={[statusLabel(tx, j.status), dur(j.duration_seconds)].filter(Boolean).join(" · ")}>
+                    <Icon name={j.status === "success" ? "check" : j.status === "failed" ? "x" : j.status === "running" ? "rotate" : j.status === "canceled" || j.status === "canceling" || j.status === "skipped" ? "slash" : j.status === "manual" ? "play" : "clock"} size={12} />
                     <span className="ellipsis">{j.name}</span>
                   </span>
                 ))}

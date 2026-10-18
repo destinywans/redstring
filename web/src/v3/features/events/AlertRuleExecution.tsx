@@ -147,10 +147,13 @@ export function AlertRuleExecutionPage({ id }: { id: string }) {
         tone: "warn",
         title: tx("加载超时", "Load timed out"),
         text: tx("规则仓库已经合并。修好 Prometheus 的加载后重新核对：只读，晚到的加载会记为已生效。", "The rule repository is merged. Fix Prometheus's loading, then recheck: read-only, a late load is recorded as in effect."),
+        // POST /executions/{id}/recheck is marked alert_rules.change (PA-228).
         action: (
-          <Btn h={28} kind="primary" icon="rotate" loading={rechecking} onClick={() => void recheck()}>
-            {tx("重新核对", "Recheck")}
-          </Btn>
+          <Gate need={["alert_rules", "change"]}>
+            <Btn h={28} kind="primary" icon="rotate" loading={rechecking} onClick={() => void recheck()}>
+              {tx("重新核对", "Recheck")}
+            </Btn>
+          </Gate>
         ),
       };
     if (ar.state === "needs_attention")

@@ -1,6 +1,7 @@
 package v3audit
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -29,6 +30,26 @@ func TestAuditFilterAndOutcomeMapping(t *testing.T) {
 	}
 	if _, err := resultKind("half_done"); err == nil {
 		t.Fatal("unknown outcome silently mapped")
+	}
+}
+
+// PA-206: a write whose result wasn't confirmed (outcome unknown: a silence
+// awaiting its read-only check or a manual one, a draft whose result is
+// unknown) is not a failure, and a silence that lapsed before it was sent is
+// expired. The result filter selects the same outcomes.
+func TestAuditUnconfirmedAndExpiredOutcomes(t *testing.T) {
+	for value, want := range map[string]string{"unknown": "unconfirmed", "expired": "expired", "failed": "failed", "error": "failed"} {
+		got, err := resultKind(value)
+		if err != nil || got != want {
+			t.Fatalf("outcome %q = %q, %v; want %q", value, got, err, want)
+		}
+	}
+	for result, want := range map[string][]string{"unconfirmed": {"unknown"}, "expired": {"expired"}, "failed": {"failed", "failure", "error"}} {
+		r := httptest.NewRequest("GET", "/api/v1/audit?result="+result, nil)
+		q, err := parseAuditPage(r)
+		if err != nil || strings.Join(q.outcomes, ",") != strings.Join(want, ",") {
+			t.Fatalf("result=%s selects %v, %v; want %v", result, q.outcomes, err, want)
+		}
 	}
 }
 

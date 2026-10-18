@@ -82,6 +82,8 @@ export default function RoutingPage() {
   const { data, error } = useGet<{ root: RouteNode | RouteNodeRead | null; root_unavailable?: "not_configured" | null; config_revision?: string | null; partial?: boolean; unavailable?: string[] }>("/notification-routes");
   // PA-141: a route draft needs the reviewed GitOps route repository and an exact Alertmanager source (route_drafts).
   const needRoutes = useNeed(["alert_rules", "manage"]);
+  // POST /notification-routes/test is marked alert_rules.manage as well (PA-228).
+  const needTest = needRoutes;
   const routesHeld = API_MODE === "mock" ? null
     : !data ? tx("暂时读不到路由配置，不能新建", "The routing configuration can't be read right now")
     : data.unavailable?.includes("route_drafts") ? tx("这个环境还没接入经审查的 GitOps 路由仓库", "No reviewed GitOps route repository is connected for this environment")
@@ -96,6 +98,7 @@ export default function RoutingPage() {
     return (root && walk(root)) ?? id;
   };
   const test = async () => {
+    if (needTest) return;
     if (API_MODE === "mock") return setResult(await api("POST", "/notification-routes/test", { body: { labels } }));
     // The real test takes a label object ("k=v, k2=v2" here) and needs an application label.
     const obj = Object.fromEntries(
@@ -122,7 +125,7 @@ export default function RoutingPage() {
         <div className="main">
           <div className="v3-content">
             {tab !== "tree" ? (
-              <RoutingTab tab={tab} root={root ?? undefined} />
+              <RoutingTab tab={tab} root={root ?? undefined} loading={!data} rootUnavailable={data?.root_unavailable} />
             ) : !data ? (
               <Skeleton h={400} />
             ) : !root ? (
@@ -147,9 +150,11 @@ export default function RoutingPage() {
               </Row>
               <form className="v3-row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); void test(); }}>
                 <Input mono value={labels} onChange={(e) => setLabels(e.target.value)} width="min(560px, 100%)" aria-label={tx("标签", "Labels")} placeholder="application=checkout-api, severity=P1" />
-                <Btn h={32} type="submit">
-                  {tx("测试", "Test")}
-                </Btn>
+                <Gated reason={needTest}>
+                  <Btn h={32} type="submit">
+                    {tx("测试", "Test")}
+                  </Btn>
+                </Gated>
               </form>
               {result && "paths" in result && (
                 <Col gap={4} className="anim-rise">
@@ -300,8 +305,17 @@ export default function RoutingPage() {
 }
 
 /** Receivers come from the route tree; templates, on-call and the delivery log are sample-only until their endpoints exist. */
-function RoutingTab({ tab, root }: { tab: string; root?: RouteNode }) {
+function RoutingTab({ tab, root, loading, rootUnavailable }: { tab: string; root?: RouteNode; loading?: boolean; rootUnavailable?: string | null }) {
   const { tx } = useI18n();
+  // Without a route tree (still loading, or no branch for this environment) the tab says so like the tree does (PA-229);
+  // a failed read is the page's error.
+  if (tab === "receivers" && loading) return <Skeleton h={200} />;
+  if (tab === "receivers" && !root)
+    return (
+      <Card>
+        <Unavailable reason={rootUnavailable ?? "not_configured"} source={tx("这个环境的通知路由", "routing for this environment")} title={tx("这个环境还没有通知路由", "No routing for this environment")} desc={tx("Alertmanager 的路由树里没有只匹配这个环境的分支，所以这里不显示也不能编辑。", "Alertmanager's routing tree has no branch that matches exactly this environment, so nothing is shown or editable here.")} icon="bell" />
+      </Card>
+    );
   if (tab === "receivers") {
     const rows: { route: string; channel: string; target: string }[] = [];
     const walk = (n: RouteNode) => {
@@ -326,10 +340,15 @@ function RoutingTab({ tab, root }: { tab: string; root?: RouteNode }) {
                   <b>{r.target}</b>
                 </td>
                 <td>
-                  <Row gap={6}>
-                    <Brand name={r.channel} size={18} />
-                    {r.channel}
-                  </Row>
+                  {/* The real route tree names receivers only; which channel each one uses isn't read (PA-229). */}
+                  {r.channel ? (
+                    <Row gap={6}>
+                      <Brand name={r.channel} size={18} />
+                      {r.channel}
+                    </Row>
+                  ) : (
+                    <UnknownValue reason="not_tracked" />
+                  )}
                 </td>
                 <td>
                   <Muted>{r.route}</Muted>

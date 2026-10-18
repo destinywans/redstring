@@ -141,6 +141,16 @@ type Proposal struct {
 	// Decision is how it was decided, from the approval records (PA-102);
 	// null while pending.
 	Decision *ProposalDecision `json:"decision"`
+	// MyVote is the caller's own passkey vote while it still counts toward
+	// the two approvals (PA-205): set only on a pending proposal's detail,
+	// null otherwise and once the vote has lapsed.
+	MyVote *ProposalVote `json:"my_vote"`
+}
+
+// ProposalVote is when a vote was verified and when it stops counting.
+type ProposalVote struct {
+	VerifiedAt string `json:"verified_at"`
+	ExpiresAt  string `json:"expires_at"`
 }
 
 // ProposalExecution is a read-only projection of the approval decision and
@@ -153,6 +163,10 @@ type ProposalExecution struct {
 	Status      *string           `json:"status"`
 	UpstreamID  *string           `json:"upstream_id"`
 	Unavailable map[string]string `json:"unavailable"`
+	// FailureCode is the code an alert rule execution recorded with its
+	// state (for example load_timeout while awaiting the provider); null for
+	// other actions and while none is recorded (PA-205).
+	FailureCode *string `json:"failure_code"`
 }
 
 // executionTx reads the decision and, for supported action kinds, the
@@ -175,10 +189,14 @@ func executionTx(ctx context.Context, tx pgx.Tx, proposalID string) (*ProposalEx
 	case "alertmanager.silence.create", "alertmanager.silence.cancel":
 		err = tx.QueryRow(ctx, `SELECT state,upstream_id FROM v3_silence_execution_claims WHERE proposal_id=$1`, proposalID).Scan(&status, &upstream)
 	case alertRuleEnableActionKind, alertRuleDisableActionKind:
-		var state string
-		err = tx.QueryRow(ctx, `SELECT state FROM v3_alert_rule_enable_executions WHERE proposal_id=$1 AND execution_id=$2`,
-			proposalID, out.ExecutionID).Scan(&state)
-		status = &state
+		var state, failure string
+		if err = tx.QueryRow(ctx, `SELECT state,failure_code FROM v3_alert_rule_enable_executions WHERE proposal_id=$1 AND execution_id=$2`,
+			proposalID, out.ExecutionID).Scan(&state, &failure); err == nil {
+			status = &state
+			if failure != "" {
+				out.FailureCode = &failure
+			}
+		}
 	case RollbackActionKind:
 		var state string
 		if err = tx.QueryRow(ctx, `SELECT status FROM v3_rollout_executions WHERE proposal_id=$1 AND execution_id=$2`,
@@ -612,7 +630,10 @@ func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
 	var out Proposal
 	_, ok = s.scopedTx(w, r, tx, "view", func(v record) error {
 		var err error
-		out, err = s.detailTx(r.Context(), tx, v)
+		if out, err = s.detailTx(r.Context(), tx, v); err != nil || v.Status != "pending" {
+			return err
+		}
+		out.MyVote, err = myVoteTx(r.Context(), tx, v.ID, httpapi.CurrentUser(r).ID)
 		return err
 	})
 	if !ok {
@@ -622,6 +643,23 @@ func (s *Service) Detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.WriteJSON(w, 200, out)
+}
+
+// myVoteTx is the caller's latest vote on a proposal while it still counts:
+// a vote stops counting when it expires, and the approval then needs a new
+// one from them (PA-205).
+func myVoteTx(ctx context.Context, tx pgx.Tx, proposalID, userID string) (*ProposalVote, error) {
+	var verified, expires time.Time
+	err := tx.QueryRow(ctx, `SELECT verified_at,expires_at FROM v3_proposal_approval_votes
+ WHERE proposal_id=$1 AND approver_id=$2 AND expires_at>clock_timestamp()
+ ORDER BY verified_at DESC,id DESC LIMIT 1`, proposalID, userID).Scan(&verified, &expires)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &ProposalVote{VerifiedAt: verified.UTC().Format(time.RFC3339), ExpiresAt: expires.UTC().Format(time.RFC3339)}, nil
 }
 
 var idempotencyKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)

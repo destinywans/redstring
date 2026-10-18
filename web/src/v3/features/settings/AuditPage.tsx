@@ -34,8 +34,16 @@ export default function AuditPage() {
   const exp = useSend<{ filter: string; q?: string; range: string }, { url: string }>("POST", "/audit/export");
   // The export is marked audit.view like the list.
   const noView = useNeed(["audit", "view"]);
-  const res = (r: AuditEntry["result"] | "unknown") =>
-    r === "ok" ? ([tx("成功", "OK"), "ok"] as const) : r === "pending" ? ([tx("进行中", "Pending"), "accent"] as const) : r === "blocked" ? ([tx("已拦截", "Blocked"), "warn"] as const) : r === "failed" ? ([tx("失败", "Failed"), "danger"] as const) : ([tx("未知", "Unknown"), "neutral"] as const);
+  // PA-206: an unconfirmed write (only read back, or checked by a person) and one that lapsed before it ran are not
+  // failures; they read as on the review page.
+  const res = (r: string | null) =>
+    r === "ok" ? ([tx("成功", "OK"), "ok"] as const)
+    : r === "pending" ? ([tx("进行中", "Pending"), "accent"] as const)
+    : r === "blocked" ? ([tx("已拦截", "Blocked"), "warn"] as const)
+    : r === "failed" ? ([tx("失败", "Failed"), "danger"] as const)
+    : r === "unconfirmed" ? ([tx("结果待核对", "Outcome unconfirmed"), "warn"] as const)
+    : r === "expired" ? ([tx("已过期，未执行", "Expired, not run"), "neutral"] as const)
+    : ([tx("未知", "Unknown"), "neutral"] as const);
   const { data: d } = useGet<AuditDetail>(sel ? `/audit/${sel}` : null);
   return (
     <Page
@@ -80,7 +88,7 @@ export default function AuditPage() {
               />
               <SearchBox placeholder={tx("搜索操作者、对象或运行 ID", "Actor, object or run ID")} value={q} onChange={setQ} width={260} />
               <ChipSelect label={tx("操作", "Action")} {...fAct.props} />
-              <ChipSelect label={tx("结果", "Result")} {...fRes.props} options={fRes.props.options.map((o) => ({ ...o, label: res(o.value as AuditEntry["result"] | "unknown")[0] }))} />
+              <ChipSelect label={tx("结果", "Result")} {...fRes.props} options={fRes.props.options.map((o) => ({ ...o, label: res(o.value)[0] }))} />
               <Spacer />
               <RangeChip value={range} onChange={setRange} />
             </Row>

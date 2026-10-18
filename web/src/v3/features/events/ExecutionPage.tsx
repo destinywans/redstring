@@ -6,7 +6,7 @@ import { ROLLBACK_KIND, type Execution, type ExecutionDetail } from "../../api/t
 import { RolloutExecutionPage } from "./RolloutExecution";
 import { AlertRuleExecutionPage } from "./AlertRuleExecution";
 import { useWhen } from "./rollback";
-import { PartialBanner, Unavailable, UnknownValue } from "../../ui/unknown";
+import { PartialBanner, Unavailable } from "../../ui/unknown";
 import { Badge, Btn, Card, CardHead, Col, Icon, Mono, Muted, Row, Sev, Skeleton, Spacer, Textarea, Tile, type IconName } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
@@ -14,6 +14,7 @@ import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./events.css";
 import { downloadFile } from "../../ui/demo";
+import { Gate } from "../../ui/permission";
 
 export default function ExecutionPage() {
   const { id = "" } = useParams();
@@ -137,7 +138,8 @@ function RealExecutionPage() {
                 <Row gap={8}>
                   <Muted>{tx("结果", "Result")}</Muted>
                   <Spacer />
-                  {o.recovered === null ? <UnknownValue reason="unavailable" /> : o.recovered ? <Badge tone="ok">{tx("已恢复", "Recovered")}</Badge> : <Badge tone="danger">{tx("未恢复", "Not recovered")}</Badge>}
+                  {/* null is the executor's own record that it couldn't judge, with its reason below; no source failed (PA-223). */}
+                  {o.recovered === null ? <Badge>{tx("无法判定", "Undetermined")}</Badge> : o.recovered ? <Badge tone="ok">{tx("已恢复", "Recovered")}</Badge> : <Badge tone="danger">{tx("未恢复", "Not recovered")}</Badge>}
                 </Row>
                 <Row gap={8}>
                   <Muted>{tx("观测窗口", "Window")}</Muted>
@@ -179,10 +181,13 @@ function RealExecutionPage() {
                 {tx("导出 Markdown", "Export Markdown")}
               </Btn>
             )}
+            {/* POST /executions/{id}/report/publish is marked knowledge.manage (PA-228). */}
             {r && !r.published && (
-              <Btn kind="primary" icon="check" disabled={!canPublish} loading={publishing} onClick={() => void publish()}>
-                {tx("确认发布", "Publish")}
-              </Btn>
+              <Gate need={["knowledge", "manage"]}>
+                <Btn kind="primary" icon="check" disabled={!canPublish} loading={publishing} onClick={() => void publish()}>
+                  {tx("确认发布", "Publish")}
+                </Btn>
+              </Gate>
             )}
           </header>
           {!r ? (

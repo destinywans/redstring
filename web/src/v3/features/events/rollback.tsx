@@ -77,8 +77,11 @@ export function useRolloutText() {
         needs_attention: ["warn", tx("需要人工处理", "Needs attention")],
       }) as Record<string, [Tone, string]>
     )[s] ?? ["neutral", s];
-  const reason = (r: RolloutStatusReason): string =>
-    (
+  /** `written`: the ledger reached applied, so an unknown outcome is the rollout's, not the write's (PA-223). */
+  const reason = (r: RolloutStatusReason, written = false): string =>
+    r === "reconcile_unknown" && written
+      ? tx("已经写入并开始滚动，但之后一直读不到 Deployment（例如读凭据失效），无法确认滚动结果。执行器不会再写。", "The write landed and the rollout started, but the Deployment couldn't be read afterwards (for example the read credential stopped working), so the rollout's outcome is unknown. The executor won't write again.")
+      : (
       ({
         drift: tx("批准后有人改了 Deployment，为避免覆盖别人的改动，没有写入。", "Someone changed the Deployment after approval; nothing was written so their change isn't overwritten."),
         approval_invalid: tx("执行前复核审批没有通过（审批已失效或被撤销）。", "The approvals didn't pass the pre-execution check (expired or revoked)."),

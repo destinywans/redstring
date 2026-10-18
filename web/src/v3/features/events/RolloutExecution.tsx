@@ -30,6 +30,8 @@ export function RolloutExecutionPage({ id }: { id: string }) {
   });
   if (!e) return null;
   const [tone, label] = text.status(e.status);
+  // An execution that already ended never starts what it hadn't reached (PA-229).
+  const done = TERMINAL.includes(e.status);
   const v = e.verification;
   const samples = v?.samples ?? [];
   // The first 60 s after verification starts are a settling period (old traffic still in the rate windows); then the
@@ -86,7 +88,7 @@ export function RolloutExecutionPage({ id }: { id: string }) {
                 {e.status === "unknown"
                   ? tx("执行器正在只读对账，确认这次写入是否生效。不会再写。", "The executor is reconciling read-only to confirm whether the write landed. It won't write again.")
                   : e.status_reason
-                    ? text.reason(e.status_reason)
+                    ? text.reason(e.status_reason, e.timeline.some((t) => t.state === "applied" || t.state === "rolling_out"))
                     : tx("执行器没有给出原因。", "The executor gave no reason.")}
                 {missing > 0 && e.status_reason === "verification_unavailable" && <> {tx("稳定期后有 {n} 次采样没有值（例如 Pod 重建时没有请求），不能判为恢复。", "{n} samples after the settling period had no value (e.g. no requests while Pods restarted), so it can't count as recovered.", { n: missing })}</>}
                 {badSample && e.status_reason === "verification_failed" && (
@@ -133,7 +135,11 @@ export function RolloutExecutionPage({ id }: { id: string }) {
               }
             />
             {!v ? (
-              <Unavailable reason="not_generated" icon="activity" title={tx("还没有开始验证", "Verification hasn't started")} desc={tx("滚动完成后开始按观察计划采样，每 15 秒一次。", "Sampling starts every 15 s once the rollout completes.")} />
+              done ? (
+                <Unavailable reason="not_generated" icon="activity" title={tx("没有进行验证", "No verification ran")} desc={tx("执行在滚动完成前已经结束，没有开始采样。", "The execution ended before the rollout completed, so nothing was sampled.")} />
+              ) : (
+                <Unavailable reason="not_generated" icon="activity" title={tx("还没有开始验证", "Verification hasn't started")} desc={tx("滚动完成后开始按观察计划采样，每 15 秒一次。", "Sampling starts every 15 s once the rollout completes.")} />
+              )
             ) : (
               <Col gap={12} style={{ padding: "14px 16px" }}>
                 <div className="rb-charts">
@@ -156,7 +162,11 @@ export function RolloutExecutionPage({ id }: { id: string }) {
             <Card>
               <CardHead title={tx("副本", "Replicas")} icon="layers" />
               {!e.rollout ? (
-                <Unavailable reason="not_generated" icon="layers" title={tx("还没有开始滚动", "The rollout hasn't started")} desc={tx("写入并读回后开始记录副本进度。", "Replica progress is recorded once the write is applied and read back.")} />
+                done ? (
+                  <Unavailable reason="not_generated" icon="layers" title={tx("没有滚动记录", "No rollout recorded")} desc={tx("执行在写入并读回之前已经结束，没有记录副本进度。", "The execution ended before the write was applied and read back, so no replica progress was recorded.")} />
+                ) : (
+                  <Unavailable reason="not_generated" icon="layers" title={tx("还没有开始滚动", "The rollout hasn't started")} desc={tx("写入并读回后开始记录副本进度。", "Replica progress is recorded once the write is applied and read back.")} />
+                )
               ) : (
                 <Col gap={10} style={{ padding: "14px 16px" }}>
                   <div className="rb-reps">

@@ -391,6 +391,92 @@ func TestProposalHTTPDetailCommentRejectAndScope(t *testing.T) {
 			t.Fatalf("revoked approval: %+v", d)
 		}
 	})
+	// PA-205: the detail says whether the caller's own vote still counts, so
+	// a first approver isn't asked to review again; a lapsed vote no longer
+	// counts. Votes are written directly with foreign-key triggers suspended.
+	t.Run("my-vote", func(t *testing.T) {
+		id := create("inv-1", "app-1", "dev")
+		myVote := func(token string) any {
+			t.Helper()
+			w := request(api, "GET", id, "", "dev", token, "", "")
+			assert(w, 200, "")
+			var body map[string]any
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			vote, ok := body["my_vote"]
+			if !ok {
+				t.Fatalf("detail without my_vote: %s", w.Body.String())
+			}
+			return vote
+		}
+		if vote := myVote(adminToken); vote != nil {
+			t.Fatalf("vote before any vote: %v", vote)
+		}
+		vote := func(voteID, ago, lifetime string) {
+			t.Helper()
+			digest := strings.Repeat("c", 64)
+			if _, err := db.Exec(ctx, `SET session_replication_role=replica; INSERT INTO v3_proposal_approval_votes(id,proposal_id,approver_id,challenge_id,action_kind,action_digest,
+ review_content_digest,instance_id,rp_id,credential_id,credential_fingerprint,request_hash,verified_at,expires_at)
+ SELECT '`+voteID+`','`+id+`',id,'challenge-`+voteID+`','alertmanager.silence.create','`+digest+`','`+digest+`','test','localhost','\x01',
+ '0123456789abcdef','`+digest+`',now()-interval '`+ago+`',now()-interval '`+ago+`'+interval '`+lifetime+`'
+ FROM users WHERE email='admin@example.invalid'; SET session_replication_role=origin`); err != nil {
+				t.Fatal(err)
+			}
+		}
+		vote(strings.Repeat("1", 32), "30 minutes", "15 minutes")
+		if got := myVote(adminToken); got != nil {
+			t.Fatalf("lapsed vote still counted: %v", got)
+		}
+		vote(strings.Repeat("2", 32), "1 minute", "15 minutes")
+		got, ok := myVote(adminToken).(map[string]any)
+		if !ok || got["verified_at"] == "" || got["expires_at"] == "" || got["verified_at"] == nil || got["expires_at"] == nil {
+			t.Fatalf("current vote: %v", got)
+		}
+		if other := myVote(reviewerToken); other != nil {
+			t.Fatalf("another person's vote reported as the caller's: %v", other)
+		}
+	})
+	// PA-205: an alert rule execution's failure code reaches the review page,
+	// which tells a load timeout (needs attention) from an ordinary wait.
+	t.Run("alert-rule-failure-code", func(t *testing.T) {
+		id := create("inv-1", "app-1", "dev")
+		executionID, digest := strings.Repeat("f", 32), strings.Repeat("d", 64)
+		if _, err := db.Exec(ctx, `SET session_replication_role=replica;
+ INSERT INTO v3_proposal_approval_decisions(proposal_id,execution_id,action_kind,action_digest,review_content_digest,
+ approval_digest,creator_id,environment_id,application_id,risk,required_count,first_vote_id,second_vote_id,approved_at,expires_at)
+ VALUES('`+id+`','`+executionID+`','prometheus.alert_rule.enable','`+digest+`','`+digest+`','`+digest+`','`+reviewer.ID+`','dev','app-1','low',2,
+ 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',now(),now()+interval '1 hour');
+ INSERT INTO v3_alert_rule_enable_executions(proposal_id,execution_id,action_digest,approval_id,approval_digest,approver_id,state,failure_code)
+ VALUES('`+id+`','`+executionID+`','`+digest+`','`+executionID+`','`+digest+`','`+reviewer.ID+`','awaiting_provider','load_timeout');
+ SET session_replication_role=origin`); err != nil {
+			t.Fatal(err)
+		}
+		execution := func() map[string]any {
+			t.Helper()
+			w := request(api, "GET", id, "", "dev", reviewerToken, "", "")
+			assert(w, 200, "")
+			var body struct {
+				Execution map[string]any `json:"execution"`
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || body.Execution == nil {
+				t.Fatalf("approved detail: %s (%v)", w.Body.String(), err)
+			}
+			return body.Execution
+		}
+		if got := execution(); got["status"] != "awaiting_provider" || got["failure_code"] != "load_timeout" {
+			t.Fatalf("load timeout: %v", got)
+		}
+		if _, err := db.Exec(ctx, `SET session_replication_role=replica; UPDATE v3_alert_rule_enable_executions SET state='enabled',failure_code=''
+ WHERE proposal_id='`+id+`'; SET session_replication_role=origin`); err != nil {
+			t.Fatal(err)
+		}
+		if got := execution(); got["status"] != "enabled" {
+			t.Fatalf("enabled: %v", got)
+		} else if code, ok := got["failure_code"]; !ok || code != nil {
+			t.Fatalf("enabled execution with a failure code: %v", got)
+		}
+	})
 	t.Run("machine-reject-skips-discussion-read", func(t *testing.T) {
 		blocker, err := db.Begin(ctx)
 		if err != nil {

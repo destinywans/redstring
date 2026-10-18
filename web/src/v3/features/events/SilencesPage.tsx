@@ -60,6 +60,8 @@ export default function SilencesPage() {
   // PA-123: a draft needs the reviewed GitOps inhibition repository and an exact Alertmanager source; the list says
   // inhibition_drafts when either is missing, and a failed read leaves nothing to draft against.
   const needInhibit = useNeed(["silences", "manage"]);
+  // Ending a silence early (DELETE /silences/{id}) is marked silences.manage too (PA-228).
+  const needExpire = needInhibit;
   const inhibitHeld = API_MODE === "mock" ? null
     : inhib.error ? tx("暂时读不到抑制配置，不能新建", "The inhibition configuration can't be read right now")
     : inhib.data?.unavailable?.includes("inhibition_drafts") ? tx("这个环境还没接入经审查的 GitOps 抑制仓库", "No reviewed GitOps inhibition repository is connected for this environment")
@@ -174,7 +176,8 @@ export default function SilencesPage() {
                         <td><Row gap={4} wrap>{p.matchers.map((m) => <LabelChip key={m.k + m.v} k={m.k} v={m.v} />)}</Row></td>
                         <td>
                           <Link to={`/review/${p.proposal_id}`} style={{ textDecoration: "none" }}>
-                            <State tone="warn">{tx("待审批 · {p}", "Pending review · {p}", { p: p.proposal_id })}</State>
+                            {/* Kept only in this tab and never reread: it says what is true, the proposal page has the state (PA-213). */}
+                            <State tone="neutral">{tx("已提交 · {p}", "Submitted · {p}", { p: p.proposal_id })}</State>
                           </Link>
                         </td>
                         <td><Muted>{p.duration < 3600 ? tx("{n} 分钟", "{n} min", { n: p.duration / 60 }) : tx("{n} 小时", "{n} h", { n: p.duration / 3600 })}</Muted></td>
@@ -215,7 +218,7 @@ export default function SilencesPage() {
                   { key: "a", header: tx("影响", "Affects"), render: (s) => (s.affects ? <Num>{tx("{n} 条", "{n}", { n: s.affects })}</Num> : <Muted>—</Muted>) },
                   { key: "c", header: tx("创建人", "Creator"), render: (s) => <Row gap={6}><Avatar name={s.creator} size={20} /><Muted>{s.creator}</Muted></Row> },
                   { key: "why", header: tx("原因", "Reason"), render: (s) => <Muted>{s.reason}</Muted> },
-                  { key: "x", header: "", width: 40, render: (s) => s.state !== "expired" && <span className="hact"><IconBtn icon="x" label={real ? tx("提议提前结束", "Propose ending early") : tx("提前结束", "Expire now")} size={24} onClick={async () => {
+                  { key: "x", header: "", width: 40, render: (s) => s.state !== "expired" && <span className="hact"><Gated reason={needExpire}><IconBtn icon="x" label={real ? tx("提议提前结束", "Propose ending early") : tx("提前结束", "Expire now")} size={24} onClick={async () => {
                     if (real) return setExpiring(s.id);
                     try {
                       await api("DELETE", `/silences/${s.id}`);
@@ -225,7 +228,7 @@ export default function SilencesPage() {
                     } catch (e) {
                       toast(e instanceof ApiError ? e.message : tx("提交失败，请稍后重试", "Couldn't submit; try again later"), { tone: "danger" });
                     }
-                  }} /></span> },
+                  }} /></Gated></span> },
                 ]}
               />
               )}

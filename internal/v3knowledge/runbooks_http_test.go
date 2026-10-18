@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -697,6 +698,10 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	if err := json.Unmarshal(preview.Body.Bytes(), &result); err != nil || result.Steps != 2 || result.OK || result.Mode != "validation_only" || len(result.Checks) != 2 ||
 		result.Checks[0]["validated"] != true || result.Checks[1]["validated"] != false || result.Checks[1]["requires_approval"] != true {
 		t.Fatalf("dry-run falsely validated or executed action: %s (%v)", preview.Body.String(), err)
+	}
+	// PA-194: the response says why a step failed; a passing step has no reasons.
+	if fmt.Sprint(result.Checks[0]["reasons"]) != "[]" || fmt.Sprint(result.Checks[1]["reasons"]) != "[action_step not_readonly no_connector]" {
+		t.Fatalf("dry-run reasons: %s", preview.Body.String())
 	}
 	for _, check := range result.Checks {
 		if check["executed"] != false {

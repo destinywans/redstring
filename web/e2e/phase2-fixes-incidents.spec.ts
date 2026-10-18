@@ -142,3 +142,27 @@ test.describe("incident roles and links (PA-189)", () => {
     test.skip(checked === 0, "no incident with an investigation");
   });
 });
+
+/** The new incident drawer pre-filled from one pinned draft. */
+async function openDraft(page: Page) {
+  await page.route(at("/incidents/draft"), (r) =>
+    json(r, 200, {
+      title: "检查用事件", severity: "P2", severity_hint: "所选持久告警中的最高级别", env: "prod", services: [{ id: "app-check", tier: null }], impact: null,
+      alerts: [{ id: "alert-check", severity: "P2", text: "LabHigh5xxRate", at: at0 }],
+      commander: null, participants: null, war_room: null, source: "persisted_alerts", partial: true,
+      unavailable: ["impact", "service.tier", "commander", "participants", "war_room", "ai_analysis"],
+    }),
+  );
+  await page.goto(origin + "/incidents?new=incident&alerts=alert-check");
+}
+
+test.describe("new incident drawer times (PA-190)", () => {
+  test("a linked alert's time is formatted in the app language, not shown as ISO", async ({ page }) => {
+    await page.addInitScript(zh);
+    await openDraft(page);
+    const alertRow = page.getByRole("dialog", { name: "新建事件" }).locator(".f-alert-row", { hasText: "LabHigh5xxRate" });
+    await expect(alertRow).toBeVisible({ timeout: 20_000 });
+    await expect(alertRow).not.toContainText("2026-10-18T");
+    await expect(alertRow).toContainText(/\d{1,2}:\d{2}/);
+  });
+});

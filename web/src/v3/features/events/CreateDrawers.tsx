@@ -10,6 +10,7 @@ import { useCurrentEnv } from "../../app/EnvSwitch";
 import { ChipSelect, AddChip, usePickLists } from "../../ui/demo";
 import { useEnv } from "../../app/environment";
 import { useNames } from "../../ui/names";
+import { useWhen } from "../../ui/when";
 
 type IncidentDraft = {
   title: string;
@@ -38,6 +39,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
   const lists = usePickLists();
   // The draft names its service by application ID: show the catalog name, or the ID when the catalog doesn't list it (PA-166).
   const names = useNames();
+  const when = useWhen();
   const nav = useNavigate();
   // A draft is built only from 1–20 selected alerts (?alerts=a,b); without them the form starts blank.
   const [params] = useSearchParams();
@@ -159,7 +161,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
                 <input type="checkbox" checked={!!alerts[a.id]} onChange={(e) => setAlerts({ ...alerts, [a.id]: e.target.checked })} />
                 <Sev p={a.severity} />
                 <span className="grow ellipsis" style={{ fontSize: "var(--fs-sub)" }}>{a.text}</span>
-                <Muted size={11.5}>{a.at}</Muted>
+                <Muted size={11.5}>{when.short(a.at)}</Muted>
               </label>
             ))}
           </div>

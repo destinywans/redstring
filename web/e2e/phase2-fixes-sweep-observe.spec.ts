@@ -271,3 +271,75 @@ test.describe("webhook deliveries per source (PA-227)", () => {
     await expect(panel(page).getByText("最近 24 小时没有投递", { exact: false })).toBeVisible({ timeout: 20_000 });
   });
 });
+
+const unavailable = (code: string) => ({ error: { code, message: "check: source unavailable" } });
+async function expectUnavailable(page: Page, scope = page.locator(".v3-page-body")) {
+  await expect(scope.getByText("暂时不可用", { exact: true })).toBeVisible({ timeout: 20_000 });
+  await expect(scope.getByText("来源连接失败或超时，刷新页面可再试一次。")).toBeVisible();
+  await expect(scope.locator(".skeleton")).toHaveCount(0);
+}
+
+/**
+ * PA-221 (WAN-580): a failed main read kept the skeleton or left the page blank on the integration pages, trace
+ * detail, topology and personal AI preferences; each now says why with the shared load error.
+ */
+test.describe("integration and observe pages whose main read fails (PA-221)", () => {
+  for (const [route, path] of [
+    ["/integrations", "/connectors"],
+    ["/integrations/coverage", "/coverage"],
+    ["/integrations/mapping", "/service-mappings"],
+    ["/integrations/mcp", "/mcp-servers"],
+    ["/integrations/models", "/models/admin"],
+    ["/integrations/webhooks", "/webhooks"],
+    ["/integrations/ingest/push", "/ingest/push"],
+    ["/resources", "/topology"],
+  ] as const) {
+    test(`${route}: ${path} 503 says unavailable`, async ({ page }) => {
+      await page.addInitScript(zh);
+      await page.route(at(path), (r) => json(r, 503, unavailable("check_unavailable")));
+      const m = monitor(page);
+      await page.goto(origin + route);
+      await expectUnavailable(page);
+      expect(m.pageErrors).toEqual([]);
+    });
+  }
+
+  test("trace detail: a trace outside retention says not found", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/traces/pa221check"), (r) => json(r, 404, { error: { code: "not_found", message: "check" } }));
+    await page.goto(origin + "/traces/pa221check");
+    await expect(page.locator(".v3-page-body").getByText("找不到这条记录", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".v3-page-body .skeleton")).toHaveCount(0);
+  });
+
+  test("add connector: a type that can't be read says so in the side card and can't be created", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/connector-types/gitlab"), (r) => json(r, 503, unavailable("check_unavailable")));
+    await page.goto(origin + "/integrations/new");
+    await expectUnavailable(page, page.locator(".wizard-side"));
+    await expect(page.getByRole("button", { name: /下一步/ })).toBeDisabled();
+  });
+
+  test("connector detail: a failed read says so in the aside", async ({ page }) => {
+    await page.addInitScript(zh);
+    const item = { id: "conn-check", brand: "prometheus", name: "Check Prometheus", kind: "Metrics", status: "ok", tags: [], meta: "", checked_at: null };
+    await page.route(at("/connectors"), (r) => json(r, 200, { items: [item], counts: { ok: 1, unverified: 0, error: 0 }, categories: [{ id: "all", label: "全部", count: 1 }] }));
+    await page.route(at("/connectors/conn-check"), (r) => json(r, 503, unavailable("check_unavailable")));
+    await page.goto(origin + "/integrations");
+    await page.getByRole("button", { name: /Check Prometheus/ }).click({ timeout: 20_000 });
+    await expectUnavailable(page, page.locator("aside.aside"));
+  });
+
+  for (const [route, path] of [
+    ["/settings/ai", "/me/ai-preferences"],
+    ["/integrations/models", "/models/admin"],
+  ] as const) {
+    test(`${route}: all environments (422) asks for one environment`, async ({ page }) => {
+      await page.addInitScript(zh);
+      await page.route(at(path), (r) => json(r, 422, { error: { code: "invalid_environment", message: "Choose one environment" } }));
+      await page.goto(origin + route);
+      await expect(page.locator(".v3-page-body").getByText("先在右上角选择一个具体环境", { exact: false })).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator(".v3-page-body .skeleton")).toHaveCount(0);
+    });
+  }
+});

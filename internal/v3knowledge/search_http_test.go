@@ -211,7 +211,7 @@ func TestRegisteredKnowledgeSearchScopesBeforeLimitAndDegrades(t *testing.T) {
 			t.Fatalf("unexpected search response: %+v", result)
 		}
 		for i, title := range expected {
-			if result.Hits[i].Title != title || result.Hits[i].Keyword <= 0 || result.Hits[i].Vector != 0 || result.Hits[i].Score <= 0 {
+			if result.Hits[i].Title != title || result.Hits[i].Keyword <= 0 || result.Hits[i].Vector != nil || result.Hits[i].Score <= 0 {
 				t.Fatalf("unexpected hit %d: %+v", i, result.Hits[i])
 			}
 		}
@@ -374,7 +374,7 @@ INSERT INTO knowledge_chunks(generation_id,ordinal,content,embedding)
 			t.Fatalf("real scoped vector search degraded: %+v", result)
 		}
 		for _, hit := range result.Hits {
-			if hit.Vector <= 0 || hit.Keyword != 0 {
+			if hit.Vector == nil || *hit.Vector <= 0 || hit.Keyword != 0 {
 				t.Fatalf("not a vector-only result: %+v", hit)
 			}
 		}
@@ -521,7 +521,7 @@ VALUES('read-1',$1,$2,'test','z-visible',NULL)`, itemHash, contentHash); err != 
 	}
 	if hits := search("test"); len(hits) != 1 || hits[0].Title != "Verified guide" ||
 		!strings.Contains(hits[0].Snippet, query) || len(hits[0].Snippet) >= len(body) ||
-		hits[0].Keyword <= 0 || hits[0].Vector != 0 {
+		hits[0].Keyword <= 0 || hits[0].Vector != nil || hits[0].Corpus != "public_web_sources" {
 		t.Fatalf("verified source was not a bounded keyword passage: %+v", hits)
 	}
 	if hits := search("dev"); len(hits) != 0 {

@@ -24,12 +24,16 @@ type searchInput struct {
 	TopK    int    `json:"top_k"`
 }
 
+// RetrievalHit.Vector is null when the hit has no vector score: the search
+// read no vectors (degraded) or the hit's corpus has no vector index (public
+// Web and upload sources, PA-222). Corpus names the corpora entry it came from.
 type RetrievalHit struct {
-	Title   string  `json:"title"`
-	Snippet string  `json:"snippet"`
-	Keyword float64 `json:"keyword"`
-	Vector  float64 `json:"vector"`
-	Score   float64 `json:"score"`
+	Title   string   `json:"title"`
+	Snippet string   `json:"snippet"`
+	Keyword float64  `json:"keyword"`
+	Vector  *float64 `json:"vector"`
+	Score   float64  `json:"score"`
+	Corpus  string   `json:"corpus"`
 }
 
 // SearchHandler is registered separately because the pre-V3 knowledge service
@@ -344,10 +348,14 @@ func rankRetrieval(keyword, vector []knowledge.Hit, limit int, keywordOnly bool)
 		}
 		vec := math.Max(0, math.Min(1, s.vector))
 		score := 0.4*kw + 0.6*vec
+		corpus := hitCorpus(s.hit)
+		var vector *float64
 		if keywordOnly {
 			score = kw
+		} else if corpus == "documents" {
+			vector = &vec
 		}
-		out = append(out, RetrievalHit{Title: s.hit.Title, Snippet: snippet(s.hit.Content, 400), Keyword: kw, Vector: vec, Score: score})
+		out = append(out, RetrievalHit{Title: s.hit.Title, Snippet: snippet(s.hit.Content, 400), Keyword: kw, Vector: vector, Score: score, Corpus: corpus})
 	}
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Score == out[j].Score {
@@ -359,6 +367,19 @@ func rankRetrieval(keyword, vector []knowledge.Hit, limit int, keywordOnly bool)
 		out = out[:limit]
 	}
 	return out
+}
+
+// hitCorpus names the searchCorpora entry a hit came from. Public Web and
+// upload passages carry their own ID prefix and have no vector index.
+func hitCorpus(h knowledge.Hit) string {
+	switch {
+	case strings.HasPrefix(h.DocumentID, publicWebHitPrefix):
+		return "public_web_sources"
+	case strings.HasPrefix(h.DocumentID, uploadSourceHitPrefix):
+		return "upload_sources"
+	default:
+		return "documents"
+	}
 }
 
 func snippet(content string, limit int) string {

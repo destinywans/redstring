@@ -122,12 +122,12 @@ P['/runbooks/{id}/history']['get']['responses']['413'] = {
     'content':{'application/json':{'schema':ref('Error')}}}
 S['V3PostmortemDashboardKPI'] = obj({'id':string(),'label':string(),'value':string(),
     'unit':string(),'series':{'oneOf':[arr(v3_num()),{'type':'null'}]}},['id','label','value','series'])
-S['V3PostmortemDashboardItem'] = obj({**fieldnames('id title date duration cause root_cause actions incident_id'),
+S['V3PostmortemDashboardItem'] = obj({**fieldnames('id title date duration cause root_cause actions incident_id application_id'),
     'severity':{'oneOf':[string(enum=['P1','P2','P3','P4']),{'type':'null'}]},
     'duration':{'type':['string','null']},'root_cause':{'type':['string','null']},
     'status':string(enum=['draft','published']),
     'workflow_status':string(enum=['draft','review','published'])},
-    ['id','title','severity','date','duration','cause','root_cause','actions','status','workflow_status','incident_id'])
+    ['id','title','severity','date','duration','cause','root_cause','actions','status','workflow_status','incident_id','application_id'])
 v3_route('get','/postmortems','Read scoped persisted postmortem dashboard evidence',
     query=[v3_query('tab',string(enum=['all','draft','review','published'])),v3_query('q'),
            v3_query('page',integer(minimum=1,maximum=1000)),
@@ -141,7 +141,7 @@ v3_route('get','/postmortems','Read scoped persisted postmortem dashboard eviden
         'page':integer(minimum=1),'page_size':integer(minimum=1),'total':integer(minimum=0)},
         ['kpis','items','causes','impact_by_service','followups','complete_v3_dto','partial',
          'unknown_fields','page','page_size','total']),
-    desc='Reads persisted reports and their exact legacy investigation close or manual case resolved status event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, real source event date, recorded workflow status and action total. A manual case has no proven outage duration, so duration stays null and dashboard duration coverage is unknown. Invalid severity or absent root text are nullable rather than blocking other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid legacy durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413.')
+    desc='Reads persisted reports and their exact legacy investigation close or manual case resolved status event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, real source event date, recorded workflow status, action total and the application_id of each record (its service, PA-218). A manual case has no proven outage duration, so duration stays null and dashboard duration coverage is unknown. Invalid severity or absent root text are nullable rather than blocking other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid legacy durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413.')
 P['/postmortems']['get']['responses']['413'] = {
     'description':'More than 1000 visible reports exceed the bounded dashboard view',
     'content':{'application/json':{'schema':ref('Error')}}}

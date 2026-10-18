@@ -377,7 +377,8 @@ export type AlertRuleSummary = {
   id: string;
   folder: string;
   name: string;
-  state: "firing" | "pending" | "ok";
+  /** error: Prometheus health=err (even if it last fired); unknown: not evaluated or no health (PA-210). */
+  state: "firing" | "pending" | "ok" | "error" | "unknown";
   schedule?: string;
   /** D11 §11.6: where the rule is in its GitOps lifecycle (separate from whether it fires); ids are null without a disable in progress. */
   lifecycle?: AlertRuleLifecycle;
@@ -392,8 +393,8 @@ export type AlertRulePending = {
   group: string;
   application_id: string;
   environment_id: string;
-  /** failed and rejected only within 7 days. */
-  state: "pending_approval" | "executing" | "needs_attention" | "failed" | "rejected";
+  /** failed, rejected and expired only within 7 days; expired: the approval lapsed before any execution (PA-217). */
+  state: "pending_approval" | "executing" | "needs_attention" | "failed" | "rejected" | "expired";
   updated_at: string;
   /** The review page while pending approval, the execution page once it runs. */
   href: string;
@@ -428,6 +429,8 @@ export type AlertRule = AlertRuleSummary & {
   ai_triage: { enabled: boolean; template: string } | null;
   /** When Prometheus last evaluated the rule. */
   last_eval: string | null;
+  /** Prometheus's evaluation error while state is "error"; null otherwise (PA-210). */
+  last_error?: string | null;
   partial?: boolean;
   unavailable?: string[];
 };
@@ -497,7 +500,9 @@ export type Proposal = {
   requirement: string;
   discussion: { author: string; ai?: boolean; time: string; text: string }[];
   /** Null until the second approval; status/upstream_id stay null (not_generated) until the executor records them. */
-  execution?: { execution_id: string; approved_at: string; action_kind: string; status: string | null; upstream_id: string | null; unavailable: Unavailable } | null;
+  execution?: { execution_id: string; approved_at: string; action_kind: string; status: string | null; upstream_id: string | null; failure_code?: string | null; unavailable: Unavailable } | null;
+  /** The caller's own vote while it still counts toward the two approvals; only on a pending proposal's detail (PA-205). */
+  my_vote?: { verified_at: string; expires_at: string } | null;
   /** PA-102: from the approval records; null while pending (also with one of two votes). */
   decision?: ProposalDecision | null;
   /** e.g. kubernetes.deployment.rollback; null for display-only proposals (docs/api/v3-rollback.md §3). */
@@ -727,7 +732,8 @@ export type Runbook = {
   incidents: { id: string; title: string }[] | null;
   unknown_fields?: string[];
 };
-export type Postmortem = { id: string; title: string; severity: Severity | null; date: string; duration: string | null; cause: string; actions: string; status: "draft" | "published"; incident_id?: string };
+/** status merges review into draft; workflow_status is the recorded one; application_id is the record's service (PA-218). */
+export type Postmortem = { id: string; title: string; severity: Severity | null; date: string; duration: string | null; cause: string; actions: string; status: "draft" | "published"; workflow_status?: "draft" | "review" | "published"; application_id?: string; incident_id?: string };
 export type PostmortemSummary = {
   kpis: Kpi[];
   items: Postmortem[];
@@ -1235,7 +1241,8 @@ export type CoverageView = {
 export type WebhookView = {
   /** The last delivery: last_at (RFC 3339) and last_code, both null when unknown (PA-83). */
   inbound: { id: string; brand: string; name: string; url: string; verify: string; count: string; last_at: string | null; last_code: number | string | null; status: "ok" | "error" }[];
-  deliveries: { time: string; event: string; code: string; ms: string }[];
+  /** source_id and event_type name the inbound entry (inbound[].id is "<source_id>:<event_type>"), at most 30 per entry (PA-227). */
+  deliveries: { time: string; source_id?: string; event_type?: string; event: string; code: string; ms: string }[];
   tokens: { name: string; scopes: string[]; used: string; expires: string }[];
   mcp: { enabled: boolean; url: string; tools: string[]; clients: string };
   outbound: { event: string; target: string; brand?: string }[];
@@ -1467,7 +1474,7 @@ export type SecurityView = {
 export type SecurityUnknownView = { [K in Exclude<keyof SecurityView, "unavailable">]: null } & { unavailable: Unavailable };
 export type SecurityRead = SecurityView | SecurityUnknownView;
 /** result "pending" = a lifecycle step whose outcome is a later row; null = unclassifiable (see unavailable.result). */
-export type AuditEntry = { id: string; time: string; actor: { kind: "user" | "agent" | "system"; name: string }; action: string; target: string; result: "ok" | "pending" | "blocked" | "failed" | null; source: string; unavailable?: Unavailable };
+export type AuditEntry = { id: string; time: string; actor: { kind: "user" | "agent" | "system"; name: string }; action: string; target: string; result: "ok" | "pending" | "blocked" | "failed" | "unconfirmed" | "expired" | null; source: string; unavailable?: Unavailable };
 export type AuditView = {
   items: AuditEntry[];
   counts: Record<"all" | "user" | "agent" | "system", number>;

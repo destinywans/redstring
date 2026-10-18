@@ -7640,7 +7640,7 @@
       "get": {
         "summary": "Read environment-scoped audit events",
         "operationId": "get_audit",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Unknown or ambiguous historical environment rows are omitted; counts reflect visible records only. An application row is listed only in the environment named by its changes.environment_id; executor, canvas reply and other rows written before PA-93 without one stay in the hash chain unchanged and are not listed. Repeated action is exact persisted action code; result uses ok/pending/blocked/failed with the same canonical outcome mapping as the response; a row whose outcome cannot be classified has result null and unavailable.result. Time/action/result filters apply before cursor selection, counts and volume. range volume uses seven equal-duration buckets; default volume retains seven UTC calendar days.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Unknown or ambiguous historical environment rows are omitted; counts reflect visible records only. An application row is listed only in the environment named by its changes.environment_id; executor, canvas reply and other rows written before PA-93 without one stay in the hash chain unchanged and are not listed. Repeated action is exact persisted action code; result uses ok/pending/blocked/failed/unconfirmed/expired with the same canonical outcome mapping as the response (outcome unknown is unconfirmed, not failed; expired is expired, PA-206); a row whose outcome cannot be classified has result null and unavailable.result. Time/action/result filters apply before cursor selection, counts and volume. range volume uses seven equal-duration buckets; default volume retains seven UTC calendar days.",
         "responses": {
           "200": {
             "description": "Success",
@@ -35287,7 +35287,7 @@
       "get": {
         "summary": "Read complete authorized alert rule summaries",
         "operationId": "get_alert_rules",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result (403/503). Counts describe the complete authorized result. When no application is visible to the caller before any provider read, the list is empty with empty_reason=no_authorized_target (PA-09) instead of 403. Without a configured rule provider or group bindings, items and counts are null with unavailable=not_configured instead of 503. Upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected. D11 §11.6: with the executor wired each item carries lifecycle (active, or disable_pending_approval, disabling or needs_attention with the disable proposal and execution IDs), apart from whether the rule fires; when it cannot be read, lifecycle is omitted and unavailable names items[].lifecycle.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Rules come from configured Prometheus sources and exact server-owned file/group application bindings, with matching environment/application labels and current application or owner-team alert_rules.view. Application/team scope and grants are rechecked after provider reads; changed scope does not return the old result (403/503). Counts describe the complete authorized result. state (PA-210) is error while Prometheus reports health=err (even if it last fired, and then not counted as firing), firing or pending as Prometheus reports, ok only for an inactive rule with health=ok, and unknown when the rule has not been evaluated or reports no health. When no application is visible to the caller before any provider read, the list is empty with empty_reason=no_authorized_target (PA-09) instead of 403. Without a configured rule provider or group bindings, items and counts are null with unavailable=not_configured instead of 503. Upstream failure or a result above the bound returns an error rather than synthetic or partial counts. Scheduled is zero until a trusted schedule source is connected. D11 §11.6: with the executor wired each item carries lifecycle (active, or disable_pending_approval, disabling or needs_attention with the disable proposal and execution IDs), apart from whether the rule fires; when it cannot be read, lifecycle is omitted and unavailable names items[].lifecycle.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40906,7 +40906,7 @@
       "get": {
         "summary": "Read scoped persisted postmortem dashboard evidence",
         "operationId": "get_postmortems",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads persisted reports and their exact legacy investigation close or manual case resolved status event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, real source event date, recorded workflow status and action total. A manual case has no proven outage duration, so duration stays null and dashboard duration coverage is unknown. Invalid severity or absent root text are nullable rather than blocking other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid legacy durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413. service filters stable application IDs before aggregation/page; cause categories have no producer and requests containing cause return 503 cause_classification_unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads persisted reports and their exact legacy investigation close or manual case resolved status event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, real source event date, recorded workflow status, action total and the application_id of each record (its service, PA-218). A manual case has no proven outage duration, so duration stays null and dashboard duration coverage is unknown. Invalid severity or absent root text are nullable rather than blocking other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid legacy durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413. service filters stable application IDs before aggregation/page; cause categories have no producer and requests containing cause return 503 cause_classification_unavailable.",
         "responses": {
           "200": {
             "description": "Success",
@@ -57275,7 +57275,7 @@
       "get": {
         "summary": "Read scoped Webhook and API integration overview",
         "operationId": "get_webhooks",
-        "description": "Minimum role: viewer with scoped connectors.view and services.view. V3 instance and environment scope apply. Shows only configured generic V3 Push routes and optionally injected native Alertmanager/GitLab receivers whose application and environment are currently visible. The generic count is accepted, non-synthetic ingress receipts in the past 24 hours; its last and status reflect only the latest receipt in that window, not continuous source health. Alertmanager count and last derive from accepted deduplicated occurrences in the past 24 hours; its status stays unverified because acceptance does not prove ongoing sender health. GitLab historical receipts lack persisted application/environment attribution and may predate a project rebind, so its count and last are unknown and status remains unverified. Delivery rows are generic Push inbound receipts only, not vendor receipts or outbound delivery. No visible source is reported as no_visible_sources without exposing other environments. API tokens, public MCP serving and outbound delivery are not connected; their arrays are empty and availability states disclose that limit. Outbound redelivery is disabled. No credential or source secret is returned. The frozen frontend only types ok/error for inbound status and may need to render unverified and availability.",
+        "description": "Minimum role: viewer with scoped connectors.view and services.view. V3 instance and environment scope apply. Shows only configured generic V3 Push routes and optionally injected native Alertmanager/GitLab receivers whose application and environment are currently visible. The generic count is accepted, non-synthetic ingress receipts in the past 24 hours; its last and status reflect only the latest receipt in that window, not continuous source health. Alertmanager count and last derive from accepted deduplicated occurrences in the past 24 hours; its status stays unverified because acceptance does not prove ongoing sender health. GitLab historical receipts lack persisted application/environment attribution and may predate a project rebind, so its count and last are unknown and status remains unverified. Delivery rows are generic Push inbound receipts only, not vendor receipts or outbound delivery; each carries the source_id and event_type of its inbound entry, at most the latest 30 per entry (PA-227). No visible source is reported as no_visible_sources without exposing other environments. API tokens, public MCP serving and outbound delivery are not connected; their arrays are empty and availability states disclose that limit. Outbound redelivery is disabled. No credential or source secret is returned. The frozen frontend only types ok/error for inbound status and may need to render unverified and availability.",
         "responses": {
           "200": {
             "description": "Success",
@@ -77754,7 +77754,9 @@
             "enum": [
               "firing",
               "pending",
-              "ok"
+              "ok",
+              "error",
+              "unknown"
             ]
           }
         },
@@ -77791,7 +77793,9 @@
             "enum": [
               "firing",
               "pending",
-              "ok"
+              "ok",
+              "error",
+              "unknown"
             ]
           },
           "datasource": {
@@ -77850,7 +77854,9 @@
             "enum": [
               "firing",
               "pending",
-              "ok"
+              "ok",
+              "error",
+              "unknown"
             ]
           },
           "schedule": {
@@ -77942,7 +77948,7 @@
                 "type": "null"
               }
             ],
-            "description": "D11 §11.6: enables and disables not in effect yet, only proposals the caller may view (proposals.view on the application or its owner team), newest first, at most 50; failed and rejected only within seven days. href is the review page until the executor has an execution, then the execution page. Null, with unavailable.pending, when it cannot be read; absent when no executor is wired."
+            "description": "D11 §11.6: enables and disables not in effect yet, only proposals the caller may view (proposals.view on the application or its owner team), newest first, at most 50; failed, rejected and expired only within seven days. href is the review page until the executor has an execution, then the execution page. Null, with unavailable.pending, when it cannot be read; absent when no executor is wired."
           }
         },
         "additionalProperties": false,
@@ -77982,7 +77988,9 @@
             "enum": [
               "firing",
               "pending",
-              "ok"
+              "ok",
+              "error",
+              "unknown"
             ]
           },
           "query_ref": {
@@ -78059,6 +78067,13 @@
             ],
             "format": "date-time"
           },
+          "last_error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Prometheus lastError for a rule whose evaluation fails (state error); null otherwise."
+          },
           "partial": {
             "type": "boolean"
           },
@@ -78093,6 +78108,7 @@
           "route_path",
           "ai_triage",
           "last_eval",
+          "last_error",
           "partial",
           "unavailable"
         ]
@@ -80740,6 +80756,13 @@
                       "null"
                     ]
                   },
+                  "failure_code": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "description": "Failure code an alert rule enable or disable execution recorded with its state (for example load_timeout while awaiting_provider); null for other actions and while none is recorded."
+                  },
                   "unavailable": {
                     "$ref": "#/components/schemas/V3Unavailable"
                   }
@@ -80751,6 +80774,7 @@
                   "action_kind",
                   "status",
                   "upstream_id",
+                  "failure_code",
                   "unavailable"
                 ]
               },
@@ -80758,6 +80782,32 @@
                 "type": "null"
               }
             ]
+          },
+          "my_vote": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "verified_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "expires_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "verified_at",
+                  "expires_at"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The caller's latest passkey vote while it still counts toward the two approvals: set only in the detail of a pending proposal, null otherwise, in the reject response and once the vote has expired."
           },
           "decision": {
             "oneOf": [
@@ -80938,6 +80988,7 @@
           "requirement",
           "discussion",
           "execution",
+          "my_vote",
           "action_kind",
           "rollback",
           "alert_rule"
@@ -81480,6 +81531,9 @@
           "incident_id": {
             "type": "string"
           },
+          "application_id": {
+            "type": "string"
+          },
           "severity": {
             "oneOf": [
               {
@@ -81524,7 +81578,8 @@
           "actions",
           "status",
           "workflow_status",
-          "incident_id"
+          "incident_id",
+          "application_id"
         ]
       },
       "V3PostmortemCandidate": {
@@ -91539,6 +91594,8 @@
               "pending",
               "blocked",
               "failed",
+              "unconfirmed",
+              "expired",
               null
             ]
           },
@@ -91747,6 +91804,12 @@
           "time": {
             "type": "string"
           },
+          "source_id": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
           "event": {
             "type": "string"
           },
@@ -91760,6 +91823,8 @@
         "additionalProperties": false,
         "required": [
           "time",
+          "source_id",
+          "event_type",
           "event",
           "code",
           "ms"
@@ -93790,8 +93855,10 @@
               "executing",
               "needs_attention",
               "failed",
-              "rejected"
-            ]
+              "rejected",
+              "expired"
+            ],
+            "description": "expired (PA-217): approved, but the approval expired or was revoked before any execution, so the change will not run; updated_at is when it lapsed"
           },
           "updated_at": {
             "type": "string",

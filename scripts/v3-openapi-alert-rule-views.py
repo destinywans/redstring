@@ -74,12 +74,13 @@ S['V3AlertRuleSummary']['properties']['lifecycle'] = ref('V3AlertRuleLifecycle')
 S['V3AlertRulePending'] = obj({
     'proposal_id':string(),'execution_id':_text_or_null,'operation':string(enum=['enable','disable']),
     **fieldnames('rule_name group application_id environment_id href'),
-    'state':string(enum=['pending_approval','executing','needs_attention','failed','rejected']),
+    'state':string(enum=['pending_approval','executing','needs_attention','failed','rejected','expired'],
+        description='expired (PA-217): approved, but the approval expired or was revoked before any execution, so the change will not run; updated_at is when it lapsed'),
     'updated_at':string(format='date-time')},
     ['proposal_id','execution_id','operation','rule_name','group','application_id','environment_id','state','updated_at','href'])
 S['V3AlertRuleList']['properties']['pending'] = {**v3_nullable(arr(ref('V3AlertRulePending'))),
     'description':'D11 §11.6: enables and disables not in effect yet, only proposals the caller may view (proposals.view on the '
-        'application or its owner team), newest first, at most 50; failed and rejected only within seven days. href is the review '
+        'application or its owner team), newest first, at most 50; failed, rejected and expired only within seven days. href is the review '
         'page until the executor has an execution, then the execution page. Null, with unavailable.pending, when it cannot be read; '
         'absent when no executor is wired.'}
 P['/alert-rules']['get']['description'] += (' D11 §11.6: with the executor wired each item carries lifecycle (active, or '

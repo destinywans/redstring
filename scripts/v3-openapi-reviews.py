@@ -16,8 +16,14 @@ S['V3Proposal'] = obj({**fieldnames('id title impact proposed_by investigation_i
     # PA-36: null until a second approval allocates an execution.
     'execution':v3_nullable(obj({'execution_id':string(),'approved_at':string(format='date-time'),
         'action_kind':string(),'status':{'type':['string','null']},'upstream_id':{'type':['string','null']},
+        # PA-205: the code an alert rule execution recorded with its state.
+        'failure_code':{'type':['string','null'],'description':'Failure code an alert rule enable or disable execution recorded with its state (for example load_timeout while awaiting_provider); null for other actions and while none is recorded.'},
         'unavailable':ref('V3Unavailable')},
-        ['execution_id','approved_at','action_kind','status','upstream_id','unavailable'])),
+        ['execution_id','approved_at','action_kind','status','upstream_id','failure_code','unavailable'])),
+    # PA-205: whether the caller's own vote still counts toward the two approvals.
+    'my_vote':{**v3_nullable(obj({'verified_at':string(format='date-time'),'expires_at':string(format='date-time')},
+        ['verified_at','expires_at'])),
+        'description':'The caller\'s latest passkey vote while it still counts toward the two approvals: set only in the detail of a pending proposal, null otherwise, in the reject response and once the vote has expired.'},
     # PA-102: from the approval records; null while pending, also with one of two votes.
     'decision':v3_nullable(obj({'state':string(enum=['approved','rejected','expired'],
             description='expired: approved, but the approval lapsed before any executor took it up'),
@@ -31,7 +37,7 @@ S['V3Proposal'] = obj({**fieldnames('id title impact proposed_by investigation_i
         ['state','decided_at','approvers','rejected_by','reason','revoked']))},
     ['id','title','status','risk','impact','reversible','proposed_by','proposed_by_name','proposed_at',
      'investigation_id','target','diff','method','evidence','verification',
-     'verification_note','checklist','requirement','discussion','execution'])
+     'verification_note','checklist','requirement','discussion','execution','my_vote'])
 v3_route('get','/proposals/{id}','Read a scoped V3 proposal review record',response=ref('V3Proposal'),
     desc='Only records created by a trusted V3 producer can appear; existing rollback action_plans are not relabeled. execution is null until the second approval; then it carries the decision execution_id and approved_at, and status/upstream_id from the independent executor record (silence: reserved, dispatching, unknown, confirmed, expired, manual_review; alert rule enable or disable: the execution state, one of reserved, exporting, uncertain, pending_review, merged, awaiting_provider, enabled, disabled, failed, stale_remote), null with not_generated until the executor has recorded them (PA-36).')
 v3_route('post','/proposals/{id}/comments','Append an audited proposal comment',

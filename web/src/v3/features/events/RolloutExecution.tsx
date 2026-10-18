@@ -225,13 +225,16 @@ function Timeline({ e }: { e: RolloutExecutionDetail }) {
   const terminal = TERMINAL.includes(e.status);
   const cur = terminal ? (e.status === "succeeded" ? 4 : reached) : stepOf(e.status);
   const v = e.verification;
+  // A run that ended during verification (finished_at null) stopped observing when the ledger reached its terminal
+  // state, or at its last update without that entry; only a run still going counts against now (PA-201).
+  const ended = terminal ? (e.timeline.filter((t) => TERMINAL.includes(t.state as RolloutStatus)).at(-1)?.at ?? e.updated_at) : null;
   const steps: { title: string; sub: string | null }[] = [
     { title: tx("认领", "Claim"), sub: at(["reserved"]) },
     { title: tx("写入", "Write"), sub: e.status === "unknown" ? tx("结果不明，只读对账中", "Unknown; reconciling read-only") : at(["applied"]) ?? at(["dispatching"]) },
     { title: tx("滚动", "Roll out"), sub: e.rollout ? tx("{a}/{d} 可用", "{a}/{d} available", { a: e.rollout.available, d: e.rollout.desired }) : at(["rolling_out"]) },
     {
       title: tx("验证", "Verify"),
-      sub: v?.started_at ? (v.finished_at ? time(v.finished_at) : tx("已观察 {s}", "Observed {s}", { s: elapsed(v.started_at, SETTLE_S + v.plan.observation_seconds) })) : null,
+      sub: v?.started_at ? (v.finished_at ? time(v.finished_at) : tx("已观察 {s}", "Observed {s}", { s: elapsed(v.started_at, SETTLE_S + v.plan.observation_seconds, ended) })) : null,
     },
     { title: tx("结果", "Result"), sub: e.status === "succeeded" ? tx("已恢复", "Recovered") : e.status === "failed" ? tx("失败 · 未自动再写", "Failed · no automatic retry") : e.status === "needs_attention" ? tx("需要人工处理", "Needs attention") : tx("观察结束后判定", "Decided after observation") },
   ];
@@ -269,8 +272,8 @@ function Timeline({ e }: { e: RolloutExecutionDetail }) {
   );
 }
 
-function elapsed(start: string, total: number) {
-  const s = Math.max(0, Math.min(total, Math.round((Date.now() - Date.parse(start)) / 1000)));
+function elapsed(start: string, total: number, end: string | null) {
+  const s = Math.max(0, Math.min(total, Math.round(((end ? Date.parse(end) : Date.now()) - Date.parse(start)) / 1000)));
   const f = (x: number) => `${Math.floor(x / 60)}:${String(x % 60).padStart(2, "0")}`;
   return `${f(s)} / ${f(total)}`;
 }

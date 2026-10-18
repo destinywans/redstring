@@ -607,3 +607,57 @@ test.describe("AI flows say what they do and recover from failures (PA-225)", ()
     });
   });
 });
+
+/* ---------------- PA-228: write entries gated by the route's module and action ---------------- */
+
+test.describe("write entries are gated at the entry (PA-228)", () => {
+  test.use({ storageState: statePath("prod", "viewer"), viewport: { width: 1440, height: 1000 } });
+
+  test("new canvas: the dialog a ?new=investigation link opens can't be submitted without canvas.change", async ({ page }) => {
+    await page.addInitScript(zh);
+    let posted = 0;
+    await page.route(at("/canvases"), (r) => (r.request().method() === "POST" ? (posted++, json(r, 403, { error: { code: "forbidden", message: "check" } })) : r.fallback()));
+    await page.goto(origin + "/canvases?new=investigation");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("button", { name: "新建画布" })).toBeDisabled({ timeout: 20_000 });
+    await expect(dialog.locator(".perm-gate")).toContainText("需要 画布·修改 权限");
+    expect(posted).toBe(0);
+  });
+
+  test("templates: new template needs canvas.change", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/investigation-templates"), (r) => json(r, 200, { items: [], counts: {} }));
+    await page.goto(origin + "/templates");
+    await expect(page.getByRole("button", { name: "新建模板" })).toBeDisabled({ timeout: 20_000 });
+  });
+
+  test("runbook detail: submitting for review and the read-only check need knowledge.manage", async ({ page }) => {
+    await page.addInitScript(zh);
+    let posted = 0;
+    await page.route(at(`/runbooks/${RUNBOOK}`), (r) => json(r, 200, runbook()));
+    await page.route((u) => u.pathname.startsWith(`/api/v1/runbooks/${RUNBOOK}/`), (r) => (posted++, json(r, 403, { error: { code: "forbidden", message: "check" } })));
+    await page.goto(origin + `/runbooks/${RUNBOOK}`);
+    await expect(page.getByRole("button", { name: "提交复核" })).toBeDisabled({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "校验只读步骤" })).toBeDisabled();
+    expect(posted).toBe(0);
+  });
+
+  test("investigation canvas: dragging a node doesn't try to save its layout without canvas.change", async ({ page }) => {
+    await page.addInitScript(zh);
+    let patched = 0;
+    await page.route(at(`/investigations/${INV}/canvas`), (r) => json(r, 200, BRANCHED));
+    await page.route((u) => u.pathname.startsWith(`/api/v1/investigations/${INV}/nodes/`), (r) =>
+      r.request().method() === "PATCH" ? (patched++, json(r, 403, { error: { code: "forbidden", message: "check" } })) : r.fallback(),
+    );
+    await page.goto(origin + `/canvas/${INV}`);
+    const node = page.getByText("检查分支", { exact: true }).first();
+    const box = await node.boundingBox({ timeout: 20_000 });
+    if (!box) throw new Error("node not laid out");
+    await page.mouse.move(box.x + 10, box.y + 5);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 160, box.y + 120, { steps: 8 });
+    await page.mouse.up();
+    await page.waitForTimeout(800);
+    expect(patched).toBe(0);
+  });
+});

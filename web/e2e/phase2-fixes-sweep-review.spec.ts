@@ -159,6 +159,13 @@ test.describe("review page states (PA-205)", () => {
     const pending = (my_vote: unknown) => proposal({ action_kind: "alertmanager.silence.create", my_vote });
     let body: unknown = pending({ verified_at: new Date(now - 60_000).toISOString(), expires_at: new Date(now + 14 * 60_000).toISOString() });
     await page.route(at(`/proposals/${reviewId}`), (r) => json(r, 200, body));
+    // Both halves need someone who may approve: the acceptance admin holds no proposals.approve, and for them the
+    // header says 待审批 whatever the vote.
+    await page.goto(origin + "/healthz");
+    await patchRead(page, "/me", (me) => ({
+      ...me,
+      permissions: Object.fromEntries(Object.entries((me?.permissions ?? {}) as Record<string, Record<string, Record<string, string>>>).map(([env, mods]) => [env, { ...mods, proposals: { ...(mods?.proposals ?? {}), approve: "conditional" } }])),
+    }));
     await page.goto(origin + `/review/${reviewId}`);
     const top = page.locator(".v3-topbar");
     await expect(top).toContainText("待审批", { timeout: 20_000 });

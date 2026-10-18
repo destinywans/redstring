@@ -155,7 +155,8 @@ export default function RolesPage() {
                 {r.scope.map((s) => (
                   <Badge key={s}>{s}</Badge>
                 ))}
-                <AddChip label={tx("范围", "Scope")} free placeholder="app=payment" options={["app=payment", "app=search", "env=staging"]} />
+                {/* Adding a scope only changed local state and offered sample values; sample data only (PA-204, D52). */}
+                {API_MODE === "mock" && <AddChip label={tx("范围", "Scope")} free placeholder="app=payment" options={["app=payment", "app=search", "env=staging"]} />}
               </Row>
               <Tabs
                 pad="0"

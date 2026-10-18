@@ -103,7 +103,8 @@ func TestListFiltersByPersistedApplicationAndRuleLabels(t *testing.T) {
 }
 
 func TestListPartialAndUnavailableAreExplicit(t *testing.T) {
-	s := mustService(t, fakeCatalog{{ID: "a", EnvironmentID: "test"}, {ID: "b", EnvironmentID: "staging"}}, fakeAccess{}, fakeSource{rules: map[string][]ObservedRule{"test": {{GroupIdentity: testRuleFile + "\x00g", Group: "g", Name: "A", Expression: "up", Labels: map[string]string{"environment": "test", "application": "a"}}}}, fail: map[string]bool{"staging": true}}, RuleGroupBinding{EnvironmentID: "test", ApplicationID: "a", File: testRuleFile, Group: "g"})
+	s := mustService(t, fakeCatalog{{ID: "a", EnvironmentID: "test"}, {ID: "b", EnvironmentID: "staging"}}, fakeAccess{}, fakeSource{rules: map[string][]ObservedRule{"test": {{GroupIdentity: testRuleFile + "\x00g", Group: "g", Name: "A", Expression: "up", Labels: map[string]string{"environment": "test", "application": "a"}}}}, fail: map[string]bool{"staging": true}},
+		RuleGroupBinding{EnvironmentID: "test", ApplicationID: "a", File: testRuleFile, Group: "g"}, RuleGroupBinding{EnvironmentID: "staging", ApplicationID: "b", File: testRuleFile, Group: "g"})
 	w := call(t, scopedHandler(t, http.HandlerFunc(s.List)), "GET", "/api/v1/alert-rules/observed", "all")
 	if w.Code != 206 || !strings.Contains(w.Body.String(), `"unavailable_environments":["staging"]`) {
 		t.Fatalf("partial status=%d body=%s", w.Code, w.Body.String())
@@ -121,6 +122,75 @@ func TestListPartialAndUnavailableAreExplicit(t *testing.T) {
 	w = call(t, scopedHandler(t, http.HandlerFunc(none.MainList)), "GET", "/api/v1/alert-rules", "test")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"empty_reason":"no_authorized_target"`) || !strings.Contains(w.Body.String(), `"items":[]`) {
 		t.Fatalf("no visible application status=%d body=%s", w.Code, w.Body.String())
+	}
+}
+
+type countingSource struct {
+	fakeSource
+	asked map[string]int
+}
+
+func (s countingSource) List(ctx context.Context, env string) ([]ObservedRule, error) {
+	s.asked[env]++
+	return s.fakeSource.List(ctx, env)
+}
+
+// PA-191: an environment with visible applications but no bound rule group
+// has no rule source. That is the not_configured state, not a failed read;
+// only a provider that was asked and failed is unavailable.
+func TestEnvironmentWithoutRuleSourceIsNotConfigured(t *testing.T) {
+	testRule := ObservedRule{GroupIdentity: testRuleFile + "\x00g", Group: "g", Name: "A", Expression: "up", State: "firing", Labels: map[string]string{"environment": "test", "application": "a"}}
+	source := countingSource{fakeSource{rules: map[string][]ObservedRule{"test": {testRule}}, fail: map[string]bool{"staging": true}}, map[string]int{}}
+	s := mustService(t, fakeCatalog{{ID: "a", EnvironmentID: "test"}, {ID: "b", EnvironmentID: "staging"}}, fakeAccess{}, source,
+		RuleGroupBinding{EnvironmentID: "test", ApplicationID: "a", File: testRuleFile, Group: "g"})
+	notConfigured := func(w *httptest.ResponseRecorder, what string) {
+		t.Helper()
+		body := w.Body.String()
+		if w.Code != 200 || !strings.Contains(body, `"items":null`) || !strings.Contains(body, `"counts":null`) ||
+			!strings.Contains(body, `"items":"not_configured"`) || !strings.Contains(body, `"counts":"not_configured"`) || strings.Contains(body, `"name":"A"`) {
+			t.Fatalf("%s: status=%d body=%s", what, w.Code, body)
+		}
+	}
+	for _, handler := range []http.HandlerFunc{s.MainList, s.List} {
+		notConfigured(call(t, scopedHandler(t, handler), "GET", "/api/v1/alert-rules", "staging"), "environment without a rule source")
+	}
+	if source.asked["staging"] != 0 {
+		t.Fatalf("provider asked for an environment without bound rule groups: %v", source.asked)
+	}
+	w := call(t, scopedHandler(t, http.HandlerFunc(s.MainList)), "GET", "/api/v1/alert-rules", "test")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"A"`) || !strings.Contains(w.Body.String(), `"counts":{"all":1,"firing":1,"scheduled":0}`) {
+		t.Fatalf("configured environment changed: status=%d body=%s", w.Code, w.Body.String())
+	}
+	// The main list's counts cover the whole visible scope, so one environment
+	// without a source leaves the "all" view unknown rather than partial.
+	notConfigured(call(t, scopedHandler(t, http.HandlerFunc(s.MainList)), "GET", "/api/v1/alert-rules", "all"), "all view with an unconfigured environment")
+	w = call(t, scopedHandler(t, http.HandlerFunc(s.List)), "GET", "/api/v1/alert-rules/observed", "all")
+	if w.Code != 206 || !strings.Contains(w.Body.String(), `"unavailable_environments":["staging"]`) || !strings.Contains(w.Body.String(), `"name":"A"`) {
+		t.Fatalf("auxiliary partial list hid the unconfigured environment: status=%d body=%s", w.Code, w.Body.String())
+	}
+	detail := func(id string) *httptest.ResponseRecorder {
+		return call(t, scopedHandler(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.SetPathValue("id", id)
+			s.Detail(w, r)
+		})), "GET", "/api/v1/alert-rules/observed/"+id, "all")
+	}
+	if w = detail(toDetail("test", "a", testRule).ID); w.Code != 200 || !strings.Contains(w.Body.String(), `"name":"A"`) {
+		t.Fatalf("known rule lost beside an unconfigured environment: status=%d body=%s", w.Code, w.Body.String())
+	}
+	if w = detail("nonexistent"); w.Code != 404 {
+		t.Fatalf("an unconfigured environment made a missing rule unknown: status=%d body=%s", w.Code, w.Body.String())
+	}
+	// A configured provider that fails is still a failure, also beside an
+	// unconfigured environment.
+	source.fail["test"] = true
+	for _, env := range []string{"test", "all"} {
+		w = call(t, scopedHandler(t, http.HandlerFunc(s.MainList)), "GET", "/api/v1/alert-rules", env)
+		if w.Code != 503 || !strings.Contains(w.Body.String(), "alert_rules_unavailable") || strings.Contains(w.Body.String(), "not_configured") {
+			t.Fatalf("failed provider in %s read as not configured: status=%d body=%s", env, w.Code, w.Body.String())
+		}
+	}
+	if source.asked["staging"] != 0 {
+		t.Fatalf("provider asked for an environment without bound rule groups: %v", source.asked)
 	}
 }
 

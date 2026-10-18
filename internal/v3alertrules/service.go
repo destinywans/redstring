@@ -101,6 +101,9 @@ type Service struct {
 	Source   Source
 	Now      func() time.Time
 	bindings map[string]string // environment + provider group identity -> application ID
+	// ruleEnvs holds the environments with at least one bound rule group. In
+	// any other environment no rule can be shown, so it has no rule source.
+	ruleEnvs map[string]bool
 	// D32: environment + application ID -> application label value, and
 	// environment + label value -> application ID.
 	appLabels, labelApps map[string]string
@@ -114,6 +117,7 @@ type RuleGroupBinding = v3rulemodel.RuleGroupBinding
 
 func New(catalog Catalog, access Access, source Source, bindings []RuleGroupBinding) (*Service, error) {
 	index := make(map[string]string, len(bindings))
+	ruleEnvs := map[string]bool{}
 	appLabels, labelApps := make(map[string]string), make(map[string]string)
 	for _, b := range bindings {
 		if b.EnvironmentID == "" || b.EnvironmentID == "all" || b.ApplicationID == "" || b.File == "" || b.Group == "" ||
@@ -125,6 +129,7 @@ func New(catalog Catalog, access Access, source Source, bindings []RuleGroupBind
 			return nil, errors.New("duplicate alert rule group binding")
 		}
 		index[key] = b.ApplicationID
+		ruleEnvs[b.EnvironmentID] = true
 		label := b.ApplicationLabel
 		if label == "" {
 			label = b.ApplicationID
@@ -143,7 +148,7 @@ func New(catalog Catalog, access Access, source Source, bindings []RuleGroupBind
 		}
 		appLabels[appKey], labelApps[labelKey] = label, b.ApplicationID
 	}
-	return &Service{Catalog: catalog, Access: access, Source: source, bindings: index, appLabels: appLabels, labelApps: labelApps}, nil
+	return &Service{Catalog: catalog, Access: access, Source: source, bindings: index, ruleEnvs: ruleEnvs, appLabels: appLabels, labelApps: labelApps}, nil
 }
 
 // ApplicationLabel is the "application" label value of app's rules in env
@@ -202,7 +207,7 @@ func listState(w http.ResponseWriter, err error) bool {
 }
 
 func (s *Service) MainList(w http.ResponseWriter, r *http.Request) {
-	items, unavailable, status, err := s.visible(r)
+	items, unavailable, notConfigured, status, err := s.visible(r)
 	if listState(w, err) {
 		return
 	}
@@ -212,6 +217,13 @@ func (s *Service) MainList(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(unavailable) != 0 {
 		httpapi.Error(w, http.StatusServiceUnavailable, "alert_rules_unavailable", "An authorized alert rule source is unavailable")
+		return
+	}
+	// The list and counts cover the whole visible scope. An environment
+	// without a rule source leaves that scope unknown, so the configured
+	// environments' rules are not published as if complete (PA-191).
+	if len(notConfigured) != 0 {
+		listState(w, errRuleSourceNotConfigured)
 		return
 	}
 	type mainSummary struct {
@@ -268,10 +280,16 @@ var (
 	errRuleSourceNotConfigured = errors.New("alert rule provider or group bindings not configured")
 )
 
-func (s *Service) visible(r *http.Request) ([]Detail, []string, int, error) {
+// visible reads the rules the user may see in the request's environments.
+// unavailable lists the environments whose provider read failed. notConfigured
+// lists those with visible applications but no bound rule group: no rule can
+// be shown there, so their provider is not asked. A failed read is an error;
+// a missing source is a state, and only all of them missing is
+// errRuleSourceNotConfigured (PA-191).
+func (s *Service) visible(r *http.Request) ([]Detail, []string, []string, int, error) {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok || len(scope.EnvironmentIDs) == 0 || s.Catalog == nil || s.Access == nil {
-		return nil, nil, http.StatusServiceUnavailable, errors.New("environment scope, catalog or policy unavailable")
+		return nil, nil, nil, http.StatusServiceUnavailable, errors.New("environment scope, catalog or policy unavailable")
 	}
 	user := httpapi.CurrentUser(r)
 	allowed, status, err := s.authorizedApplications(r.Context(), user, scope.EnvironmentIDs)
@@ -279,17 +297,21 @@ func (s *Service) visible(r *http.Request) ([]Detail, []string, int, error) {
 		// Nothing visible before any provider read: lists report an empty
 		// scope; detail lookups keep the forbidden status.
 		if status == http.StatusForbidden {
-			return nil, nil, status, fmt.Errorf("%w: %w", errNoVisibleApplication, err)
+			return nil, nil, nil, status, fmt.Errorf("%w: %w", errNoVisibleApplication, err)
 		}
-		return nil, nil, status, err
+		return nil, nil, nil, status, err
 	}
 	if s.Source == nil || len(s.bindings) == 0 {
-		return nil, nil, http.StatusServiceUnavailable, errRuleSourceNotConfigured
+		return nil, nil, nil, http.StatusServiceUnavailable, errRuleSourceNotConfigured
 	}
 	items := []Detail{}
-	unavailable := []string{}
+	unavailable, notConfigured := []string{}, []string{}
 	for _, env := range scope.EnvironmentIDs {
 		if len(allowed[env]) == 0 {
+			continue
+		}
+		if !s.ruleEnvs[env] {
+			notConfigured = append(notConfigured, env)
 			continue
 		}
 		rules, err := s.Source.List(r.Context(), env)
@@ -298,7 +320,7 @@ func (s *Service) visible(r *http.Request) ([]Detail, []string, int, error) {
 			continue
 		}
 		if len(rules) > 500 || len(items)+len(rules) > 500 {
-			return nil, nil, http.StatusServiceUnavailable, errors.New("alert rule result exceeds 500-row bound")
+			return nil, nil, nil, http.StatusServiceUnavailable, errors.New("alert rule result exceeds 500-row bound")
 		}
 		for _, rule := range rules {
 			app, bound := s.bindings[bindingKey(env, rule.GroupIdentity)]
@@ -312,16 +334,19 @@ func (s *Service) visible(r *http.Request) ([]Detail, []string, int, error) {
 	// owner to change. Refuse to publish a list built from a different scope.
 	current, status, err := s.authorizedApplications(r.Context(), user, scope.EnvironmentIDs)
 	if err != nil {
-		return nil, nil, status, err
+		return nil, nil, nil, status, err
 	}
 	if !reflect.DeepEqual(allowed, current) {
-		return nil, nil, http.StatusServiceUnavailable, errors.New("alert rule scope changed while reading provider")
+		return nil, nil, nil, http.StatusServiceUnavailable, errors.New("alert rule scope changed while reading provider")
 	}
-	if len(unavailable) > 0 && len(unavailable) == len(allowed) {
-		return nil, nil, http.StatusServiceUnavailable, errors.New("all authorized rule providers unavailable")
+	if len(notConfigured) == len(allowed) {
+		return nil, nil, nil, http.StatusServiceUnavailable, errRuleSourceNotConfigured
+	}
+	if len(unavailable) > 0 && len(unavailable)+len(notConfigured) == len(allowed) {
+		return nil, nil, nil, http.StatusServiceUnavailable, errors.New("all configured rule providers unavailable")
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
-	return items, unavailable, http.StatusOK, nil
+	return items, unavailable, notConfigured, http.StatusOK, nil
 }
 
 func (s *Service) authorizedApplications(ctx context.Context, user core.User, environments []string) (map[string]map[string]Application, int, error) {
@@ -388,7 +413,7 @@ func toDetail(env, app string, rule ObservedRule) Detail {
 }
 
 func (s *Service) List(w http.ResponseWriter, r *http.Request) {
-	items, unavailable, status, err := s.visible(r)
+	items, unavailable, notConfigured, status, err := s.visible(r)
 	if listState(w, err) {
 		return
 	}
@@ -396,6 +421,10 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, status, errorCode(status), "Alert rule source or authorization is unavailable")
 		return
 	}
+	// This auxiliary list is partial by design: an environment without a rule
+	// source is as unknown here as one whose provider failed.
+	unavailable = append(unavailable, notConfigured...)
+	sort.Strings(unavailable)
 	summaries := make([]Summary, 0, len(items))
 	counts := map[string]int{"all": 0, "firing": 0, "scheduled": 0}
 	for _, item := range items {
@@ -431,7 +460,9 @@ func (s *Service) findRule(r *http.Request, rawID string) (Detail, *ruleLookupEr
 	if len(id) > 100 || id == "" {
 		return Detail{}, &ruleLookupError{http.StatusNotFound, "not_found", "Alert rule not found"}
 	}
-	items, unavailable, status, err := s.visible(r)
+	// An environment without a rule source has no rule to resolve, so only
+	// a failed provider makes a missing rule unknown rather than absent.
+	items, unavailable, _, status, err := s.visible(r)
 	if err != nil {
 		return Detail{}, &ruleLookupError{status, errorCode(status), "Alert rule source or authorization is unavailable"}
 	}

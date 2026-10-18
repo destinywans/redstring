@@ -475,19 +475,22 @@ export default function DocCanvasPage() {
             <IconBtn icon="fit" label={tx("适应画布", "Fit")} size={26} onClick={fit} />
           </div>
           <div className="cv-toolbar" role="toolbar" aria-label={tx("画布工具", "Canvas tools")} onPointerDown={(e) => e.stopPropagation()}>
-            {/* Forking a doc-canvas branch has no endpoint yet; sample data only. */}
+            {/* Forking, merging and writing back doc-canvas branches have no endpoint yet (only investigations write
+                back); sample data only, so real mode shows no action that only says it happened (D52, PA-220). */}
             {API_MODE === "mock" && (
-              <Btn kind="ghost" icon="fork" onClick={() => toast(tx("已从「{p}」派生新分支，继承其上下文", "Forked a branch from “{p}” with its context", { p: selected?.title ?? "" }))}>
-                {tx("派生", "Fork")}
-              </Btn>
+              <>
+                <Btn kind="ghost" icon="fork" onClick={() => toast(tx("已从「{p}」派生新分支，继承其上下文", "Forked a branch from “{p}” with its context", { p: selected?.title ?? "" }))}>
+                  {tx("派生", "Fork")}
+                </Btn>
+                <Btn kind="ghost" icon="merge" onClick={() => toast(tx("请选择两个同级分支进行合并", "Select two sibling branches to merge"))}>
+                  {tx("合并", "Merge")}
+                </Btn>
+                <Btn kind="ghost" icon="writeback" onClick={() => toast(tx("回写会生成主线的新版本，可撤销", "Write-back creates a new main-line version you can revert"))}>
+                  {tx("回写", "Write back")}
+                </Btn>
+                <span className="v3-vdivider" />
+              </>
             )}
-            <Btn kind="ghost" icon="merge" onClick={() => toast(tx("请选择两个同级分支进行合并", "Select two sibling branches to merge"))}>
-              {tx("合并", "Merge")}
-            </Btn>
-            <Btn kind="ghost" icon="writeback" onClick={() => toast(tx("回写会生成主线的新版本，可撤销", "Write-back creates a new main-line version you can revert"))}>
-              {tx("回写", "Write back")}
-            </Btn>
-            <span className="v3-vdivider" />
             <Btn kind="ghost" icon="file" onClick={() => setTab("artifacts")}>
               {tx("产物", "Artifacts")}
             </Btn>

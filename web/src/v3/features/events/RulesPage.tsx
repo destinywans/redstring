@@ -15,6 +15,14 @@ import { ChipSelect, AddChip, SampleOnly } from "../../ui/demo";
 import { useFirstSelection } from "../../ui/selection";
 import { DisableRuleDialog } from "./DisableRuleDialog";
 
+/**
+ * PA-210: besides firing, pending and ok, the server says "error" (Prometheus fails to evaluate the rule, so its alert
+ * state is stale) and "unknown" (not evaluated yet); last_error is Prometheus's error for an "error" rule.
+ */
+type RuleState = AlertRuleSummary["state"] | "error" | "unknown";
+const ruleState = (x: { state: string }) => x.state as RuleState;
+const lastError = (r: AlertRule) => (r as AlertRule & { last_error?: string | null }).last_error ?? null;
+
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
     <section className="rule-step">
@@ -61,7 +69,13 @@ export default function RulesPage() {
     items.forEach((x) => m.set(x.folder, [...(m.get(x.folder) ?? []), x]));
     return [...m.entries()];
   }, [list.data, filter, q]);
-  const STATE = { firing: ["danger", tx("触发中", "Firing")], pending: ["warn", tx("待定", "Pending")], ok: ["ok", tx("正常", "OK")] } as const;
+  const STATE: Record<RuleState, [Tone, string]> = {
+    firing: ["danger", tx("触发中", "Firing")],
+    pending: ["warn", tx("待定", "Pending")],
+    ok: ["ok", tx("正常", "OK")],
+    error: ["danger", tx("求值出错", "Evaluation error")],
+    unknown: ["neutral", tx("健康未知", "Health unknown")],
+  };
   const nav = useNavigate();
   // D11 §11.6: the lifecycle (where the rule is in enable/disable) is told apart from the trigger state (the dot).
   const LIFE: Record<AlertRuleLifecycle["state"], [Tone, string]> = {
@@ -142,7 +156,7 @@ export default function RulesPage() {
               </div>
               {rules.map((x) => (
                 <button key={x.id} type="button" className={cx("rule-item", x.id === sel && "on")} onClick={() => setSel(x.id)}>
-                  <Dot tone={x.state === "firing" ? "danger" : x.state === "pending" ? "warn" : "ok"} size={7} pulse={x.state === "firing"} />
+                  <Dot tone={STATE[ruleState(x)][0]} size={7} pulse={x.state === "firing"} />
                   <span className="ellipsis grow">{x.name}</span>
                   {x.schedule && <Muted size={11}>{x.schedule}</Muted>}
                   {x.lifecycle && x.lifecycle.state !== "active" && <Badge tone={LIFE[x.lifecycle.state][0]}>{LIFE[x.lifecycle.state][1]}</Badge>}
@@ -171,10 +185,11 @@ export default function RulesPage() {
             <div className="rule-editor anim-fade" key={r.id + tab}>
               <Row gap={8} wrap>
                 <h2 style={{ fontSize: 16, fontWeight: 600 }}>{r.name}</h2>
-                <State tone={STATE[r.state][0]}>{STATE[r.state][1]}</State>
+                <State tone={STATE[ruleState(r)][0]}>{STATE[ruleState(r)][1]}</State>
                 <Muted size={11.5}>
                   {r.last_eval ? tx("最近评估 {t}", "Last evaluated {t}", { t: when.clock(r.last_eval) ?? "—" }) : tx("最近评估", "Last evaluated")}
                   {r.evaluation_ms != null && tx(" · 用时 {n} ms", " · {n} ms", { n: Math.round(r.evaluation_ms) })}
+                  {lastError(r) && tx(" · 出错：{e}", " · error: {e}", { e: lastError(r)! })}
                 </Muted>
                 {!r.last_eval && <UnknownValue />}
                 <Spacer />

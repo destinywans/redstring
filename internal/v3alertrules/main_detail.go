@@ -37,8 +37,11 @@ type mainRuleDetail struct {
 	RoutePath                 any               `json:"route_path"`
 	AITriage                  any               `json:"ai_triage"`
 	LastEval                  *string           `json:"last_eval"`
-	Partial                   bool              `json:"partial"`
-	Unavailable               []string          `json:"unavailable"`
+	// LastError is Prometheus's error for a rule whose evaluation fails
+	// (state "error"); null otherwise (PA-210).
+	LastError   *string  `json:"last_error"`
+	Partial     bool     `json:"partial"`
+	Unavailable []string `json:"unavailable"`
 }
 
 func (s *Service) MainDetail(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +73,10 @@ func (s *Service) MainDetail(w http.ResponseWriter, r *http.Request) {
 	if item.LastEvaluation != "" {
 		lastEval = &item.LastEvaluation
 	}
+	var lastError *string
+	if item.State == "error" && item.lastError != "" {
+		lastError = &item.lastError
+	}
 	var evaluationMS *float64
 	if lastEval != nil && item.EvaluationMS > 0 {
 		evaluationMS = &item.EvaluationMS
@@ -93,6 +100,6 @@ func (s *Service) MainDetail(w http.ResponseWriter, r *http.Request) {
 		Datasource: item.Datasource, Expr: item.Expr, ForSeconds: item.ForSeconds,
 		EvaluationIntervalSeconds: interval, EvaluationMS: evaluationMS,
 		Labels: labels, Annotations: annotations, Annotation: annotation,
-		LastEval: lastEval, Partial: true, Unavailable: unavailable,
+		LastEval: lastEval, LastError: lastError, Partial: true, Unavailable: unavailable,
 	})
 }

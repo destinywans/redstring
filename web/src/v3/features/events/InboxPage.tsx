@@ -305,9 +305,12 @@ export default function InboxPage() {
       flush
       crumbs={[tx("事件与告警", "Events"), tx("收件箱", "Inbox")]}
       actions={
-        <Btn kind="ghost" icon="check" onClick={() => { setRead(new Set(items.map((i) => i.id))); toast(tx("已全部标为已读", "All marked as read")); }}>
-          {tx("全部标为已读", "Mark all read")}
-        </Btn>
+        // The server keeps no read state, so marking everything read only exists in the sample (PA-220, D52).
+        API_MODE === "mock" && (
+          <Btn kind="ghost" icon="check" onClick={() => { setRead(new Set(items.map((i) => i.id))); toast(tx("已全部标为已读", "All marked as read")); }}>
+            {tx("全部标为已读", "Mark all read")}
+          </Btn>
+        )
       }
     >
       <div className="v3-split">

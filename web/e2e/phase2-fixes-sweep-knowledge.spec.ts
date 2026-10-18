@@ -520,3 +520,90 @@ test.describe("unknown reasons match the facts (PA-223)", () => {
     expect(await reasonOf(row.locator(".unk").first())).not.toMatch(/未接入|还没有连接/);
   });
 });
+
+/* ---------------- PA-225: AI and asking flows ---------------- */
+
+const CONV = "conv-sweep-check";
+const CONVERSATION = {
+  id: CONV, title: "清扫检查对话", mode: "chat", status: "active", scope: { inferred: false }, messages: [], artifacts: [],
+  side: { connectors: [], context: { used: null, budget: null, parts: [] }, recalled: [] },
+};
+const BRANCHED = {
+  ...CANVAS,
+  nodes: [
+    { id: "r1", kind: "root", title: "检查根节点", subtitle: "", status: "active", x: 0, y: 0, w: 280 },
+    { id: "b1", kind: "branch", parent: "r1", title: "检查分支", subtitle: "", status: "active", x: 400, y: 0, w: 280, summary: null },
+  ],
+};
+
+test.describe("AI flows say what they do and recover from failures (PA-225)", () => {
+  test.describe("as admin", () => {
+    test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+    test("new canvas: the AI draft says it uses only the title, goal and services", async ({ page }) => {
+      await page.addInitScript(zh);
+      await page.goto(origin + "/canvases");
+      await page.getByRole("button", { name: "新建画布" }).first().click({ timeout: 20_000 });
+      await expect(page.getByText("只根据标题、目标和所选服务起草，不读取指标或 Runbook")).toBeVisible();
+      await expect(page.getByText("基于服务映射、历史指标和已有 Runbook")).toHaveCount(0);
+    });
+
+    test("ask AI: a failed request says so and doesn't keep generating", async ({ page }) => {
+      await page.addInitScript(zh);
+      let posts = 0;
+      await page.route(at("/conversations"), (r) => (r.request().method() === "POST" ? (posts++, json(r, 503, { error: { code: "conversation_unavailable", message: "对话服务暂时不可用" } })) : r.fallback()));
+      await page.route(at("/postmortems"), postmortems);
+      await page.goto(origin + "/postmortems");
+      await page.getByRole("button", { name: /问 AI/ }).click({ timeout: 20_000 });
+      const card = page.locator(".ask-card");
+      await card.getByRole("button", { name: "解释这页的异常" }).click();
+      await expect(page.locator(".v3-toast")).toContainText("对话服务暂时不可用");
+      await expect(card.getByText("生成中")).toHaveCount(0);
+      // Not stuck in "sending": the same suggestion sends again.
+      await card.getByRole("button", { name: "解释这页的异常" }).click();
+      await expect.poll(() => posts).toBe(2);
+    });
+
+    test("conversation: a send the server rejects says why and frees the composer", async ({ page }) => {
+      await page.addInitScript(zh);
+      await page.route(at(`/conversations/${CONV}`), (r) => json(r, 200, CONVERSATION));
+      await page.route(at(`/conversations/${CONV}/messages`), (r) =>
+        r.request().method() === "POST" ? json(r, 413, { error: { code: "message_too_large", message: "消息超过长度上限" } }) : r.fallback(),
+      );
+      await page.goto(origin + `/conversations/${CONV}`);
+      const box = page.getByRole("textbox", { name: "向 AI 下指令" });
+      await box.fill("检查消息", { timeout: 20_000 });
+      await box.press("Enter");
+      await expect(page.locator(".v3-toast")).toContainText("消息超过长度上限");
+      await expect(page.getByRole("button", { name: "停止生成" })).toHaveCount(0);
+      await expect(page.locator("button.send .v3-spinner")).toHaveCount(0);
+    });
+  });
+
+  test.describe("without the grant", () => {
+    test.use({ storageState: statePath("prod", "viewer"), viewport: { width: 1440, height: 1000 } });
+
+    test("ask AI: the suggestions are disabled like the composer", async ({ page }) => {
+      await page.addInitScript(zh);
+      let posts = 0;
+      await page.route(at("/conversations"), (r) => (r.request().method() === "POST" ? (posts++, json(r, 403, { error: { code: "forbidden", message: "check" } })) : r.fallback()));
+      await page.route(at("/postmortems"), postmortems);
+      await page.goto(origin + "/postmortems");
+      await page.getByRole("button", { name: /问 AI/ }).click({ timeout: 20_000 });
+      const suggestion = page.locator(".ask-card").getByRole("button", { name: "解释这页的异常" });
+      await expect(suggestion).toBeDisabled();
+      await expect(page.locator(".ask-card .perm-gate")).toHaveCount(1);
+      expect(posts).toBe(0);
+    });
+
+    test("investigation canvas: the branch's inline follow-up is gated like the toolbar", async ({ page }) => {
+      await page.addInitScript(zh);
+      await page.route(at(`/investigations/${INV}/canvas`), (r) => json(r, 200, BRANCHED));
+      await page.goto(origin + `/canvas/${INV}`);
+      await page.getByText("检查分支", { exact: true }).first().click({ timeout: 20_000 });
+      const input = page.getByRole("textbox", { name: "在这个分支继续追问" });
+      await expect(input).toBeDisabled();
+      await expect(input).toHaveAttribute("placeholder", /需要 画布·修改 权限/);
+    });
+  });
+});

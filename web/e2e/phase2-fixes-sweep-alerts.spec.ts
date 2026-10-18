@@ -480,3 +480,79 @@ test.describe("fields the server never fills say they aren't tracked (PA-223)", 
     await expectUntracked(detail, 7);
   });
 });
+
+test.describe("real controls don't pretend to do what the server doesn't (PA-224)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("alerts: no grouping picker that never reaches the request", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinAlerts(page);
+    await page.goto(origin + "/alerts");
+    await expect(page.locator(".alert-group").first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".demo-chip", { hasText: "分组" })).toHaveCount(0);
+  });
+
+  test("new rule: no YAML tab that edits nothing, and import starts empty", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/alert-rules/new?tab=import");
+    const box = page.locator(".v3-content textarea");
+    await expect(box).toBeVisible({ timeout: 20_000 });
+    await expect(box).toHaveValue("");
+    await expect(page.getByRole("tab", { name: "YAML" })).toHaveCount(0);
+    await expect(page.locator("#root")).not.toContainText("双向同步");
+    await expect(page.locator("#root")).not.toContainText("从已接入的 Prometheus 拉取");
+  });
+
+  test("new rule import: the one request that writes is the import; the result only goes back", async ({ page }) => {
+    await page.addInitScript(zh);
+    let posts = 0;
+    await page.route(at("/alert-rules/import"), (r) => {
+      posts++;
+      return json(r, 201, { status: "pending_review", items: [{ name: "CheckRule", status: "new", note: "新规则" }], candidates: [] });
+    });
+    await page.goto(origin + "/alert-rules/new?tab=import");
+    await page.locator(".v3-content textarea").fill("groups: []", { timeout: 20_000 });
+    await page.getByRole("button", { name: "导入为草稿" }).click();
+    await expect(page.getByText("CheckRule")).toBeVisible();
+    expect(posts).toBe(1);
+    expect((await toasts(page)).join("\n")).toContain("已导入为草稿");
+    const back = page.getByRole("button", { name: "返回告警规则" });
+    await expect(back).toBeVisible();
+    await expect(page.getByRole("button", { name: "导入为草稿" })).toHaveCount(1);
+    await back.click();
+    await expect(page).toHaveURL(/\/alert-rules$/);
+    expect(posts).toBe(1);
+  });
+});
+
+test.describe("new rule preview legend follows the real query (PA-229)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("the legend names the query result and the threshold without a 5xx ratio or a % unit", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/alert-rules/preview"), (r) => json(r, 200, { valid: true, series_count: 1, source: "Prometheus · prod", values: [0, 1, 2, 3], current: 3, fires: null }));
+    const service = Buffer.from("app-check\u0000prod").toString("base64url");
+    await page.goto(origin + `/alert-rules/new?service=${service}`);
+    await page.locator("textarea[placeholder^='sum(rate']").fill("up == 0", { timeout: 20_000 });
+    const legend = page.locator(".f-right .v3-panel").first();
+    await expect(legend).toContainText("查询结果", { timeout: 10_000 });
+    await expect(legend).toContainText("阈值 1");
+    await expect(legend).not.toContainText("5xx");
+    await expect(legend).not.toContainText("阈值 1%");
+  });
+});
+
+test.describe("the new incident drawer says what the investigation canvas really is (PA-225)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("a blank investigation linked to the incident, nothing brought in automatically", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinIncidents(page, []);
+    await page.goto(origin + "/incidents?new=incident");
+    const drawer = page.locator(".v3-drawer");
+    await expect(drawer.getByText("同时创建调查画布")).toBeVisible({ timeout: 20_000 });
+    await expect(drawer).toContainText("空白调查");
+    await expect(drawer).not.toContainText("自动带入告警、最近变更和相关指标");
+    await expect(drawer).not.toContainText("「故障调查」模板");
+  });
+});

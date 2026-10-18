@@ -23,8 +23,11 @@ const MODULES: Record<string, [string, string]> = {
   roles: ["角色", "Roles"],
   audit: ["审计日志", "Audit log"],
   resources: ["资源目录与关系", "Resource catalog & relations"],
-  workspace: ["工作区", "Workspace"],
+  home: ["总览", "Overview"],
+  traces: ["链路", "Traces"],
+  logs: ["日志", "Logs"],
   models: ["模型", "Models"],
+  workspace: ["工作区设置", "Workspace settings"],
 };
 const ACTIONS: Record<string, [string, string]> = {
   view: ["查看", "View"],

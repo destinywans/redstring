@@ -103,6 +103,11 @@ mock("GET", "/roles/:id", ({ params }) => {
       { resource: P("Agent 配置与发布", "Agent config & release"), grants: [1, 0, 0, 0, 0] },
       { resource: P("成员与角色", "Members & roles"), grants: [0, 0, 0, 0, 0] },
       { resource: P("审计日志", "Audit log"), grants: [1, 0, 0, 0, 0] },
+      { resource: P("总览", "Overview"), grants: [1, 0, 0, 0, 0] },
+      { resource: P("链路", "Traces"), grants: [1, 0, 0, 0, 0] },
+      { resource: P("日志", "Logs"), grants: [1, 0, 0, 0, 0] },
+      { resource: P("模型", "Models"), grants: [1, 0, 0, 0, 0] },
+      { resource: P("工作区设置", "Workspace settings"), grants: [1, 0, 0, 0, 0] },
     ],
     notes: P("Agent 服务账号不能被授予“批准”；同一提案的发起人与批准人不能是同一人；高风险动作需要两名批准人。", "Agent service accounts can never be granted Approve; a proposal's author cannot approve it; high-risk actions need two approvers."),
   };

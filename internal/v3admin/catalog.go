@@ -26,6 +26,16 @@ var matrixCatalog = []matrixResource{
 	{"identity", "成员与角色", "Members & roles", []string{"members", "roles"}},
 	{"audit", "审计日志", "Audit log", []string{"audit"}},
 	{"resources", "资源目录与关系", "Resource catalog & relations", []string{"resources"}},
+	// Routes authorize these modules and the built-in roles hold them; without
+	// rows a custom role could never be given them (PA-231). Appended so the
+	// earlier rows keep their positions. Routes use view only for home and
+	// logs, view and manage for traces, models and workspace; like the other
+	// rows, every column stays editable.
+	{"home", "总览", "Overview", []string{"home"}},
+	{"traces", "链路", "Traces", []string{"traces"}},
+	{"logs", "日志", "Logs", []string{"logs"}},
+	{"models", "模型", "Models", []string{"models"}},
+	{"workspace", "工作区设置", "Workspace settings", []string{"workspace"}},
 }
 
 var matrixActions = []string{"view", "change", "delete", "approve", "manage"}

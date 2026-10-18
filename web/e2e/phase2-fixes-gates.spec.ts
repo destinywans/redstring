@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { INSTANCES } from "./support/env";
 import { statePath } from "./support/global-setup";
 import { monitor } from "./support/monitor";
@@ -159,3 +159,72 @@ for (const [role, gated] of [["approver2", true], ["admin", false]] as const) {
     });
   });
 }
+
+// PA-201 (WAN-559): a rollback that ended during verification (failed / needs_attention, verification.finished_at null)
+// measured "observed" up to now, so it always read as the full "6:00 / 6:00".
+const rolloutId = "pa201-check";
+const rollout = (status: "needs_attention" | "verifying", patch: Record<string, unknown> = {}) => ({
+  id: rolloutId,
+  kind: "kubernetes.deployment.rollback",
+  proposal_id: "prp-pa201-check",
+  investigation_id: "inv-pa201-check",
+  application_id: "app-check",
+  environment_id: "prod",
+  status,
+  status_reason: status === "needs_attention" ? "target_changed" : null,
+  approved_at: "2026-10-10T07:30:00Z",
+  approvers: [{ name: "Check Approver", verified_at: "2026-10-10T07:30:00Z" }],
+  created_at: "2026-10-10T07:30:05Z",
+  updated_at: "2026-10-10T07:33:07Z",
+  target: { namespace: "checkout", deployment: "checkout-api", from_revision: "12", target_revision: "11" },
+  timeline: [
+    { state: "reserved", at: "2026-10-10T07:30:05Z" },
+    { state: "dispatching", at: "2026-10-10T07:30:06Z" },
+    { state: "applied", at: "2026-10-10T07:30:08Z" },
+    { state: "rolling_out", at: "2026-10-10T07:30:09Z" },
+    { state: "verifying", at: "2026-10-10T07:32:37Z" },
+    ...(status === "needs_attention" ? [{ state: "needs_attention", at: "2026-10-10T07:33:07Z" }] : []),
+  ],
+  rollout: { desired: 2, updated: 2, available: 2, current_revision: "13", observed_at: "2026-10-10T07:32:36Z" },
+  verification: {
+    plan: { observation_seconds: 300, request_rate_query_id: "q-rate", error_ratio_query_id: "q-err", sample_age_query_id: "q-age", max_error_ratio: 0.05, min_request_rate: 0.1 },
+    started_at: "2026-10-10T07:32:37Z",
+    finished_at: null,
+    result: "pending",
+    samples: [
+      { at: "2026-10-10T07:32:52Z", request_rate: 1.2, error_ratio: 0.01, sample_age_seconds: 5, ok: true },
+      { at: "2026-10-10T07:33:07Z", request_rate: 1.1, error_ratio: 0.01, sample_age_seconds: 5, ok: true },
+    ],
+  },
+  ...patch,
+});
+
+test.describe("observed time of a rollback that ended during verification (PA-201)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const verify = (page: Page) => page.getByRole("list", { name: "执行进度" }).getByRole("listitem").nth(3);
+
+  test("counts up to when the run ended, not up to now", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at(`/executions/${rolloutId}`), (r) => json(r, 200, rollout("needs_attention")));
+    await page.goto(origin + `/executions/${rolloutId}`);
+    await expect(verify(page)).toContainText("已观察 0:30 / 6:00", { timeout: 20_000 });
+  });
+
+  test("without a terminal entry in the timeline it uses the record's last update", async ({ page }) => {
+    await page.addInitScript(zh);
+    const r0 = rollout("needs_attention");
+    await page.route(at(`/executions/${rolloutId}`), (r) => json(r, 200, { ...r0, timeline: r0.timeline.filter((t) => t.state !== "needs_attention") }));
+    await page.goto(origin + `/executions/${rolloutId}`);
+    await expect(verify(page)).toContainText("已观察 0:30 / 6:00", { timeout: 20_000 });
+  });
+
+  test("a run still verifying keeps counting against now", async ({ page }) => {
+    await page.addInitScript(zh);
+    // Started 90 s ago: past the settling period, well inside the window (allowing for a slow load).
+    const started = new Date(Date.now() - 90_000).toISOString();
+    const base = rollout("verifying");
+    await page.route(at(`/executions/${rolloutId}`), (r) => json(r, 200, { ...base, verification: { ...base.verification, started_at: started, samples: [] } }));
+    await page.goto(origin + `/executions/${rolloutId}`);
+    await expect(verify(page)).toContainText(/已观察 1:[3-5]\d \/ 6:00/, { timeout: 20_000 });
+  });
+});

@@ -567,7 +567,7 @@ test.describe("agent console writes as a viewer (PA-150)", () => {
     }
     if (ids.agent) {
       await page.goto(origin + `/agents/${ids.agent}`);
-      await expect(page.getByRole("button", { name: /^回滚到/ })).toBeDisabled({ timeout: 20_000 });
+      await expect(page.getByRole("button", { name: /^回滚(到 |$)/ })).toBeDisabled({ timeout: 20_000 });
     }
   });
 });
@@ -765,7 +765,8 @@ test.describe("saves that need the revision they read (PA-158, PA-159, PA-160)",
       return json(r, 409, { error: { code: "agent_revision_conflict", message: "检查用：版本已变化" } });
     });
     await page.goto(origin + `/agents/${agent}`);
-    await page.getByRole("button", { name: /^回滚到/ }).click({ timeout: 20_000 });
+    // PA-236: the button names the version it lands on, or just 回滚 when there is none.
+    await page.getByRole("button", { name: /^回滚(到 |$)/ }).click({ timeout: 20_000 });
     await expect.poll(() => sent).not.toBeNull();
     expect(typeof (sent as unknown as { expected_revision?: unknown }).expected_revision).toBe("number");
   });

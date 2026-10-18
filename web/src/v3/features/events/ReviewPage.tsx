@@ -72,6 +72,11 @@ export default function ReviewPage() {
     if (["succeeded", "confirmed", "verified"].includes(s)) return ["ok", p.rollback ? tx("已恢复", "Recovered") : tx("已完成", "Completed")];
     if (s === "failed") return ["danger", tx("失败", "Failed")];
     if (s === "needs_attention") return ["warn", tx("需要人工处理", "Needs attention")];
+    // Silence executor ledger (PA-188): the write's outcome couldn't be confirmed and is only read back, never re-sent;
+    // a readback that needs a person; an approval the executor didn't take up in time. None of them is still executing.
+    if (s === "unknown") return ["warn", tx("结果待核对", "Outcome unconfirmed")];
+    if (s === "manual_review") return ["warn", tx("需要人工核对", "Needs a manual check")];
+    if (s === "expired") return ["neutral", tx("已过期，未执行", "Expired, not run")];
     return ["accent", tx("执行中", "Executing")];
   };
   // The execution box: shown while waiting for the executor and in the decision card.

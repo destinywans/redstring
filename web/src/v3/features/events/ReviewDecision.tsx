@@ -24,6 +24,13 @@ export function ReviewDecision({ p, execBox }: { p: Proposal; execBox: ReactNode
   const { data: exec } = useGet<{ approvers?: { name: string; verified_at: string }[] }>(execApprovers ? `/executions/${p.execution!.execution_id}` : null);
   const approvers: Approver[] | null = p.decision?.approvers?.length ? p.decision.approvers.map((a) => ({ name: a.name, at: a.at })) : exec?.approvers?.length ? exec.approvers.map((a) => ({ name: a.name, at: a.verified_at })) : null;
   const finished = !!p.execution?.status && DONE.includes(p.execution.status);
+  // PA-188: silence executor states that are no longer executing say what happened instead of pointing at the box.
+  const stalled: Record<string, string> = {
+    unknown: tx("执行器没能确认是否已写入，只会读取上游核对、不会重写；请到对应页面确认是否生效。", "The executor couldn't confirm the write; it only reads upstream back and never sends it again. Check whether it took effect."),
+    manual_review: tx("上游读回的结果需要人工核对，执行器不会再写入。", "The upstream readback needs a manual check; the executor won't write again."),
+    expired: tx("执行器没有在批准有效期内接手，没有执行；需要的话重新提案。", "The executor didn't take it up while the approval was valid, so nothing ran; propose again if needed."),
+  };
+  const stall = p.execution?.status ? stalled[p.execution.status] : undefined;
   const repropose = (
     <Btn h={26} icon="branch" style={{ alignSelf: "flex-start" }} to={`/canvas/${p.investigation_id}`}>
       {tx("在调查中重新提案", "Propose again in the investigation")}
@@ -123,7 +130,7 @@ export function ReviewDecision({ p, execBox }: { p: Proposal; execBox: ReactNode
         : finished || !p.execution
         ? banner("ok", "check", tx("两人已用通行密钥批准，执行器已执行", "Two people approved with passkeys and the executor ran it"), approvers ? tx("不需要再操作。之后的状态看执行记录。", "Nothing more to do. Follow the execution record from here.") : tx("批准人记录在审计日志里。", "The approvers are recorded in the audit log."))
         : // Not covered by the board: approved while the execution is still running or didn't succeed — only say what is true.
-          banner("ok", "check", tx("两人已用通行密钥批准", "Two people approved with passkeys"), approvers ? tx("执行状态看下方执行记录。", "See the execution below for its state.") : tx("批准人记录在审计日志里；执行状态看下方执行记录。", "The approvers are recorded in the audit log; see the execution below for its state."))}
+          banner("ok", "check", tx("两人已用通行密钥批准", "Two people approved with passkeys"), stall ?? (approvers ? tx("执行状态看下方执行记录。", "See the execution below for its state.") : tx("批准人记录在审计日志里；执行状态看下方执行记录。", "The approvers are recorded in the audit log; see the execution below for its state.")))}
       {approvers && (
         <Col gap={8}>
           <Muted size={12}>{tx("批准人", "Approvers")}</Muted>

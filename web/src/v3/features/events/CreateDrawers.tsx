@@ -12,15 +12,18 @@ import { useEnv } from "../../app/environment";
 import { useNames } from "../../ui/names";
 import { useWhen } from "../../ui/when";
 import { Gate } from "../../ui/permission";
+import type { SeverityReason } from "../../api/types";
+import { SeverityBadge } from "./peeks";
 
 type IncidentDraft = {
   title: string;
-  severity: Severity;
+  /** Highest known level among the alerts; null when none has one, and the person picks it (PA-246). */
+  severity: Severity | null;
   severity_hint: string;
   env: string;
   services: { id: string; tier: string | null; ai?: boolean }[];
   impact: string | null;
-  alerts: { id: string; severity: Severity; text: string; at: string }[];
+  alerts: { id: string; severity: Severity | null; severity_reason?: SeverityReason; text: string; at: string }[];
   /** Unknown until a roster/collaboration source is connected. */
   commander: { name: string; note: string } | null;
   participants: string[] | null;
@@ -65,7 +68,8 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
     ? (draftError instanceof ApiError && DRAFT_REFUSAL[draftError.code ?? ""]) || tx("没能读取所选告警，请稍后重试", "Couldn't read the selected alerts; try again later")
     : null;
   const [title, setTitle] = useState("");
-  const [sev, setSev] = useState<Severity>("P1");
+  // "" until a level is chosen: a draft whose alerts all have an unknown severity pre-fills none (PA-246).
+  const [sev, setSev] = useState<Severity | "">("P1");
   const [impact, setImpact] = useState("");
   const [alerts, setAlerts] = useState<Record<string, boolean>>({});
   // External collaboration has no executor yet: never request it outside the demo.
@@ -74,7 +78,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
   useEffect(() => {
     if (!data) return;
     setTitle(data.title);
-    setSev(data.severity);
+    setSev(data.severity ?? "");
     setImpact(data.impact ?? "");
     setAlerts(Object.fromEntries(data.alerts.map((a) => [a.id, true])));
   }, [data]);
@@ -103,7 +107,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
           <Btn kind="ghost" onClick={onClose}>{tx("取消", "Cancel")}</Btn>
           {/* The drawer also opens from a link (?new=incident), so creating is gated here too (PA-228). */}
           <Gate need={["events", "change"]}>
-            <Btn kind="primary" icon="check" loading={create.isPending} disabled={!title.trim() || !!refused} onClick={submit}>{tx("创建事件", "Create incident")}</Btn>
+            <Btn kind="primary" icon="check" loading={create.isPending} disabled={!title.trim() || !sev || !!refused} onClick={submit}>{tx("创建事件", "Create incident")}</Btn>
           </Gate>
         </>
       }
@@ -120,7 +124,9 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
         ) : (
           drafted && (
             <Callout tone="accent" icon="info">
-              {tx("已按所选 {n} 条告警预填标题、最高级别和服务（虚线框），请确认后创建。影响、指挥人和参与人需要你填写。", "Title, highest severity and service are pre-filled from the {n} selected alerts (dashed); confirm before creating. Fill in impact, commander and participants.", { n: data?.alerts.length ?? 0 })}
+              {data && !data.severity
+                ? tx("已按所选 {n} 条告警预填标题和服务（虚线框）；这些告警的级别未知，请选择级别后创建。影响、指挥人和参与人需要你填写。", "Title and service are pre-filled from the {n} selected alerts (dashed); their severity is unknown, so choose one before creating. Fill in impact, commander and participants.", { n: data.alerts.length })
+                : tx("已按所选 {n} 条告警预填标题、最高级别和服务（虚线框），请确认后创建。影响、指挥人和参与人需要你填写。", "Title, highest severity and service are pre-filled from the {n} selected alerts (dashed); confirm before creating. Fill in impact, commander and participants.", { n: data?.alerts.length ?? 0 })}
             </Callout>
           )
         )}
@@ -131,9 +137,14 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
         </Field>
         <div className="f-grid2">
           <Field label={tx("级别", "Severity")} hint={data?.severity_hint}>
-            <Suggested>
-              <PillSelect label={tx("级别", "Severity")} value={sev} options={["P1", "P2", "P3", "P4"] as Severity[]} onChange={setSev} />
-            </Suggested>
+            {/* Not dashed when nothing was pre-filled: every selected alert has an unknown severity (PA-246). */}
+            {data && !data.severity ? (
+              <PillSelect<Severity | ""> label={tx("级别", "Severity")} value={sev} options={["P1", "P2", "P3", "P4"]} onChange={setSev} />
+            ) : (
+              <Suggested>
+                <PillSelect<Severity | ""> label={tx("级别", "Severity")} value={sev} options={["P1", "P2", "P3", "P4"]} onChange={setSev} />
+              </Suggested>
+            )}
           </Field>
           <Field label={tx("环境", "Environment")} hint={curEnv?.viewOnly ? tx("当前为全部非生产环境，请选定一个", "Viewing all non-production — pick one") : tx("默认取右上角的当前环境", "Defaults to the current environment")}>
             <ChipSelect
@@ -171,7 +182,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
             {data?.alerts.map((a) => (
               <label key={a.id} className="v3-row f-alert-row">
                 <input type="checkbox" checked={!!alerts[a.id]} onChange={(e) => setAlerts({ ...alerts, [a.id]: e.target.checked })} />
-                <Sev p={a.severity} />
+                <SeverityBadge p={a.severity} reason={a.severity_reason} />
                 <span className="grow ellipsis" style={{ fontSize: "var(--fs-sub)" }}>{a.text}</span>
                 <Muted size={11.5}>{when.short(a.at)}</Muted>
               </label>

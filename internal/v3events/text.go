@@ -1,6 +1,9 @@
 package v3events
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // text holds user-facing strings of the event views in the request language:
 // English when Accept-Language starts with "en", Chinese otherwise.
@@ -63,9 +66,21 @@ func (t text) timing(key string) (label, help string) {
 
 func (t text) unrecorded() string { return t.pick("未记录", "Not recorded") }
 
-// severityHint explains the drafted incident severity (PA-166).
-func (t text) severityHint() string {
-	return t.pick("所选告警中的最高级别", "Highest severity among selected persisted alerts")
+// severityHint explains the drafted incident severity (PA-166): the highest
+// level among the selected alerts, of which unknown have a severity outside
+// the shared table or none (PA-246).
+func (t text) severityHint(unknown, total int) string {
+	switch {
+	case unknown == 0:
+		return t.pick("所选告警中的最高级别", "Highest severity among selected persisted alerts")
+	case unknown >= total:
+		return t.pick("所选告警的级别未知，请选择级别", "The selected alerts have an unknown severity; choose one")
+	case unknown == 1:
+		return t.pick("已知级别中的最高级；另有 1 条告警级别未知，请确认", "Highest known severity; 1 selected alert has an unknown severity, so confirm it")
+	default:
+		return t.pick(fmt.Sprintf("已知级别中的最高级；另有 %d 条告警级别未知，请确认", unknown),
+			fmt.Sprintf("Highest known severity; %d selected alerts have an unknown severity, so confirm it", unknown))
+	}
 }
 
 // upstreamBadges labels the reconciled Alertmanager state of a group's firing

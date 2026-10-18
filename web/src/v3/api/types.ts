@@ -710,6 +710,8 @@ export type Runbook = {
   id: string;
   title: string;
   version: string;
+  /** Review state of this version (PA-197); the sample data leaves it out and reads as a draft. */
+  status?: RunbookSummary["status"];
   base: string;
   owner: string;
   scope: string;

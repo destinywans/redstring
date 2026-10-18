@@ -32,6 +32,15 @@ export default function RunbookEditorPage() {
         </div>
       </Page>
     );
+  // PA-197: the badge says this version's review state; only a draft can be submitted (the server answers 409 otherwise).
+  const status = rb.status ?? "draft";
+  const states: Record<string, [Tone, string]> = {
+    draft: ["accent", tx("{v} 草稿 · 基于 {b}", "{v} draft · based on {b}", { v: rb.version, b: rb.base })],
+    review: ["warn", tx("{v} 待复核 · 基于 {b}", "{v} in review · based on {b}", { v: rb.version, b: rb.base })],
+    published: ["ok", tx("{v} 已发布 · 基于 {b}", "{v} published · based on {b}", { v: rb.version, b: rb.base })],
+  };
+  const stateBadge: [Tone, string] = states[status] ?? ["neutral", `${rb.version} · ${rb.base}`];
+  const submittable = status === "draft";
   return (
     <Page
       flush
@@ -65,6 +74,8 @@ export default function RunbookEditorPage() {
           <Btn
             kind="primary"
             icon="check"
+            disabled={!submittable}
+            title={submittable ? undefined : tx("只有草稿可以提交复核", "Only a draft can be submitted for review")}
             onClick={() =>
               // Say "submitted" only once the server accepted it; the sample data names its sample reviewer.
               api("POST", `/runbooks/${rb.id}/submit`).then(
@@ -83,7 +94,7 @@ export default function RunbookEditorPage() {
           <div className="v3-content" style={{ padding: "18px 28px 28px", maxWidth: 980 }}>
             <Row gap={10}>
               <h1 style={{ fontSize: 19, fontWeight: 600 }}>{rb.title}</h1>
-              <Badge tone="accent">{tx("{v} 草稿 · 基于 {b}", "{v} draft · based on {b}", { v: rb.version, b: rb.base })}</Badge>
+              <Badge tone={stateBadge[0]}>{stateBadge[1]}</Badge>
             </Row>
             <Row gap={6} wrap>
               <Muted>

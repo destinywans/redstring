@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
+import { useQueryClient, type Query } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { Runbook, RunbookStep } from "../../api/types";
@@ -38,6 +39,7 @@ export default function RunbookEditorPage() {
   const { id = "rb-retry-storm" } = useParams();
   const { tx } = useI18n();
   const when = useWhen();
+  const qc = useQueryClient();
   const { data: rb, error } = useGet<Runbook>(`/runbooks/${id}`);
   const scopeLabel = useRunbookScope();
   // PA-166: a real record's base is "<source kind>:<source ref>"; a postmortem reads as its title.
@@ -64,6 +66,20 @@ export default function RunbookEditorPage() {
   };
   const stateBadge: [Tone, string] = states[status] ?? ["neutral", `${rb.version} · ${base}`];
   const submittable = status === "draft";
+  const thisRunbook = (q: Query) => q.queryKey[0] === `/runbooks/${id}`;
+  // Why the server refused a submit (internal/v3knowledge/runbooks.go submitHandler), never its English text (PA-233).
+  const submitRefusal = (e: unknown) =>
+    !(e instanceof ApiError)
+      ? tx("提交失败，请稍后重试", "Couldn't submit; try again later")
+      : e.code === "invalid_state"
+        ? tx("这一版已经不是草稿，不能再提交复核；已重新读取", "This version is no longer a draft, so it can't be submitted again; reloaded")
+        : e.status === 409
+          ? tx("Runbook 刚刚有改动，没有提交；已重新读取，请确认后再提交", "The runbook just changed and wasn't submitted; reloaded, check it and submit again")
+          : e.status === 403
+            ? tx("只有这份草稿的维护人可以提交复核，且需要管理 Runbook 的权限", "Only this draft's maintainer, with permission to manage runbooks, can submit it")
+            : e.status === 404
+              ? tx("这条 Runbook 不存在或不在当前环境", "This runbook doesn't exist or isn't in this environment")
+              : tx("提交失败，请稍后重试", "Couldn't submit; try again later");
   // PA-194: which steps failed the check and why, from the server's per-step reasons. A runbook with an action step
   // never passes (by design), so an action step names only that; a step without a reason this page knows (an older
   // server) is still named.
@@ -132,9 +148,19 @@ export default function RunbookEditorPage() {
             title={submittable ? undefined : tx("只有草稿可以提交复核", "Only a draft can be submitted for review")}
             onClick={() =>
               // Say "submitted" only once the server accepted it; the sample data names its sample reviewer.
-              api("POST", `/runbooks/${rb.id}/submit`).then(
-                () => toast(API_MODE === "mock" ? tx("已提交复核，已通知王晨", "Submitted for review; Wang Chen notified") : tx("已提交复核", "Submitted for review")),
-                (e) => toast(e instanceof ApiError ? e.message : tx("提交失败，请稍后重试", "Couldn't submit; try again later"), { tone: "danger" }),
+              api<{ ok?: boolean; status?: Runbook["status"] }>("POST", `/runbooks/${rb.id}/submit`).then(
+                (r) => {
+                  // PA-233: the badge, the button and the reviewers follow the server at once: its answer says the new
+                  // state, and a re-read brings the reviewers.
+                  if (r?.status) qc.setQueriesData<Runbook>({ predicate: thisRunbook }, (old) => (old ? { ...old, status: r.status } : old));
+                  void qc.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/runbooks") });
+                  toast(API_MODE === "mock" ? tx("已提交复核，已通知王晨", "Submitted for review; Wang Chen notified") : tx("已提交复核", "Submitted for review"));
+                },
+                (e) => {
+                  // A refusal means the page and the server disagree on this runbook; read it again.
+                  if (e instanceof ApiError && e.status === 409) void qc.invalidateQueries({ predicate: thisRunbook });
+                  toast(submitRefusal(e), { tone: "danger" });
+                },
               )
             }
           >

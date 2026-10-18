@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet, useSend } from "../../api/client";
 import type { ConnectorDetail, ConnectorList, ConnectorStatus } from "../../api/types";
@@ -102,7 +103,42 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
   const { tx } = useI18n();
   const when = useWhen();
   const { data: c, refetch, error } = useGet<ConnectorDetail>(`/connectors/${id}`);
+  const qc = useQueryClient();
   const test = useSend<void, { ok: boolean; latency_ms: number }>("POST", `/connectors/${id}/test`);
+  // PA-234: every test that reaches the probe writes the status and check time, a failed one too (503
+  // connector_test_failed), so the detail and the list are read again whatever the answer.
+  const reread = () => void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === "/connectors" || q.queryKey[0] === `/connectors/${id}` });
+  // Why a test didn't pass (internal/v3integrations/service.go test, probe.go), never the server's English text.
+  const testFailure = (e: unknown) => {
+    if (!(e instanceof ApiError)) return tx("测试连接失败，请稍后重试", "Couldn't test the connection; try again later");
+    if (e.code === "connector_test_failed") {
+      const reason = (e.detail.details as { reason?: string } | undefined)?.reason ?? "";
+      const why =
+        reason === "connection_failed"
+          ? tx("连不上这个地址", "the address can't be reached")
+          : reason === "authentication_failed"
+            ? tx("认证没有通过", "authentication failed")
+            : /^upstream_\d+$/.test(reason)
+              ? tx("对方返回 HTTP {n}", "it answered HTTP {n}", { n: reason.slice("upstream_".length) })
+              : "";
+      return why ? tx("连接测试没有通过：{w}；状态已更新", "Connection test failed: {w}; status updated", { w: why }) : tx("连接测试没有通过；状态已更新", "Connection test failed; status updated");
+    }
+    switch (e.code) {
+      case "connector_disabled":
+        return tx("连接器还没有填完凭据和范围，不能测试", "Complete the connector's credentials and scope before testing");
+      case "credential_not_authorized":
+        return tx("凭据没有在服务端绑定，不能测试", "The credential has no server-side binding, so it can't be tested");
+      case "credential_unavailable":
+        return tx("暂时读不到 Vault 里的凭据，没有测试", "The Vault credential can't be read right now; nothing was tested");
+      case "invalid_connector":
+        return tx("这个连接器的设置不能测试", "This connector's settings can't be tested");
+      case "connector_changed":
+        return tx("连接器配置刚刚有变化，没有测试；已重新读取", "The connector's settings just changed and nothing was tested; reloaded");
+    }
+    if (e.status === 403) return tx("你没有管理连接器的权限", "You don't have permission to manage connectors");
+    if (e.status === 404) return tx("这个连接器不存在或不在当前环境", "This connector doesn't exist or isn't in this environment");
+    return tx("测试连接失败，请稍后重试", "Couldn't test the connection; try again later");
+  };
   const [off, setOff] = useState<Set<string>>(new Set());
   // Real switches (D11): PATCH /connectors/{id} merges one tool's preference; the switch shows the pending value until
   // the server answers, then the refetched detail.
@@ -334,7 +370,13 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
                 <Btn
                   icon="rotate"
                   loading={test.isPending}
-                  onClick={() => test.mutate(undefined, { onSuccess: (r) => toast(tx("连接正常 · {n} ms", "Connection OK · {n} ms", { n: r.latency_ms })) })}
+                  onClick={() =>
+                    test.mutate(undefined, {
+                      onSuccess: (r) => toast(tx("连接正常 · {n} ms", "Connection OK · {n} ms", { n: r.latency_ms })),
+                      onError: (e) => toast(testFailure(e), { tone: "danger" }),
+                      onSettled: reread,
+                    })
+                  }
                 >
                   {tx("测试连接", "Test connection")}
                 </Btn>

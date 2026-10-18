@@ -196,7 +196,14 @@ export default function RolesPage() {
                   </table>
                 </Card>
               ) : (
-                <Muted>{tab === "members" ? r.member_names.join("、") : tx("最近变更：9/20 陈雨 调整了“写操作提案 · 批准”（通行密钥必需）", "Latest: 9/20 Chen Yu changed “Write proposals · Approve” (passkey required)")}</Muted>
+                <Muted>
+                  {tab === "members"
+                    ? r.member_names.join("、")
+                    : // The sample change stays in the sample; the server keeps no per-role history, only audit rows (PA-207, D52).
+                      API_MODE === "mock"
+                      ? tx("最近变更：9/20 陈雨 调整了“写操作提案 · 批准”（通行密钥必需）", "Latest: 9/20 Chen Yu changed “Write proposals · Approve” (passkey required)")
+                      : tx("平台还没有按角色整理的变更记录。保存权限会写入审计日志，可以在“设置 › 审计日志”里查看。", "No per-role change history is kept yet. Saving permissions writes to the audit log; see Settings › Audit log.")}
+                </Muted>
               )}
               <Row gap={8} align="flex-start">
                 <Icon name="shield" size={14} color="var(--muted)" style={{ marginTop: 2 }} />

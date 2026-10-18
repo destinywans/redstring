@@ -13,6 +13,34 @@ import { LoadError, PartialBanner, UnknownValue, anyReason, unknownLabels } from
 import { ChipSelect } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 
+/**
+ * A service status and where it comes from. The server derives it from the SLO burn and firing alerts
+ * (internal/v3serviceviews/facts.go): warn also means a budget under half or a 1 h burn ≥ 1 with no alert firing,
+ * so it reads "needs attention", not "alerting" (PA-209).
+ */
+export function useServiceStatus() {
+  const { tx } = useI18n();
+  return (status: string) =>
+    status === "danger"
+      ? { label: tx("异常", "Degraded"), hint: tx("1 小时燃烧率 ≥ 10、错误预算耗尽，或有严重告警在触发", "1 h burn ≥ 10, error budget used up, or a critical alert firing") }
+      : status === "warn"
+        ? { label: tx("需要关注", "Needs attention"), hint: tx("错误预算剩余不到一半、1 小时燃烧率 ≥ 1，或有非严重告警在触发", "Error budget under half, 1 h burn ≥ 1, or a non-critical alert firing") }
+        : status === "ok"
+          ? { label: tx("正常", "Healthy"), hint: tx("错误预算与燃烧率正常，没有告警在触发", "Error budget and burn are fine and no alert is firing") }
+          : { label: status, hint: "" };
+}
+
+export function ServiceState({ status }: { status: "ok" | "warn" | "danger" }) {
+  const text = useServiceStatus()(status);
+  return (
+    <span title={text.hint}>
+      <State tone={status} pulse={status === "danger"}>
+        {text.label}
+      </State>
+    </span>
+  );
+}
+
 /** Header + tab strip shared by the service detail views. */
 export function ServiceHeader({ s }: { s: ServiceDetail }) {
   const { tx } = useI18n();
@@ -39,9 +67,7 @@ export function ServiceHeader({ s }: { s: ServiceDetail }) {
               {s.team ? <Badge>{s.team}</Badge> : <Badge><UnknownValue reason={s.unavailable.team} label={tx("团队 —", "Team —")} /></Badge>}
               <Env env={s.env} />
               {s.status ? (
-                <State tone={s.status} pulse={s.status === "danger"}>
-                  {s.status === "danger" ? tx("异常", "Degraded") : s.status === "warn" ? tx("告警", "Alerting") : tx("正常", "Healthy")}
-                </State>
+                <ServiceState status={s.status} />
               ) : (
                 <Badge><UnknownValue reason={s.unavailable.status} source="Prometheus" label={tx("状态 —", "Status —")} /></Badge>
               )}
@@ -74,6 +100,7 @@ export default function ServicesPage() {
   const { tx } = useI18n();
   const when = useWhen();
   const nav = useNavigate();
+  const statusText = useServiceStatus();
   const [tab, setTab] = useState("all");
   const [q, setQ] = useState("");
   const [tier, setTier] = useState<string | undefined>();
@@ -118,7 +145,7 @@ export default function ServicesPage() {
                   onChange={() => f.key === "tier" && setTier((t) => (t === it.label ? undefined : it.label))}
                   label={
                     <span>
-                      {it.label} <span className="muted">{it.count}</span>
+                      {f.key === "status" ? statusText(it.label).label : it.label} <span className="muted">{it.count}</span>
                     </span>
                   }
                 />
@@ -179,7 +206,7 @@ export default function ServicesPage() {
                   { key: "t", header: tx("等级", "Tier"), render: (s) => (s.tier ? <Tier tier={s.tier} /> : <UnknownValue reason={s.unavailable.tier} to="/services/new" />) },
                   { key: "team", header: tx("团队", "Team"), render: (s) => (s.team ? <Muted>{s.team}</Muted> : <UnknownValue reason={s.unavailable.team} />) },
                   { key: "o", header: tx("值班", "On call"), render: (s) => (s.oncall ? <Row gap={6}><Avatar name={s.oncall} size={20} /><Muted>{s.oncall}</Muted></Row> : <UnknownValue reason={s.unavailable.oncall} />) },
-                  { key: "st", header: tx("状态", "Status"), sort: (a, b) => rank(a.status) - rank(b.status), render: (s) => (s.status ? <State tone={s.status} pulse={s.status === "danger"}>{s.status === "danger" ? tx("异常", "Degraded") : s.status === "warn" ? tx("有告警", "Alerting") : tx("正常", "Healthy")}</State> : <UnknownValue reason={s.unavailable.status} source="Prometheus" />) },
+                  { key: "st", header: tx("状态", "Status"), sort: (a, b) => rank(a.status) - rank(b.status), render: (s) => (s.status ? <ServiceState status={s.status} /> : <UnknownValue reason={s.unavailable.status} source="Prometheus" />) },
                   { key: "slo", header: tx("SLO / 错误预算", "SLO / budget"), sort: (a, b) => (a.slo.budget_left ?? 101) - (b.slo.budget_left ?? 101), render: (s) =>
                       s.slo.target === null ? (
                         <UnknownValue reason={anyReason(s.unavailable, "slo.target", "slo.budget_left")} to={`/services/${s.id}`} />

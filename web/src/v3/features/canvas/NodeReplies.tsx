@@ -104,8 +104,13 @@ export function NodeReplies({
         lease_expired: tx("回复中断：执行超时，没有完成。", "Interrupted: the attempt ran out of time before it finished."),
         model_unavailable: tx("模型回复失败。", "The model didn't reply."),
         evidence_unavailable: tx("取证失败，没能读到证据。", "Evidence couldn't be read."),
+        // PA-166: the codes a finished reply can still fail to save with, in words.
+        evidence_access_revoked: tx("回复完成前，你读取其中证据的权限被收回了，结果没有保存。", "Your access to some of its evidence was revoked before it finished, so the result wasn't saved."),
+        context_version_conflict: tx("回复期间分支上下文有了更新，结果没有保存，可以重新提问。", "The branch context changed while it ran, so the result wasn't saved; ask again."),
+        reply_state_conflict: tx("这条回复的状态被其他操作改变了，结果没有保存。", "Another action changed this reply's state, so the result wasn't saved."),
+        node_context_too_large: tx("分支上下文超过上限，没能生成回复。", "The branch context is over the limit, so no reply was made."),
       }) as Record<string, string>
-    )[code ?? ""] ?? tx("回复失败（{c}）。", "The reply failed ({c}).", { c: code ?? "unknown" });
+    )[code ?? ""] ?? tx("回复没有完成，原因未知。", "The reply didn't finish; the reason is unknown.");
   const when = (iso: string | null) => (iso ? fmt.dateTime(iso) : "");
   return (
     <Col gap={12}>

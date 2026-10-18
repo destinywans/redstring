@@ -163,3 +163,49 @@ test.describe("alert detail incident link (PA-166)", () => {
     await expect(link(page)).toHaveText(INCIDENT, { timeout: 20_000 });
   });
 });
+
+test.describe("runbook source names (PA-166)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const PM = "pm-knowledge-check";
+  const PM_TITLE = "知识检查复盘";
+  const POSTMORTEMS = { items: [{ id: PM, title: PM_TITLE, status: "published", date: "2026-10-17T02:00:00Z", incident_id: "inc-knowledge-check" }] };
+  const detail = { ...RUNBOOK_DETAIL, base: `postmortem:${PM}`, source_kind: "postmortem", source_ref: PM };
+  const openDetail = async (page: Page, postmortems: unknown) => {
+    await page.route(at(`/runbooks/${RUNBOOK}`), (r) => json(r, 200, detail));
+    await page.route(at("/postmortems"), (r) => json(r, 200, postmortems));
+    await page.goto(origin + `/runbooks/${RUNBOOK}`);
+  };
+
+  test("the detail says which postmortem it's based on by title (zh)", async ({ page }) => {
+    await page.addInitScript(zh);
+    await openDetail(page, POSTMORTEMS);
+    await expect(page.getByText(`v1 草稿 · 基于 复盘「${PM_TITLE}」`)).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("#root")).not.toContainText(PM);
+  });
+
+  test("the detail says which postmortem it's based on by title (en)", async ({ page }) => {
+    await page.addInitScript(en);
+    await openDetail(page, POSTMORTEMS);
+    await expect(page.getByText(`v1 draft · based on postmortem “${PM_TITLE}”`)).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator("#root")).not.toContainText(PM);
+  });
+
+  test("a postmortem the list doesn't have keeps the original value", async ({ page }) => {
+    await page.addInitScript(zh);
+    await openDetail(page, { items: [] });
+    await expect(page.getByText(`v1 草稿 · 基于 postmortem:${PM}`)).toBeVisible({ timeout: 20_000 });
+  });
+
+  test("the new runbook page names its source postmortem by title", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/postmortems"), (r) => (r.request().method() === "GET" ? json(r, 200, POSTMORTEMS) : r.fallback()));
+    await page.route(at("/runbooks/draft"), (r) =>
+      json(r, 200, { title: "检查用草稿", applies_to: [], trigger: "", sources: [`postmortem:${PM}`], source_sha256: "sha-check", steps: [{ kind: "check", title: "核对：影响", body: "x" }] }),
+    );
+    // Not saved: the page only reads.
+    await page.goto(origin + `/runbooks/new?source=postmortem&from=${PM}`);
+    const side = page.locator(".v3-split > .aside");
+    await expect(side.getByText(`复盘「${PM_TITLE}」`, { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(side).not.toContainText(PM);
+  });
+});

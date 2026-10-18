@@ -138,3 +138,55 @@ test.describe("webhooks page MCP, outbound and tokens (PA-208)", () => {
     await expect(aside.getByText("The platform doesn't send outbound events yet", { exact: false })).toBeVisible();
   });
 });
+
+const svc = (patch: Record<string, unknown> = {}) => ({
+  id: "svc-check",
+  name: "检查用服务",
+  desc: "",
+  tier: "T1",
+  team: "check-team",
+  oncall: null,
+  status: "warn",
+  slo: { target: "99.9%", budget_left: 40 },
+  release: null,
+  alerts: 0,
+  connectors: [],
+  unavailable: { oncall: "not_configured" },
+  ...patch,
+});
+const catalog = (items: unknown[]) => ({
+  kpis: [{ id: "warn", label: "告警中", value: "0", tone: "warn", series: [], unknown: 0 }],
+  facets: [{ key: "status", title: "状态", items: [{ label: "warn", count: 1, on: false }] }],
+  items,
+});
+
+/**
+ * PA-209 (WAN-568): status warn was written "Alerting", but warn also comes from an error budget under half or a 1 h
+ * burn ≥ 1 (internal/v3serviceviews/metrics.go), with 0 alerts and the "Alerting" KPI not counting it.
+ */
+test.describe("service status warn (PA-209)", () => {
+  test("warn reads as needs attention and says where it comes from", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/services"), (r) => json(r, 200, catalog([svc()])));
+    const m = monitor(page);
+    await page.goto(origin + "/services");
+    const row = page.locator("tbody tr", { hasText: "检查用服务" });
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await expect(row).not.toContainText("有告警");
+    await expect(row.getByText("需要关注", { exact: true })).toBeVisible();
+    await expect(row.locator("[title*='错误预算']")).toHaveCount(1);
+    // The status facet names the state instead of the raw value.
+    await expect(page.locator(".v3-split .side")).not.toContainText("warn");
+    await expect(page.locator(".v3-split .side").getByText("需要关注", { exact: false })).toBeVisible();
+    expect(m.pageErrors).toEqual([]);
+  });
+
+  test("English: warn is Needs attention, not Alerting", async ({ page }) => {
+    await page.addInitScript(en);
+    await page.route(at("/services"), (r) => json(r, 200, catalog([svc()])));
+    await page.goto(origin + "/services");
+    const row = page.locator("tbody tr", { hasText: "检查用服务" });
+    await expect(row.getByText("Needs attention", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(row).not.toContainText("Alerting");
+  });
+});

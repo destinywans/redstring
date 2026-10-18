@@ -42,12 +42,21 @@ type webhookInbound struct {
 	StatusBasis string  `json:"status_basis"`
 }
 
+// webhookReceipt is one generic Push receipt. SourceID and EventType name
+// the inbound entry it belongs to (inbound[].id is "<source_id>:<event_type>"),
+// so a page lists only the selected entry's deliveries (PA-227).
 type webhookReceipt struct {
-	Time  string `json:"time"`
-	Event string `json:"event"`
-	Code  string `json:"code"`
-	MS    string `json:"ms"`
+	Time      string `json:"time"`
+	SourceID  string `json:"source_id"`
+	EventType string `json:"event_type"`
+	Event     string `json:"event"`
+	Code      string `json:"code"`
+	MS        string `json:"ms"`
 }
+
+// webhookDeliveriesPerEntry bounds the receipts listed per inbound entry, so
+// a busy entry can't push another entry's receipts out of the view.
+const webhookDeliveriesPerEntry = 30
 
 type webhookMCP struct {
 	Enabled bool     `json:"enabled"`
@@ -250,15 +259,18 @@ func readWebhookReceipts(ctx context.Context, tx pgx.Tx, entries []webhookSource
 	if err != nil {
 		return nil, nil, err
 	}
-	rows, err = tx.Query(ctx, visible+` SELECT p.created_at,p.source_id,p.event_type,p.result,p.code,p.latency_ms
+	rows, err = tx.Query(ctx, visible+` SELECT created_at,source_id,event_type,result,code,latency_ms FROM (
+ SELECT p.id,p.created_at,p.source_id,p.event_type,p.result,p.code,p.latency_ms,
+ row_number() OVER (PARTITION BY p.source_id,p.event_type ORDER BY p.created_at DESC,p.id DESC) AS n
  FROM v3_push_receipts p JOIN visible v
  ON (p.source_id,p.environment_id,p.application_id,p.event_type)=(v.source_id,v.environment_id,v.application_id,v.event_type)
- WHERE NOT p.synthetic AND p.created_at >= $5
- ORDER BY p.created_at DESC,p.id DESC LIMIT 30`, ids, envs, apps, types, cutoff)
+ WHERE NOT p.synthetic AND p.created_at >= $5) r
+ WHERE n <= $6
+ ORDER BY created_at DESC,id DESC`, ids, envs, apps, types, cutoff, webhookDeliveriesPerEntry)
 	if err != nil {
 		return nil, nil, err
 	}
-	deliveries := make([]webhookReceipt, 0, 30)
+	deliveries := make([]webhookReceipt, 0, webhookDeliveriesPerEntry)
 	for rows.Next() {
 		var at time.Time
 		var id, typ, result string
@@ -267,7 +279,7 @@ func readWebhookReceipts(ctx context.Context, tx pgx.Tx, entries []webhookSource
 			break
 		}
 		deliveries = append(deliveries, webhookReceipt{
-			Time: at.UTC().Format(time.RFC3339), Event: id + " · " + typ + " · " + result,
+			Time: at.UTC().Format(time.RFC3339), SourceID: id, EventType: typ, Event: id + " · " + typ + " · " + result,
 			Code: strconv.Itoa(code), MS: strconv.Itoa(ms) + " ms",
 		})
 	}

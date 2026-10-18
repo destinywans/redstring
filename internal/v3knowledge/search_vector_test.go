@@ -57,3 +57,32 @@ func TestRetrievalHitsWithoutVectorScoreSayNull(t *testing.T) {
 		}
 	}
 }
+
+// PA-222: a document passage found only by keyword never entered the vector
+// candidates, so its vector similarity was not computed; it is below the
+// candidate line, not 0. Its vector is null like any hit without a score.
+func TestDocumentHitOutsideVectorCandidatesSaysNull(t *testing.T) {
+	keyword := []knowledge.Hit{
+		{DocumentID: "doc-a", Version: 1, Chunk: 1, Title: "in candidates", Content: "a", Similarity: 4},
+		{DocumentID: "doc-b", Version: 1, Chunk: 1, Title: "keyword only", Content: "b", Similarity: 3},
+	}
+	vector := []knowledge.Hit{{DocumentID: "doc-a", Version: 1, Chunk: 1, Title: "in candidates", Content: "a", Similarity: .6}}
+	raw, err := json.Marshal(rankRetrieval(keyword, vector, 5, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list []map[string]any
+	if err := json.Unmarshal(raw, &list); err != nil {
+		t.Fatal(err)
+	}
+	byTitle := map[string]map[string]any{}
+	for _, hit := range list {
+		byTitle[hit["title"].(string)] = hit
+	}
+	if got := byTitle["in candidates"]["vector"]; got != .6 {
+		t.Fatalf("a document in the vector candidates keeps its score, got %v", got)
+	}
+	if value, present := byTitle["keyword only"]["vector"]; !present || value != nil {
+		t.Fatalf("a document outside the vector candidates must have vector=null, got %v", byTitle["keyword only"])
+	}
+}

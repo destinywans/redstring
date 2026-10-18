@@ -47,6 +47,24 @@ test.describe("knowledge search hits without a vector score (PA-222)", () => {
     }
     expect(m.pageErrors).toEqual([]);
   });
+
+  test("a document hit outside the vector candidates says so instead of vector 0.00", async ({ page }) => {
+    await page.addInitScript(zh);
+    const hits = [
+      { title: "检查候选", snippet: "候选片段", keyword: 1, vector: 0.42, score: 0.65, corpus: "documents" },
+      // Found by keyword only: its vector similarity was never computed (below the candidate line), not 0.
+      { title: "检查仅关键词", snippet: "关键词片段", keyword: 0.75, vector: null, score: 0.3, corpus: "documents" },
+    ];
+    await page.route(at("/knowledge/search"), (r) =>
+      r.request().method() === "POST" ? json(r, 200, { hits, mode: "hybrid", degraded: false, corpora: [] }) : r.fallback(),
+    );
+    await page.goto(origin + "/knowledge-sources");
+    await page.getByRole("textbox", { name: "检索问题" }).fill("检查", { timeout: 20_000 });
+    await page.getByRole("button", { name: "检索", exact: true }).click();
+    const hit = page.locator(".ret-hit", { hasText: "检查仅关键词" });
+    await expect(hit).not.toContainText("向量 0.00");
+    await expect(hit.locator(".unk")).toHaveAttribute("aria-label", /未进入向量候选/);
+  });
 });
 
 /**

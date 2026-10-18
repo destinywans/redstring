@@ -44,6 +44,11 @@ export default function IncidentsPage() {
   // Real records have no stage; the stepper follows the confirmed status instead.
   const cur = stage ?? inc?.stage ?? (inc ? { active: 1, mitigated: 2, resolved: 3 }[inc.status] : 0);
   const fmtTime = (t: string) => when.short(t) ?? t;
+  // PA-189: what the server says it has no source for is shown as unknown, not left as an empty panel.
+  const unknown = new Set(inc?.unavailable ?? []);
+  const ROLE: Record<string, string> = { assignee: tx("负责人", "Assignee"), commander: tx("指挥", "Commander") };
+  const LINK: Record<string, string> = { alert: tx("告警", "Alert"), alert_group: tx("告警组", "Alert group"), investigation: tx("调查", "Investigation"), proposal: tx("提案", "Proposal"), change: tx("变更", "Change") };
+  const unknownLinks = [...unknown].filter((k) => k.startsWith("links.")).map((k) => k.slice("links.".length));
   const setStatus2 = async (to: "mitigated" | "resolved") => {
     if (!inc?.status_revision) return;
     try {
@@ -179,6 +184,7 @@ export default function IncidentsPage() {
                       </li>
                     ))}
                   </ol>
+                  {unknown.has("timeline.system_events") && <Muted size={11.5}>{tx("时间线只含人工记录；状态变化等系统事件还没有接入", "Only manual notes are shown; status changes and other system events aren't in the timeline yet")}</Muted>}
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
@@ -226,21 +232,49 @@ export default function IncidentsPage() {
                   </Panel>
                   <Panel title={tx("角色", "Roles")}>
                     <Col gap={8}>
+                      {/* A case's commander is the name a person entered when creating it (not an assigned role). */}
+                      {inc.record_kind === "case" && inc.commander && (
+                        <Row gap={6}>
+                          <Muted>{ROLE.commander}</Muted>
+                          <Spacer />
+                          <Avatar name={inc.commander} size={20} />
+                          <span style={{ fontSize: "var(--fs-sm)" }}>{inc.commander}</span>
+                        </Row>
+                      )}
+                      {!inc.commander && unknown.has("commander") && (
+                        <Row gap={6}>
+                          <Muted>{ROLE.commander}</Muted>
+                          <Spacer />
+                          <UnknownValue />
+                        </Row>
+                      )}
                       {inc.roles.map((r) => (
                         <Row key={r.role} gap={6}>
-                          <Muted>{r.role}</Muted>
+                          <Muted>{ROLE[r.role] ?? r.role}</Muted>
                           <Spacer />
                           {r.ai ? <AiAvatar size={20} /> : <Avatar name={r.name} size={20} />}
                           <span style={{ fontSize: "var(--fs-sm)" }}>{r.name}</span>
                         </Row>
                       ))}
+                      {(unknown.has("assignee") || unknown.has("assignee.name")) && (
+                        <Row gap={6}>
+                          <Muted>{ROLE.assignee}</Muted>
+                          <Spacer />
+                          <UnknownValue />
+                        </Row>
+                      )}
                     </Col>
                   </Panel>
                   <Panel title={tx("关联", "Links")}>
                     <Col gap={8}>
                       {inc.links.map((l) => (
-                        <KV key={l.href} k={{ alert_group: tx("告警", "Alert"), investigation: tx("调查", "Investigation"), proposal: tx("提案", "Proposal"), change: tx("变更", "Change") }[l.kind as string] ?? l.kind} kw={44}>
+                        <KV key={l.href} k={LINK[l.kind as string] ?? l.kind} kw={44}>
                           <TextLink to={l.href}>{l.label}</TextLink>
+                        </KV>
+                      ))}
+                      {unknownLinks.map((k) => (
+                        <KV key={k} k={LINK[k] ?? k} kw={44}>
+                          <UnknownValue />
                         </KV>
                       ))}
                     </Col>

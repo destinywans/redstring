@@ -5,7 +5,9 @@ S['V3HomeKPI'] = obj({'id': string(), 'label': string(), 'value': string(),
     'series': arr({'type': 'number'}), 'tone': string()},
     ['id', 'label', 'value', 'series'])
 S['V3HomeAttention'] = obj({'id': string(), 'severity': {'type': ['string', 'null'],
-    'enum': ['P1', 'P2', 'P3', 'P4', None]}, 'service': string(), 'env': string(),
+    'enum': ['P1', 'P2', 'P3', 'P4', None]},
+    # PA-239/240: why severity is null (an unknown raw value, or none carried).
+    'severity_reason': string(enum=['unclassified', 'not_filled']), 'service': string(), 'env': string(),
     'symptom': string(),
     'meta': string(description='Whether the incident is a stored firing alert or a stored incident; PA-83: no longer carries the time'),
     'at': string(format='date-time', description='PA-83: the alert start while firing, otherwise the last update, in RFC 3339'),
@@ -39,8 +41,9 @@ S['V3HomeBriefing'] = obj({'summary': string(),
     ['summary', 'generated_at', 'citations', 'oncall'])
 S['V3HomeAlertTrend'] = obj({'start': string(format='date-time', description='Start of bucket 0 (whole seconds, UTC); bucket i covers [start+i*step, start+(i+1)*step)'),
     'step_seconds': {'type': 'number', 'exclusiveMinimum': 0, 'description': 'Bucket width in seconds; may be fractional (15m range: 37.5). Label buckets in the viewer time zone from start and step (PA-25).'},
-    'counts': arr(arr(integer(minimum=0))), 'summary': string()},
-    ['start', 'step_seconds', 'counts', 'summary'])
+    'counts': arr(arr(integer(minimum=0))), 'summary': string(),
+    'unknown_severity': integer(minimum=0, description='Deliveries whose severity is unknown or missing (PA-239/240): in the total and summary, not in a P-level series')},
+    ['start', 'step_seconds', 'counts', 'summary', 'unknown_severity'])
 S['V3HomeSummary'] = obj({
     'greeting': obj(fieldnames('name summary'), ['name', 'summary']),
     'briefing': {'anyOf': [ref('V3HomeBriefing'), {'type': 'null'}]},

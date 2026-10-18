@@ -19,7 +19,7 @@ S['V3InboxPartial'] = obj({'items':arr(ref('V3InboxItem')),
     'unavailable':arr(string())},
     ['items','counts','partial','window','timezone','as_of','all_scope','mine_scope','unavailable'])
 S['V3IncidentSummary'] = obj({**fieldnames('id title duration commander'),
-    'severity':string(enum=['P1','P2','P3','P4']),
+    'severity':{**v3_nullable(string(enum=['P1','P2','P3','P4'])),'description':'Null when the raw severity is unknown (PA-239) or the alert carried none (PA-240); severity_reason says which'},'severity_reason':string(enum=['unclassified','not_filled']),
     'status':string(enum=['active','mitigated','resolved'])},
     ['id','severity','title','status','duration','commander'])
 S['V3IncidentCaseSummary'] = obj({**fieldnames('id title application_id environment_id'),
@@ -41,7 +41,7 @@ S['V3AlertNotification'] = obj({
     'attempts':integer(minimum=0)},['id','channel','status','created_at','attempts'])
 S['V3AlertDetail'] = obj({
     **fieldnames('id title source_id env summary assignee_id investigation_id revision'),
-    'severity':string(enum=['P1','P2','P3','P4']),
+    'severity':{**v3_nullable(string(enum=['P1','P2','P3','P4'])),'description':'Null when the raw severity is unknown (PA-239) or the alert carried none (PA-240); severity_reason says which'},'severity_reason':string(enum=['unclassified','not_filled']),
     'state':string(enum=['firing','pending','resolved']),
     'since':string(format='date-time'),
     **{name:{'type':'null'} for name in ['source','rule','triage','series','labels','runbook']},
@@ -69,7 +69,7 @@ S['V3AlertGroupInstance'] = obj({
     ['id','value','state','duration','series','pending'])
 S['V3AlertGroupLocal'] = obj({
     **fieldnames('id service source_id fingerprint environment_id environment_key count_kind state since'),
-    'severity':string(enum=['P1','P2','P3','P4']),
+    'severity':{**v3_nullable(string(enum=['P1','P2','P3','P4'])),'description':'Null when the raw severity is unknown (PA-239) or the alert carried none (PA-240); severity_reason says which'},'severity_reason':string(enum=['unclassified','not_filled']),
     'labels':arr(v3_object('k v')),'count':integer(minimum=1),
     # PA-130: the members' alertname (or persisted alert title); null when they disagree.
     'alert_name':{'type':['string','null']},
@@ -169,7 +169,7 @@ S['V3IncidentDetailRole'] = obj({'role':string(enum=['assignee']),'name':string(
 S['V3IncidentDetailLink'] = obj({'kind':string(),'label':string(),'href':string()},['kind','label','href'])
 S['V3IncidentDetail'] = obj({
     **fieldnames('id application_id environment_id environment_key source_id title summary assignee_id investigation_id'),
-    'severity':string(enum=['P1','P2','P3','P4']),
+    'severity':{**v3_nullable(string(enum=['P1','P2','P3','P4'])),'description':'Null when the raw severity is unknown (PA-239) or the alert carried none (PA-240); severity_reason says which'},'severity_reason':string(enum=['unclassified','not_filled']),
     'status':string(enum=['active','mitigated','resolved']),
     'work_status':string(enum=['open','investigating','resolved']),
     'alert_status':string(enum=['firing','pending','resolved']),

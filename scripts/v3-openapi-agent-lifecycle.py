@@ -25,6 +25,8 @@ S['V3AgentEvidenceSummary'] = obj({
 
 _agent_release = obj({
     **fieldnames('from to'),
+    # PA-236: the version a rollback goes to, by the same rule the rollback runs.
+    'rollback_to': {'type': ['string', 'null'], 'description': 'The stable version while a canary runs, else the previous stable version; null when there is nothing to roll back to'},
     'target': integer(minimum=0, maximum=100),
     'configured_canary_percent': integer(minimum=0, maximum=100),
     'current': _agent_unknown,

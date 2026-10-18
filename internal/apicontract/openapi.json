@@ -44946,6 +44946,13 @@
                         "to": {
                           "type": "string"
                         },
+                        "rollback_to": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "The stable version while a canary runs, else the previous stable version; null when there is nothing to roll back to"
+                        },
                         "target": {
                           "type": "integer",
                           "minimum": 0,
@@ -67589,6 +67596,13 @@
               null
             ]
           },
+          "severity_reason": {
+            "type": "string",
+            "enum": [
+              "unclassified",
+              "not_filled"
+            ]
+          },
           "service": {
             "type": "string"
           },
@@ -67887,6 +67901,11 @@
           },
           "summary": {
             "type": "string"
+          },
+          "unknown_severity": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Deliveries whose severity is unknown or missing (PA-239/240): in the total and summary, not in a P-level series"
           }
         },
         "additionalProperties": false,
@@ -67894,7 +67913,8 @@
           "start",
           "step_seconds",
           "counts",
-          "summary"
+          "summary",
+          "unknown_severity"
         ]
       },
       "V3HomeSummary": {
@@ -76105,12 +76125,27 @@
             "type": "string"
           },
           "severity": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3",
+                  "P4"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the raw severity is unknown (PA-239) or the alert carried none (PA-240); severity_reason says which"
+          },
+          "severity_reason": {
             "type": "string",
             "enum": [
-              "P1",
-              "P2",
-              "P3",
-              "P4"
+              "unclassified",
+              "not_filled"
             ]
           },
           "status": {
@@ -76298,12 +76333,27 @@
             "type": "string"
           },
           "severity": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3",
+                  "P4"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the raw severity is unknown (PA-239) or the alert carried none (PA-240); severity_reason says which"
+          },
+          "severity_reason": {
             "type": "string",
             "enum": [
-              "P1",
-              "P2",
-              "P3",
-              "P4"
+              "unclassified",
+              "not_filled"
             ]
           },
           "state": {
@@ -76486,12 +76536,27 @@
             "type": "string"
           },
           "severity": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3",
+                  "P4"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the raw severity is unknown (PA-239) or the alert carried none (PA-240); severity_reason says which"
+          },
+          "severity_reason": {
             "type": "string",
             "enum": [
-              "P1",
-              "P2",
-              "P3",
-              "P4"
+              "unclassified",
+              "not_filled"
             ]
           },
           "labels": {
@@ -77250,12 +77315,27 @@
             "type": "string"
           },
           "severity": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3",
+                  "P4"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the raw severity is unknown (PA-239) or the alert carried none (PA-240); severity_reason says which"
+          },
+          "severity_reason": {
             "type": "string",
             "enum": [
-              "P1",
-              "P2",
-              "P3",
-              "P4"
+              "unclassified",
+              "not_filled"
             ]
           },
           "status": {

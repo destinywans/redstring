@@ -654,7 +654,7 @@ test.describe("write entries are gated at the entry (PA-228)", () => {
     await page.route(at("/canvases"), (r) => (r.request().method() === "POST" ? (posted++, json(r, 403, { error: { code: "forbidden", message: "check" } })) : r.fallback()));
     await page.goto(origin + "/canvases?new=investigation");
     const dialog = page.getByRole("dialog");
-    await expect(dialog.getByRole("button", { name: "新建画布" })).toBeDisabled({ timeout: 20_000 });
+    await expect(dialog.getByRole("button", { name: "创建画布" })).toBeDisabled({ timeout: 20_000 });
     await expect(dialog.locator(".perm-gate")).toContainText("需要 画布·修改 权限");
     expect(posted).toBe(0);
   });
@@ -761,6 +761,8 @@ test.describe("lifecycle states and reply failures in words (PA-166)", () => {
     );
     await page.goto(origin + `/canvas/${INV}`);
     await page.getByText("检查分支", { exact: true }).first().click({ timeout: 20_000 });
+    // The inspector opens on the context tab; replies are on the chat tab.
+    await page.getByRole("tab", { name: /^对话/ }).click();
     await expect(page.getByText("分支上下文超过上限，没能生成回复。")).toBeVisible();
     await expect(page.getByText(/node_context_too_large/)).toHaveCount(0);
   });

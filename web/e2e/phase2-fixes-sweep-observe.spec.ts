@@ -221,3 +221,53 @@ test.describe("starter stack on the real page (PA-220)", () => {
     expect(m.pageErrors).toEqual([]);
   });
 });
+
+/**
+ * PA-227 (WAN-586): "Recent deliveries · {source}" listed every source's receipts, native sources have none (the table
+ * went blank for lab-alertmanager), every response code was green, and an error source said "all deliveries in 24 h
+ * were rejected (401)" while error means the latest receipt was 422.
+ */
+test.describe("webhook deliveries per source (PA-227)", () => {
+  const panel = (page: Page) => page.locator(".v3-panel", { hasText: "最近投递" });
+
+  test("lists only the selected source's deliveries, coloured by response", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinWebhooks(page);
+    const m = monitor(page);
+    await page.goto(origin + "/integrations/webhooks");
+    await expect(panel(page)).toContainText("最近投递 · generic-check · alert", { timeout: 20_000 });
+    await expect(panel(page).locator("tbody tr")).toHaveCount(2);
+    await expect(panel(page)).not.toContainText("bad-check");
+    await expect(panel(page).locator(".v3-badge", { hasText: "202" })).toHaveClass(/t-ok/);
+    await expect(panel(page).locator(".v3-badge", { hasText: "409" })).not.toHaveClass(/t-ok/);
+    expect(m.pageErrors).toEqual([]);
+  });
+
+  test("a native source says it keeps no per-delivery records", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinWebhooks(page);
+    await page.goto(origin + "/integrations/webhooks");
+    await page.locator("tbody tr", { hasText: "lab-check" }).first().click({ timeout: 20_000 });
+    await expect(panel(page)).toContainText("最近投递 · lab-check");
+    await expect(panel(page)).not.toContainText("generic-check");
+    await expect(panel(page).getByText("原生来源不记录逐条投递", { exact: false })).toBeVisible();
+  });
+
+  test("an error source names the 422 it got, not 401", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinWebhooks(page);
+    await page.goto(origin + "/integrations/webhooks");
+    await page.locator("tbody tr", { hasText: "bad-check" }).first().click({ timeout: 20_000 });
+    await expect(panel(page)).toContainText("最近投递 · bad-check · change");
+    await expect(panel(page)).not.toContainText("401");
+    await expect(panel(page).getByText("最近一次投递没有通过事件校验（422）", { exact: false })).toBeVisible();
+    await expect(panel(page).locator(".v3-badge", { hasText: "422" })).toHaveClass(/t-danger/);
+  });
+
+  test("a source with no deliveries in the window says so", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinWebhooks(page, webhookView({ deliveries: [] }));
+    await page.goto(origin + "/integrations/webhooks");
+    await expect(panel(page).getByText("最近 24 小时没有投递", { exact: false })).toBeVisible({ timeout: 20_000 });
+  });
+});

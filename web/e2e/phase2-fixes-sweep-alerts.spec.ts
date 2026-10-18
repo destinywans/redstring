@@ -106,3 +106,107 @@ test.describe("an enable or disable whose approval lapsed is not shown as runnin
     expect(m.pageErrors).toEqual([]);
   });
 });
+
+/* ---------------- alerts page ---------------- */
+const GROUP = "ag-check";
+/** One real alert group as GET /alert-groups returns it: claimed by `owner`, one instance with no value or series. */
+const alertGroup = (patch: Record<string, unknown> = {}) => ({
+  id: GROUP,
+  severity: "P2",
+  labels: [{ k: "alertname", v: "CheckHighErrorRate" }],
+  service: "app-check",
+  alert_name: "CheckHighErrorRate",
+  count: 1,
+  state: "firing",
+  since: at0,
+  last_seen: at0,
+  notify: { channel: null, text: "", status: null },
+  badges: [],
+  owner: "Check Owner",
+  inhibited: null,
+  instances: [{ id: "check-instance-1", value: null, state: "firing", duration: "5m", series: null, pending: null }],
+  environment_key: "prod",
+  unavailable: ["instances[].value", "instances[].series", "inhibited"],
+  ...patch,
+});
+const groupPolicy = {
+  group_by: ["alertname"],
+  route: "root",
+  timing: [],
+  timeline: [{ time: at0, channel: "webhook", text: "Check notification", done: null }],
+  inhibition: null,
+  partial: true,
+  unavailable: ["inhibition", "timeline[].done"],
+};
+/** Pins the alerts page to one claimed group; `state`/`show_inhibited` requests the server refuses answer 503 as it does. */
+async function pinAlerts(page: Page, group = alertGroup()) {
+  await page.route(at("/alert-groups"), (r) => {
+    const q = new URL(r.request().url()).searchParams;
+    if (q.get("state") === "silenced") return json(r, 503, { error: { code: "silence_state_unavailable", message: "Check: silence state is not tracked" } });
+    if (q.get("show_inhibited") === "false") return json(r, 503, { error: { code: "inhibition_unavailable", message: "Check: inhibition is not tracked" } });
+    return json(r, 200, { items: [group], counts: { firing: 1, pending: 0, silenced: null } });
+  });
+  await page.route(at(`/alert-groups/${GROUP}/policy`), (r) => json(r, 200, groupPolicy));
+}
+/** Hovers the group owner's name and returns the person card. */
+async function personCard(page: Page) {
+  await page.locator(".alert-group .peek-target", { hasText: "Check Owner" }).hover({ timeout: 20_000 });
+  return page.locator(".v3-peek");
+}
+
+test.describe("the person card never says off call when that is unknown (PA-214)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const peek = at(`/people/${encodeURIComponent("Check Owner")}/peek`);
+
+  for (const [what, status, body] of [
+    ["without members.view (404)", 404, { error: { code: "not_found", message: "Person not found" } }],
+    ["when the read fails (503)", 503, { error: { code: "person_peek_unavailable", message: "Person preview unavailable" } }],
+    ["with on-call null", 200, { id: "u-check", name: "Check Owner", role: null, oncall: null, load: null }],
+  ] as const) {
+    test(`${what}: on call is unknown, not 非值班`, async ({ page }) => {
+      await page.addInitScript(zh);
+      const m = monitor(page);
+      await pinAlerts(page);
+      await page.route(peek, (r) => json(r, status, body));
+      await page.goto(origin + "/alerts");
+      const card = await personCard(page);
+      await expect(card).toContainText("Check Owner");
+      await expect(card.locator(".unk", { hasText: "值班 —" })).toBeVisible();
+      await expect(card).not.toContainText("非值班");
+      await expect(card).not.toContainText("…");
+      expect(m.pageErrors).toEqual([]);
+    });
+  }
+
+  test("while it loads: no 非值班", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinAlerts(page);
+    let release!: () => void;
+    const held = new Promise<void>((done) => (release = done));
+    await page.route(peek, async (r) => {
+      await held;
+      await json(r, 404, { error: { code: "not_found", message: "Person not found" } });
+    });
+    await page.goto(origin + "/alerts");
+    const card = await personCard(page);
+    await expect(card).toContainText("Check Owner");
+    await expect(card).not.toContainText("非值班");
+    release();
+    await expect(card.locator(".unk", { hasText: "值班 —" })).toBeVisible();
+  });
+});
+
+test.describe("the service card says why it can't load (PA-221)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("a failed service preview explains instead of an endless skeleton", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinAlerts(page);
+    await page.route((u) => /^\/api\/v1\/services\/[^/]+\/peek$/.test(u.pathname), (r) => json(r, 503, { error: { code: "service_peek_unavailable", message: "Check" } }));
+    await page.goto(origin + "/alerts");
+    await page.locator(".alert-group .peek-target").first().hover({ timeout: 20_000 });
+    const card = page.locator(".v3-peek");
+    await expect(card.locator(".unk-block")).toContainText("暂时不可用", { timeout: 10_000 });
+    await expect(card.locator(".skeleton")).toHaveCount(0);
+  });
+});

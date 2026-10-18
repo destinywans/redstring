@@ -241,3 +241,78 @@ test.describe("postmortem list (PA-218)", () => {
     for (const word of ["订单", "库存", "支付"]) await expect(menu.getByRole("option", { name: word })).toHaveCount(0);
   });
 });
+
+/* ---------------- PA-219: investigation canvas and the rollback drawer it opens ---------------- */
+
+const INV = "INV-sweep-check";
+const CANVAS = { investigation: { id: INV, title: "清扫检查调查", status: "active", env: "prod", participants: [] }, loop: [], nodes: [], tray: [] };
+
+test.describe("investigation canvas reads (PA-219)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("a failed canvas read says why instead of an empty canvas with zero counts", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await page.route(at(`/investigations/${INV}/canvas`), (r) => unavailable(r));
+    await page.goto(origin + `/canvas/${INV}`);
+    await expect(page.locator(".unk-page")).toContainText("暂时不可用", { timeout: 20_000 });
+    await expect(page.getByText(/0 个分支/)).toHaveCount(0);
+    await expect(page.locator(".cv-status")).toHaveCount(0);
+    expect(m.pageErrors).toEqual([]);
+  });
+
+  test("an investigation that doesn't exist here reads as not found", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at(`/investigations/${INV}/canvas`), (r) => json(r, 404, { error: { code: "not_found", message: "check" } }));
+    await page.goto(origin + `/canvas/${INV}`);
+    await expect(page.getByText("找不到这条记录")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/0 个分支/)).toHaveCount(0);
+  });
+
+  const openDrawer = async (page: Page) => {
+    await page.route(at(`/investigations/${INV}/canvas`), (r) => json(r, 200, CANVAS));
+    await page.goto(origin + `/canvas/${INV}`);
+    await page.getByRole("button", { name: "提议回滚" }).click({ timeout: 20_000 });
+  };
+
+  test("rollback drawer: a failed open-investigations read says so, not that the investigation has no service", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/canvases"), (r) => unavailable(r));
+    await openDrawer(page);
+    await expect(page.getByText("读不到开放调查列表")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("这个调查没有关联到当前环境里的服务")).toHaveCount(0);
+  });
+
+  test("rollback drawer: an investigation missing from the open list says so instead of an endless skeleton", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/canvases"), (r) => json(r, 200, { items: [], total: 0 }));
+    await openDrawer(page);
+    await expect(page.getByText("开放调查里没有这个调查")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("这个调查没有关联到当前环境里的服务")).toHaveCount(0);
+  });
+});
+
+/* ---------------- PA-220: generic canvas merge and write-back ---------------- */
+
+const DOC = "cv-sweep-check";
+const DOC_CANVAS = {
+  id: DOC, title: "清扫检查画布", kind: "analysis", status: "active", env: "prod", participants: [], note: "",
+  nodes: [{ id: "n1", x: 0, y: 0, w: 280, icon: "file", tone: "accent", title: "主线", sub: "检查", blocks: [] }], edges: [], artifacts: [], threads: {},
+};
+
+test.describe("generic canvas toolbar (PA-220)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("real mode has no merge or write-back that only shows a toast", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await page.route(at(`/canvases/${DOC}`), (r) => json(r, 200, DOC_CANVAS));
+    await page.goto(origin + `/canvas/${DOC}`);
+    const toolbar = page.getByRole("toolbar", { name: "画布工具" });
+    await expect(toolbar.getByRole("button", { name: "自动布局" })).toBeVisible({ timeout: 20_000 });
+    await expect(toolbar.getByRole("button", { name: "合并" })).toHaveCount(0);
+    await expect(toolbar.getByRole("button", { name: "回写" })).toHaveCount(0);
+    await expect(page.getByText("可撤销")).toHaveCount(0);
+    expect(m.pageErrors).toEqual([]);
+  });
+});

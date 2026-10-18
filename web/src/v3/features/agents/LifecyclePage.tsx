@@ -25,14 +25,14 @@ export default function LifecyclePage() {
   const { tx } = useI18n();
   const nav = useNavigate();
   const lb = useAgentLabels();
-  const { data, refetch } = useGet<Lifecycle>("/agents/lifecycle");
+  const { data, refetch, error } = useGet<Lifecycle>("/agents/lifecycle");
   const demo = API_MODE === "mock";
   const lists = usePickLists();
   const [creating, setCreating] = useState(false);
   const [q, setQ] = useState("");
   const rows = data?.agents.filter((a) => !q || a.id.includes(q) || a.name.includes(q));
   return (
-    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("生命周期", "Lifecycle")]} actions={
+    <Page flush error={!data ? error : undefined} errorSource={tx("Agent 生命周期", "agent lifecycle")} crumbs={[tx("Agent 运行台", "Agent console"), tx("生命周期", "Lifecycle")]} actions={
         <Gate need={["agents", "manage"]}>
         <Btn
           kind="primary"

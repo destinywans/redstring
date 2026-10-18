@@ -11,13 +11,13 @@ import { useI18n } from "../../i18n";
 import { AgentTrace } from "./AgentTrace";
 import "./agents.css";
 import { openForm, openExternal, downloadFile } from "../../ui/demo";
-import { Unavailable, UnknownValue } from "../../ui/unknown";
+import { LoadError, Unavailable, UnknownValue } from "../../ui/unknown";
 
 export default function RunDetailPage() {
   const { tx } = useI18n();
   const { id = API_MODE === "mock" ? "run_7f3a" : "" } = useParams();
   const demo = API_MODE === "mock";
-  const { data: r } = useGet<RunDetail>(id ? `/agent-runs/${id}` : null);
+  const { data: r, error } = useGet<RunDetail>(id ? `/agent-runs/${id}` : null);
   const [tab, setTab] = useState("trace");
   const [stepId, setStepId] = useState(demo ? "s2" : "");
   const [vote, setVote] = useState<"up" | "down" | null>(null);
@@ -115,6 +115,9 @@ export default function RunDetailPage() {
       />
       {tab === "trace" ? (
         <AgentTrace runId={id} />
+      ) : !r && error ? (
+        // PA-221: a failed read says why instead of an endless skeleton.
+        <LoadError error={error} source={tx("运行记录", "the run record")} />
       ) : !r ? (
         <div className="v3-content">
           <Skeleton h={60} />

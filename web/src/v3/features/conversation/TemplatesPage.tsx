@@ -16,7 +16,7 @@ export default function TemplatesPage() {
   const nav = useNavigate();
   const [owner, setOwner] = useState<"all" | "official" | "team">("all");
   const [q, setQ] = useState("");
-  const { data, isLoading } = useGet<{ items: InvestigationTemplate[]; counts: Record<string, number> }>("/investigation-templates", { owner: owner === "all" ? undefined : owner, q });
+  const { data, isLoading, error } = useGet<{ items: InvestigationTemplate[]; counts: Record<string, number> }>("/investigation-templates", { owner: owner === "all" ? undefined : owner, q });
   const [selId, setSel] = useState<string | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
   const sel = data?.items.find((t) => t.id === selId);
@@ -32,7 +32,7 @@ export default function TemplatesPage() {
     nav(`/canvas/${r.investigation_id}`);
   };
   return (
-    <Page crumbs={[tx("对话与画布", "Conversations & canvases"), tx("模板", "Templates")]} actions={<Btn kind="primary" icon="plus" onClick={() => setSaveOpen(true)}>{tx("新建模板", "New template")}</Btn>} flush>
+    <Page error={!data ? error : undefined} errorSource={tx("模板", "templates")} crumbs={[tx("对话与画布", "Conversations & canvases"), tx("模板", "Templates")]} actions={<Btn kind="primary" icon="plus" onClick={() => setSaveOpen(true)}>{tx("新建模板", "New template")}</Btn>} flush>
       <div className="v3-split">
         <div className="main">
           <div className="v3-content">

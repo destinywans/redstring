@@ -66,7 +66,7 @@ export default function CanvasesPage() {
   const [kind, setKind] = useState<CanvasKind | "all">("all");
   const [q, setQ] = useState("");
   const listQuery = { kind: kind === "all" ? undefined : kind, q };
-  const { data, isLoading } = useGet<{ items: CanvasSummary[]; counts: Record<string, number>; total?: number; page?: number; page_size?: number }>("/canvases", listQuery);
+  const { data, isLoading, error } = useGet<{ items: CanvasSummary[]; counts: Record<string, number>; total?: number; page?: number; page_size?: number }>("/canvases", listQuery);
   // Later pages load on request (PA-133); facets work on what is loaded.
   const paged = useMorePages("/canvases", listQuery, data);
   const loaded = data ? paged.items : undefined;
@@ -86,6 +86,9 @@ export default function CanvasesPage() {
   const c = data?.counts;
   return (
     <Page
+      // PA-221: a failed list read says why instead of an empty grid.
+      error={!data ? error : undefined}
+      errorSource={tx("画布列表", "the canvas list")}
       crumbs={[tx("对话与画布", "Conversations & canvases"), tx("画布", "Canvases")]}
       actions={
         <>

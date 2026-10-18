@@ -19,7 +19,7 @@ export default function GuardrailsPage() {
   const when = useWhen();
   const [filter, setFilter] = useState<"all" | "blocked" | "masked">("all");
   const [q, setQ] = useState("");
-  const { data, refetch } = useGet<GuardrailsView>("/guardrails", { filter });
+  const { data, refetch, error } = useGet<GuardrailsView>("/guardrails", { filter });
   const [off, setOff] = useState<Set<string>>(new Set());
   // Real switches show the requested state while the PATCH is in flight, then the server's.
   const [pending, setPending] = useState<Record<string, boolean>>({});
@@ -74,7 +74,7 @@ export default function GuardrailsPage() {
   const fRule = useFacet(data?.events, (e) => e.rule);
   const rows = data?.events.filter((e) => (!q || e.detail.includes(q) || e.run.includes(q)) && fAgent.test(e) && fRule.test(e));
   return (
-    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("护栏与审计", "Guardrails & audit")]} actions={
+    <Page flush error={!data ? error : undefined} errorSource={tx("护栏记录", "guardrail records")} crumbs={[tx("Agent 运行台", "Agent console"), tx("护栏与审计", "Guardrails & audit")]} actions={
         <Btn
           icon="download"
           onClick={() => {

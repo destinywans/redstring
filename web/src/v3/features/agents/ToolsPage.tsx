@@ -14,7 +14,7 @@ export default function ToolsPage() {
   const { tx } = useI18n();
   const [kind, setKind] = useState<"all" | "read" | "write">("all");
   const [q, setQ] = useState("");
-  const { data } = useGet<ToolsView>("/agent-tools", { kind });
+  const { data, error } = useGet<ToolsView>("/agent-tools", { kind });
   const demo = API_MODE === "mock";
   // The sample overview shows the Investigator's level; real levels are per agent and set on the agent page.
   const [level, setLevel] = useState<AgentLevel | "">(demo ? "L2" : "");
@@ -26,7 +26,7 @@ export default function ToolsPage() {
   const fAgent = useFacet(data?.items, (t) => t.agents.split(" · "));
   const rows = data?.items.filter((t) => (!q || t.name.includes(q)) && fConn.test(t) && fAgent.test(t));
   return (
-    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("工具与权限", "Tools & permissions")]} actions={
+    <Page flush error={!data ? error : undefined} errorSource={tx("工具", "tools")} crumbs={[tx("Agent 运行台", "Agent console"), tx("工具与权限", "Tools & permissions")]} actions={
         <Gate need={["agents", "manage"]}>
         <Btn
           kind="primary"

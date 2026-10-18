@@ -8,7 +8,7 @@ import { Gate } from "../../ui/permission";
 import { useI18n } from "../../i18n";
 import "./knowledge.css";
 import { useWhen } from "../../ui/when";
-import { UnknownValue } from "../../ui/unknown";
+import { LoadError, PageUnavailable, UnknownValue } from "../../ui/unknown";
 
 type Candidate = { id: string; title: string; severity: Severity; resolved: string; duration: string; evidence: number };
 type Draft = {
@@ -30,7 +30,7 @@ export default function NewPostmortemPage() {
   const [params, setParams] = useSearchParams();
   const incident = params.get("incident");
   const cands = useGet<{ items: Candidate[] }>(incident ? null : "/postmortems/candidates");
-  const { data, isLoading } = useGet<Draft>(incident ? "/postmortems/draft" : null, { incident });
+  const { data, isLoading, error: draftError } = useGet<Draft>(incident ? "/postmortems/draft" : null, { incident });
   const [sections, setSections] = useState<Draft["sections"]>([]);
   const [actions, setActions] = useState<Draft["actions"]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -76,6 +76,8 @@ export default function NewPostmortemPage() {
           <Muted size={12.5}>{tx("只列出已解决、还没有复盘的事件。AI 会读取事件时间线、画布证据和作战群消息来起草。", "Only resolved incidents without a postmortem. The AI drafts from the timeline, canvas evidence and war-room messages.")}</Muted>
           <div className="pm-pick">
             {cands.isLoading && Array.from({ length: 3 }, (_, i) => <Skeleton key={i} h={96} />)}
+            {/* PA-221: a failed candidate read says why instead of an empty list. */}
+            {!cands.data && cands.error && <LoadError error={cands.error} source={tx("可复盘的事件", "incidents to review")} />}
             {cands.data?.items.map((c) => (
               <button key={c.id} type="button" className="lift" onClick={() => setParams({ incident: c.id }, { replace: true })}>
                 <Row gap={6}>
@@ -136,7 +138,12 @@ export default function NewPostmortemPage() {
             </Col>
           </aside>
           <div className="pm-center">
-            {isLoading || !data ? (
+            {!data && draftError instanceof ApiError && draftError.status === 404 ? (
+              // The server answers 404 for an incident that isn't resolved or already has a postmortem (PA-221).
+              <PageUnavailable icon="search" configure={false} title={tx("这个事件不能起草复盘", "This incident can't be drafted")} desc={tx("只有已解决、还没有复盘的事件可以起草；它也可能在当前环境里看不到。", "Only resolved incidents without a postmortem can be drafted; it may also not be visible in this environment.")} />
+            ) : !data && draftError ? (
+              <LoadError error={draftError} source={tx("复盘草稿", "the postmortem draft")} />
+            ) : isLoading || !data ? (
               <>
                 <Skeleton h={28} w={420} />
                 <Skeleton h={120} />

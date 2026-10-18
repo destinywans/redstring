@@ -146,7 +146,7 @@ export default function HomePage() {
   // The range goes to the server, which bounds the trend, activity and recent items by it (PA-170).
   const [range, setRange] = useState("24h");
   const rangeLabel = useRanges().find((r) => r.value === range)?.label ?? range;
-  const { data } = useGet<HomeSummary>("/home", { range });
+  const { data, error } = useGet<HomeSummary>("/home", { range });
   const can = usePermission();
   const chatBlocked = can(["conversation", "change"]);
   // Headline counts services whose alerts are still firing (PA-58), not attention rows.
@@ -164,6 +164,9 @@ export default function HomePage() {
       : [];
   return (
     <Page
+      // PA-221: a failed overview read says why instead of skeletons that never fill.
+      error={!data ? error : undefined}
+      errorSource={tx("总览", "the overview")}
       title={
         <Row gap={10}>
           <h1 style={{ fontSize: "var(--fs-lg)", fontWeight: 600 }}>{tx("总览", "Overview")}</h1>

@@ -124,7 +124,7 @@ export default function DocCanvasPage() {
   const { data: me } = useGet<Me>("/me", undefined, { staleTime: 5 * 60_000 });
   const nodeBlocked = useNeed(["canvas", "change"]);
   const nav = useNavigate();
-  const { data, isLoading } = useGet<CanvasDoc>(`/canvases/${id}`);
+  const { data, isLoading, error } = useGet<CanvasDoc>(`/canvases/${id}`);
   const { data: catalog } = useModelCatalog();
   const [nodes, setNodes] = useState<CanvasDocNode[]>([]);
   const [heights, setHeights] = useState<Record<string, number>>({});
@@ -321,6 +321,9 @@ export default function DocCanvasPage() {
   return (
     <Page
       flush
+      // PA-221: a failed read says why instead of an empty canvas.
+      error={!data ? error : undefined}
+      errorSource={tx("画布", "the canvas")}
       crumbs={[tx("对话与画布", "Conversations & canvases"), tx("画布", "Canvases"), doc?.title ?? "…"]}
       actions={
         doc && (

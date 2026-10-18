@@ -37,7 +37,7 @@ export default function RunbookEditorPage() {
   const { id = "rb-retry-storm" } = useParams();
   const { tx } = useI18n();
   const when = useWhen();
-  const { data: rb } = useGet<Runbook>(`/runbooks/${id}`);
+  const { data: rb, error } = useGet<Runbook>(`/runbooks/${id}`);
   const scopeLabel = useRunbookScope();
   // PA-166: a real record's base is "<source kind>:<source ref>"; a postmortem reads as its title.
   const sourceName = useRunbookSourceName(!!rb?.base?.startsWith("postmortem:"));
@@ -46,7 +46,8 @@ export default function RunbookEditorPage() {
   const KIND: Record<RunbookStep["kind"], [Tone, string]> = { query: ["accent", tx("查询", "Query")], check: ["neutral", tx("判断", "Check")], action: ["warn", tx("动作", "Action")], verify: ["ok", tx("验证", "Verify")] };
   if (!rb)
     return (
-      <Page crumbs={[tx("知识与记忆", "Knowledge"), "Runbook", "…"]}>
+      // PA-221: a failed read says why instead of an endless skeleton.
+      <Page crumbs={[tx("知识与记忆", "Knowledge"), "Runbook", "…"]} error={error} errorSource="Runbook">
         <div className="v3-content">
           <Skeleton h={400} />
         </div>

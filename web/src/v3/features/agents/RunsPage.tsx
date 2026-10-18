@@ -34,7 +34,7 @@ export default function RunsPage() {
   // The range goes to the server, which bounds the list, counts and trend by it (PA-170).
   const [range, setRange] = useState("24h");
   const rangeLabel = useRanges().find((r) => r.value === range)?.label ?? range;
-  const { data } = useGet<RunsView>("/agent-runs", { filter, range });
+  const { data, error } = useGet<RunsView>("/agent-runs", { filter, range });
   // The scope names the application and environment by ID (PA-166): show the catalog and environment names.
   const names = useNames();
   const scopeOf = (r: ScopedRun) => (r.application_id && r.environment_id ? `${names.env(r.environment_id) ?? r.environment_id} / ${names.service(r.application_id) ?? r.application_id}` : r.scope);
@@ -55,6 +55,8 @@ export default function RunsPage() {
   const rows = data?.items.filter((r) => (!q || r.id.includes(q) || r.scope.includes(q) || scopeOf(r).includes(q)) && fAgent.test(r) && fVer.test(r) && fTrig.test(r));
   return (
     <Page
+      error={!data ? error : undefined}
+      errorSource={tx("运行记录", "run records")}
       crumbs={[tx("Agent 运行台", "Agent console"), tx("运行与 Trace", "Runs & traces")]}
       actions={
         <>

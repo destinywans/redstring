@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, useGet, useSend } from "../../api/client";
 import { Gate } from "../../ui/permission";
-import { PageUnavailable, Unavailable } from "../../ui/unknown";
+import { LoadError, PageUnavailable, Unavailable } from "../../ui/unknown";
 import type { EvalExperiment, EvalList } from "../../api/types";
 import { DataTable } from "../../ui/data";
 import { Badge, Brand, Btn, Card, Col, Icon, Legend, Mono, Muted, Num, Panel, Row, Section, Skeleton, Spacer, Tabs, TextLink, Tile, cx } from "../../ui/core";
@@ -25,7 +25,7 @@ export default function EvalsPage() {
   const expId = API_MODE === "mock" ? "exp-v12-v13" : params.get("id");
   const [page, setPage] = useState(1);
   const list = useGet<EvalList>(API_MODE !== "mock" && !expId ? "/evals" : null, { page, page_size: 50 });
-  const { data: e } = useGet<EvalExperiment>(expId ? `/evals/${expId}` : null);
+  const { data: e, error: expError } = useGet<EvalExperiment>(expId ? `/evals/${expId}` : null);
   // Hooks stay above the early return below: opening a new experiment must not change the hook order.
   const [tab, setTab] = useState("exp");
   const [selPick, setSel] = useState(API_MODE === "mock" ? "INV-187" : "");
@@ -135,7 +135,10 @@ export default function EvalsPage() {
       />
       <div className="v3-split">
         <div className="main">
-          {!e ? (
+          {!e && expError ? (
+            // PA-221: a failed experiment read says why instead of an endless skeleton.
+            <LoadError error={expError} source={tx("评测实验", "the experiment")} />
+          ) : !e ? (
             <div className="v3-content">
               <Skeleton h={300} />
             </div>

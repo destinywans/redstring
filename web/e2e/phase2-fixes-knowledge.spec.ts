@@ -121,3 +121,45 @@ test.describe("log line service names (PA-166)", () => {
     });
   }
 });
+
+test.describe("alert detail incident link (PA-166)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const ALERT = "alert-knowledge-check";
+  const INCIDENT = "inc-knowledge-check";
+  const TITLE = "知识检查事件";
+  const INBOX = {
+    items: [{ id: "inbox-knowledge-check", kind: "alert", tone: "danger", title: "检查用告警", sub: "", at: new Date().toISOString(), unread: false, href: "", alert_id: ALERT }],
+    counts: { all: 1, mine: 0, mentions: 0 },
+  };
+  /** The real detail's shape: the incident by ID only, no label. */
+  const DETAIL = {
+    id: ALERT, revision: "1", severity: "P2", title: "检查用告警", state: "firing", source: null, env: "prod", since: "2026-10-18T01:00:00Z",
+    rule: null, triage: null, series: null, labels: null, summary: "检查用", runbook: null, notifications: [],
+    grouping: { group: null, inhibited: null, incident: { id: INCIDENT }, change: null }, group_id: null,
+    unavailable: ["source", "rule", "triage", "series", "labels", "runbook", "grouping.group", "grouping.inhibited", "grouping.change"],
+  };
+  const INCIDENT_DETAIL = {
+    id: INCIDENT, severity: "P2", title: TITLE, status: "active", duration: null, commander: null, stage: null, timeline: [],
+    impact: { peak: null, budget_used: null, budget_left: null, note: null, series: null }, roles: [], links: [], partial: true, unavailable: [],
+  };
+  const open = async (page: Page, incident: (r: Parameters<Parameters<Page["route"]>[1]>[0]) => Promise<void>) => {
+    await page.route(at("/inbox"), (r) => json(r, 200, INBOX));
+    await page.route(at(`/alerts/${ALERT}`), (r) => json(r, 200, DETAIL));
+    await page.route(at(`/incidents/${INCIDENT}`), incident);
+    await page.goto(origin + "/inbox");
+  };
+  const link = (page: Page) => page.locator(".v3-kv").filter({ has: page.locator(".k", { hasText: /^事件$/ }) }).getByRole("link");
+
+  test("the incident link reads the incident's title, not its ID", async ({ page }) => {
+    await page.addInitScript(zh);
+    await open(page, (r) => json(r, 200, INCIDENT_DETAIL));
+    await expect(link(page)).toHaveText(TITLE, { timeout: 20_000 });
+    await expect(link(page)).toHaveAttribute("href", `/incidents/${INCIDENT}`);
+  });
+
+  test("an incident that can't be read keeps its ID", async ({ page }) => {
+    await page.addInitScript(zh);
+    await open(page, (r) => json(r, 404, { error: { code: "not_found", message: "Event not found" } }));
+    await expect(link(page)).toHaveText(INCIDENT, { timeout: 20_000 });
+  });
+});

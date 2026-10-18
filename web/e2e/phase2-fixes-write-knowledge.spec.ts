@@ -234,3 +234,40 @@ test.describe("saving a new runbook's draft doesn't leave a second one to create
     expect(m.pageErrors).toEqual([]);
   });
 });
+
+/* ---------------- PA-241: expired API tokens ---------------- */
+
+test.describe("expired API tokens (PA-241)", () => {
+  test("expired tokens aren't counted, and the list and the side panel mark them expired", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    const hours = (h: number) => new Date(Date.now() + h * 3_600_000).toISOString();
+    const token = (id: string, name: string, expires: string, revoked: string | null = null) => ({ id, name, environment_id: "prod", scopes: ["connectors:view"], created_at: hours(-48), expires_at: expires, revoked_at: revoked });
+    // The server lists live tokens first (internal/v3tokens/lifecycle.go) and gives no state field.
+    await page.route(at("/api-tokens"), (r) =>
+      r.request().method() === "GET"
+        ? json(r, 200, {
+            items: [
+              token("tok-live", "检查用有效令牌", hours(24)),
+              token("tok-expired", "检查用过期令牌", hours(-1)),
+              token("tok-revoked", "检查用吊销令牌", hours(24), hours(-2)),
+            ],
+          })
+        : r.fallback(),
+    );
+    await page.goto(origin + "/integrations/webhooks");
+    const tokensTab = page.getByRole("tab", { name: /API 令牌/ });
+    await expect(tokensTab.locator(".count")).toHaveText("1", { timeout: 20_000 });
+    // The inbound tab's side panel lists the same tokens.
+    const side = page.locator("aside.aside .v3-section", { has: page.locator("h3", { hasText: /^API 令牌$/ }) });
+    await expect(side.locator("li", { hasText: "检查用过期令牌" })).toContainText("已过期");
+    await expect(side.locator("li", { hasText: "检查用有效令牌" })).not.toContainText("已过期");
+    await expect(side).not.toContainText("检查用吊销令牌");
+    await tokensTab.click();
+    const list = page.locator(".v3-content ul.plain-list");
+    await expect(list.locator("li", { hasText: "检查用过期令牌" })).toContainText("已过期");
+    await expect(list.locator("li", { hasText: "检查用有效令牌" })).not.toContainText("已过期");
+    await expect(list).not.toContainText("检查用吊销令牌");
+    expect(m.pageErrors).toEqual([]);
+  });
+});

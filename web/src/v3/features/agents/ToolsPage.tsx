@@ -124,7 +124,7 @@ export default function ToolsPage() {
             <Tile icon="shield" tone="accent" />
             <Col gap={0}>
               <Strong size={14}>{tx("自治级别", "Autonomy levels")}</Strong>
-              <Muted size={11.5}>{demo ? tx("决定 Agent 能自己做到哪一步 · 调查助手", "How far an agent may go on its own · Investigator") : tx("决定 Agent 能自己做到哪一步；在各 Agent 详情页设置", "How far an agent may go on its own; set on each agent's page")}</Muted>
+              <Muted size={11.5}>{demo ? tx("决定 Agent 能自己做到哪一步 · 调查助手", "How far an agent may go on its own · Investigator") : tx("决定 Agent 能自己做到哪一步；界面上暂时不能修改", "How far an agent may go on its own; it can't be changed in the app yet")}</Muted>
             </Col>
           </Row>
           <Col gap={16} style={{ padding: 16 }}>
@@ -138,7 +138,8 @@ export default function ToolsPage() {
                     className={cx(level === l.code && "on")}
                     onClick={() => {
                       // Levels are set per agent (PUT /agents/{id}/level on the agent page); this overview doesn't save one.
-                      if (API_MODE !== "mock") return toast(tx("自治级别在各 Agent 的详情页里修改", "Set autonomy levels on each agent's page"));
+                      // PA-229: no page has a level control yet, so don't send people to one.
+                      if (API_MODE !== "mock") return toast(tx("界面上暂时不能修改自治级别", "Autonomy levels can't be changed in the app yet"));
                       const prev = level;
                       setLevel(l.code);
                       toast(tx("调查助手自治级别改为 {l}（生产仍受环境上限约束）", "Investigator set to {l} (prod still capped by env limits)", { l: l.code }), { undo: () => setLevel(prev) });

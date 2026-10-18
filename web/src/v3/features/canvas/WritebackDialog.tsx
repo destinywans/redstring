@@ -73,7 +73,11 @@ export function WritebackDialog({ open, investigation, from, onClose, onDone }: 
       }
       footer={
         <>
-          <Muted>{tx("确认后生成主线 {v}，可在“版本”中查看或撤销。", "Creates main line {v}; view or revert it under Versions.", { v: data?.to.next_version ?? "" })}</Muted>
+          <Muted>
+            {API_MODE === "mock"
+              ? tx("确认后生成主线 {v}，可在“版本”中查看或撤销。", "Creates main line {v}; view or revert it under Versions.", { v: data?.to.next_version ?? "" })
+              : tx("确认后生成主线 {v}，生成后不能撤销。", "Creates main line {v}; it can't be undone.", { v: data?.to.next_version ?? "" })}
+          </Muted>
           <Spacer />
           <Btn kind="ghost" onClick={onClose}>
             {tx("取消", "Cancel")}

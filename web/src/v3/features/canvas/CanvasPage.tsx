@@ -1109,7 +1109,8 @@ export default function CanvasPage() {
           // The sample relabels its root; a real write-back rereads the graph so the target shows its new revision.
           if (demo) setNodes((ns) => ns.map((n) => (n.id === "root" ? { ...n, subtitle: tx("主线 · 上下文 {v}", "Main line · context {v}", { v }) } : n)));
           else void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith(`/investigations/${id}/`) });
-          toast(tx("已生成主线 {v}，可在“版本”中查看或撤销", "Main line {v} created — view or revert under Versions", { v }), demo ? { undo: () => toast(tx("已撤销回写", "Writeback reverted")) } : {});
+          // PA-229: a real write-back can't be undone or browsed by version; only the sample data offers that.
+          toast(demo ? tx("已生成主线 {v}，可在“版本”中查看或撤销", "Main line {v} created — view or revert under Versions", { v }) : tx("已生成主线 {v}", "Main line {v} created", { v }), demo ? { undo: () => toast(tx("已撤销回写", "Writeback reverted")) } : {});
         }}
       />
     </Page>

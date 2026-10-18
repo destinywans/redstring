@@ -108,3 +108,44 @@ test.describe("settings pages a role can't view (PA-200)", () => {
     await expect(gateReason(page, "保存")).toHaveText("需要 工作区·管理 权限");
   });
 });
+
+/**
+ * PA-204 (WAN-563): the scope row's add chip only changed local state and offered sample values (app=payment …), so
+ * real mode shows only the role's scope badges (D52, like PA-134 and PA-163). The role is pinned with page.route.
+ */
+test.describe("role scope on the real page (PA-204)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("shows the role's scope without an add chip or sample values", async ({ page }) => {
+    await page.addInitScript(zh);
+    const id = "pa204-check";
+    await page.route(at("/roles"), (r) => json(r, 200, { items: [{ id, name: "Check role", members: 1, kind: "business" }] }));
+    await page.route(at(`/roles/${id}`), (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { "X-Role-Matrix-Revision": "1" },
+        body: JSON.stringify({
+          id,
+          name: "Check role",
+          members: 1,
+          kind: "business",
+          desc: "Check role for PA-204",
+          member_names: ["Check Member"],
+          scope: ["global"],
+          actions: ["查看", "创建 / 编辑", "删除", "批准", "管理"],
+          matrix: [{ resource: "Check resource", grants: [1, 0, 0, 0, 0] }],
+          notes: "",
+        }),
+      }),
+    );
+    const m = monitor(page);
+    await page.goto(origin + "/settings/roles");
+    await expect(page.getByRole("heading", { name: "Check role" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("global", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "范围", exact: true })).toHaveCount(0);
+    await expect(page.locator(".v3-page-body .demo-chip")).toHaveCount(0);
+    for (const sample of ["app=payment", "app=search", "env=staging"]) await expect(page.getByText(sample)).toHaveCount(0);
+    expect(m.pageErrors).toEqual([]);
+  });
+});

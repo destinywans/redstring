@@ -408,6 +408,9 @@ function Push({ stackOnly, sel, setSel }: { stackOnly: boolean; sel: string; set
     );
   const t = d.types.find((x) => x.id === sel)!;
   const path = d.endpoint.path.replace("/change", `/${sel}`);
+  // The server offers no starter stack yet (no components or manifests); the one-step deploy, the download and the docs
+  // link stay in the sample (PA-220, D52).
+  const hasStack = !!(d.stack.helm || d.stack.compose);
   const curl = `curl -X POST https://${d.endpoint.host}${path} \\\n  -H "Authorization: Bearer $TOKEN" \\\n  -H "Idempotency-Key: $(uuidgen)" \\\n  -d @event.json`;
   const stack = (
     <aside className={cx("aside", stackOnly && "anim-slide")} style={{ width: stackOnly ? 520 : 360, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -419,6 +422,10 @@ function Push({ stackOnly, sel, setSel }: { stackOnly: boolean; sel: string; set
         </Col>
         <State tone={d.stack.enabled ? "ok" : "neutral"}>{d.stack.enabled ? tx("已启用", "Enabled") : tx("未启用", "Not enabled")}</State>
       </Row>
+      {!hasStack ? (
+        <Muted>{tx("平台还没有提供配套栈的部署清单。没有现成的观测系统时，请自行部署观测组件，再到集成中心添加连接器。", "The platform doesn't provide starter stack manifests yet. Without an observability stack, deploy the components yourself, then add connectors in Integrations.")}</Muted>
+      ) : (
+      <>
       <p style={{ margin: 0, fontSize: "var(--fs-sm)", lineHeight: 1.6 }}>
         {tx("一键部署开源观测组件。部署完成后自动创建连接器并映射服务，", "Deploy open-source observability components in one step. Connectors and service mappings are created automatically; ")}
         <b>{tx("平台仍把它当作外部系统对接，不存储遥测数据", "the platform still treats them as external systems and stores no telemetry")}</b>。
@@ -450,10 +457,14 @@ function Push({ stackOnly, sel, setSel }: { stackOnly: boolean; sel: string; set
         >
           {tx("生成部署清单", "Generate manifests")}
         </Btn>
-        <Btn kind="ghost" icon="book" onClick={() => openExternal(tx("部署说明", "Deployment docs"), "https://docs.example.internal/aiops/starter-stack")}>
-          {tx("查看说明", "Docs")}
-        </Btn>
+        {API_MODE === "mock" && (
+          <Btn kind="ghost" icon="book" onClick={() => openExternal(tx("部署说明", "Deployment docs"), "https://docs.example.internal/aiops/starter-stack")}>
+            {tx("查看说明", "Docs")}
+          </Btn>
+        )}
       </Row>
+      </>
+      )}
     </aside>
   );
   return (

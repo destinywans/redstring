@@ -211,6 +211,24 @@ test.describe("the service card says why it can't load (PA-221)", () => {
   });
 });
 
+test.describe("the service card doesn't call warn alerting (PA-209)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("warn reads as needs attention, as in the service catalog", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinAlerts(page);
+    // warn also comes from an error budget under half or a 1 h burn of 1 or more, with no alert firing.
+    const svc = { id: "app-check", name: "check-svc", tier: null, team: null, env: "prod", status: "warn", kpis: [], owner: null, oncall: null, change: null };
+    await page.route((u) => /^\/api\/v1\/services\/[^/]+\/peek$/.test(u.pathname), (r) => json(r, 200, svc));
+    await page.goto(origin + "/alerts");
+    await page.locator(".alert-group .peek-target").first().hover({ timeout: 20_000 });
+    const card = page.locator(".v3-peek");
+    await expect(card).toContainText("check-svc", { timeout: 10_000 });
+    await expect(card.getByText("需要关注", { exact: true })).toBeVisible();
+    await expect(card.getByText("告警", { exact: true })).toHaveCount(0);
+  });
+});
+
 /* ---------------- incidents ---------------- */
 type Grants = Record<string, Record<string, Record<string, string>>>;
 /** /me without the given "module.action" grants in every environment (the real answer, patched). */

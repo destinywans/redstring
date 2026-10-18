@@ -755,17 +755,26 @@ export default function CanvasPage() {
     return () => el.removeEventListener("wheel", h);
   }, [zoom]);
 
+  // One fork at a time: a double click would otherwise create two branches with the same name (PA-244).
+  const [forking, setForking] = useState(false);
+  const forkBusy = useRef(false);
   const fork = async () => {
+    if (forkBusy.current) return;
     const parent = selected && selected.kind !== "evidence" ? selected : byId.root;
     if (!parent) return;
     const siblings = nodes.filter((n) => n.parent === parent.id).length;
     const title = tx("新分支 {n}", "New branch {n}", { n: siblings + 1 });
     let node: CanvasNode;
+    forkBusy.current = true;
+    setForking(true);
     try {
       node = await api<CanvasNode>("POST", `/investigations/${id}/branches`, { body: { parent_id: parent.id, title, x: parent.x + parent.w + 70, y: parent.y + siblings * 30 + 40 } });
     } catch (e) {
       // A refused fork is said, not thrown (PA-154).
       return toast(e instanceof ApiError ? e.message : tx("分支没有建成，请稍后重试", "The branch wasn't created; try again later"), { tone: "danger" });
+    } finally {
+      forkBusy.current = false;
+      setForking(false);
     }
     setNodes((ns) => [...ns, node]);
     setSel(node.id);
@@ -1050,7 +1059,7 @@ export default function CanvasPage() {
           <div className="cv-toolbar" role="toolbar" aria-label={tx("画布工具", "Canvas tools")} onPointerDown={(e) => e.stopPropagation()}>
             {/* Forking and writing back change the investigation: gated like the rest of the toolbar (PA-177). */}
             <Gated reason={canvasChange}>
-              <Btn kind="ghost" icon="fork" onClick={fork}>
+              <Btn kind="ghost" icon="fork" loading={forking} onClick={fork}>
                 {tx("派生", "Fork")}
               </Btn>
             </Gated>

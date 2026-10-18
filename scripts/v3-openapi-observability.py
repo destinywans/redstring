@@ -4,7 +4,8 @@
 # never becomes a healthy status or SLO measurement.
 v3_svc_null = lambda schema: {'anyOf':[schema,{'type':'null'}]}
 S['V3UnknownReason'] = string(enum=['not_connected','not_configured','no_authorized_target',
-    'not_generated','unavailable','stale'])
+    'not_generated','unavailable','stale','unmapped_relation'],
+    description='unmapped_relation: the service dependency list only; its CMDB relations cannot be expressed as service dependency edges (PA-191).')
 v3_svc_unavailable = lambda: {'type':'object','additionalProperties':ref('V3UnknownReason'),
     'description':'Field path (dot-separated) of each null value -> reason. Empty when every value is known.'}
 v3_svc_tier = string(enum=['T0','T1','T2','T3'])

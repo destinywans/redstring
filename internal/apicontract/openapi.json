@@ -39887,7 +39887,7 @@
       "post": {
         "summary": "Validate runbook without execution",
         "operationId": "post_runbooks_id_dry_run",
-        "description": "Minimum role: viewer with scoped knowledge.manage. V3 instance and environment scope apply. Requires knowledge.manage because the validation preview and audit are persisted. Performs structural checks on persisted step kind, declared readonly flag and connector presence without a request body. It does not verify a connector capability or execute any external step.",
+        "description": "Minimum role: viewer with scoped knowledge.manage. V3 instance and environment scope apply. Requires knowledge.manage because the validation preview and audit are persisted. Performs structural checks on persisted step kind, declared readonly flag and connector presence without a request body. Each check carries reasons, the conditions a step failed in a fixed order: action_step, not_readonly, no_connector (an empty array when it passed, PA-194). It does not verify a connector capability or execute any external step.",
         "responses": {
           "200": {
             "description": "Success",
@@ -82796,6 +82796,13 @@
           },
           "evidence": {
             "$ref": "#/components/schemas/V3MemoryViewFactEvidence"
+          },
+          "source_title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Title of the source document; null when it has none (PA-166)."
           }
         },
         "additionalProperties": false,
@@ -82803,6 +82810,7 @@
           "id",
           "fact",
           "source",
+          "source_title",
           "source_version",
           "source_current",
           "state",
@@ -82827,13 +82835,20 @@
           },
           "source": {
             "type": "string"
+          },
+          "source_title": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": false,
         "required": [
           "id",
           "text",
-          "source"
+          "source",
+          "source_title"
         ]
       },
       "V3MemoryConflict": {
@@ -85215,8 +85230,10 @@
           "no_authorized_target",
           "not_generated",
           "unavailable",
-          "stale"
-        ]
+          "stale",
+          "unmapped_relation"
+        ],
+        "description": "unmapped_relation: the service dependency list only; its CMDB relations cannot be expressed as service dependency edges (PA-191)."
       },
       "V3ServiceKpi": {
         "type": "object",

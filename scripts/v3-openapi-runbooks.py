@@ -65,7 +65,7 @@ v3_route('post','/runbooks/{id}/dry-run','Validate runbook without execution',
     role='viewer with scoped knowledge.manage',
     response=obj({'steps':integer(),'ok':v3_bool(),'mode':string(enum=['validation_only']),
         'checks':arr({'type':'object','additionalProperties':True})}),
-    desc='Requires knowledge.manage because the validation preview and audit are persisted. Performs structural checks on persisted step kind, declared readonly flag and connector presence without a request body. It does not verify a connector capability or execute any external step.')
+    desc='Requires knowledge.manage because the validation preview and audit are persisted. Performs structural checks on persisted step kind, declared readonly flag and connector presence without a request body. Each check carries reasons, the conditions a step failed in a fixed order: action_step, not_readonly, no_connector (an empty array when it passed, PA-194). It does not verify a connector capability or execute any external step.')
 v3_route('get','/runbooks/draft','Read a source-validated Runbook outline',
     query=[v3_query('source',string(enum=['template','postmortem','conversation','import'])),v3_query('from')],
     response=obj({'title':string(),'applies_to':arr(string()),'trigger':string(),

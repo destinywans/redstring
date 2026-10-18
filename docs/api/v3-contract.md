@@ -28,7 +28,7 @@
 | 写操作 | 模型只读取证。任何对外部系统的写动作都只生成**提案**，人工批准后由独立执行器执行；本契约中的 POST/PUT/PATCH 只修改平台自身配置或状态 |
 | 审计 | 所有写请求和 Agent 工具调用都写入审计（`GET /audit`） |
 | 空列表 | 列表因当前用户没有任何可见对象而为空时返回 200、空 `items` 和 `empty_reason: "no_authorized_target"`，不返回 403；其他情况 `empty_reason` 为 `null`。读取上游期间授权变化仍按失败关闭返回 403/409/503（2026-10-09 PA-09） |
-| 未知 | 缺少可选证据时读接口仍返回 200：受影响字段为 `null`，同时在 `unavailable` 中按字段路径给出原因，例如 `{"total": "not_configured", "security.factors": "unavailable"}`（`[]` 表示数组每项的字段）。原因只有六种：`not_configured`（没有来源或登记）、`not_connected`（没有接入集成）、`no_authorized_target`（当前用户没有可见目标）、`not_generated`（平台尚未产生或记录）、`unavailable`（已配置的来源失败或没有证明）、`stale`（证据已过期）。未知不能写成 0、空列表、正常或“未值班”；字段都已证明时 `unavailable` 是空对象。只有请求本身无法完成（唯一来源已配置但失败、存储失败、授权失败）才返回错误。2026-10-09 起适用于 `/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard`；`/home` 和 `/me` 沿用各自的 `availability`、`oncall_state` |
+| 未知 | 缺少可选证据时读接口仍返回 200：受影响字段为 `null`，同时在 `unavailable` 中按字段路径给出原因，例如 `{"total": "not_configured", "security.factors": "unavailable"}`（`[]` 表示数组每项的字段）。原因只有六种通用原因：`not_configured`（没有来源或登记）、`not_connected`（没有接入集成）、`no_authorized_target`（当前用户没有可见目标）、`not_generated`（平台尚未产生或记录）、`unavailable`（已配置的来源失败或没有证明）、`stale`（证据已过期）；另有只用于服务依赖列表的 `unmapped_relation`（CMDB 关系无法表示为服务依赖边，或对方服务不可见、有歧义，PA-191）。未知不能写成 0、空列表、正常或“未值班”；字段都已证明时 `unavailable` 是空对象。只有请求本身无法完成（唯一来源已配置但失败、存储失败、授权失败）才返回错误。2026-10-09 起适用于 `/me/profile`、`/security`、`/logs`、`/traces`、`/metrics/dashboard`；`/home` 和 `/me` 沿用各自的 `availability`、`oncall_state` |
 | 环境 | 请求头 `X-AIOps-Environment: <环境 id> \| all`，取右上角的当前环境；列表、AI 取证范围和执行目标都按它过滤。`all` 只允许在非生产实例中使用，且只能查看，写请求要返回 `409 env_view_only`。生产实例只有 `prod` 一个环境，可以不带这个请求头 |
 
 ### 流式对话
@@ -606,6 +606,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-10-18 | 缺陷收敛第 2 轮之后（并行修复批）：`GET /incidents/{id}` 的 `links` 新增 `investigation`（已核对的调查）与 `alert`（人工事件确认时关联的告警，显示名为标题）两种 kind，普通告警记录不再在 `unavailable` 列 `links.investigation`（PA-189）；`GET /incidents/draft` 的 `severity_hint` 按请求语言生成，画布图与回写预览里根分支的固定标题“主调查 / Main investigation”按请求语言显示（PA-166）；`GET /services/{id}` 的依赖未知改用 `unmapped_relation`（PA-191）；`GET /alert-rules` 与 `/alert-rules/observed`：有可见应用但没绑定规则组的环境按未接入处理、不再查询来源，单环境返回 200 `not_configured`，多环境视图只要有一个可见环境未接入整表按未接入（不给部分计数），已接入的来源失败仍为 503（PA-191）；`POST /runbooks/{id}/dry-run` 的每个 check 新增 `reasons`（`action_step`、`not_readonly`、`no_connector`，通过时为空数组，PA-194）；`GET /memory` 的事实与冲突两侧新增 `source_title`（来源文档标题，没有时为 `null`，PA-166）。 |
 | 2026-10-18 | 缺陷收敛第 2 轮前（并行修复批）：提案详情 `decision.reason`（PA-173）；通用画布可省略 `services`、调查画布证据托盘只读（PA-116、PA-105）；告警规则与静默写接口先鉴权再查来源能力（PA-108）；复盘草稿、Runbook 起草、静默提案、Agent 拒绝原因、来源探测、模型页等后端文字按请求语言生成，写入时固化的提案内容按发起人语言（PA-113、PA-121、PA-166）。 |
 | 2026-10-17 | 缺陷收敛两轮之间：`GET /alerts/{id}` 新增 `group_id`（PA-167）；`GET /postmortems/draft` 的 `timeline` 含人工记录、状态事件写成文字（PA-169）；`GET /alert-groups` 新增 `last_seen` 并按它排序（PA-174）；`GET /services/{id}/rollback-candidates` 的候选新增 `at`、`time_basis`、`time_unknown_reason`、`not_before`、`not_after`（PA-172，见回滚契约）；`POST /audit/export` 接受 `range`（PA-170）；`GET /services/{id}/resilience` 未配置来源时改返回 `503 resilience_not_connected`（PA-171）。 |
 | 2026-10-10 | PA-19 第二阶段第 8 步：`AIOPS_V3_SOURCE_REGISTRY` 缺省改为 `unified`，全部读取方读统一登记，本契约里写成“`AIOPS_V3_UNIFIED_READERS` 含某读取方时”的行为即缺省行为；`legacy`、`compare` 只保留列出的读取方，作为回退保留到 P4。详见 [遥测来源统一登记](v3-telemetry-registry.md) |

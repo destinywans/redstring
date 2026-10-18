@@ -43,11 +43,12 @@ S['V3MemoryViewFact'] = obj({
     'confirmed':{'type':['string','null'],'format':'date-time'},
     'created_at':string(format='date-time'), 'revision':integer(minimum=1),
     'confidence':{'type':'null'}, 'recalls':{'type':'null'},
-    'expires':{'type':'null'}, 'evidence':ref('V3MemoryViewFactEvidence')},
-    ['id','fact','source','source_version','source_current','state',
+    'expires':{'type':'null'}, 'evidence':ref('V3MemoryViewFactEvidence'),
+    'source_title':{'type':['string','null'],'description':'Title of the source document; null when it has none (PA-166).'}},
+    ['id','fact','source','source_title','source_version','source_current','state',
      'environment_id','confirmed','created_at','revision',
      'confidence','recalls','expires','evidence'])
-S['V3MemoryConflictSide'] = obj(fieldnames('id text source'), ['id','text','source'])
+S['V3MemoryConflictSide'] = obj({**fieldnames('id text source'), 'source_title':{'type':['string','null']}}, ['id','text','source','source_title'])
 S['V3MemoryConflict'] = obj({
     **fieldnames('id state environment_id application_id team_id'),
     'state':string(enum=['open']),

@@ -85,6 +85,7 @@ function NodeCard({
   onSelect,
   onDragStart,
   onAsk,
+  askBlocked = null,
   k = 1,
   flash,
   writebacks = 0,
@@ -95,6 +96,8 @@ function NodeCard({
   onSelect: () => void;
   onDragStart: (e: RPE) => void;
   onAsk: (text: string) => void;
+  /** Why this person can't ask in the branch (canvas.change), or null (PA-225, like PA-177). */
+  askBlocked?: string | null;
   /** Current zoom; below LITE_ZOOM the node switches to a compact form whose text does not shrink. */
   k?: number;
   /** Briefly highlighted (a node that just appeared). */
@@ -216,14 +219,16 @@ function NodeCard({
               className="cv-ask"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (!q.trim()) return;
+                if (!q.trim() || askBlocked) return;
                 onAsk(q.trim());
                 setQ("");
               }}
               onPointerDown={(e) => e.stopPropagation()}
             >
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tx("在这个分支继续追问…", "Ask a follow-up in this branch…")} aria-label={tx("在这个分支继续追问", "Follow-up in this branch")} />
-              <IconBtn icon="up" label={tx("发送", "Send")} size={24} color="var(--accent-text)" submit />
+              <input value={q} onChange={(e) => setQ(e.target.value)} disabled={!!askBlocked} placeholder={askBlocked ?? tx("在这个分支继续追问…", "Ask a follow-up in this branch…")} aria-label={tx("在这个分支继续追问", "Follow-up in this branch")} />
+              <Gated reason={askBlocked}>
+                <IconBtn icon="up" label={tx("发送", "Send")} size={24} color="var(--accent-text)" submit />
+              </Gated>
             </form>
           )}
         </div>
@@ -989,6 +994,7 @@ export default function CanvasPage() {
                 selected={sel === n.id}
                 onSelect={() => setSel(n.id)}
                 onAsk={(t) => ask(n.id, t)}
+                askBlocked={canvasChange}
                 onShowSuggestion={() => {
                   setSel(n.id);
                   setSuggestionFocus((f) => f + 1);

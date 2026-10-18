@@ -302,7 +302,8 @@ export function NewCanvasDialog({ open, onClose, initialKind = "plan", initialSe
           <Row gap={8}>
             <Toggle on={draft} onChange={setDraft} label={tx("由 AI 起草初始节点", "Let the AI draft the first nodes")} />
             <span style={{ fontSize: "var(--fs-sm)" }}>{tx("由 AI 起草初始节点", "Let the AI draft the first nodes")}</span>
-            <Muted size={11.5}>{tx("基于服务映射、历史指标和已有 Runbook", "From service mapping, past metrics and runbooks")}</Muted>
+            {/* PA-225: the server drafts from the title, goal and services only; it reads no metrics or runbooks. */}
+            <Muted size={11.5}>{API_MODE === "mock" ? tx("基于服务映射、历史指标和已有 Runbook", "From service mapping, past metrics and runbooks") : tx("只根据标题、目标和所选服务起草，不读取指标或 Runbook", "From the title, goal and chosen services only; no metrics or runbooks are read")}</Muted>
           </Row>
         </div>
       </div>

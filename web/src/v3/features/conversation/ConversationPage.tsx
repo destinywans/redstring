@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
-import { api, useGet, API_MODE } from "../../api/client";
+import { api, useGet, API_MODE, ApiError } from "../../api/client";
 import { applyEvent, newConversationUrl, sendAndStream, takeAttachments } from "../../api/stream";
 import { formatSize } from "../../api/upload";
 import type { Artifact, Conversation, Message, ModelChoice, Part, StreamEvent, Upload } from "../../api/types";
@@ -237,21 +237,33 @@ export default function ConversationPage() {
       const c = pick ?? catalog?.default ?? null;
       setSending(true);
       setTurn(c);
-      stop.current = await sendAndStream(
-        id,
-        text,
-        (e) => {
-          setMessages((ms) => applyEvent(ms, e));
-          if (e.type === "message.completed") {
-            setSending(false);
-            setTurn(null);
-            stop.current = null;
-            // Refresh the list and this conversation (side panel: connectors, context meter).
-            qc.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/conversations") });
-          }
-        },
-        { choice: c, attachments: files },
-      );
+      // PA-225: a rejected send (422, 413, 503…) or a stream that gave up says so and frees the composer.
+      const fail = (text: string) => {
+        stop.current = null;
+        setSending(false);
+        setTurn(null);
+        setMessages((ms) => ms.map((m) => (m.streaming ? { ...m, streaming: false } : m)));
+        toast(text, { tone: "danger" });
+      };
+      try {
+        stop.current = await sendAndStream(
+          id,
+          text,
+          (e) => {
+            setMessages((ms) => applyEvent(ms, e));
+            if (e.type === "message.completed") {
+              setSending(false);
+              setTurn(null);
+              stop.current = null;
+              // Refresh the list and this conversation (side panel: connectors, context meter).
+              qc.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/conversations") });
+            }
+          },
+          { choice: c, attachments: files, onError: () => fail(tx("回复中断了，请稍后重试", "The reply was interrupted; try again later")) },
+        );
+      } catch (e) {
+        fail(e instanceof ApiError ? e.message : tx("这条消息没有发出去，请稍后重试", "The message wasn't sent; try again later"));
+      }
     },
     [id, sending, qc, choice, catalog],
   );

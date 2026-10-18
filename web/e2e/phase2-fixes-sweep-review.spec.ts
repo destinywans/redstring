@@ -210,3 +210,86 @@ test.describe("proposals submitted on the silence page (PA-213)", () => {
     await expect(table.getByRole("link", { name: /pa213-check/ })).toHaveAttribute("href", "/review/pa213-check");
   });
 });
+
+// Execution fixtures (PA-223, PA-228, PA-229): a plain execution record and a Kubernetes rollback.
+const execId = "pa223-exec";
+const plainExecution = (patch: Record<string, unknown> = {}) => ({
+  id: execId,
+  plan_id: "plan-pa223-check",
+  investigation_id: "inv-pa223-check",
+  application_id: "app-check",
+  environment_id: "prod",
+  proposal_id: null,
+  status: "succeeded",
+  status_source: "executor",
+  attempt: 1,
+  error: "",
+  created_at: at0,
+  updated_at: at0,
+  approval: { decision: "approved", approved_by: "Check Approver", digest_match: true },
+  steps: [{ seq: 1, type: "execution.started", time: at0 }],
+  steps_truncated: false,
+  observation: { recovered: true, started_at: at0, finished_at: "2026-10-17T09:05:00Z", samples: 20, requests: 1200, reason: null },
+  report: null,
+  partial: false,
+  missing: [],
+  ...patch,
+});
+const rolloutExecution = (written: boolean) => ({
+  id: execId,
+  kind: "kubernetes.deployment.rollback",
+  proposal_id: "prp-pa223-check",
+  investigation_id: "inv-pa223-check",
+  application_id: "app-check",
+  environment_id: "prod",
+  status: "needs_attention",
+  status_reason: "reconcile_unknown",
+  approved_at: at0,
+  approvers: [{ name: "Check Approver", verified_at: at0 }],
+  created_at: at0,
+  updated_at: "2026-10-17T09:20:00Z",
+  target: { namespace: "checkout", deployment: "checkout-api", from_revision: "12", target_revision: "11" },
+  timeline: [
+    { state: "reserved", at: at0 },
+    { state: "dispatching", at: "2026-10-17T09:00:01Z" },
+    ...(written ? [{ state: "applied", at: "2026-10-17T09:00:02Z" }, { state: "rolling_out", at: "2026-10-17T09:00:03Z" }] : [{ state: "unknown", at: "2026-10-17T09:00:02Z" }]),
+    { state: "needs_attention", at: "2026-10-17T09:20:00Z" },
+  ],
+  rollout: written ? { desired: 2, updated: 1, available: 1, current_revision: "13", observed_at: "2026-10-17T09:00:30Z" } : null,
+  verification: null,
+});
+const pinExecution = (page: Page, body: unknown) => page.route(at(`/executions/${execId}`), (r) => json(r, 200, body));
+
+// PA-223 (WAN-582): reasons that didn't match what happened. A recovery check the executor couldn't judge said "the
+// source failed, refresh to retry"; a rollback that was written and then couldn't read its Deployment said the write's
+// outcome was unknown.
+test.describe("unknown reasons on execution pages (PA-223)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("a recovery check the executor couldn't judge says so, not that the source failed", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await pinExecution(page, plainExecution({ observation: { recovered: null, started_at: at0, finished_at: "2026-10-17T09:05:00Z", samples: 0, requests: null, reason: "pa223: no samples in the window" } }));
+    await page.goto(origin + `/executions/${execId}`);
+    const card = page.locator(".v3-card", { hasText: "恢复观测" });
+    await expect(card).toContainText("pa223: no samples in the window", { timeout: 20_000 });
+    await expect(card).toContainText("无法判定");
+    await expect(card.locator(".unk")).toHaveCount(0);
+    expect(m.pageErrors).toEqual([]);
+  });
+
+  test("a rollback written and then unreadable says it was written; one never confirmed says the write is unknown", async ({ page }) => {
+    await page.addInitScript(zh);
+    let body = rolloutExecution(true);
+    await page.route(at(`/executions/${execId}`), (r) => json(r, 200, body));
+    await page.goto(origin + `/executions/${execId}`);
+    const card = page.locator(".v3-card", { hasText: "需要人工处理" }).filter({ hasText: "执行器" });
+    await expect(card).toContainText("已经写入", { timeout: 20_000 });
+    await expect(card).toContainText("读不到 Deployment");
+    await expect(card).not.toContainText("写入结果不明");
+    body = rolloutExecution(false);
+    await page.reload();
+    await expect(card).toContainText("写入结果不明", { timeout: 20_000 });
+    await expect(card).not.toContainText("已经写入");
+  });
+});

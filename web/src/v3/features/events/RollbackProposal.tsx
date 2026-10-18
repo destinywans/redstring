@@ -51,7 +51,7 @@ function RollbackProposalDrawer({ req, onClose }: { req: RollbackRequest; onClos
   const permission = useRollbackBlocked();
   const fmtAt = useWhen().at;
   const revTime = useRevisionTime();
-  const { items: investigations, more: moreInvestigations } = useOpenInvestigations(true);
+  const { items: investigations, more: moreInvestigations, loading: investigationsLoading, error: investigationsError } = useOpenInvestigations(true);
   // Also names the service in the header when the workload can't be read.
   const services = useGet<ServiceCatalog>("/services", undefined, { staleTime: 5 * 60_000 });
   const [invPick, setInvPick] = useState(req.investigationId ?? "");
@@ -133,9 +133,27 @@ function RollbackProposalDrawer({ req, onClose }: { req: RollbackRequest; onClos
 
   let content;
   if (!serviceId) {
+    // PA-219: the service comes from the open-investigations list and the catalog; say which one is missing instead of
+    // an endless skeleton or "not linked to a service".
     content =
-      req.investigationId && (services.isLoading || !investigations.length) ? (
+      req.investigationId && (services.isLoading || investigationsLoading) ? (
         <Skeleton h={200} />
+      ) : req.investigationId && (investigationsError || services.error) ? (
+        <BlockedCard
+          icon="alert"
+          title={investigationsError ? tx("读不到开放调查列表", "Couldn't read the open investigations") : tx("读不到服务目录", "Couldn't read the service catalog")}
+          desc={tx("所以没法确定这个调查对应的服务。可以稍后重试，或从服务详情页提议回滚。", "So this investigation's service can't be worked out. Try again later, or propose a rollback from the service's page.")}
+        />
+      ) : req.investigationId && !inv ? (
+        <BlockedCard
+          icon="search"
+          title={tx("开放调查里没有这个调查", "This investigation isn't among the open ones")}
+          desc={
+            moreInvestigations
+              ? tx("开放调查超过一页，第一页里没有它，所以没法确定对应的服务。可以从服务详情页提议回滚。", "There is more than one page of open investigations and it isn't on the first, so its service can't be worked out. You can propose a rollback from the service's page.")
+              : tx("它可能已经结束，所以没法确定对应的服务。可以从服务详情页提议回滚。", "It may have ended, so its service can't be worked out. You can propose a rollback from the service's page.")
+          }
+        />
       ) : (
         <BlockedCard icon="box" title={tx("找不到要回滚的服务", "No service to roll back")} desc={tx("这个调查没有关联到当前环境里的服务。可以从服务详情页提议回滚。", "This investigation isn't linked to a service in this environment. You can propose a rollback from the service's page.")} />
       );

@@ -513,7 +513,7 @@ export default function CanvasPage() {
   const canvasChange = useNeed(["canvas", "change"]);
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
-  const { data, isLoading } = useGet<CanvasGraph>(id ? `/investigations/${id}/canvas` : null);
+  const { data, isLoading, error } = useGet<CanvasGraph>(id ? `/investigations/${id}/canvas` : null);
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   // Bumped when a node's suggestion hint is clicked: the inspector switches to chat and scrolls to the card.
@@ -845,6 +845,9 @@ export default function CanvasPage() {
   return (
     <Page
       flush
+      // PA-219: a failed read says why instead of an empty canvas with "0 branches · 0 evidence".
+      error={!data ? error : undefined}
+      errorSource={tx("调查画布", "the investigation canvas")}
       crumbs={[tx("对话与画布", "Conversations & canvases"), inv?.title ?? "…"]}
       actions={
         inv && (

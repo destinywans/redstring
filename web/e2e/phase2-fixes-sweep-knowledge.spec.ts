@@ -373,3 +373,98 @@ test.describe("pages say why their main read failed (PA-221)", () => {
     await expect(page.getByText("没有匹配的模型")).toHaveCount(0);
   });
 });
+
+/* ---------------- PA-222: unknowns shown as 0 or blank ---------------- */
+
+const HOME = (patch: Record<string, unknown> = {}) => ({
+  greeting: { name: "检查人", summary: "" }, briefing: null, suggestions: [], kpis: [],
+  attention: [{ id: "att-sweep", severity: null, service: "检查服务", env: "prod", symptom: "检查症状", meta: "", ai: null, href: "/incidents/inc-sweep", alert_state: "firing" }],
+  firing_services: 1, todos: [], services: [], alert_trend: null,
+  availability: { todo_actions: "not_connected", suggestions: "not_generated", alert_trend: "not_connected", oncall: "not_connected" },
+  activity: [], recent: [],
+  ...patch,
+});
+const runbookRow = (id: string, title: string, resolve_rate: number | null) => ({
+  id, title, tags: [], scope: "workspace", owner: "检查人", version: "v1", status: "published", refs_30d: null, resolve_rate, last_verified: null, stale: false,
+});
+
+test.describe("unknowns are not zero (PA-222)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("home: with no to-do source the page doesn't count 0 items waiting", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await page.route(at("/home"), (r) => json(r, 200, HOME()));
+    await page.goto(origin + "/");
+    await expect(page.locator(".home-greet")).toContainText("1 个服务异常", { timeout: 20_000 });
+    await expect(page.locator(".home-greet")).not.toContainText("项等待你处理");
+    const queue = page.locator(".home-card", { has: page.locator("h2", { hasText: "待我处理" }) });
+    await expect(queue.locator(".v3-card-head .v3-badge")).toHaveCount(0);
+    await expect(queue).toContainText("还没有待办来源");
+    expect(m.pageErrors).toEqual([]);
+  });
+
+  test("home: an attention item without a known severity shows the unknown mark, not an empty badge", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/home"), (r) => json(r, 200, HOME()));
+    await page.goto(origin + "/");
+    const item = page.locator(".attn", { hasText: "检查服务" });
+    await expect(item.locator(".unk")).toHaveCount(1, { timeout: 20_000 });
+  });
+
+  test("home: a real to-do source still counts its items", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/home"), (r) => json(r, 200, HOME({ availability: {} })));
+    await page.goto(origin + "/");
+    await expect(page.locator(".home-greet")).toContainText("0 项等待你处理", { timeout: 20_000 });
+  });
+
+  test("a KPI without a value shows the unknown mark", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/postmortems"), (r) =>
+      json(r, 200, { kpis: [{ id: "k-sweep", label: "检查指标", value: null }], items: [], causes: null, impact_by_service: null, followups: null, unknown_fields: [], page: 1, page_size: 1000, total: 0 }),
+    );
+    await page.goto(origin + "/postmortems");
+    await expect(page.locator(".v3-kpi", { hasText: "检查指标" }).locator(".unk")).toHaveCount(1, { timeout: 20_000 });
+  });
+
+  test("runbooks: sorting by resolve rate keeps an unknown rate apart from 0%", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/runbooks"), (r) =>
+      json(r, 200, { items: [runbookRow("rb-zero", "检查零", 0), runbookRow("rb-unknown", "检查未知", null)], counts: { all: 2, mine: 0, review: 0, stale: 0 }, kpis: null, suggestions: null, unknown_fields: [] }),
+    );
+    await page.goto(origin + "/runbooks");
+    await page.getByRole("columnheader", { name: "解决率" }).click({ timeout: 20_000 });
+    await expect(page.locator(".v3-table tbody tr").first()).toContainText("检查未知");
+  });
+
+  test("knowledge search: a keyword-only search doesn't print vector 0.00", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/knowledge/search"), (r) =>
+      r.request().method() === "POST"
+        ? json(r, 200, { hits: [{ title: "检查命中", snippet: "检查片段", keyword: 0.8, vector: 0, score: 0.8 }], mode: "keyword", degraded: true, corpora: [] })
+        : r.fallback(),
+    );
+    await page.goto(origin + "/knowledge/sources");
+    await page.getByRole("textbox", { name: "检索问题" }).fill("检查", { timeout: 20_000 });
+    await page.getByRole("button", { name: "检索", exact: true }).click();
+    const hit = page.locator(".ret-hit", { hasText: "检查命中" });
+    await expect(hit).toContainText("关键词 0.80");
+    await expect(hit).not.toContainText("向量 0.00");
+    await expect(hit.locator(".unk")).toHaveCount(1);
+  });
+
+  test("agent release: no configured share and no traffic isn't “configured 0%”", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/agents/agent-sweep"), (r) =>
+      json(r, 200, {
+        id: "agent-sweep", icon: "bot", name: "检查 Agent", desc: "", version: "v2", level: "L1", score: null, runs_7d: null, success: null, avg_tokens: null, status: "canary",
+        revision: 1, owner: "", account: null, summary: "检查", versions: [],
+        release: { from: "v1", to: "v2", current: null, target: 10, gates: null, tokens: null }, diff: null, config: null,
+      }),
+    );
+    await page.goto(origin + "/agents/agent-sweep");
+    await expect(page.getByText(/v2 配置比例/)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("v2 配置 0%")).toHaveCount(0);
+  });
+});

@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { INSTANCES } from "./support/env";
 import { statePath } from "./support/global-setup";
 import { monitor } from "./support/monitor";
-import { at, json, zh } from "./support/checks";
+import { at, json, patchRead, zh } from "./support/checks";
 
 /**
  * WAN-434 phase 2, the category sweep before round 3: review, execution, silence, routing and audit pages (group 1).
@@ -291,5 +291,128 @@ test.describe("unknown reasons on execution pages (PA-223)", () => {
     await page.reload();
     await expect(card).toContainText("写入结果不明", { timeout: 20_000 });
     await expect(card).not.toContainText("已经写入");
+  });
+});
+
+// Gate fixtures (PA-228): the signed-in admin's own /me with one grant taken away, so the entry must name it.
+const withoutGrant = async (page: Page, module: string, action: string) => {
+  await page.goto(origin + "/healthz");
+  await patchRead(page, "/me", (me) => ({
+    ...me,
+    permissions: Object.fromEntries(Object.entries((me?.permissions ?? {}) as Record<string, Record<string, Record<string, string>>>).map(([env, mods]) => [env, { ...mods, [module]: Object.fromEntries(Object.entries(mods?.[module] ?? {}).filter(([a]) => a !== action)) }])),
+  }));
+};
+const gateOf = (page: Page, entry: ReturnType<Page["getByRole"]>) => page.locator(".perm-gate", { has: entry }).locator(".sr-only");
+const alertRuleExecution = {
+  id: execId,
+  kind: "prometheus.alert_rule.enable",
+  proposal_id: "pa228-prp",
+  investigation_id: "inv-pa228-check",
+  application_id: "app-check",
+  environment_id: "prod",
+  approved_at: at0,
+  approvers: [],
+  created_at: at0,
+  updated_at: at0,
+  alert_rule: {
+    proposal_id: "pa228-prp",
+    operation: "enable",
+    state: "needs_attention",
+    steps: [
+      { state: "committing", at: at0 },
+      { state: "merging", at: at0 },
+      { state: "merged", at: at0 },
+      { state: "loading", at: at0 },
+      { state: "needs_attention", at: at0, reason: "load_timeout" },
+    ],
+    repository: { project_id: "6", project_path: "ops/rules", source_branch: "aiops/pa228", target_branch: "main", path: "rules/checkout.yaml", commit_sha: null, mr_iid: null, mr_url: null, merged_sha: null, merged_at: null },
+    readback: { state: "timeout", checked_at: null, first_seen_at: null, health: null, last_evaluation_at: null, last_error: null, reload: null },
+    failure: { code: "load_timeout", message: "check" },
+  },
+};
+const routeRoot = (receivers: string[]) => ({
+  root: {
+    id: "pa228-root",
+    title: "prod",
+    matchers: [{ k: "env", op: "=", value_redacted: false, value: "prod" }],
+    receiver_refs: receivers,
+    group_by: [],
+    group_wait: "30s",
+    group_interval: "5m",
+    repeat_interval: "4h",
+    continue: false,
+    conditional: false,
+    children: [],
+  },
+  root_unavailable: null,
+  config_revision: null,
+  partial: false,
+  unavailable: [],
+});
+
+// PA-228 (WAN-587): write entries that stayed enabled without the grant their route declares: publishing an
+// execution report (knowledge.manage), rechecking an alert rule execution (alert_rules.change), testing routing
+// (alert_rules.manage) and proposing to end a silence early (silences.manage).
+test.describe("write entries gated by the route's grant (PA-228)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("publishing an execution report needs knowledge · manage", async ({ page }) => {
+    await page.addInitScript(zh);
+    await withoutGrant(page, "knowledge", "manage");
+    const report = { title: "pa228 report", summary: "check", closed_by: "Check Closer", approved_by: "Check Approver", closed_at: at0, published: false, published_by: null, published_at: null };
+    await pinExecution(page, plainExecution({ report }));
+    let posted = false;
+    await page.route(at(`/executions/${execId}/report/publish`), (r) => ((posted = true), json(r, 403, { error: { code: "forbidden", message: "check" } })));
+    await page.goto(origin + `/executions/${execId}`);
+    const entry = page.getByRole("button", { name: "确认发布" });
+    await expect(entry).toBeDisabled({ timeout: 20_000 });
+    await expect(gateOf(page, entry)).toHaveText("需要 知识来源与检索·管理 权限");
+    await entry.click({ force: true });
+    await page.waitForTimeout(300);
+    expect(posted).toBe(false);
+  });
+
+  test("rechecking an alert rule execution needs alert rules · change", async ({ page }) => {
+    await page.addInitScript(zh);
+    await withoutGrant(page, "alert_rules", "change");
+    await pinExecution(page, alertRuleExecution);
+    await page.route(at("/proposals/pa228-prp"), (r) => json(r, 404, { error: { code: "not_found", message: "check" } }));
+    let posted = false;
+    await page.route(at(`/executions/${execId}/recheck`), (r) => ((posted = true), json(r, 403, { error: { code: "forbidden", message: "check" } })));
+    await page.goto(origin + `/executions/${execId}`);
+    const entry = page.getByRole("button", { name: "重新核对" });
+    await expect(entry).toBeDisabled({ timeout: 20_000 });
+    await expect(gateOf(page, entry)).toHaveText("需要 告警规则与路由·修改 权限");
+    await entry.click({ force: true });
+    await page.waitForTimeout(300);
+    expect(posted).toBe(false);
+  });
+
+  test("testing routing needs alert rules · manage, also from the keyboard", async ({ page }) => {
+    await page.addInitScript(zh);
+    await withoutGrant(page, "alert_rules", "manage");
+    await page.route(at("/notification-routes"), (r) => json(r, 200, routeRoot(["pa228-receiver"])));
+    let posted = false;
+    await page.route(at("/notification-routes/test"), (r) => ((posted = true), json(r, 403, { error: { code: "forbidden", message: "check" } })));
+    await page.goto(origin + "/routing");
+    const entry = page.getByRole("button", { name: "测试", exact: true });
+    await expect(entry).toBeDisabled({ timeout: 20_000 });
+    await expect(gateOf(page, entry)).toHaveText("需要 告警规则与路由·管理 权限");
+    const labels = page.getByRole("textbox", { name: "标签" });
+    await labels.fill("application=checkout-api");
+    await labels.press("Enter");
+    await page.waitForTimeout(300);
+    expect(posted).toBe(false);
+  });
+
+  test("proposing to end a silence early needs silences · manage", async ({ page }) => {
+    await page.addInitScript(zh);
+    await withoutGrant(page, "silences", "manage");
+    await pinSilences(page, [silence]);
+    await page.goto(origin + "/silences");
+    const row = page.locator("tr", { hasText: "pa228 check" });
+    const entry = row.getByRole("button", { name: "提议提前结束" });
+    await expect(entry).toBeDisabled({ timeout: 20_000 });
+    await expect(row.locator(".perm-gate .sr-only")).toHaveText("需要 静默·管理 权限");
   });
 });

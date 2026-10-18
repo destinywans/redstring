@@ -468,3 +468,55 @@ test.describe("unknowns are not zero (PA-222)", () => {
     await expect(page.getByText("v2 配置 0%")).toHaveCount(0);
   });
 });
+
+/* ---------------- PA-223: unknown reasons that don't match the facts ---------------- */
+
+/** The explanation an unknown mark gives (its accessible name is "<label>. <description>"). */
+const reasonOf = (unk: ReturnType<Page["locator"]>) => unk.getAttribute("aria-label");
+
+test.describe("unknown reasons match the facts (PA-223)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("runbooks: AI suggestions the server never produces don't promise to appear later", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/runbooks"), (r) => json(r, 200, { items: [], counts: { all: 0, mine: 0, review: 0, stale: 0 }, kpis: null, suggestions: null, unknown_fields: ["suggestions"] }));
+    await page.goto(origin + "/runbooks");
+    await expect(page.getByText("平台目前不生成 Runbook 修订建议。")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/AI 会在这里提出修订建议/)).toHaveCount(0);
+  });
+
+  test("postmortems: statistics and follow-ups the server never produces don't promise to appear later", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/postmortems"), (r) => json(r, 200, { kpis: [], items: [], causes: null, impact_by_service: null, followups: null, unknown_fields: [], page: 1, page_size: 1000, total: 0 }));
+    await page.goto(origin + "/postmortems");
+    await expect(page.getByText("平台目前不跟踪改进项的完成情况。")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("平台目前不统计复盘的根因分类和影响时长。")).toBeVisible();
+    await expect(page.getByText(/复盘发布后/)).toHaveCount(0);
+  });
+
+  test("agent release: unknown eval gates aren't “generated when new data arrives”", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/agents/agent-sweep"), (r) =>
+      json(r, 200, {
+        id: "agent-sweep", icon: "bot", name: "检查 Agent", desc: "", version: "v2", level: "L1", score: null, runs_7d: null, success: null, avg_tokens: null, status: "canary",
+        revision: 1, owner: "", account: null, summary: "检查", versions: [],
+        release: { from: "v1", to: "v2", current: null, target: 10, configured_canary_percent: 10, gates: null, tokens: null }, diff: null, config: null,
+      }),
+    );
+    await page.goto(origin + "/agents/agent-sweep");
+    const gates = page.locator(".v3-row", { has: page.getByText("评测门禁", { exact: true }) }).locator(".unk");
+    await expect(gates).toHaveCount(1, { timeout: 20_000 });
+    expect(await reasonOf(gates)).not.toContain("自动生成");
+  });
+
+  test("home: a watched service's unknown health doesn't claim a source to connect", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/home"), (r) =>
+      json(r, 200, HOME({ services: [{ id: "svc-sweep", name: "检查服务甲", tier: null, status: null, budget_pct: null, p99: null, error_rate: null, series: null }] })),
+    );
+    await page.goto(origin + "/");
+    const row = page.locator(".home-card tr", { hasText: "检查服务甲" });
+    await expect(row.locator(".unk").first()).toBeVisible({ timeout: 20_000 });
+    expect(await reasonOf(row.locator(".unk").first())).not.toMatch(/未接入|还没有连接/);
+  });
+});

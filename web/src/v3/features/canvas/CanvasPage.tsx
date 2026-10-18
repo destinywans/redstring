@@ -23,6 +23,7 @@ import { DetailPanel, useFloatCover, usePinned } from "../../ui/DetailPanel";
 import "./canvas.css";
 import { openExternal } from "../../ui/demo";
 import { Gated, useNeed } from "../../ui/permission";
+import { UnknownValue } from "../../ui/unknown";
 import { useRollbackDrawer } from "../events/RollbackProposal";
 import { useRollbackBlocked } from "../events/rollback";
 
@@ -348,28 +349,35 @@ function Inspector({ n, nodes, tray, onClose, onWriteback, pinned, onPin, invest
                 )}
               </Col>
             </Section>
-            <Section title={tx("输入预算", "Input budget")} right={<Mono>{(used / 1000).toFixed(1)}k</Mono>}>
-              <div className="ctx-bar">
-                {parts.map(([l, p, c]) => (
-                  <span key={l} style={{ width: `${(p * used * 100) / budget}%`, background: c }} title={l} />
-                ))}
-              </div>
-              <Row gap={10} wrap style={{ fontSize: "var(--fs-cap)" }}>
-                {parts.map(([l, , c]) => (
-                  <span key={l} className="v3-row muted" style={{ gap: 4 }}>
-                    <i style={{ width: 7, height: 7, borderRadius: 2, background: c }} />
-                    {l}
-                  </span>
-                ))}
-              </Row>
-              <Row gap={8}>
-                <Muted size={11.5}>
-                  {(used / 1000).toFixed(1)}k / {budget / 1000}k tokens
-                </Muted>
-                <Spacer />
-                <Donut parts={[{ value: used, color: "var(--c1)" }, { value: budget - used, color: "var(--sunken)" }]} size={54} thick={8} center={`${Math.round((100 * used) / budget)}%`} />
-              </Row>
-            </Section>
+            {/* The server answers null until this exact context is measured (contract): unknown, not 0 (PA-198). */}
+            {used === null ? (
+              <Section title={tx("输入预算", "Input budget")} right={<UnknownValue reason="not_generated" />}>
+                <Muted size={11.5}>{tx("这条分支当前的上下文用量还没有测量。", "This branch's current context usage hasn't been measured yet.")}</Muted>
+              </Section>
+            ) : (
+              <Section title={tx("输入预算", "Input budget")} right={<Mono>{(used / 1000).toFixed(1)}k</Mono>}>
+                <div className="ctx-bar">
+                  {parts.map(([l, p, c]) => (
+                    <span key={l} style={{ width: `${(p * used * 100) / budget}%`, background: c }} title={l} />
+                  ))}
+                </div>
+                <Row gap={10} wrap style={{ fontSize: "var(--fs-cap)" }}>
+                  {parts.map(([l, , c]) => (
+                    <span key={l} className="v3-row muted" style={{ gap: 4 }}>
+                      <i style={{ width: 7, height: 7, borderRadius: 2, background: c }} />
+                      {l}
+                    </span>
+                  ))}
+                </Row>
+                <Row gap={8}>
+                  <Muted size={11.5}>
+                    {(used / 1000).toFixed(1)}k / {budget / 1000}k tokens
+                  </Muted>
+                  <Spacer />
+                  <Donut parts={[{ value: used, color: "var(--c1)" }, { value: budget - used, color: "var(--sunken)" }]} size={54} thick={8} center={`${Math.round((100 * used) / budget)}%`} />
+                </Row>
+              </Section>
+            )}
             {kids.some((k) => k.writeback) && (
               <Section title={tx("子分支与回写", "Children & writeback")}>
                 <div className="cv-writeback">

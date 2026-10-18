@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { WritebackPreview } from "../../api/types";
 import { Badge, Btn, Col, Divider, Icon, Mono, Muted, Radio, Row, Section, Spacer, Tile } from "../../ui/core";
+import { UnknownValue } from "../../ui/unknown";
 import { Dialog, toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { useI18n } from "../../i18n";
@@ -41,7 +42,9 @@ export function WritebackDialog({ open, investigation, from, onClose, onDone }: 
     onDone(r.version);
   };
   const extra = data?.conclusions.filter((c) => picked.has(c.id) && c.tokens).reduce((a, c) => a + (c.tokens ?? 0), 0) ?? 0;
-  const after = (data?.budget.after ?? 0) + extra;
+  // The preview answers null until the main line's context is measured (contract): unknown, not 0 (PA-198).
+  const raw = data?.budget;
+  const budget = raw && raw.before !== null && raw.after !== null && raw.limit ? { before: raw.before, after: raw.after + extra, limit: raw.limit } : null;
   return (
     <Dialog
       open={open}
@@ -149,15 +152,21 @@ export function WritebackDialog({ open, investigation, from, onClose, onDone }: 
               ))}
             </Section>
             <Divider />
-            <Section title={tx("上下文影响", "Context impact")} right={<Mono>+{((after - data.budget.before) / 1000).toFixed(2)}k tokens</Mono>}>
-              <div className="ctx-bar" style={{ height: 8 }}>
-                <span style={{ width: `${(100 * data.budget.before) / data.budget.limit}%`, background: "var(--accent-line)" }} />
-                <span style={{ width: `${(100 * (after - data.budget.before)) / data.budget.limit}%`, background: "var(--accent)", transition: "width 240ms" }} />
-              </div>
-              <Muted>
-                {tx("主线 {a}k → {b}k / {c}k 输入预算", "Main {a}k → {b}k / {c}k input budget", { a: (data.budget.before / 1000).toFixed(1), b: (after / 1000).toFixed(1), c: data.budget.limit / 1000 })}
-              </Muted>
-            </Section>
+            {budget ? (
+              <Section title={tx("上下文影响", "Context impact")} right={<Mono>+{((budget.after - budget.before) / 1000).toFixed(2)}k tokens</Mono>}>
+                <div className="ctx-bar" style={{ height: 8 }}>
+                  <span style={{ width: `${(100 * budget.before) / budget.limit}%`, background: "var(--accent-line)" }} />
+                  <span style={{ width: `${(100 * (budget.after - budget.before)) / budget.limit}%`, background: "var(--accent)", transition: "width 240ms" }} />
+                </div>
+                <Muted>
+                  {tx("主线 {a}k → {b}k / {c}k 输入预算", "Main {a}k → {b}k / {c}k input budget", { a: (budget.before / 1000).toFixed(1), b: (budget.after / 1000).toFixed(1), c: budget.limit / 1000 })}
+                </Muted>
+              </Section>
+            ) : (
+              <Section title={tx("上下文影响", "Context impact")} right={<UnknownValue reason="not_generated" />}>
+                <Muted>{tx("主线的上下文用量和输入预算还没有测量，回写后增加多少 tokens 未知。", "The main line's context usage and input budget aren't measured yet, so how many tokens this write-back adds is unknown.")}</Muted>
+              </Section>
+            )}
           </Col>
         </div>
       )}

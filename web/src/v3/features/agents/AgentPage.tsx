@@ -3,12 +3,12 @@ import { useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, useGet, useSend } from "../../api/client";
 import { Gate, Gated, useNeed } from "../../ui/permission";
-import type { AgentDetail, AgentVersion } from "../../api/types";
+import type { AgentDetail, AgentVersion, Lifecycle } from "../../api/types";
 import { Badge, Btn, Col, Icon, Legend, Mono, Muted, Num, Panel, Row, Skeleton, Spacer, State, Tabs, TextLink, Tile, cx, type IconName } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
-import { Unavailable, UnknownValue } from "../../ui/unknown";
+import { PageUnavailable, Unavailable, UnknownValue } from "../../ui/unknown";
 import { useAgentLabels } from "./LifecyclePage";
 import "./agents.css";
 import { openForm } from "../../ui/demo";
@@ -20,8 +20,11 @@ export default function AgentPage() {
   const lb = useAgentLabels();
   const when = useWhen();
   const people = useMemberNames();
-  const { id = API_MODE === "mock" ? "investigator" : "" } = useParams();
+  const { id: routeId } = useParams();
   const demo = API_MODE === "mock";
+  // Without an id in the route (the sidebar entry), open the first agent the lifecycle list returns; never a sample id (PA-192).
+  const list = useGet<Lifecycle>(!routeId && !demo ? "/agents/lifecycle" : null);
+  const id = routeId ?? (demo ? "investigator" : list.data?.agents[0]?.id ?? "");
   const { data: a, error } = useGet<AgentDetail>(id ? `/agents/${id}` : null);
   const [tab, setTab] = useState("release");
   const [confirm, setConfirm] = useState(false);
@@ -33,11 +36,20 @@ export default function AgentPage() {
   const vs = (s: AgentVersion["status"]) => ({ canary: [tx("灰度中", "Canary"), "accent"], stable: [tx("稳定", "Stable"), "ok"], retired: [tx("已下线", "Retired"), "neutral"], draft: [tx("草稿", "Draft"), "neutral"] })[s] as [string, "accent" | "ok" | "neutral"];
   if (!a)
     return (
-      <Page crumbs={[tx("Agent 运行台", "Agent console"), tx("Agent 与版本", "Agents & versions")]} error={error} errorSource={tx("Agent 记录", "agent records")}>
-        <div className="v3-content">
-          <Skeleton h={60} />
-          <Skeleton h={300} />
-        </div>
+      <Page crumbs={[tx("Agent 运行台", "Agent console"), tx("Agent 与版本", "Agents & versions")]} error={error ?? list.error} errorSource={tx("Agent 记录", "agent records")}>
+        {list.data && !list.data.agents.length ? (
+          <PageUnavailable
+            icon="cpu"
+            configure={false}
+            title={tx("还没有你能查看的 Agent", "No agents you can view yet")}
+            desc={tx("在生命周期页登记 Agent 后，这里显示它的版本与发布。", "Once an agent is registered on the lifecycle page, its versions and releases show here.")}
+          />
+        ) : (
+          <div className="v3-content">
+            <Skeleton h={60} />
+            <Skeleton h={300} />
+          </div>
+        )}
       </Page>
     );
   // Gates, observed traffic and tokens are null until routing and evaluation producers exist (unknown, not passed).

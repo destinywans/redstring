@@ -83,7 +83,8 @@ export const NAV: NavItem[] = [
     to: "/agents/lifecycle",
     children: [
       { id: "lifecycle", label: l("生命周期", "Lifecycle"), to: "/agents/lifecycle" },
-      { id: "agents", label: l("Agent 与版本", "Agents & versions"), to: "/agents/investigator" },
+      // Real mode opens the first agent the lifecycle list returns; "investigator" is a sample id (PA-192).
+      { id: "agents", label: l("Agent 与版本", "Agents & versions"), to: API_MODE === "mock" ? "/agents/investigator" : "/agents" },
       { id: "prompts", label: l("提示词与 Skills", "Prompts & skills"), to: "/agents/prompts" },
       { id: "tools", label: l("工具与权限", "Tools & permissions"), to: "/agents/tools" },
       { id: "evals", label: l("评测", "Evaluations"), to: "/agents/evals" },

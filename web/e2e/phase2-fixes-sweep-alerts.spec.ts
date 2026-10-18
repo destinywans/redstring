@@ -319,3 +319,79 @@ test.describe("the incidents page explains an empty list or a record it can't re
     await expect(page.locator(".main .skeleton")).toHaveCount(0);
   });
 });
+
+/* ---------------- inbox ---------------- */
+const ALERT = "alert-check-sweep";
+const inboxItem = { id: "inbox-check-1", kind: "alert", tone: "danger", title: "CheckHighErrorRate", sub: "app-check", at: new Date().toISOString(), unread: true, href: `/inbox?item=inbox-check-1`, alert_id: ALERT };
+/** GET /alerts/{id} as the server answers before any occurrence binding exists. */
+const alertDetail = {
+  id: ALERT,
+  revision: "1",
+  severity: "P2",
+  title: "CheckHighErrorRate",
+  state: "firing",
+  source: null,
+  source_id: "src-check",
+  env: "prod",
+  since: at0,
+  rule: null,
+  triage: null,
+  series: null,
+  labels: null,
+  summary: "Check summary",
+  runbook: null,
+  notifications: [],
+  grouping: { group: null, inhibited: null, incident: { id: ALERT }, change: null },
+  group_id: null,
+  unavailable: ["source", "rule", "triage", "series", "labels", "runbook", "grouping.group", "grouping.inhibited", "grouping.change"],
+};
+async function pinInbox(page: Page, detail: (r: import("@playwright/test").Route) => Promise<void> = (r) => json(r, 200, alertDetail)) {
+  await page.route(at("/inbox"), (r) => json(r, 200, { items: [inboxItem], counts: { all: 1, mine: 0, mentions: 0 } }));
+  await page.route(at(`/alerts/${ALERT}`), detail);
+  await page.route(at(`/incidents/${ALERT}`), (r) => json(r, 404, { error: { code: "not_found", message: "Check" } }));
+}
+
+test.describe("the inbox only does what the server does (PA-220, PA-221)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("real mode has no mark-all-read: the server has no read state", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await pinInbox(page);
+    await page.goto(origin + "/inbox");
+    await expect(page.locator(".inbox-item", { hasText: "CheckHighErrorRate" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "全部标为已读" })).toHaveCount(0);
+    expect(m.pageErrors).toEqual([]);
+  });
+
+  for (const [what, status, code, text] of [
+    ["an alert from another environment (404)", 404, "not_found", "找不到这条记录"],
+    ["a failed alert read (503)", 503, "events_unavailable", "暂时不可用"],
+  ] as const) {
+    test(`${what} explains instead of an endless skeleton`, async ({ page }) => {
+      await page.addInitScript(zh);
+      await pinInbox(page, (r) => json(r, status, { error: { code, message: "Check" } }));
+      await page.goto(origin + "/inbox?item=inbox-check-1");
+      await expect(page.locator(".main").getByText(text, { exact: true })).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator(".main .skeleton")).toHaveCount(0);
+    });
+  }
+});
+
+test.describe("inbox: creating an incident needs events.change (PA-228)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("without the grant, More › Create incident names the permission and doesn't open the drawer", async ({ page }) => {
+    await page.addInitScript(zh);
+    await meWithout(page, ["events.change"]);
+    await pinInbox(page);
+    await page.goto(origin + "/inbox?item=inbox-check-1");
+    await expect(page.getByRole("heading", { name: "CheckHighErrorRate" })).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: "更多操作" }).click();
+    const item = page.getByRole("menuitem", { name: /创建事件/ });
+    await expect(item).toContainText(NEEDS_EVENTS);
+    await item.click();
+    await expect(page).toHaveURL(/\/inbox/);
+    expect((await toasts(page)).join("\n")).toContain(NEEDS_EVENTS);
+  });
+});

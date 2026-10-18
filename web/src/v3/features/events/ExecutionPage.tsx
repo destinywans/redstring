@@ -6,7 +6,7 @@ import { ROLLBACK_KIND, type Execution, type ExecutionDetail } from "../../api/t
 import { RolloutExecutionPage } from "./RolloutExecution";
 import { AlertRuleExecutionPage } from "./AlertRuleExecution";
 import { useWhen } from "./rollback";
-import { PartialBanner, Unavailable, UnknownValue } from "../../ui/unknown";
+import { PartialBanner, Unavailable } from "../../ui/unknown";
 import { Badge, Btn, Card, CardHead, Col, Icon, Mono, Muted, Row, Sev, Skeleton, Spacer, Textarea, Tile, type IconName } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
@@ -137,7 +137,8 @@ function RealExecutionPage() {
                 <Row gap={8}>
                   <Muted>{tx("结果", "Result")}</Muted>
                   <Spacer />
-                  {o.recovered === null ? <UnknownValue reason="unavailable" /> : o.recovered ? <Badge tone="ok">{tx("已恢复", "Recovered")}</Badge> : <Badge tone="danger">{tx("未恢复", "Not recovered")}</Badge>}
+                  {/* null is the executor's own record that it couldn't judge, with its reason below; no source failed (PA-223). */}
+                  {o.recovered === null ? <Badge>{tx("无法判定", "Undetermined")}</Badge> : o.recovered ? <Badge tone="ok">{tx("已恢复", "Recovered")}</Badge> : <Badge tone="danger">{tx("未恢复", "Not recovered")}</Badge>}
                 </Row>
                 <Row gap={8}>
                   <Muted>{tx("观测窗口", "Window")}</Muted>

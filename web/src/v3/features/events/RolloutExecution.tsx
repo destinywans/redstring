@@ -86,7 +86,7 @@ export function RolloutExecutionPage({ id }: { id: string }) {
                 {e.status === "unknown"
                   ? tx("执行器正在只读对账，确认这次写入是否生效。不会再写。", "The executor is reconciling read-only to confirm whether the write landed. It won't write again.")
                   : e.status_reason
-                    ? text.reason(e.status_reason)
+                    ? text.reason(e.status_reason, e.timeline.some((t) => t.state === "applied" || t.state === "rolling_out"))
                     : tx("执行器没有给出原因。", "The executor gave no reason.")}
                 {missing > 0 && e.status_reason === "verification_unavailable" && <> {tx("稳定期后有 {n} 次采样没有值（例如 Pod 重建时没有请求），不能判为恢复。", "{n} samples after the settling period had no value (e.g. no requests while Pods restarted), so it can't count as recovered.", { n: missing })}</>}
                 {badSample && e.status_reason === "verification_failed" && (

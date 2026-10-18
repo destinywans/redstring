@@ -176,6 +176,15 @@ export default function EvalsPage() {
                   {/* A real run checks one human case with literal phrases; it has no metric table or dimensions (PA-148). */}
                   {!demo && e.execution?.status === "succeeded" ? (
                     <Unavailable reason="not_generated" icon="activity" title={tx("这个实验只评了一个人工案例", "This experiment checked one human-supplied case")} desc={tx("用字面检查对比两个版本，没有多案例指标和评测维度。在“人工标注”里打开案例，查看两个版本的输出和检查结果。", "Both versions were checked with literal phrases; there is no multi-case metric table or dimensions. Open the case under Human review to see both outputs and the checks.")} />
+                  ) : !demo && e.execution?.status === "failed" ? (
+                    // PA-216: a run that ended without a report won't produce results later.
+                    <Unavailable reason="unavailable" icon="activity" title={tx("这次运行失败了，没有结果", "This run failed and has no results")} desc={tx("运行没有完成，没有产生指标对比、评测维度和用例结果。", "The run didn't finish, so there is no metric comparison, dimensions or case results.")} />
+                  ) : !demo && e.execution?.status === "cancelled" ? (
+                    <Unavailable reason="unavailable" icon="activity" title={tx("这次运行已取消，没有结果", "This run was cancelled and has no results")} desc={tx("运行在完成前被取消，没有产生指标对比、评测维度和用例结果。", "The run was cancelled before it finished, so there is no metric comparison, dimensions or case results.")} />
+                  ) : !demo && e.execution?.status === "ambiguous" ? (
+                    <Unavailable reason="unavailable" icon="activity" title={tx("这次运行的结果不明", "This run's outcome is unclear")} desc={tx("运行器没能确认结果已经保存，这里不显示指标对比和用例结果。", "The runner couldn't confirm the result was saved, so no metric comparison or case results are shown.")} />
+                  ) : !demo && !e.execution && e.status === "invalid" ? (
+                    <Unavailable reason="unavailable" icon="activity" title={tx("这个实验已失效，没有结果", "This experiment is invalid and has no results")} desc={tx("实验的运行已终止，不会再产生指标对比和用例结果。", "The experiment's run was ended, so it won't produce a metric comparison or case results.")} />
                   ) : (
                     <Unavailable reason="not_generated" icon="activity" title={tx("这个实验还没有结果", "No results for this experiment yet")} desc={tx("实验运行完成后，这里显示两个版本的指标对比、评测维度和用例结果。", "Once the experiment has run, the metric comparison, dimensions and case results show here.")} />
                   )}

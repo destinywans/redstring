@@ -445,7 +445,7 @@ test.describe("unknowns are not zero (PA-222)", () => {
         ? json(r, 200, { hits: [{ title: "检查命中", snippet: "检查片段", keyword: 0.8, vector: 0, score: 0.8 }], mode: "keyword", degraded: true, corpora: [] })
         : r.fallback(),
     );
-    await page.goto(origin + "/knowledge/sources");
+    await page.goto(origin + "/knowledge-sources");
     await page.getByRole("textbox", { name: "检索问题" }).fill("检查", { timeout: 20_000 });
     await page.getByRole("button", { name: "检索", exact: true }).click();
     const hit = page.locator(".ret-hit", { hasText: "检查命中" });
@@ -504,7 +504,8 @@ test.describe("unknown reasons match the facts (PA-223)", () => {
       }),
     );
     await page.goto(origin + "/agents/agent-sweep");
-    const gates = page.locator(".v3-row", { has: page.getByText("评测门禁", { exact: true }) }).locator(".unk");
+    // The label's own row: a bare .v3-row filter would also match the rows around it.
+    const gates = page.getByText("评测门禁", { exact: true }).locator("xpath=..").locator(".unk");
     await expect(gates).toHaveCount(1, { timeout: 20_000 });
     expect(await reasonOf(gates)).not.toContain("自动生成");
   });
@@ -627,7 +628,8 @@ test.describe("AI flows say what they do and recover from failures (PA-225)", ()
       await page.getByRole("button", { name: /问 AI/ }).click({ timeout: 20_000 });
       const suggestion = page.locator(".ask-card").getByRole("button", { name: "解释这页的异常" });
       await expect(suggestion).toBeDisabled();
-      await expect(page.locator(".ask-card .perm-gate")).toHaveCount(1);
+      // The suggestions sit in their own gate, beside the composer's.
+      await expect(page.locator(".ask-card .perm-gate", { has: page.getByRole("button", { name: "解释这页的异常" }) })).toHaveCount(1);
       expect(posts).toBe(0);
     });
 

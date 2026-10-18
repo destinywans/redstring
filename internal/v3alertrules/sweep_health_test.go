@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/wans/aiops-canvas/internal/core"
 )
 
 // PA-210: a rule is "ok" only when Prometheus evaluated it without error. A
@@ -70,5 +72,53 @@ func TestRuleStateFollowsPrometheusHealth(t *testing.T) {
 	w = call(t, handler, "GET", "/api/v1/alert-rules/observed/"+ids["Fresh"], "test")
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &detail) != nil || detail.State != "unknown" {
 		t.Fatalf("observed detail: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// PA-217: an approved enable or disable whose approval lapsed or was revoked
+// before any executor took it up will never run. It is listed as expired,
+// not executing, and a lapsed disable leaves its rule active.
+func TestPendingChangeWithLapsedApprovalIsExpired(t *testing.T) {
+	db := enableRecoveryDB(t)
+	user := core.User{ID: "viewer"}
+	for _, tc := range []struct {
+		name             string
+		expired, revoked bool
+		want             string
+	}{
+		{"live", false, false, "executing"},
+		{"expired", true, false, "expired"},
+		{"revoked", false, true, "expired"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := seedEnableRecovery(t, db, tc.expired, tc.revoked, "")
+			_, pending, err := f.s.RuleLifecycle(t.Context(), user, []string{"test"}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got *PendingRuleChange
+			for i := range pending {
+				if pending[i].ProposalID == f.id {
+					got = &pending[i]
+				}
+			}
+			if got == nil || got.State != tc.want || got.Href != "/review/"+f.id {
+				t.Fatalf("pending: %+v", pending)
+			}
+		})
+	}
+
+	f, _, rule := filePullDisable(t)
+	ruleID := toDetail("test", f.intent.ApplicationID, rule).ID
+	if lifecycle, _, err := f.s.RuleLifecycle(t.Context(), user, []string{"test"}, []string{ruleID}); err != nil || lifecycle[ruleID].State != "disabling" {
+		t.Fatalf("approved disable: %+v %v", lifecycle, err)
+	}
+	if _, err := f.db.Exec(t.Context(), `INSERT INTO v3_proposal_approval_revocations(proposal_id,revoked_by,reason) VALUES($1,$2,'Test revocation')`,
+		f.id, f.authority.approval.ApproverIDs[1]); err != nil {
+		t.Fatal(err)
+	}
+	lifecycle, pending, err := f.s.RuleLifecycle(t.Context(), user, []string{"test"}, []string{ruleID})
+	if err != nil || len(lifecycle) != 0 || len(pending) != 1 || pending[0].State != "expired" || pending[0].Operation != "disable" {
+		t.Fatalf("lapsed disable: %+v %+v %v", lifecycle, pending, err)
 	}
 }

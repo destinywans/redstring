@@ -76,3 +76,33 @@ test.describe("alert rules say when Prometheus can't evaluate a rule (PA-210)", 
     expect(m.pageErrors).toEqual([]);
   });
 });
+
+test.describe("an enable or disable whose approval lapsed is not shown as running (PA-217)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const change = (proposal: string, operation: "enable" | "disable", state: string) => ({
+    proposal_id: proposal,
+    execution_id: null,
+    operation,
+    rule_name: `Check${operation}`,
+    group: "check-group",
+    application_id: "app-check",
+    environment_id: "prod",
+    state,
+    updated_at: at0,
+    href: `/review/${proposal}`,
+  });
+
+  test("an expired enable and disable say 批准已失效, not 启用中 or 停用中", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await pinRules(page, [{ id: "prom-check-ok", name: "CheckOk", state: "ok" }], [change("p-check-enable", "enable", "expired"), change("p-check-disable", "disable", "expired")]);
+    await page.goto(origin + "/alert-rules");
+    const pending = page.locator(".rule-item", { hasText: "Checkenable" });
+    await expect(pending).toBeVisible({ timeout: 20_000 });
+    await expect(pending.locator(".v3-badge")).toHaveText("批准已失效");
+    await expect(page.locator(".rule-item", { hasText: "Checkdisable" }).locator(".v3-badge")).toHaveText("批准已失效");
+    await expect(page.locator(".side")).not.toContainText("启用中");
+    await expect(page.locator(".side")).not.toContainText("停用中");
+    expect(m.pageErrors).toEqual([]);
+  });
+});

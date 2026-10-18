@@ -366,7 +366,14 @@ export default function NewRulePage() {
                 <div className="v3-col" style={{ gap: 6 }}>
                   <Lines series={[{ name: API_MODE === "mock" ? tx("5xx 比例", "5xx ratio") : tx("查询结果", "Query result"), values: preview.values, color: "var(--c3)", fill: "var(--c3s)" }]} height={150} threshold={Number(threshold)} bands={bands} markers={API_MODE === "mock" ? [{ at: 15, label: tx("发布 v2.8.1", "v2.8.1"), tone: "warn" }] : []} axis={API_MODE === "mock" ? ["13:35", "14:05", "14:35"] : []} format={(v) => (API_MODE === "mock" ? `${v}%` : String(v))} />
                   <Row gap={8}>
-                    <Legend items={[[tx("5xx 比例", "5xx ratio"), "var(--c3)"], [tx("阈值 {t}%", "Threshold {t}%", { t: threshold }), "var(--danger)"], [tx("会触发", "Would fire"), "var(--danger-soft)"]]} />
+                    {/* The real series is the written query, in the unit the generator gave (if any), not a 5xx ratio (PA-229). */}
+                    <Legend
+                      items={[
+                        [real ? tx("查询结果", "Query result") : tx("5xx 比例", "5xx ratio"), "var(--c3)"],
+                        [real ? tx("阈值 {t}", "Threshold {t}", { t: unit && unit !== "unknown" ? `${threshold}${unit}` : threshold }) : tx("阈值 {t}%", "Threshold {t}%", { t: threshold }), "var(--danger)"],
+                        [tx("会触发", "Would fire"), "var(--danger-soft)"],
+                      ]}
+                    />
                     <Spacer />
                     <Muted size={11.5}>{tx("当前值 {v} · {s}", "Now {v} · {s}", { v: preview.current ?? "—", s: preview.fires ? tx("会触发", "would fire") : tx("不会触发", "would not fire") })}</Muted>
                   </Row>

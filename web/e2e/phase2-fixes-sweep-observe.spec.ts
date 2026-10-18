@@ -343,3 +343,83 @@ test.describe("integration and observe pages whose main read fails (PA-221)", ()
     });
   }
 });
+
+/**
+ * PA-222 (WAN-581): unknowns shown as 0 or not at all — discovery failure as "0 found, 0 registered", the lower
+ * sources badge 0, a watched service with unknown status drawn without a dot, the watched count 0 when the list
+ * can't be read, and native GitLab's unknown count as the raw "unknown".
+ */
+test.describe("unknowns shown as 0 or blank (PA-222)", () => {
+  test("register service: a failed discovery says so instead of 0 found", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/services/discover"), (r) => json(r, 503, unavailable("catalog_unavailable")));
+    await page.goto(origin + "/services/new");
+    await expectUnavailable(page);
+    await expect(page.getByText("发现 0 个", { exact: false })).toHaveCount(0);
+  });
+
+  test("lower-environment sources: a failed read is unknown, not 0", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/integrations/lower-sources"), (r) => json(r, 503, unavailable("lower_sources_unavailable")));
+    await page.goto(origin + "/integrations");
+    const head = page.locator(".lower-src .v3-card-head");
+    await expect(head).toBeVisible({ timeout: 20_000 });
+    await expect(head.locator(".v3-badge")).not.toHaveText("0");
+    await expect(head.locator(".unk")).toHaveCount(1);
+  });
+
+  test("sidebar: a watched service with unknown status shows a neutral dot that says so", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/me/watched-services"), (r) =>
+      json(r, 200, { items: [{ id: "svc-check", name: "检查用服务", status: null, availability: { state: "unavailable", reason: "Current scoped status evidence is unavailable" } }] }),
+    );
+    await page.goto(origin + "/services");
+    const item = page.locator(".v3-sidebar .watched", { hasText: "检查用服务" });
+    await expect(item).toBeVisible({ timeout: 20_000 });
+    await expect(item.locator("[title*='状态未知']")).toHaveCount(1);
+  });
+
+  test("services: the watched count is unknown when the watched list can't be read", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/services"), (r) => json(r, 200, catalog([svc()])));
+    await page.route(at("/me/watched-services"), (r) => json(r, 503, unavailable("watch_unavailable")));
+    await page.goto(origin + "/services");
+    const pill = page.locator(".v3-pills button", { hasText: "我关注的" });
+    await expect(pill).toBeVisible({ timeout: 20_000 });
+    await expect(pill.locator(".count")).toHaveCount(0);
+    await pill.click();
+    await expectUnavailable(page, page.locator(".v3-split .main"));
+    await expect(page.getByText("没有数据", { exact: true })).toHaveCount(0);
+  });
+
+  test("webhooks: native GitLab's unknown count is an unknown value, not the raw word", async ({ page }) => {
+    await page.addInitScript(zh);
+    const gitlab = { id: "gitlab:gl-check", source_id: "gl-check", event_type: "pipeline", brand: "gitlab", name: "GitLab check", url: "/api/v1/webhooks/gitlab/gl-check", verify: "X-Gitlab-Token", count: "unknown", last_at: null, last_code: null, status: "unverified", status_basis: "historical_receipt_scope_unavailable" };
+    await pinWebhooks(page, webhookView({ inbound: [gitlab], deliveries: [] }));
+    await page.goto(origin + "/integrations/webhooks");
+    const row = page.locator("tbody tr", { hasText: "GitLab check" });
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await expect(row).not.toContainText("unknown");
+    await expect(row.locator(".unk")).toHaveCount(2);
+  });
+});
+
+/**
+ * PA-223 (WAN-582): tier, team, on-call and SLO target nobody filled in were explained as "not connected, configure
+ * in Integrations"; they are registration fields, so they read "not filled in".
+ */
+test.describe("service fields nobody filled in (PA-223)", () => {
+  test("the catalog explains unfilled tier, team, on-call and SLO without pointing to Integrations", async ({ page }) => {
+    await page.addInitScript(zh);
+    const blank = svc({ tier: null, team: null, oncall: null, slo: { target: null, budget_left: null }, unavailable: { tier: "not_configured", team: "not_configured", oncall: "not_configured", "slo.target": "not_configured", "slo.budget_left": "not_configured" } });
+    await page.route(at("/services"), (r) => json(r, 200, catalog([blank])));
+    await page.goto(origin + "/services");
+    const row = page.locator("tbody tr", { hasText: "检查用服务" });
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    const marks = row.locator(".unk");
+    // tier, team, on-call, SLO
+    for (const i of [0, 1, 2, 3]) {
+      await expect(marks.nth(i)).toHaveAttribute("aria-label", "未填写. 还没有人填写这项信息。");
+    }
+  });
+});

@@ -162,3 +162,23 @@ test.describe("review page states (PA-205)", () => {
     await expect(top).toContainText("待你复核", { timeout: 20_000 });
   });
 });
+
+// PA-219 (WAN-578): a proposal the page couldn't read (another environment's, removed, no grant, server down) left the
+// review page on its skeleton for ever.
+test.describe("review page read failures (PA-219)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  for (const [status, code, text] of [
+    [404, "not_found", "找不到这条记录"],
+    [403, "forbidden", "没有权限查看"],
+    [503, "proposal_unavailable", "暂时不可用"],
+  ] as const) {
+    test(`a ${status} says why instead of loading for ever`, async ({ page }) => {
+      await page.addInitScript(zh);
+      await page.route(at(`/proposals/${reviewId}`), (r) => json(r, status, { error: { code, message: "check" } }));
+      await page.goto(origin + `/review/${reviewId}`);
+      await expect(page.getByText(text, { exact: true })).toBeVisible({ timeout: 20_000 });
+      await expect(page.locator(".v3-page-body .skeleton")).toHaveCount(0);
+    });
+  }
+});

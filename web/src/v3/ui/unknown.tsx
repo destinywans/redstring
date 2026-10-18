@@ -12,7 +12,7 @@ import "./unknown.css";
  * reason when it has no trustworthy evidence; the UI shows that honestly and never renders an
  * unknown as 0, "healthy" or "not on call".
  */
-export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale" | "unmapped_relation" | (string & {});
+export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale" | "unmapped_relation" | "not_tracked" | "not_filled" | (string & {});
 
 /**
  * English source names arrive as "a log source", "log patterns" or "Prometheus". A heading or a "No … yet" sentence
@@ -68,6 +68,11 @@ export function useReasonText() {
           desc: tx("CMDB 里有关联不能对应到你可见的服务之间的依赖（比如非依赖类关系或共享资源），为免列表不完整，这里不列出。", "Some CMDB relations don't map to dependencies between services you can see (such as non-dependency relations or shared resources), so no list is shown rather than an incomplete one."),
           configurable: false,
         };
+      // Front-end reasons for fields no integration can supply: nothing records them yet, or nobody filled them in.
+      case "not_tracked":
+        return { label: tx("未记录", "Not recorded"), desc: tx("平台目前不记录这项数据。", "The platform doesn't record this yet."), configurable: false };
+      case "not_filled":
+        return { label: tx("未填写", "Not filled in"), desc: tx("还没有人填写这项信息。", "Nobody has filled this in yet."), configurable: false };
       default:
         return { label: tx("暂无数据", "No data"), desc: tx("后端没有给出这项数据。", "The server returned no value for this."), configurable: false };
     }

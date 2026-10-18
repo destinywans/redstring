@@ -1,13 +1,13 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { INSTANCES } from "./support/env";
 import { statePath } from "./support/global-setup";
 import { monitor } from "./support/monitor";
 import { at, en, json, toasts, zh } from "./support/checks";
 
 /**
- * Knowledge fixes between rounds 2 and 3 (WAN-434): the Runbook dry-run says which steps failed and why (PA-194).
- * Every check answers the API with fixed records (page.route), the dry-run POST included, so it runs on any data and
- * never writes.
+ * Knowledge fixes between rounds 2 and 3 (WAN-434): the Runbook dry-run says which steps failed and why (PA-194), and
+ * names instead of internal IDs (PA-166). Every check answers the API with fixed records (page.route), the dry-run POST
+ * included, so it runs on any data and never writes.
  *
  *   npx playwright test -c e2e/playwright.config.ts phase2-fixes-knowledge.spec.ts
  */
@@ -87,4 +87,37 @@ test.describe("runbook dry-run reasons (PA-194)", () => {
     await page.getByRole("button", { name: "校验只读步骤" }).click({ timeout: 20_000 });
     await expect(page.locator(".v3-toast")).toContainText("结构校验通过：2 个步骤");
   });
+});
+
+/* ---------------- PA-166: names instead of IDs ---------------- */
+
+/** A catalog with one service: catalog IDs are base64url of "application NUL environment". */
+const APP = "app-knowledge-check";
+const SERVICE = Buffer.from(`${APP}\u0000prod`).toString("base64url");
+const NAME = "知识检查服务";
+const CATALOG = {
+  kpis: [],
+  facets: [],
+  items: [{ id: SERVICE, name: NAME, desc: "", tier: null, team: null, oncall: null, status: null, slo: { target: null, budget_left: null }, release: null, alerts: null, connectors: null, unavailable: {} }],
+};
+const routeCatalog = (page: Page) => page.route(at("/services"), (r) => json(r, 200, CATALOG));
+
+test.describe("log line service names (PA-166)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const UNKNOWN = "app-knowledge-unknown";
+  const line = (service: string, message: string) => ({ time: "2026-10-18T01:00:00Z", level: "ERROR", service, message });
+  const LOGS = { total: "2", errors: "2", histogram: null, items: [line(APP, "检查用：可解析"), line(UNKNOWN, "检查用：不可解析")], patterns: null, unavailable: {} };
+
+  for (const [name, init] of [["zh", zh], ["en", en]] as const) {
+    test(`the service column shows the catalog name, or the ID when it doesn't resolve (${name})`, async ({ page }) => {
+      await page.addInitScript(init);
+      await routeCatalog(page);
+      await page.route(at("/logs"), (r) => json(r, 200, LOGS));
+      await page.goto(origin + "/logs");
+      await expect(page.locator("tr", { hasText: "检查用：可解析" })).toContainText(NAME, { timeout: 20_000 });
+      await expect(page.locator("tr", { hasText: "检查用：可解析" })).not.toContainText(APP);
+      // No name to show: the ID stays rather than a made-up name.
+      await expect(page.locator("tr", { hasText: "检查用：不可解析" })).toContainText(UNKNOWN);
+    });
+  }
 });

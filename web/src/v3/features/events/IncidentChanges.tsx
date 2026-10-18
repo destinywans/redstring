@@ -6,6 +6,7 @@ import { Brand, Btn, Col, Icon, IconBtn, Mono, Muted, Panel, Row, Segmented, Ske
 import { useI18n } from "../../i18n";
 import { useWhen } from "../../ui/when";
 import { useRevisionTime } from "../observe/revisionTime";
+import { Gate } from "../../ui/permission";
 
 type Before = "60m" | "120m";
 type Item = IncidentGitLabDeployment | IncidentKubernetesRevision;
@@ -214,10 +215,13 @@ export function IncidentChanges({ incidentId }: { incidentId: string }) {
           </span>
         </Row>
         <Row gap={8}>
+          {/* It opens a new conversation with the changes as the question, so it needs conversation.change (PA-199). */}
           {listedAny && (
-            <Btn h={28} kind="primary" icon="branch" onClick={ask}>
-              {tx("带入调查", "Bring into investigation")}
-            </Btn>
+            <Gate need={["conversation", "change"]}>
+              <Btn h={28} kind="primary" icon="branch" onClick={ask}>
+                {tx("带入调查", "Bring into investigation")}
+              </Btn>
+            </Gate>
           )}
           <Btn h={28} to={`/changes?service_id=${encodeURIComponent(data.service_id)}&range=24h`}>
             {tx("在变更页查看", "View on the changes page")}

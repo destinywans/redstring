@@ -25,7 +25,7 @@ export default function MemoryPage() {
   const [svc, setSvc] = useState(API_MODE === "mock" ? "checkout-api" : "");
   const [q, setQ] = useState("");
   // Real mode starts unfiltered; only services the server lists (those with facts) can be selected.
-  const { data, refetch } = useGet<MemoryView>("/memory", svc ? { service: svc } : undefined);
+  const { data, refetch, error } = useGet<MemoryView>("/memory", svc ? { service: svc } : undefined);
   const svcName = data?.services.find((s) => s.id === svc)?.name ?? (svc || tx("全部服务", "all services"));
   const [facts, setFacts] = useState<Record<string, "confirmed" | "forgotten">>({});
   const [conflict, setConflict] = useState(true);
@@ -193,7 +193,8 @@ export default function MemoryPage() {
             )}
             <Card style={{ overflow: "hidden" }}>
               <DataTable
-                rows={rows}
+                rows={data ? rows : undefined}
+                error={error}
                 rowKey={(f) => f.id}
                 rowHeight={44}
                 columns={[

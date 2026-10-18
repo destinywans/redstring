@@ -2,6 +2,7 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Card, Delta, Icon, Muted, Skeleton, cx, toneColor, type Tone } from "./core";
 import { Lines, Sparkline } from "../charts";
 import { useI18n } from "../i18n";
+import { LoadError } from "./unknown";
 
 export type Column<T> = {
   key: string;
@@ -12,7 +13,11 @@ export type Column<T> = {
   align?: "left" | "right" | "center";
 };
 
-/** Data table with sorting, row selection (checkboxes), hover actions and loading skeletons. */
+/**
+ * Data table with sorting, row selection (checkboxes), hover actions and loading skeletons. `rows` undefined means the
+ * read hasn't answered: it shows the loading rows, never "no data". A failed read passed as `error` says why instead of
+ * an empty table (PA-215); rows still on hand from an earlier answer keep showing.
+ */
 export function DataTable<T>({
   rows,
   columns,
@@ -25,6 +30,7 @@ export function DataTable<T>({
   rowHeight = 44,
   headBg,
   loading,
+  error,
   empty,
   rowClass,
 }: {
@@ -39,10 +45,14 @@ export function DataTable<T>({
   rowHeight?: number;
   headBg?: boolean;
   loading?: boolean;
+  /** The read that feeds `rows` failed. */
+  error?: unknown;
   empty?: ReactNode;
   rowClass?: (row: T) => string | undefined;
 }) {
   const { tx } = useI18n();
+  const failed = !!error && !rows?.length;
+  const waiting = !failed && (loading || rows === undefined);
   const [sort, setSort] = useState<{ key: string; dir: 1 | -1 } | null>(null);
   const sorted = useMemo(() => {
     if (!rows || !sort) return rows ?? [];
@@ -91,7 +101,7 @@ export function DataTable<T>({
         </tr>
       </thead>
       <tbody>
-        {loading &&
+        {waiting &&
           Array.from({ length: 5 }, (_, i) => (
             <tr key={"s" + i} style={{ height: rowHeight }}>
               {selectable && <td />}
@@ -102,7 +112,8 @@ export function DataTable<T>({
               ))}
             </tr>
           ))}
-        {!loading &&
+        {!waiting &&
+          !failed &&
           sorted.map((r) => {
             const k = rowKey(r);
             return (
@@ -125,7 +136,14 @@ export function DataTable<T>({
               </tr>
             );
           })}
-        {!loading && sorted.length === 0 && (
+        {failed && (
+          <tr>
+            <td colSpan={columns.length + (selectable ? 1 : 0)} style={{ padding: 0 }}>
+              <LoadError error={error} />
+            </td>
+          </tr>
+        )}
+        {!waiting && !failed && sorted.length === 0 && (
           <tr>
             <td colSpan={columns.length + (selectable ? 1 : 0)} style={{ padding: 0 }}>
               {empty ?? <div style={{ padding: 28, textAlign: "center" }}><Muted>{tx("没有数据", "No data")}</Muted></div>}

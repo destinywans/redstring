@@ -32,7 +32,7 @@ export default function ConversationsPage() {
   const [q, setQ] = useState("");
   const [mode, setMode] = useState<string | undefined>();
   const listQuery = { tab, q, mode };
-  const { data, isLoading } = useGet<ConversationList>("/conversations", listQuery);
+  const { data, isLoading, error } = useGet<ConversationList>("/conversations", listQuery);
   // Later pages load on request (PA-133); facets and sorting work on what is loaded.
   const paged = useMorePages("/conversations", listQuery, data);
   const [sort, setSort] = useState("recent");
@@ -122,6 +122,7 @@ export default function ConversationsPage() {
               ?.filter((c) => fScope.test(c) && fState.test(c))
               .sort((a, b) => (sort === "tokens" ? (b.tokens ?? -1) - (a.tokens ?? -1) : sort === "title" ? a.title.localeCompare(b.title) : 0))}
             loading={isLoading}
+            error={error}
             rowKey={(c) => c.id}
             onRowClick={open}
             rowHeight={48}

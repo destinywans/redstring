@@ -20,7 +20,7 @@ export default function PostmortemsPage() {
   const [tab, setTab] = useState<"all" | "draft" | "published">("all");
   const [q, setQ] = useState("");
   const [done, setDone] = useState<Set<number>>(new Set());
-  const { data, isLoading } = useGet<PostmortemSummary>("/postmortems", { tab });
+  const { data, isLoading, error } = useGet<PostmortemSummary>("/postmortems", { tab });
   const fCause = useFacet(data?.items, (p) => p.cause);
   const fSvc = useFacet(data?.items, (p) => p.title.split(" ")[0]);
   const rows = (data?.items ?? []).filter((p) => (!q || p.title.toLowerCase().includes(q.toLowerCase())) && fCause.test(p) && fSvc.test(p));
@@ -38,8 +38,9 @@ export default function PostmortemsPage() {
         <div className="v3-row" style={{ gap: 16, alignItems: "flex-start" }}>
           <Card style={{ overflow: "hidden", flex: "1 1 0", minWidth: 0 }}>
             <DataTable
-              rows={rows}
+              rows={data ? rows : undefined}
               loading={isLoading}
+              error={error}
               rowKey={(r) => r.id}
               // Sample rows open the sample execution report; real rows open their incident (there is no postmortem detail page yet).
               onRowClick={(r) => (API_MODE === "mock" ? nav("/executions/EXE-51") : r.incident_id && nav(`/incidents/${r.incident_id}`))}

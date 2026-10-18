@@ -47,7 +47,7 @@ export default function RunbooksPage() {
   const [q, setQ] = useState("");
   const [start, setStart] = useState<null | "postmortem" | "blank">(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const { data, isLoading } = useGet<{ items: RunbookSummary[]; counts: Record<string, number>; kpis: KpiT[] | null; suggestions: RunbookSuggestion[] | null; unknown_fields?: string[] }>("/runbooks", { tab, q });
+  const { data, isLoading, error } = useGet<{ items: RunbookSummary[]; counts: Record<string, number>; kpis: KpiT[] | null; suggestions: RunbookSuggestion[] | null; unknown_fields?: string[] }>("/runbooks", { tab, q });
   const FIELD: Record<string, string> = { refs_30d: tx("近 30 天引用", "Cited (30d)"), resolve_rate: tx("解决率", "Resolve rate"), kpis: tx("统计", "Statistics"), suggestions: tx("AI 维护建议", "AI maintenance"), verification_provenance: tx("验证来源", "Verification source") };
   const missing = [...new Set((data?.unknown_fields ?? []).map((f) => FIELD[f] ?? f))];
   const scopeLabel = useRunbookScope();
@@ -89,6 +89,7 @@ export default function RunbooksPage() {
               <DataTable
                 rows={data?.items.filter((r) => fScope.test(r) && fOwner.test(r))}
                 loading={isLoading}
+                error={error}
                 rowKey={(r) => r.id}
                 onRowClick={(r) => nav(`/runbooks/${r.id}`)}
                 rowHeight={52}

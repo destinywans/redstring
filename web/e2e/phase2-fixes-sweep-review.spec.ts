@@ -105,17 +105,24 @@ test.describe("review page states (PA-205)", () => {
     ["awaiting_provider", "load_timeout", "需要处理"],
     ["uncertain", null, "对账中"],
     ["failed", "rule_health_error", "求值出错"],
-    ["awaiting_provider", null, "执行中"],
   ] as const) {
     test(`an alert rule execution in ${status}${code ? ` (${code})` : ""} reads as on the execution page: ${label}`, async ({ page }) => {
       await page.addInitScript(zh);
       const m = monitor(page);
-      await pinProposal(page, proposal({ status: "approved", action_kind: ALERT_RULE, decision: decision(), execution: execution(ALERT_RULE, status, code) }));
+      let body = proposal({ status: "approved", action_kind: ALERT_RULE, decision: decision(), execution: execution(ALERT_RULE, status, code) });
+      await page.route(at(`/proposals/${reviewId}`), (r) => json(r, 200, body));
       await page.goto(origin + `/review/${reviewId}`);
       const card = page.locator(".approve-card");
       await expect(card).toContainText("批准结果", { timeout: 20_000 });
       await expect(card).toContainText(label);
-      if (label !== "执行中") await expect(card).not.toContainText("执行中");
+      await expect(card).not.toContainText("执行中");
+      if (code === "load_timeout") {
+        // Waiting for the provider without a timeout is still running.
+        body = proposal({ status: "approved", action_kind: ALERT_RULE, decision: decision(), execution: execution(ALERT_RULE, status, null) });
+        await page.reload();
+        await expect(card).toContainText("执行中", { timeout: 20_000 });
+        await expect(card).not.toContainText("需要处理");
+      }
       expect(m.pageErrors).toEqual([]);
     });
   }

@@ -1,5 +1,5 @@
 import { chromium, type FullConfig } from "@playwright/test";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { INSTANCES, LOCAL, admin, roleAccounts, signIn, type InstanceName } from "./env";
 
@@ -11,7 +11,9 @@ export default async function globalSetup(config: FullConfig) {
     for (const [role, account] of [["admin", admin(name)] as const, ...Object.entries(roleAccounts(name))]) {
       // Reuse a saved session while it is still valid; logging in every run trips the login rate limit.
       const saved = statePath(name, role);
-      if (existsSync(saved)) {
+      // A session that ends within the next hour would expire in the middle of a long run (PA-203: the 12-hour
+      // sessions ran out halfway through a regression and every later page landed on the sign-in page).
+      if (existsSync(saved) && !expiresSoon(saved)) {
         const probe = await browser.newContext({ storageState: saved });
         const probePage = await probe.newPage();
         await probePage.goto(INSTANCES[name].origin + "/healthz");
@@ -27,6 +29,13 @@ export default async function globalSetup(config: FullConfig) {
     }
   }
   await browser.close();
+}
+
+/** True when the saved session cookie expires within the hour (or has no expiry to read). */
+function expiresSoon(path: string): boolean {
+  const state = JSON.parse(readFileSync(path, "utf8")) as { cookies?: { name: string; expires?: number }[] };
+  const session = state.cookies?.find((c) => c.name === "aiops_session");
+  return !session?.expires || session.expires <= 0 || session.expires * 1000 - Date.now() < 60 * 60 * 1000;
 }
 
 export function statePath(instance: InstanceName, role: string) {

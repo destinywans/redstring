@@ -416,3 +416,46 @@ test.describe("write entries gated by the route's grant (PA-228)", () => {
     await expect(row.locator(".perm-gate .sr-only")).toHaveText("需要 静默·管理 权限");
   });
 });
+
+// PA-229 (WAN-588): wording that didn't match the flow. The review page's generic card promised a 180 s watch after
+// execution (a silence is rechecked before it is written); a rollback that had already ended still said verification
+// and the rollout hadn't started yet; the routing page's Receivers tab was a bare header without a route tree, and its
+// channel column was always empty on a real server.
+test.describe("wording that matches the flow (PA-229)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("a silence proposal's checks are titled as checks before writing, not a watch after it", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinProposal(page, proposal({ action_kind: "alertmanager.silence.create" }));
+    await page.goto(origin + `/review/${reviewId}`);
+    await expect(page.getByText("执行前复核", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("执行后自动观测 180 秒")).toHaveCount(0);
+    await expect(page.getByText("Recheck the digest before writing")).toBeVisible();
+  });
+
+  test("a rollback that already ended doesn't say verification or the rollout hasn't started yet", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinExecution(page, rolloutExecution(false));
+    await page.goto(origin + `/executions/${execId}`);
+    await expect(page.getByText("写入结果不明", { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("还没有开始验证")).toHaveCount(0);
+    await expect(page.getByText("还没有开始滚动")).toHaveCount(0);
+    await expect(page.getByText("没有进行验证")).toBeVisible();
+    await expect(page.getByText("没有滚动记录")).toBeVisible();
+  });
+
+  test("the Receivers tab explains a missing route tree and doesn't leave the channel blank", async ({ page }) => {
+    await page.addInitScript(zh);
+    let body: unknown = { root: null, root_unavailable: "not_configured", config_revision: null, partial: false, unavailable: [] };
+    await page.route(at("/notification-routes"), (r) => json(r, 200, body));
+    await page.goto(origin + "/routing");
+    await page.getByRole("tab", { name: "接收人" }).click({ timeout: 20_000 });
+    await expect(page.getByText("这个环境还没有通知路由")).toBeVisible();
+    body = routeRoot(["pa229-receiver"]);
+    await page.reload();
+    await page.getByRole("tab", { name: "接收人" }).click({ timeout: 20_000 });
+    const row = page.locator("tr", { hasText: "pa229-receiver" });
+    await expect(row).toBeVisible();
+    await expect(row.locator("td").nth(1)).toContainText("—");
+  });
+});

@@ -41,8 +41,9 @@ const (
 
 // pendingState is a proposal's place before it takes effect, or "" once it
 // is in effect or too old to list: pending_approval, executing,
-// needs_attention, and failed or rejected within seven days.
-func pendingState(status, execution, failure string, updated, now time.Time) string {
+// needs_attention, and failed, rejected or expired within seven days.
+// lapsed says the approval expired or was revoked; lapsedAt is when.
+func pendingState(status, execution, failure string, updated time.Time, lapsed bool, lapsedAt, now time.Time) string {
 	switch status {
 	case "pending":
 		return "pending_approval"
@@ -53,6 +54,14 @@ func pendingState(status, execution, failure string, updated, now time.Time) str
 		return ""
 	case "approved":
 	default:
+		return ""
+	}
+	// No executor takes up an approval that lapsed before any execution
+	// claim, so the change will not run (PA-217).
+	if execution == "" && lapsed {
+		if now.Sub(lapsedAt) <= settledPendingWindow {
+			return "expired"
+		}
 		return ""
 	}
 	switch execution {
@@ -88,9 +97,12 @@ func (s *WriteService) RuleLifecycle(ctx context.Context, user core.User, envs [
 	rows, err := tx.Query(ctx, `SELECT p.id,p.environment_id,p.application_id,p.status,a.action_kind,
  COALESCE(a.action->'spec'->>'name',''),COALESCE(a.action->'spec'->>'group',''),COALESCE(a.action->>'observed_rule_id',''),
  COALESCE(x.execution_id,''),COALESCE(x.state,''),COALESCE(x.failure_code,''),
- GREATEST(p.created_at,COALESCE(p.rejected_at,p.created_at),COALESCE(d.approved_at,p.created_at),COALESCE(x.updated_at,p.created_at))
+ GREATEST(p.created_at,COALESCE(p.rejected_at,p.created_at),COALESCE(d.approved_at,p.created_at),COALESCE(x.updated_at,p.created_at),
+  CASE WHEN x.proposal_id IS NULL AND (r.proposal_id IS NOT NULL OR d.expires_at<=clock_timestamp()) THEN LEAST(r.revoked_at,d.expires_at) END),
+ COALESCE(r.proposal_id IS NOT NULL OR d.expires_at<=clock_timestamp(),false),COALESCE(LEAST(r.revoked_at,d.expires_at),p.created_at)
  FROM v3_proposals p JOIN v3_proposal_actions a ON a.proposal_id=p.id
  LEFT JOIN v3_proposal_approval_decisions d ON d.proposal_id=p.id
+ LEFT JOIN v3_proposal_approval_revocations r ON r.proposal_id=p.id
  LEFT JOIN v3_alert_rule_enable_executions x ON x.proposal_id=p.id
  WHERE a.action_kind=ANY($1) AND p.environment_id=ANY($2)
  AND (p.status<>'rejected' OR p.rejected_at>clock_timestamp()-interval '7 days')
@@ -101,13 +113,14 @@ func (s *WriteService) RuleLifecycle(ctx context.Context, user core.User, envs [
 	}
 	type row struct {
 		id, env, app, status, kind, name, group, observed, execution, state, failure string
-		updated                                                                      time.Time
+		updated, lapsedAt                                                            time.Time
+		lapsed                                                                       bool
 	}
 	var all []row
 	for rows.Next() {
 		var r row
 		if err := rows.Scan(&r.id, &r.env, &r.app, &r.status, &r.kind, &r.name, &r.group, &r.observed,
-			&r.execution, &r.state, &r.failure, &r.updated); err != nil {
+			&r.execution, &r.state, &r.failure, &r.updated, &r.lapsed, &r.lapsedAt); err != nil {
 			rows.Close()
 			return nil, nil, err
 		}
@@ -136,7 +149,7 @@ func (s *WriteService) RuleLifecycle(ctx context.Context, user core.User, envs [
 			allowed = err == nil
 			visible[key] = allowed
 		}
-		state := pendingState(r.status, r.state, r.failure, r.updated, now)
+		state := pendingState(r.status, r.state, r.failure, r.updated, r.lapsed, r.lapsedAt, now)
 		if !allowed || state == "" {
 			continue
 		}
@@ -158,7 +171,7 @@ func (s *WriteService) RuleLifecycle(ctx context.Context, user core.User, envs [
 				UpdatedAt: r.updated.UTC().Format(time.RFC3339), Href: href})
 		}
 		// The newest disable in progress decides a listed rule's lifecycle.
-		if operation != "disable" || !listed[r.observed] || state == "rejected" {
+		if operation != "disable" || !listed[r.observed] || state == "rejected" || state == "expired" {
 			continue
 		}
 		if _, done := lifecycle[r.observed]; done {

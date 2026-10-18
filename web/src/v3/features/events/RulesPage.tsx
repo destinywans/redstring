@@ -86,12 +86,14 @@ export default function RulesPage() {
   };
   const pendingLabel = (x: AlertRulePending): [Tone, string] => {
     const enable = x.operation === "enable";
-    const map: Record<AlertRulePending["state"], [Tone, string]> = {
+    // PA-217: "expired" is an approval that lapsed or was revoked before any executor took it up; it will not run.
+    const map: Record<AlertRulePending["state"] | "expired", [Tone, string]> = {
       pending_approval: enable ? ["accent", tx("启用待批准", "Enable pending")] : ["warn", tx("停用待批准", "Disable pending")],
       executing: ["accent", enable ? tx("启用中", "Enabling") : tx("停用中", "Disabling")],
       needs_attention: ["warn", tx("需要处理", "Needs attention")],
       failed: ["danger", tx("失败", "Failed")],
       rejected: ["neutral", tx("已驳回", "Rejected")],
+      expired: ["neutral", tx("批准已失效", "Approval lapsed")],
     };
     return map[x.state];
   };

@@ -141,8 +141,9 @@ export function AlertDetailView({ id }: { id: string }) {
           )}
         />
       </Row>
+      {/* Source, rule, series, labels and grouping stay null until an occurrence binding exists: not tracked (PA-223). */}
       <Muted>
-        {a.source ?? <UnknownValue reason="not_generated" label={tx("来源 —", "source —")} />} · {curEnv?.label ?? "—"} · {when.short(a.since)} · {a.rule ? tx("规则「{r}」", "Rule “{r}”", { r: a.rule }) : <UnknownValue reason="not_generated" label={tx("规则 —", "rule —")} />}
+        {a.source ?? <UnknownValue reason="not_tracked" label={tx("来源 —", "source —")} />} · {curEnv?.label ?? "—"} · {when.short(a.since)} · {a.rule ? tx("规则「{r}」", "Rule “{r}”", { r: a.rule }) : <UnknownValue reason="not_tracked" label={tx("规则 —", "rule —")} />}
       </Muted>
       {!!a.unavailable?.length && <PartialBanner fields={[...new Set(a.unavailable.map((f) => ({ source: tx("来源", "source"), rule: tx("规则", "rule"), triage: tx("AI 初查", "AI triage"), series: tx("告警值曲线", "value chart"), labels: tx("标签", "labels"), runbook: "Runbook" })[f.split(".")[0]] ?? tx("分组与关联", "grouping")))]} />}
       {a.triage && (
@@ -175,7 +176,7 @@ export function AlertDetailView({ id }: { id: string }) {
           ) : (
             <Row gap={6} style={{ height: 60 }}>
               <Muted>{tx("告警值曲线", "Value over time")}</Muted>
-              <UnknownValue reason="not_generated" />
+              <UnknownValue reason="not_tracked" />
             </Row>
           )}
           {demo && (
@@ -191,7 +192,7 @@ export function AlertDetailView({ id }: { id: string }) {
         <Panel title={tx("标签与说明", "Labels & summary")}>
           <Col gap={8}>
             <Row gap={6} wrap>
-              {a.labels ? a.labels.map((x) => <LabelChip key={x.k} k={x.k} v={x.v} />) : <UnknownValue reason="not_generated" label={tx("标签 —", "labels —")} />}
+              {a.labels ? a.labels.map((x) => <LabelChip key={x.k} k={x.k} v={x.v} />) : <UnknownValue reason="not_tracked" label={tx("标签 —", "labels —")} />}
             </Row>
             <KV k={tx("摘要", "Summary")} kw={52}>
               {a.summary}
@@ -231,10 +232,10 @@ export function AlertDetailView({ id }: { id: string }) {
         <Panel title={tx("分组与关联", "Grouping & links")}>
           <Col gap={9}>
             <KV k={tx("分组", "Group")} kw={44}>
-              {a.grouping.group ? <TextLink to="/alerts">{a.grouping.group}</TextLink> : <UnknownValue reason="not_generated" />}
+              {a.grouping.group ? <TextLink to="/alerts">{a.grouping.group}</TextLink> : <UnknownValue reason="not_tracked" />}
             </KV>
             <KV k={tx("抑制", "Inhibits")} kw={44}>
-              {a.grouping.inhibited ?? <UnknownValue reason="not_generated" />}
+              {a.grouping.inhibited ?? <UnknownValue reason="not_tracked" />}
             </KV>
             <KV k={tx("事件", "Incident")} kw={44}>
               {a.grouping.incident.id ? <TextLink to={`/incidents/${a.grouping.incident.id}`}>{a.grouping.incident.label ?? incident?.title ?? a.grouping.incident.id}</TextLink> : <Muted>{tx("未关联", "Not linked")}</Muted>}
@@ -246,7 +247,7 @@ export function AlertDetailView({ id }: { id: string }) {
                   <TextLink to="/changes">{a.grouping.change.label}</TextLink>
                 </Row>
               ) : (
-                <UnknownValue reason="not_generated" />
+                <UnknownValue reason="not_tracked" />
               )}
             </KV>
           </Col>

@@ -225,10 +225,10 @@ export default function IncidentsPage() {
                   <Panel title={tx("影响", "Impact")}>
                     <Col gap={8}>
                       <Row gap={6}>
-                        {inc.impact.peak !== null ? <b className="tnum" style={{ color: "var(--danger)" }}>{inc.impact.peak}</b> : <UnknownValue reason="not_generated" />}
+                        {inc.impact.peak !== null ? <b className="tnum" style={{ color: "var(--danger)" }}>{inc.impact.peak}</b> : <UnknownValue reason="not_tracked" />}
                         <Muted>{demo ? tx("5xx 峰值", "5xx peak") : tx("峰值", "Peak")}</Muted>
                         <Spacer />
-                        {inc.impact.budget_used !== null ? <b className="tnum" style={{ color: "var(--warn)" }}>{inc.impact.budget_used}</b> : <UnknownValue reason="not_generated" />}
+                        {inc.impact.budget_used !== null ? <b className="tnum" style={{ color: "var(--warn)" }}>{inc.impact.budget_used}</b> : <UnknownValue reason="not_tracked" />}
                         <Muted>{tx("本次消耗错误预算", "budget burned")}</Muted>
                       </Row>
                       {inc.impact.series && <Lines series={[{ values: inc.impact.series, color: "var(--c3)", fill: "var(--c3s)" }]} height={44} max={demo ? 10 : undefined} grid={1} hover={false} markers={demo ? [{ at: 10, label: tx("回滚", "rollback"), tone: "ok" }] : []} />}

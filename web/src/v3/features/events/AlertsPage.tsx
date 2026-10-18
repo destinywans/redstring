@@ -198,9 +198,9 @@ export default function AlertsPage() {
               {/* PA-221: the server refuses filters it can't apply (silence state and inhibition aren't tracked); say so, and say when a tab is empty. */}
               {!isLoading && error && !data ? (
                 error instanceof ApiError && error.code === "silence_state_unavailable" ? (
-                  <Unavailable reason="unavailable" icon="mute" title={tx("还不能按静默筛选", "Silenced alerts can't be listed yet")} desc={tx("平台还没有记录告警的静默状态，这个页签暂时不会有内容。", "The platform doesn't record whether an alert is silenced yet, so this tab stays empty for now.")} />
+                  <Unavailable reason="not_tracked" icon="mute" title={tx("还不能按静默筛选", "Silenced alerts can't be listed yet")} desc={tx("平台还没有记录告警的静默状态，这个页签暂时不会有内容。", "The platform doesn't record whether an alert is silenced yet, so this tab stays empty for now.")} />
                 ) : error instanceof ApiError && error.code === "inhibition_unavailable" ? (
-                  <Unavailable reason="unavailable" icon="layers" title={tx("还不能隐藏被抑制的告警", "Inhibited alerts can't be hidden yet")} desc={tx("平台还没有记录告警是否被抑制，打开“显示被抑制的告警”即可查看全部告警。", "The platform doesn't record whether an alert is inhibited yet; turn “Show inhibited” back on to see all alerts.")} />
+                  <Unavailable reason="not_tracked" icon="layers" title={tx("还不能隐藏被抑制的告警", "Inhibited alerts can't be hidden yet")} desc={tx("平台还没有记录告警是否被抑制，打开“显示被抑制的告警”即可查看全部告警。", "The platform doesn't record whether an alert is inhibited yet; turn “Show inhibited” back on to see all alerts.")} />
                 ) : (
                   <Unavailable reason={errorReason(error)} icon="alert" title={tx("暂时读不到告警", "Alerts can't be read right now")} />
                 )
@@ -266,6 +266,7 @@ export default function AlertsPage() {
                         </Gate>
                       </span>
                     </div>
+                    {/* Instance values and series, notification delivery and inhibition are never filled yet: not tracked, not a failed source (PA-223). */}
                     {expanded && g.instances.length > 0 && (
                       <div className="ag-body anim-fade">
                         <DataTable
@@ -275,7 +276,7 @@ export default function AlertsPage() {
                           headBg
                           columns={[
                             { key: "id", header: tx("实例", "Instance"), width: "32%", render: (r) => <span className="mono" style={{ fontSize: "var(--fs-sub)" }}>{r.id}</span> },
-                            { key: "v", header: tx("当前值", "Value"), render: (r) => (r.value === null ? <UnknownValue reason="unavailable" source={tx("指标来源", "metrics source")} /> : <b className="tnum" style={{ color: r.state === "firing" ? "var(--danger)" : "var(--warn)", fontWeight: 500 }}>{r.value}</b>) },
+                            { key: "v", header: tx("当前值", "Value"), render: (r) => (r.value === null ? <UnknownValue reason="not_tracked" /> : <b className="tnum" style={{ color: r.state === "firing" ? "var(--danger)" : "var(--warn)", fontWeight: 500 }}>{r.value}</b>) },
                             {
                               key: "s",
                               header: tx("状态", "State"),
@@ -295,7 +296,7 @@ export default function AlertsPage() {
                                 ),
                             },
                             { key: "d", header: tx("持续", "Duration"), render: (r) => <Muted>{r.duration}</Muted> },
-                            { key: "t", header: tx("近 30 分钟", "Last 30 min"), render: (r) => (r.series?.length ? <Sparkline values={r.series} width={90} height={20} color={r.state === "firing" ? "var(--danger)" : "var(--warn)"} /> : <UnknownValue reason="unavailable" source={tx("指标来源", "metrics source")} />) },
+                            { key: "t", header: tx("近 30 分钟", "Last 30 min"), render: (r) => (r.series?.length ? <Sparkline values={r.series} width={90} height={20} color={r.state === "firing" ? "var(--danger)" : "var(--warn)"} /> : <UnknownValue reason="not_tracked" />) },
                           ]}
                         />
                       </div>
@@ -421,13 +422,13 @@ export default function AlertsPage() {
                     <span className="grow" style={{ fontSize: "var(--fs-sub)" }}>
                       {n.text}
                     </span>
-                    {n.done === undefined || n.done === null ? <UnknownValue reason="unavailable" /> : <Icon name={n.done ? "check" : "clock"} size={13} color={n.done ? "var(--ok)" : "var(--muted)"} />}
+                    {n.done === undefined || n.done === null ? <UnknownValue reason="not_tracked" /> : <Icon name={n.done ? "check" : "clock"} size={13} color={n.done ? "var(--ok)" : "var(--muted)"} />}
                   </Row>
                 ))}
               </Section>
               <Section title={tx("抑制与延迟", "Inhibition & delay")}>
                 {policy.data.inhibition === null ? (
-                  <Muted size={11.5}>{tx("抑制状态", "Inhibition")} <UnknownValue reason="unavailable" source="Alertmanager" /></Muted>
+                  <Muted size={11.5}>{tx("抑制状态", "Inhibition")} <UnknownValue reason="not_tracked" /></Muted>
                 ) : (
                   policy.data.inhibition.map((t) => (
                     <p key={t} style={{ fontSize: "var(--fs-sub)" }}>

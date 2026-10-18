@@ -12,6 +12,9 @@ import "./knowledge.css";
 import { ChipSelect, usePickLists } from "../../ui/demo";
 import { UnknownValue } from "../../ui/unknown";
 
+/** Search corpora with no vector index (the server's `corpora` lists them as not_indexed). */
+const NOT_INDEXED = new Set(["public_web_sources", "upload_sources"]);
+
 export default function SourcesPage() {
   const { tx, fmt } = useI18n();
   const [tab, setTab] = useState("all");
@@ -24,7 +27,7 @@ export default function SourcesPage() {
   const [topK, setTopK] = useState(4);
   const [query, setQuery] = useState(API_MODE === "mock" ? tx("重试 放大 导致 5xx", "retries amplified causing 5xx") : "");
   const [hits, setHits] = useState<RetrievalHit[] | null>(null);
-  // PA-222: a keyword-only search (no embeddings) read no vectors; its 0 is not a score.
+  // PA-222: a keyword-only search (no embeddings) read no vectors; its 0 is not a score. Each hit without a score says vector=null.
   const [degraded, setDegraded] = useState(false);
   const [searching, setSearching] = useState(false);
   const search = async () => {
@@ -173,9 +176,11 @@ export default function SourcesPage() {
                   <p className="muted" style={{ fontSize: "var(--fs-sub)", lineHeight: 1.5 }}>{h.snippet}</p>
                   <Row gap={4}>
                     <Badge>{tx("关键词 {v}", "keyword {v}", { v: h.keyword.toFixed(2) })}</Badge>
-                    {degraded ? (
+                    {degraded || h.vector === null ? (
                       <Badge>
-                        {tx("向量", "vector")} <UnknownValue reason="unavailable" source={tx("向量检索", "vector search")} />
+                        {tx("向量", "vector")}{" "}
+                        {/* Web pages and uploads have no vector index: nothing failed, their vector score isn't kept (PA-222). */}
+                        {NOT_INDEXED.has(h.corpus ?? "") ? <UnknownValue reason="not_tracked" source={tx("向量索引", "vector index")} /> : <UnknownValue reason="unavailable" source={tx("向量检索", "vector search")} />}
                       </Badge>
                     ) : (
                       <Badge>{tx("向量 {v}", "vector {v}", { v: h.vector.toFixed(2) })}</Badge>

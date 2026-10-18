@@ -14,7 +14,9 @@ const API_LABEL = { responses: "Responses", chat_completions: "Chat Completions"
 export default function ModelsPage() {
   const { tx } = useI18n();
   const { data, error } = useGet<ModelAdminView>("/models/admin");
-  const [sel, setSel] = useState("openai:gpt-5");
+  // Until a row is clicked, the selection is the model the server details: the environment's default (PA-224).
+  const [picked, setSel] = useState<string | null>(null);
+  const sel = picked ?? (data?.detail?.model || data?.items.find((x) => x.is_default)?.id || "");
   const m = data?.items.find((x) => x.id === sel);
   const detail = data?.detail.model === sel ? data.detail : null;
   return (

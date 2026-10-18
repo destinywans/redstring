@@ -780,7 +780,8 @@ export type KnowledgeSourceEvidence = {
   error: string | null;
 };
 export type KnowledgeSource = KnowledgeSourceMock | KnowledgeSourceEvidence;
-export type RetrievalHit = { brand?: string; title: string; snippet: string; keyword: number; vector: number; score: number };
+/** `vector` is null when the hit has no vector score (a keyword-only search, or a corpus without a vector index); `corpus` names its `corpora` entry (PA-222). */
+export type RetrievalHit = { brand?: string; title: string; snippet: string; keyword: number; vector: number | null; score: number; corpus?: string };
 
 /* ---------------- resources & observability ---------------- */
 export type Health = "ok" | "warn" | "danger";

@@ -78,14 +78,25 @@ func TestTrendCountsUnknownSeverityDeliveries(t *testing.T) {
 	}
 }
 
-// PA-239: the attention list keeps an unknown severity null and says why.
+// PA-239, PA-240: the attention list keeps an unknown severity null and
+// says why; a "warning" stored for an alert without a severity label is
+// unknown too.
 func TestAttentionSeverityReason(t *testing.T) {
-	level, reason := attentionSeverity("major")
+	recorded := map[string]string{"alertname": "X"}
+	level, reason := attentionSeverity("major", recorded)
 	if level != nil || reason == nil || *reason != "unclassified" {
 		t.Errorf("major = %v,%v", level, reason)
 	}
-	level, reason = attentionSeverity("critical")
+	level, reason = attentionSeverity("critical", recorded)
 	if level == nil || *level != "P1" || reason != nil {
 		t.Errorf("critical = %v,%v", level, reason)
+	}
+	level, reason = attentionSeverity("warning", recorded)
+	if level != nil || reason == nil || *reason != "not_filled" {
+		t.Errorf("default warning = %v,%v", level, reason)
+	}
+	level, reason = attentionSeverity("warning", nil)
+	if level == nil || *level != "P2" || reason != nil {
+		t.Errorf("warning without recorded labels = %v,%v", level, reason)
 	}
 }

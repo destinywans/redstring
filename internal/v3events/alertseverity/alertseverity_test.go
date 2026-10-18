@@ -37,3 +37,26 @@ func TestAliasesAndRank(t *testing.T) {
 		t.Error("unknown must sort after P4")
 	}
 }
+
+// PA-240: before the fix an alert without a severity label was stored as
+// "warning"; with recorded labels that lack severity that value is the
+// default, not the source's level.
+func TestStoredTellsTheOldDefaultFromARealWarning(t *testing.T) {
+	for _, tc := range []struct {
+		raw           string
+		labels        map[string]string
+		level, reason string
+	}{
+		{"warning", map[string]string{"alertname": "X"}, "", ReasonMissing},
+		{"warning", map[string]string{"alertname": "X", "severity": " "}, "", ReasonMissing},
+		{"", map[string]string{"alertname": "X"}, "", ReasonMissing},
+		{"warning", map[string]string{"severity": "warning"}, "P2", ""},
+		{"warning", nil, "P2", ""},
+		{"critical", map[string]string{"alertname": "X"}, "P1", ""},
+	} {
+		level, reason := Stored(tc.raw, tc.labels)
+		if level != tc.level || reason != tc.reason {
+			t.Errorf("Stored(%q,%v) = %q,%q; want %q,%q", tc.raw, tc.labels, level, reason, tc.level, tc.reason)
+		}
+	}
+}

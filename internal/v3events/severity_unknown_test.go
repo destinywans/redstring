@@ -59,11 +59,12 @@ func TestAlertGroupSeverityWithUnknownMembers(t *testing.T) {
 	}
 }
 
-// PA-239: an alert whose recorded severity is outside the table keeps every
-// events page readable; each one says the severity is unknown instead of
-// failing (inbox, alert groups, alert and incident detail) or calling it P4
-// (incident list).
-func TestUnknownSeverityAlertKeepsEventPagesReadable(t *testing.T) {
+// severityFixture serves the events routes over an isolated schema holding
+// the given ops_incidents VALUES rows (id,source_id,application_id,
+// environment_id,fingerprint,title,severity,alert_status,summary,starts_at,
+// labels) for application "app" in environment "dev"; get decodes a 200.
+func severityFixture(t *testing.T, alerts string) (get func(path string, into any)) {
+	t.Helper()
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("TEST_DATABASE_URL required; test uses a random isolated schema")
@@ -113,8 +114,7 @@ func TestUnknownSeverityAlertKeepsEventPagesReadable(t *testing.T) {
 		INSERT INTO application_environments(id,application_id,key,name) VALUES('app-dev','app','dev','Dev');
 		INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app','dev');
 		INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,alert_status,summary,starts_at,labels)
-		 VALUES('known','am','app','app-dev','fp-known','Known alert','critical','firing','',now()-interval '5 minutes','{"severity":"critical"}'),
-		       ('odd','am','app','app-dev','fp-odd','Odd alert','major','firing','',now()-interval '3 minutes','{"severity":"major"}');`); err != nil {
+		 VALUES `+alerts); err != nil {
 		t.Fatal(err)
 	}
 	_, token, err := st.Login(ctx, "admin@example.invalid", "isolated-severity-password")
@@ -136,7 +136,7 @@ func TestUnknownSeverityAlertKeepsEventPagesReadable(t *testing.T) {
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, policy, st.Session, nil); err != nil {
 		t.Fatal(err)
 	}
-	get := func(path string, into any) {
+	return func(path string, into any) {
 		t.Helper()
 		r := httptest.NewRequest(http.MethodGet, path, nil)
 		r.Header.Set("X-AIOps-Environment", "dev")
@@ -150,12 +150,22 @@ func TestUnknownSeverityAlertKeepsEventPagesReadable(t *testing.T) {
 			t.Fatalf("GET %s: %v %s", path, err, w.Body.String())
 		}
 	}
-	type severityFields struct {
-		ID             string   `json:"id"`
-		Severity       *string  `json:"severity"`
-		SeverityReason *string  `json:"severity_reason"`
-		Unavailable    []string `json:"unavailable"`
-	}
+}
+
+type severityFields struct {
+	ID             string   `json:"id"`
+	Severity       *string  `json:"severity"`
+	SeverityReason *string  `json:"severity_reason"`
+	Unavailable    []string `json:"unavailable"`
+}
+
+// PA-239: an alert whose recorded severity is outside the table keeps every
+// events page readable; each one says the severity is unknown instead of
+// failing (inbox, alert groups, alert and incident detail) or calling it P4
+// (incident list).
+func TestUnknownSeverityAlertKeepsEventPagesReadable(t *testing.T) {
+	get := severityFixture(t, `('known','am','app','app-dev','fp-known','Known alert','critical','firing','',now()-interval '5 minutes','{"severity":"critical"}'),
+		       ('odd','am','app','app-dev','fp-odd','Odd alert','major','firing','',now()-interval '3 minutes','{"severity":"major"}')`)
 	unknown := func(where string, v severityFields, listsUnavailable bool) {
 		t.Helper()
 		if v.Severity != nil || v.SeverityReason == nil || *v.SeverityReason != "unclassified" ||
@@ -214,4 +224,37 @@ func TestUnknownSeverityAlertKeepsEventPagesReadable(t *testing.T) {
 	var incident severityFields
 	get("/api/v1/incidents/odd", &incident)
 	unknown("incident detail", incident, true)
+}
+
+// PA-240: an alert that carried no severity label has no severity. New rows
+// store it as ”; rows stored before the fix hold "warning" with recorded
+// labels that lack severity. A row without recorded labels (AI patrol,
+// older rows) and a real warning label keep P2.
+func TestMissingSeverityIsUnknownNotWarning(t *testing.T) {
+	get := severityFixture(t, `('blank','am','app','app-dev','fp-blank','Blank alert','','firing','',now()-interval '5 minutes','{"alertname":"Blank"}'),
+		       ('legacy','am','app','app-dev','fp-legacy','Legacy alert','warning','firing','',now()-interval '4 minutes','{"alertname":"Legacy"}'),
+		       ('nolabels','am','app','app-dev','fp-nolabels','Unlabelled alert','warning','firing','',now()-interval '3 minutes',NULL),
+		       ('warned','am','app','app-dev','fp-warned','Warned alert','warning','firing','',now()-interval '2 minutes','{"severity":"warning"}')`)
+	for _, tc := range []struct{ id, want string }{{"blank", ""}, {"legacy", ""}, {"nolabels", "P2"}, {"warned", "P2"}} {
+		for _, path := range []string{"/api/v1/alerts/" + tc.id, "/api/v1/incidents/" + tc.id} {
+			var v severityFields
+			get(path, &v)
+			if tc.want == "" {
+				if v.Severity != nil || v.SeverityReason == nil || *v.SeverityReason != "not_filled" || !slices.Contains(v.Unavailable, "severity") {
+					t.Errorf("%s: severity=%v reason=%v unavailable=%v; want null, not_filled", path, v.Severity, v.SeverityReason, v.Unavailable)
+				}
+			} else if v.Severity == nil || *v.Severity != tc.want || v.SeverityReason != nil {
+				t.Errorf("%s: severity=%v reason=%v; want %s", path, v.Severity, v.SeverityReason, tc.want)
+			}
+		}
+	}
+	var incidents struct {
+		Items []severityFields `json:"items"`
+	}
+	get("/api/v1/incidents", &incidents)
+	for _, item := range incidents.Items {
+		if (item.ID == "blank" || item.ID == "legacy") && (item.Severity != nil || item.SeverityReason == nil || *item.SeverityReason != "not_filled") {
+			t.Errorf("incident list %s: severity=%v reason=%v", item.ID, item.Severity, item.SeverityReason)
+		}
+	}
 }

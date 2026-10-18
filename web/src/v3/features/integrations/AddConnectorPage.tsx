@@ -26,6 +26,22 @@ const CATALOG = [
   ["vault", "Vault"],
 ] as const;
 
+/**
+ * The types the server registers and the read-only tools a new connector of each starts with (descriptors in
+ * internal/v3integrations/catalog.go). The real wizard offers only these types, and picking one starts from its own
+ * tools, so creating never sends another type's tool names (422 invalid_tools, PA-224). GitLab keeps its four.
+ */
+const SERVER_TOOLS: Record<string, string[]> = {
+  gitlab: ["list_pipelines", "get_pipeline", "get_commit_diff", "list_merge_requests"],
+  jenkins: ["list_builds"],
+  argo: ["get_app_status"],
+  prometheus: ["query_metrics"],
+  elasticsearch: ["search_logs"],
+  grafana: ["list_dashboards"],
+  kubernetes: ["read_workloads"],
+  vault: [],
+};
+
 export default function AddConnectorPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
@@ -38,7 +54,12 @@ export default function AddConnectorPage() {
   const demo = API_MODE === "mock";
   const [url, setUrl] = useState(demo ? "https://gitlab.example.internal" : "");
   const [hook, setHook] = useState(true);
-  const [tools, setTools] = useState<Set<string>>(new Set(["list_pipelines", "get_pipeline", "get_commit_diff", "list_merge_requests"]));
+  const [tools, setTools] = useState<Set<string>>(new Set(SERVER_TOOLS.gitlab));
+  const catalog = demo ? CATALOG : CATALOG.filter(([b]) => b in SERVER_TOOLS);
+  const pickType = (b: string) => {
+    setType(b);
+    if (!demo) setTools(new Set(SERVER_TOOLS[b]));
+  };
   const create = useSend<object, { id: string }>("POST", "/connectors", ["/connectors"]);
   // Creating needs connectors.manage, as POST /connectors declares (PA-228); the last step's button says so.
   const noManage = useNeed(["connectors", "manage"]);
@@ -80,8 +101,8 @@ export default function AddConnectorPage() {
               <Col gap={14}>
                 <h2>{tx("选择类型", "Choose a type")}</h2>
                 <div className="type-grid">
-                  {CATALOG.map(([b, n]) => (
-                    <button key={b} type="button" className={type === b ? "on" : ""} aria-pressed={type === b} onClick={() => setType(b)}>
+                  {catalog.map(([b, n]) => (
+                    <button key={b} type="button" className={type === b ? "on" : ""} aria-pressed={type === b} onClick={() => pickType(b)}>
                       <Brand name={b} size={28} />
                       {n}
                     </button>

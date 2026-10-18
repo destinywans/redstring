@@ -127,6 +127,35 @@ test.describe("add connector wizard follows the server's connector types (PA-224
   });
 });
 
+test.describe("add connector wizard starts each type on an auth method it accepts (PA-224)", () => {
+  test("after choosing a type one of its auth methods is selected, and create sends it", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route((url) => url.pathname.startsWith("/api/v1/connector-types/"), (r) =>
+      json(r, 200, connectorType(decodeURIComponent(new URL(r.request().url()).pathname.split("/").pop() ?? ""))),
+    );
+    const sent: { type: string; auth: string }[] = [];
+    await page.route(at("/connectors"), (r) => {
+      if (r.request().method() !== "POST") return r.fallback();
+      sent.push(r.request().postDataJSON());
+      return json(r, 201, { id: "conn-pa224-auth" });
+    });
+    for (const [type, name] of SHOWN) {
+      await page.goto(origin + "/integrations/new");
+      await page.getByRole("button", { name: "上一步" }).click({ timeout: 20_000 });
+      await typeGrid(page).filter({ hasText: named(name) }).click();
+      await page.getByRole("button", { name: /下一步/ }).click();
+      // Nobody picks a method here: the form must already hold one the type accepts.
+      await expect(page.getByRole("radio", { checked: true }), `${type} auth`).toHaveCount(1);
+      await page.getByRole("textbox", { name: /地址/ }).fill("https://check.example.invalid");
+      for (let i = 0; i < 3; i++) await page.getByRole("button", { name: /下一步/ }).click();
+      const posted = page.waitForRequest((q) => q.method() === "POST" && new URL(q.url()).pathname === "/api/v1/connectors");
+      await page.getByRole("button", { name: "创建连接器" }).click();
+      await posted;
+      expect(AUTH[type], `${type} sent auth`).toContain(sent.at(-1)!.auth);
+    }
+  });
+});
+
 test.describe("models page selection on real data (PA-224)", () => {
   test("selects the environment's default model, never the sample ID", async ({ page }) => {
     await page.addInitScript(zh);

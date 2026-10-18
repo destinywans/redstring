@@ -87,3 +87,62 @@ test.describe("an investigation canvas shows what the server keeps after a reply
     expect(m.pageErrors).toEqual([]);
   });
 });
+
+/* ---------------- PA-236: where an agent rollback lands ---------------- */
+
+const AGENT = "agent-write-check";
+/** An agent detail; `release` patches the release the way the server reports it. */
+const agent = (release: Record<string, unknown>) => ({
+  id: AGENT, icon: "bot", name: "写路径检查 Agent", desc: "", version: "v2", level: "L0", score: null, runs_7d: null, success: null, avg_tokens: null, status: "stable",
+  revision: 7, owner: "", account: null, summary: "检查用",
+  versions: [
+    { version: "v2", status: "stable", traffic: null, configured_traffic: "100%", score: null, success: null, tokens: null, created: "2026-10-18T01:00:00Z" },
+    { version: "v1", status: "retired", traffic: null, configured_traffic: "0%", score: null, success: null, tokens: null, created: "2026-10-17T01:00:00Z" },
+  ],
+  release: { from: "v2", to: "", current: null, target: 0, configured_canary_percent: 0, gates: null, tokens: null, missing: [], ...release },
+  diff: null, config: null,
+});
+
+test.describe("an agent rollback names where it lands (PA-236)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("without a canary the button and the toast name the previous stable version", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    const sent: unknown[] = [];
+    await page.route(at(`/agents/${AGENT}`), (r) => json(r, 200, agent({ rollback_to: "v1" })));
+    await page.route(at(`/agents/${AGENT}/rollback`), (r) => {
+      sent.push(r.request().postDataJSON());
+      return json(r, 200, { id: "rel-check", to: "v1", configured_percent: 100, revision: 8, configured_canary_percent: 0, observed_traffic: null, routing_connected: false, release_effect: "configuration_only" });
+    });
+    await page.goto(origin + `/agents/${AGENT}`);
+    await expect(page.getByRole("heading", { name: "写路径检查 Agent" })).toBeVisible({ timeout: 20_000 });
+    // The release starts from the stable v2, but a rollback without a canary goes back to v1.
+    await expect(page.getByRole("button", { name: "回滚到 v2" })).toHaveCount(0);
+    await page.getByRole("button", { name: "回滚到 v1" }).click();
+    await expect(page.locator(".v3-toast")).toContainText("已回滚到 v1");
+    await expect(page.locator(".v3-toast")).not.toContainText("v2");
+    expect(sent).toEqual([{ expected_revision: 7 }]);
+    expect(m.pageErrors).toEqual([]);
+  });
+
+  test("with a canary the rollback stays on the stable version and says the canary was cleared (control)", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at(`/agents/${AGENT}`), (r) => json(r, 200, agent({ to: "v3", target: 50, configured_canary_percent: 50, rollback_to: "v2" })));
+    await page.route(at(`/agents/${AGENT}/rollback`), (r) => json(r, 200, { id: "rel-check", to: "v2", configured_percent: 100, revision: 8, configured_canary_percent: 0 }));
+    await page.goto(origin + `/agents/${AGENT}`);
+    await page.getByRole("button", { name: "回滚到 v2" }).click({ timeout: 20_000 });
+    await expect(page.locator(".v3-toast")).toContainText("已回滚到 v2，灰度流量清零");
+  });
+
+  test("with nothing to roll back to the button names no version, and the refusal is said", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at(`/agents/${AGENT}`), (r) => json(r, 200, { ...agent({ from: "v1", rollback_to: null }), version: "v1", versions: [agent({}).versions[1]] }));
+    await page.route(at(`/agents/${AGENT}/rollback`), (r) => json(r, 409, { error: { code: "rollback_unavailable", message: "没有可回滚到的上一个版本" } }));
+    await page.goto(origin + `/agents/${AGENT}`);
+    await expect(page.getByRole("heading", { name: "写路径检查 Agent" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: /^回滚到/ })).toHaveCount(0);
+    await page.getByRole("button", { name: "回滚", exact: true }).click();
+    await expect(page.locator(".v3-toast")).toContainText("没有可回滚到的上一个版本");
+  });
+});

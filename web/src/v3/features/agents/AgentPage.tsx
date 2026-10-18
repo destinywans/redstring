@@ -203,7 +203,8 @@ export default function AgentPage() {
                         <Row gap={8}>
                           <Muted size={11.5}>{tx("评测门禁", "Eval gates")}</Muted>
                           <Spacer />
-                          <UnknownValue reason="not_generated" />
+                          {/* PA-223: no evaluation producer feeds release gates yet. */}
+                          <UnknownValue reason="not_tracked" />
                         </Row>
                       )}
                       {a.release.gates?.map((g) => (

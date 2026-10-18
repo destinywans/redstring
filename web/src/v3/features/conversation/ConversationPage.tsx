@@ -167,7 +167,7 @@ function SidePanel({ conv, service }: { conv: Conversation; service: string | nu
           ))}
         </Row>
         <Muted>
-          {used !== null ? fmtTokens(used) : <UnknownValue reason="not_generated" label={tx("已用 —", "used —")} />} / {budget ? fmtTokens(budget) : <UnknownValue reason="not_configured" label={tx("预算 —", "budget —")} />} tokens
+          {used !== null ? fmtTokens(used) : <UnknownValue reason="not_generated" label={tx("已用 —", "used —")} />} / {budget ? fmtTokens(budget) : <UnknownValue reason="not_tracked" label={tx("预算 —", "budget —")} />} tokens
           {pct !== null && ` · ${pct}%`}
         </Muted>
       </Col>

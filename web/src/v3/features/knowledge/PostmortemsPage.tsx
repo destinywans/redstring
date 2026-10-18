@@ -80,7 +80,7 @@ export default function PostmortemsPage() {
           </Card>
           <Col gap={16} style={{ width: 360, flex: "none" }}>
             <Panel title={tx("根因分布 · 近 90 天", "Root causes · 90 days")}>
-              {data && !data.causes && !data.impact_by_service && <Unavailable reason="not_generated" icon="trend" title={tx("暂无根因统计", "No root-cause statistics yet")} desc={tx("复盘里还没有可统计的根因分类和影响时长。", "Postmortems don't have countable cause categories or impact minutes yet.")} />}
+              {data && !data.causes && !data.impact_by_service && <Unavailable reason="not_tracked" icon="trend" title={tx("暂无根因统计", "No root-cause statistics")} desc={tx("平台目前不统计复盘的根因分类和影响时长。", "The platform doesn't count postmortem cause categories or impact minutes yet.")} />}
               {data && (data.causes || data.impact_by_service) && (
                 <Col gap={4}>
                   {data.causes ? (
@@ -97,16 +97,16 @@ export default function PostmortemsPage() {
                     </Col>
                   </Row>
                   ) : (
-                    <Muted>{tx("根因分布：", "Root causes: ")}<UnknownValue reason="not_generated" /></Muted>
+                    <Muted>{tx("根因分布：", "Root causes: ")}<UnknownValue reason="not_tracked" /></Muted>
                   )}
                   <Section title={tx("影响时长 · 按服务", "Impact minutes · by service")} style={{ marginTop: 10 }}>
-                    {data.impact_by_service ? <Treemap items={data.impact_by_service} height={72} /> : <UnknownValue reason="not_generated" />}
+                    {data.impact_by_service ? <Treemap items={data.impact_by_service} height={72} /> : <UnknownValue reason="not_tracked" />}
                   </Section>
                 </Col>
               )}
             </Panel>
             <Panel title={tx("需要跟进的改进项", "Follow-ups")} right={data?.followups ? <Muted size={11.5}>{tx("最紧急的 {n} 项", "Most urgent {n}", { n: data.followups.length })}</Muted> : undefined}>
-              {data && !data.followups && <Unavailable reason="not_generated" icon="check" title={tx("暂无改进项", "No follow-ups yet")} desc={tx("复盘发布后，这里列出还没完成的改进项。", "Open follow-ups appear here once postmortems are published.")} />}
+              {data && !data.followups && <Unavailable reason="not_tracked" icon="check" title={tx("暂无改进项跟踪", "No follow-up tracking")} desc={tx("平台目前不跟踪改进项的完成情况。", "The platform doesn't track whether follow-ups are done yet.")} />}
               <ul>
                 {data?.followups?.map((f, i) => (
                   <li key={f.text} className="v3-row" style={{ gap: 8, padding: "7px 0", borderBottom: "1px solid var(--border)", fontSize: "var(--fs-sm)" }}>

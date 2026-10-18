@@ -301,7 +301,7 @@ export default function HomePage() {
                   <tr key={s.id} className="clickable" style={{ height: 40 }} onClick={() => nav(`/services/${s.id}`)}>
                     <td>
                       <Row gap={8}>
-                        {s.status ? <Dot tone={s.status} size={7} pulse={s.status === "danger"} /> : <UnknownValue reason="not_connected" source={tx("服务健康来源", "service health source")} label={<span style={{ width: 7 }}>·</span>} />}
+                        {s.status ? <Dot tone={s.status} size={7} pulse={s.status === "danger"} /> : <UnknownValue reason="not_tracked" source={tx("服务健康", "service health")} label={<span style={{ width: 7 }}>·</span>} />}
                         <span style={{ fontWeight: 500 }}>{s.name}</span>
                         {s.tier && <Tier tier={s.tier} />}
                       </Row>

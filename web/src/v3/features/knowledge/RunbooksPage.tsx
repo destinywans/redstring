@@ -127,7 +127,8 @@ export default function RunbooksPage() {
               <Muted size={11.5}>{tx("根据调查、复盘与仓库变化自动提出", "From investigations, postmortems and repo changes")}</Muted>
             </Col>
           </Row>
-          {data && data.suggestions === null && <Unavailable reason="not_generated" icon="sparkles" title={tx("AI 维护建议尚未生成", "No AI maintenance suggestions yet")} desc={tx("有新的调查、复盘或仓库变化后，AI 会在这里提出修订建议。", "Suggestions appear here after new investigations, postmortems or repository changes.")} />}
+          {/* PA-223: the server never produces suggestions yet; nothing will appear "after new data". */}
+          {data && data.suggestions === null && <Unavailable reason="not_tracked" icon="sparkles" title={tx("暂无 AI 维护建议", "No AI maintenance suggestions")} desc={tx("平台目前不生成 Runbook 修订建议。", "The platform doesn't generate runbook revision suggestions yet.")} />}
           <ul className="rb-suggestions">
             {data?.suggestions?.filter((s) => !dismissed.has(s.id)).map((s) => (
               <li key={s.id} className="anim-rise">

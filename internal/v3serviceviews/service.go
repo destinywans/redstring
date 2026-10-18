@@ -67,10 +67,14 @@ const (
 	reasonNotGenerated  = "not_generated"
 	reasonUnavailable   = "unavailable"
 	reasonStale         = "stale"
+	// The service's CMDB relations cannot all be drawn as dependency edges
+	// between services the reader can see. It is a property of the recorded
+	// relations, not a failed read, so retrying does not change it (PA-191).
+	reasonUnmappedRelation = "unmapped_relation"
 )
 
 var reasonOrder = []string{reasonNotConnected, reasonNotConfigured, reasonNoAuthorized,
-	reasonNotGenerated, reasonUnavailable, reasonStale}
+	reasonNotGenerated, reasonUnavailable, reasonStale, reasonUnmappedRelation}
 
 // unknownError marks evidence that is absent or untrustworthy for one group
 // of fields. Handlers report it as null plus reason instead of failing the

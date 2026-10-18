@@ -12,24 +12,41 @@ import "./unknown.css";
  * reason when it has no trustworthy evidence; the UI shows that honestly and never renders an
  * unknown as 0, "healthy" or "not on call".
  */
-export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale" | (string & {});
+export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale" | "unmapped_relation" | (string & {});
+
+/**
+ * English source names arrive as "a log source", "log patterns" or "Prometheus". A heading or a "No … yet" sentence
+ * needs the bare noun phrase, capitalised when it starts a heading (PA-193); Chinese names pass through unchanged.
+ * `{s}` is the name as given, `{b}` the bare phrase and `{S}` the capitalised one.
+ */
+const bareSource = (s: string) => s.replace(/^(?:a|an|the)\s+/i, "");
+const sourceVars = (s: string) => {
+  const b = bareSource(s);
+  return { s, b, S: b.charAt(0).toUpperCase() + b.slice(1) };
+};
+
+/** `title` is the heading of a block that names its source; without one the block shows `label`. */
+type ReasonText = { label: string; title?: string; desc: string; configurable: boolean };
 
 export function useReasonText() {
   const { tx } = useI18n();
-  return (reason: UnknownReason | null | undefined, source?: string) => {
+  return (reason: UnknownReason | null | undefined, source?: string): ReasonText => {
+    const v = source ? sourceVars(source) : undefined;
     switch (reason) {
       case "not_connected":
       case "not_configured":
         return {
           label: tx("未接入", "Not connected"),
-          desc: source ? tx("还没有连接{s}。", "{s} is not connected yet.", { s: source }) : tx("还没有连接这类数据来源。", "This data source is not connected yet."),
+          title: v && tx("未接入{s}", "{S} not connected", v),
+          desc: v ? tx("还没有连接{s}。", "No {b} connected yet.", v) : tx("还没有连接这类数据来源。", "This data source is not connected yet."),
           configurable: true,
         };
       // A source that is connected but has no query set up for this item (a metrics panel, PA-171).
       case "query_not_configured":
         return {
           label: tx("未配置查询", "No query set up"),
-          desc: source ? tx("{s}已接入，但还没有为这一项配置查询。", "{s} is connected, but no query is set up for this item.", { s: source }) : tx("还没有为这一项配置查询。", "No query is set up for this item."),
+          title: v && tx("{s}未配置查询", "No query set up in {b}", v),
+          desc: v ? tx("{s}已接入，但还没有为这一项配置查询。", "{S} is connected, but no query is set up for this item.", v) : tx("还没有为这一项配置查询。", "No query is set up for this item."),
           configurable: true,
         };
       case "no_authorized_target":
@@ -44,6 +61,13 @@ export function useReasonText() {
         return { label: tx("跳过了不完整的链路", "Incomplete traces skipped"), desc: tx("有链路缺少部分 Span 被跳过，这次不给出总数、分面和分布。", "Traces missing spans were skipped, so no totals, facets or charts this time."), configurable: false };
       case "stale":
         return { label: tx("数据已过期", "Out of date"), desc: tx("最近一次成功采集已过期。", "The last successful collection is out of date."), configurable: false };
+      // Recorded relations that don't map to service dependencies: nothing failed and a refresh won't change it (PA-191).
+      case "unmapped_relation":
+        return {
+          label: tx("关系无法表示为依赖", "Relations don't map to dependencies"),
+          desc: tx("CMDB 里有关联不能对应到你可见的服务之间的依赖（比如非依赖类关系或共享资源），为免列表不完整，这里不列出。", "Some CMDB relations don't map to dependencies between services you can see (such as non-dependency relations or shared resources), so no list is shown rather than an incomplete one."),
+          configurable: false,
+        };
       default:
         return { label: tx("暂无数据", "No data"), desc: tx("后端没有给出这项数据。", "The server returned no value for this."), configurable: false };
     }
@@ -73,6 +97,7 @@ function ConfigureAction({ to = "/integrations", compact }: { to?: string; compa
 
 /** Inline unknown value: a faint dash; hover or focus explains what is missing and how to fix it. */
 export function UnknownValue({ reason, source, to, label }: { reason?: UnknownReason | null; source?: string; to?: string; label?: ReactNode }) {
+  const { tx } = useI18n();
   const text = useReasonText()(reason, source);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const timer = useRef<number | undefined>(undefined);
@@ -103,10 +128,7 @@ export function UnknownValue({ reason, source, to, label }: { reason?: UnknownRe
             onMouseEnter={() => window.clearTimeout(timer.current)}
             onMouseLeave={hide}
           >
-            <b>
-              {source ? `${source}：` : ""}
-              {text.label}
-            </b>
+            <b>{source ? tx("{s}：{l}", "{S}: {l}", { ...sourceVars(source), l: text.label }) : text.label}</b>
             <span>{text.desc}</span>
             {text.configurable && <ConfigureAction to={to} compact />}
           </span>,
@@ -122,7 +144,7 @@ export function Unavailable({ reason, source, title, desc, icon = "plug", to }: 
   return (
     <div className="unk-block">
       <Tile icon={icon} size={30} />
-      <b>{title ?? (source && text.configurable ? `${text.label}${source}` : text.label)}</b>
+      <b>{title ?? text.title ?? text.label}</b>
       <p>{desc ?? text.desc}</p>
       {text.configurable && <ConfigureAction to={to} />}
     </div>
@@ -218,7 +240,7 @@ export function LoadError({ error, source, title, icon }: { error: unknown; sour
     <PageUnavailable
       icon={icon ?? (reason === "not_connected" ? "plug" : "alert")}
       configure={text.configurable}
-      title={title ?? (source && text.configurable ? `${text.label}${source}` : text.label)}
+      title={title ?? text.title ?? text.label}
       desc={text.desc}
       detail={admin && error instanceof ApiError ? `${error.status} ${error.code}` : undefined}
     />

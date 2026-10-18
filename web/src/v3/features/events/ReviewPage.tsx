@@ -31,7 +31,7 @@ export default function ReviewPage() {
   const can = usePermission();
   const { data: me } = useGet<Me>("/me");
   // After approval, poll briefly until the executor records its status and the upstream ID.
-  const { data: p, refetch } = useGet<Review>(id ? `/proposals/${id}` : null, undefined, {
+  const { data: p, error, refetch } = useGet<Review>(id ? `/proposals/${id}` : null, undefined, {
     refetchInterval: (q) => (q.state.data?.execution && !q.state.data.execution.status ? 3000 : false),
   });
   const [approving, setApproving] = useState(false);
@@ -40,9 +40,10 @@ export default function ReviewPage() {
   const [reply, setReply] = useState("");
   const [thread, setThread] = useState<Proposal["discussion"]>([]);
   const [rejecting, setRejecting] = useState(false);
+  // A proposal that can't be read (another environment's, gone, no grant, storage down) says why (PA-219).
   if (!p)
     return (
-      <Page crumbs={[tx("事件收件箱", "Inbox"), "…"]}>
+      <Page crumbs={[tx("事件收件箱", "Inbox"), "…"]} error={error} errorSource={tx("提案", "proposal")}>
         <div className="v3-content">
           <Skeleton h={40} />
           <Skeleton h={300} />

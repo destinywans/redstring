@@ -110,11 +110,12 @@ export function ReviewDecision({ p, execBox }: { p: Proposal; execBox: ReactNode
       </Col>
     );
   }
+  // PA-205: expired is an approval with both votes that no executor took up while it was valid.
   if (state === "expired")
     return (
       <Col gap={14} style={{ padding: 16 }}>
         {head(<Badge>{tx("已过期", "Expired")}</Badge>)}
-        {banner("mute", "clock", tx("审批期限内没有凑齐两票", "Two approvals weren't in before the deadline"), tx("没有执行。目标可能已经变化，需要的话重新提案，会按当时的内容重新核对。", "Nothing ran. The target may have changed; propose again if needed and it is checked against what is current then."))}
+        {banner("mute", "clock", tx("两人已批准，执行器没有在有效期内接手", "Two people approved, but no executor took it up in time"), tx("没有执行。目标可能已经变化，需要的话重新提案，会按当时的内容重新核对。", "Nothing ran. The target may have changed; propose again if needed and it is checked against what is current then."))}
         {repropose}
       </Col>
     );
@@ -123,7 +124,7 @@ export function ReviewDecision({ p, execBox }: { p: Proposal; execBox: ReactNode
   const tone: Tone = "ok";
   return (
     <Col gap={14} style={{ padding: 16 }}>
-      {head(<Badge tone={tone}>{tx("已批准 {n}/{n}", "Approved {n}/{n}", { n: count })}</Badge>)}
+      {head(p.decision?.revoked ? <Badge tone="warn">{tx("已撤回", "Revoked")}</Badge> : <Badge tone={tone}>{tx("已批准 {n}/{n}", "Approved {n}/{n}", { n: count })}</Badge>)}
       {p.decision?.revoked
         ? // An approval withdrawn after it was given: the approved card, saying who withdrew it and that the execution was refused.
           banner("ok", "check", tx("两人已用通行密钥批准", "Two people approved with passkeys"), tx("{n} 在 {t} 撤回了批准，执行被拒绝。", "{n} withdrew the approval at {t}, so the execution was refused.", { n: p.decision.revoked.name, t: when.at(p.decision.revoked.at) ?? "—" }))

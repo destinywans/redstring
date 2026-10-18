@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import type { Me, Proposal, Tone } from "../../api/types";
+import { ALERT_RULE_KINDS, type Me, type Proposal, type Tone } from "../../api/types";
 import { AiAvatar, Avatar, Badge, Btn, Card, CardHead, Col, Icon, IconBtn, KV, Muted, Row, Skeleton, Spacer, Textarea, type IconName } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
@@ -15,6 +15,15 @@ import { ReviewDecision } from "./ReviewDecision";
 import { usePermission, Gated } from "../../ui/permission";
 import "./events.css";
 
+/**
+ * PA-205 fields of GET /proposals/{id}: the caller's own vote while it still counts (pending only), and the code an
+ * alert rule execution recorded with its state.
+ */
+type Review = Proposal & {
+  my_vote?: { verified_at: string; expires_at: string } | null;
+  execution?: (NonNullable<Proposal["execution"]> & { failure_code?: string | null }) | null;
+};
+
 export default function ReviewPage() {
   const { id = "" } = useParams();
   const { tx, fmt } = useI18n();
@@ -22,7 +31,7 @@ export default function ReviewPage() {
   const can = usePermission();
   const { data: me } = useGet<Me>("/me");
   // After approval, poll briefly until the executor records its status and the upstream ID.
-  const { data: p, refetch } = useGet<Proposal>(id ? `/proposals/${id}` : null, undefined, {
+  const { data: p, refetch } = useGet<Review>(id ? `/proposals/${id}` : null, undefined, {
     refetchInterval: (q) => (q.state.data?.execution && !q.state.data.execution.status ? 3000 : false),
   });
   const [approving, setApproving] = useState(false);
@@ -51,11 +60,16 @@ export default function ReviewPage() {
   const idLike = /^[0-9a-f-]{16,}$/i.test(p.proposed_by);
   const proposer = isMine ? me!.name : p.proposed_by_name || (idLike ? tx("用户 {id}", "User {id}", { id: `${p.proposed_by.slice(0, 6)}…` }) : p.proposed_by);
   const when = (t: string) => (/^\d{4}-\d{2}-\d{2}T/.test(t) ? fmt.dateTime(t) : t);
+  // A first vote already cast and still counting needs nothing more from this approver (PA-205).
+  const voted = !!p.my_vote && Date.parse(p.my_vote.expires_at) > Date.now();
   const [statusTone, statusLabel] = ((): [Tone, string] => {
     switch (p.status) {
       case "pending":
-        return !decideBlocked && !isMine ? ["accent", tx("待你复核", "Awaiting your review")] : ["neutral", tx("待审批", "Awaiting approval")];
+        return !decideBlocked && !isMine && !voted ? ["accent", tx("待你复核", "Awaiting your review")] : ["neutral", tx("待审批", "Awaiting approval")];
       case "approved":
+        // An approval no executor took up in time, or one withdrawn, says so like the decision card (PA-205).
+        if (p.decision?.state === "expired") return ["neutral", tx("已过期", "Expired")];
+        if (p.decision?.revoked) return ["warn", tx("已撤回", "Revoked")];
         return ["ok", tx("已批准", "Approved")];
       case "rejected":
         return ["danger", tx("已拒绝", "Rejected")];
@@ -65,8 +79,20 @@ export default function ReviewPage() {
         return (p.status as string) === "expired" ? ["neutral", tx("已过期", "Expired")] : ["neutral", p.status];
     }
   })();
+  const alertRule = ALERT_RULE_KINDS.includes(p.execution?.action_kind ?? "");
   // Executor ledger states (silence, rollback, alert rule) in words; terminal ones get their own tone.
   const execStatus = (s: string): [Tone, string] => {
+    // An alert rule's ledger reads as on its execution page (D11 §11.5): a moved base (stale_remote) or a load timeout
+    // stops for a person, uncertain reconciles read-only, a loaded rule that fails to evaluate is failed (PA-205).
+    if (alertRule) {
+      const code = p.execution?.failure_code;
+      if (s === "enabled") return ["ok", tx("已生效", "In effect")];
+      if (s === "disabled") return ["ok", tx("已停用", "Disabled")];
+      if (s === "failed") return ["danger", code === "rule_health_error" ? tx("求值出错", "Evaluation error") : tx("失败", "Failed")];
+      if (s === "stale_remote" || s === "needs_attention" || (s === "awaiting_provider" && code === "load_timeout")) return ["warn", tx("需要处理", "Needs attention")];
+      if (s === "uncertain") return ["warn", tx("对账中", "Reconciling")];
+      return ["accent", tx("执行中", "Executing")];
+    }
     if (s === "enabled") return ["ok", tx("已生效", "In effect")];
     if (s === "disabled") return ["ok", tx("已停用", "Disabled")];
     if (["succeeded", "confirmed", "verified"].includes(s)) return ["ok", p.rollback ? tx("已恢复", "Recovered") : tx("已完成", "Completed")];

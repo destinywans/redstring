@@ -47,3 +47,118 @@ test.describe("audit results that aren't failures (PA-206)", () => {
     expect(m.pageErrors).toEqual([]);
   });
 });
+
+// Review page fixtures (PA-205, PA-219, PA-229): one proposal, pinned with page.route.
+const reviewId = "pa205-check";
+const proposal = (patch: Record<string, unknown> = {}) => ({
+  id: reviewId,
+  title: "Check: enable an alert rule",
+  status: "pending",
+  risk: "medium",
+  impact: "checkout-api in prod",
+  reversible: true,
+  proposed_by: "check-proposer",
+  proposed_by_name: "Check Proposer",
+  proposed_at: at0,
+  investigation_id: "inv-pa205-check",
+  target: "rules/checkout.yaml",
+  diff: { path: "rules/checkout.yaml", lines: [] },
+  method: "Reviewed GitOps merge",
+  evidence: [],
+  verification: ["Recheck the digest before writing"],
+  verification_note: "",
+  checklist: ["Target confirmed"],
+  requirement: "Two approvers with passkeys",
+  discussion: [],
+  action_kind: null,
+  rollback: null,
+  alert_rule: null,
+  execution: null,
+  decision: null,
+  ...patch,
+});
+const approvers = [
+  { id: "u-check-a", name: "Check Approver A", method: "passkey", at: at0 },
+  { id: "u-check-b", name: "Check Approver B", method: "passkey", at: at0 },
+];
+const decision = (patch: Record<string, unknown> = {}) => ({ state: "approved", decided_at: at0, approvers, rejected_by: null, reason: null, revoked: null, ...patch });
+const execution = (kind: string, status: string | null, failure_code: string | null = null) => ({
+  execution_id: "pa205-exec",
+  approved_at: at0,
+  action_kind: kind,
+  status,
+  upstream_id: null,
+  failure_code,
+  unavailable: { upstream_id: "not_generated", ...(status === null ? { status: "not_generated" } : {}) },
+});
+const pinProposal = (page: Page, body: unknown) => page.route(at(`/proposals/${reviewId}`), (r) => json(r, 200, body));
+
+// PA-205 (WAN-564): the review page read alert rule executor states it didn't know (stale_remote, a load timeout,
+// uncertain) as "executing" while the execution page said "needs attention"; an expired approval said two votes
+// never came in; the header ignored expiry and withdrawal; and a first approver was still asked to review.
+test.describe("review page states (PA-205)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  const ALERT_RULE = "prometheus.alert_rule.enable";
+  for (const [status, code, label] of [
+    ["stale_remote", null, "需要处理"],
+    ["awaiting_provider", "load_timeout", "需要处理"],
+    ["uncertain", null, "对账中"],
+    ["failed", "rule_health_error", "求值出错"],
+    ["awaiting_provider", null, "执行中"],
+  ] as const) {
+    test(`an alert rule execution in ${status}${code ? ` (${code})` : ""} reads as on the execution page: ${label}`, async ({ page }) => {
+      await page.addInitScript(zh);
+      const m = monitor(page);
+      await pinProposal(page, proposal({ status: "approved", action_kind: ALERT_RULE, decision: decision(), execution: execution(ALERT_RULE, status, code) }));
+      await page.goto(origin + `/review/${reviewId}`);
+      const card = page.locator(".approve-card");
+      await expect(card).toContainText("批准结果", { timeout: 20_000 });
+      await expect(card).toContainText(label);
+      if (label !== "执行中") await expect(card).not.toContainText("执行中");
+      expect(m.pageErrors).toEqual([]);
+    });
+  }
+
+  test("an expired approval says both approved and no executor took it up; the header says expired", async ({ page }) => {
+    await page.addInitScript(zh);
+    const SILENCE = "alertmanager.silence.create";
+    await pinProposal(page, proposal({ status: "approved", action_kind: SILENCE, decision: decision({ state: "expired" }), execution: execution(SILENCE, null) }));
+    await page.goto(origin + `/review/${reviewId}`);
+    const card = page.locator(".approve-card");
+    await expect(card).toContainText("两人已批准", { timeout: 20_000 });
+    await expect(card).toContainText("执行器没有在有效期内接手");
+    await expect(card).toContainText("没有执行");
+    await expect(card).not.toContainText("审批期限内没有凑齐两票");
+    const top = page.locator(".v3-topbar");
+    await expect(top).toContainText("已过期");
+    await expect(top).not.toContainText("已批准");
+  });
+
+  test("a withdrawn approval reads as withdrawn in the header", async ({ page }) => {
+    await page.addInitScript(zh);
+    const SILENCE = "alertmanager.silence.create";
+    await pinProposal(page, proposal({ status: "approved", action_kind: SILENCE, decision: decision({ revoked: { id: "u-check-a", name: "Check Approver A", at: at0 } }), execution: execution(SILENCE, null) }));
+    await page.goto(origin + `/review/${reviewId}`);
+    await expect(page.locator(".approve-card")).toContainText("撤回了批准", { timeout: 20_000 });
+    const top = page.locator(".v3-topbar");
+    await expect(top).toContainText("已撤回");
+    await expect(top).not.toContainText("已批准");
+  });
+
+  test("after casting the first vote the header no longer asks you to review", async ({ page }) => {
+    await page.addInitScript(zh);
+    const now = Date.now();
+    const pending = (my_vote: unknown) => proposal({ action_kind: "alertmanager.silence.create", my_vote });
+    let body: unknown = pending({ verified_at: new Date(now - 60_000).toISOString(), expires_at: new Date(now + 14 * 60_000).toISOString() });
+    await page.route(at(`/proposals/${reviewId}`), (r) => json(r, 200, body));
+    await page.goto(origin + `/review/${reviewId}`);
+    const top = page.locator(".v3-topbar");
+    await expect(top).toContainText("待审批", { timeout: 20_000 });
+    await expect(top).not.toContainText("待你复核");
+    // Without a counted vote of yours the approver is asked, as before.
+    body = pending(null);
+    await page.reload();
+    await expect(top).toContainText("待你复核", { timeout: 20_000 });
+  });
+});

@@ -39,10 +39,14 @@ export default function WebhooksPage() {
   // Real tokens are listed and revoked through /api-tokens; /webhooks carries none (PA-161).
   const realTokens = useGet<{ items: { id: string; name: string; scopes: string[]; created_at: string; expires_at: string; revoked_at: string | null }[] }>(API_MODE === "mock" ? null : "/api-tokens");
   const revoke = useSend<{ id: string }>("DELETE", (b) => `/api-tokens/${b.id}`, ["/api-tokens"], () => undefined);
+  // PA-241: the server lists unrevoked tokens whether or not they have expired and gives no state, so the page tells
+  // them apart by expires_at; an expired token is listed and marked, but no longer counted.
+  const now = Date.now();
   const tokenRows =
     API_MODE === "mock"
-      ? (data?.tokens ?? []).filter((t) => !revoked.has(t.name)).map((t) => ({ key: t.name, id: null as string | null, name: t.name, scopes: t.scopes, used: t.used, expires: t.expires }))
-      : (realTokens.data?.items ?? []).filter((t) => !t.revoked_at).map((t) => ({ key: t.id, id: t.id as string | null, name: t.name, scopes: t.scopes, used: tx("创建于 {t}", "Created {t}", { t: fmt.dateTime(t.created_at) }), expires: tx("{t} 到期", "Expires {t}", { t: fmt.dateTime(t.expires_at) }) }));
+      ? (data?.tokens ?? []).filter((t) => !revoked.has(t.name)).map((t) => ({ key: t.name, id: null as string | null, name: t.name, scopes: t.scopes, used: t.used, expires: t.expires, expired: false }))
+      : (realTokens.data?.items ?? []).filter((t) => !t.revoked_at).map((t) => ({ key: t.id, id: t.id as string | null, name: t.name, scopes: t.scopes, used: tx("创建于 {t}", "Created {t}", { t: fmt.dateTime(t.created_at) }), expires: tx("{t} 到期", "Expires {t}", { t: fmt.dateTime(t.expires_at) }), expired: Date.parse(t.expires_at) <= now }));
+  const expiredBadge = <Badge>{tx("已过期", "Expired")}</Badge>;
   const hook = data?.inbound.find((h) => h.id === sel);
   // Native Alertmanager and GitLab receivers keep no per-delivery receipts; only generic Push entries list them (PA-227).
   const native = API_MODE !== "mock" && !!hook && /^(alertmanager|gitlab):/.test(hook.id);
@@ -114,7 +118,7 @@ export default function WebhooksPage() {
         onChange={setTab}
         options={[
           { value: "inbound", label: tx("入站 Webhook", "Inbound webhooks"), count: data?.inbound.length },
-          { value: "tokens", label: tx("API 令牌", "API tokens"), count: tokenRows.length },
+          { value: "tokens", label: tx("API 令牌", "API tokens"), count: tokenRows.filter((t) => !t.expired).length },
           { value: "mcp", label: tx("MCP 服务", "MCP service"), count: data?.availability?.public_mcp === "not_connected" ? undefined : 1 },
           { value: "outbound", label: tx("出站事件", "Outbound events"), count: outboundConnected ? data?.outbound.length : undefined },
         ]}
@@ -261,6 +265,7 @@ export default function WebhooksPage() {
                         </Row>
                         <Muted size={11.5}>{t.used}</Muted>
                       </Col>
+                      {t.expired && expiredBadge}
                       <Muted size={11.5}>{t.expires}</Muted>
                       {/* There is no rotate on the server; issue a new token and revoke the old one instead (PA-161). */}
                       {API_MODE === "mock" && <Btn
@@ -329,6 +334,7 @@ export default function WebhooksPage() {
                       <Icon name="link" size={14} />
                       <b style={{ fontSize: "var(--fs-sm)" }}>{t.name}</b>
                       <Spacer />
+                      {t.expired && expiredBadge}
                       <Muted size={11.5}>{t.expires}</Muted>
                     </Row>
                     <Row gap={4}>

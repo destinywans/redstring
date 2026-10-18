@@ -140,7 +140,10 @@ export default function WebhooksPage() {
                             <Muted>{h.last_at ? `${h.last_code ?? "—"} · ${when.short(h.last_at)}` : tx("未知", "Unknown")}</Muted>
                           </td>
                           <td>
-                            <State tone={h.status === "ok" ? "ok" : "danger"}>{h.status === "ok" ? tx("已启用", "Enabled") : tx("异常", "Error")}</State>
+                            {/* PA-202: the server says ok, error or unverified (a native source's health is never verified); only error is an error. */}
+                            <State tone={h.status === "ok" ? "ok" : h.status === "error" ? "danger" : "neutral"}>
+                              {h.status === "ok" ? tx("已启用", "Enabled") : h.status === "error" ? tx("异常", "Error") : tx("未验证", "Unverified")}
+                            </State>
                           </td>
                         </tr>
                       ))}

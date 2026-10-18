@@ -616,3 +616,34 @@ test.describe("write entries gated by their route's permission (PA-228)", () => 
     await expect(page.getByText("已开启 get_check")).toHaveCount(0);
   });
 });
+
+/** PA-166 (WAN-496), this group's part: resource status warn read "待定" (pending) in Chinese; MFA "na" (unknown) was a bare "—". */
+test.describe("raw or mistranslated values (PA-166)", () => {
+  test("a resource in warn reads as a warning, not pending", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/topology"), (r) =>
+      json(r, 200, {
+        nodes: [{ id: "n-check", name: "check-workload", kind: "deployment" }],
+        edges: [],
+        tree: [{ depth: 0, kind: "工作负载", name: "check-workload", status: "warn", replicas: "1/1" }],
+        collection: [],
+      }),
+    );
+    await page.goto(origin + "/resources");
+    await page.getByRole("radio", { name: "层级" }).click({ timeout: 20_000 });
+    const row = page.locator(".tree-row", { hasText: "check-workload" });
+    await expect(row).toBeVisible();
+    await expect(row).not.toContainText("待定");
+    await expect(row.getByText("警告", { exact: true })).toBeVisible();
+  });
+
+  test("an unknown member 2FA state explains itself", async ({ page }) => {
+    await page.addInitScript(zh);
+    const member = { id: "u-check", name: "检查成员", email: "check@check.test", department: "", roles: [], phone: "", mfa: "na", source: "system", status: "active", last_login: "" };
+    await page.route(at("/members"), (r) => json(r, 200, { org: [], groups: [], items: [member], counts: { all: 1, admin: 0, disabled: 0, no_mfa: null }, mfa_grace_days: null }));
+    await page.goto(origin + "/settings/members");
+    const row = page.locator("tbody tr", { hasText: "检查成员" });
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await expect(row.locator(".unk[aria-label^='未记录']")).toHaveCount(1);
+  });
+});

@@ -661,3 +661,62 @@ test.describe("write entries are gated at the entry (PA-228)", () => {
     expect(patched).toBe(0);
   });
 });
+
+/* ---------------- PA-229: wording that doesn't match the real flow ---------------- */
+
+test.describe("wording matches the real flow (PA-229)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("tools: autonomy levels don't point to a control the agent page doesn't have", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.goto(origin + "/agents/tools");
+    await expect(page.getByText("决定 Agent 能自己做到哪一步；界面上暂时不能修改")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/在各 Agent 详情页设置|在各 Agent 的详情页里修改/)).toHaveCount(0);
+  });
+
+  test("command palette: real mode doesn't claim its actions are audited", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/postmortems"), postmortems);
+    await page.goto(origin + "/postmortems");
+    await expect(page.locator(".v3-table")).toBeVisible({ timeout: 20_000 });
+    await page.keyboard.press("ControlOrMeta+k");
+    await expect(page.getByRole("dialog", { name: "动作面板" })).toBeVisible();
+    await expect(page.getByText("动作会记录到审计日志")).toHaveCount(0);
+  });
+});
+
+/* ---------------- PA-166: names and codes in words ---------------- */
+
+const agentRow = (id: string, name: string, status: string) => ({ id, icon: "bot", name, desc: "", version: "v1", level: "L0", score: null, runs_7d: null, success: null, avg_tokens: null, status });
+
+test.describe("lifecycle states and reply failures in words (PA-166)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("agent lifecycle: unconfigured reads in Chinese, and paused or draft aren't green", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/agents/lifecycle"), (r) =>
+      json(r, 200, { stages: null, agents: [agentRow("a-unconf", "检查未配置", "unconfigured"), agentRow("a-paused", "检查暂停", "paused"), agentRow("a-draft", "检查草稿", "draft")], todos: null }),
+    );
+    await page.goto(origin + "/agents/lifecycle");
+    const row = (name: string) => page.locator(".v3-table tr", { hasText: name });
+    await expect(row("检查未配置")).toContainText("未配置", { timeout: 20_000 });
+    await expect(row("检查未配置")).not.toContainText("unconfigured");
+    await expect(row("检查暂停").locator(".v3-badge", { hasText: "已暂停" })).not.toHaveClass(/t-ok/);
+    await expect(row("检查草稿").locator(".v3-badge", { hasText: "草稿" })).not.toHaveClass(/t-ok/);
+  });
+
+  test("canvas replies: a failure code reads as a sentence, not the raw code", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at(`/investigations/${INV}/canvas`), (r) => json(r, 200, BRANCHED));
+    await page.route(at(`/investigations/${INV}/nodes/b1/replies`), (r) =>
+      json(r, 200, {
+        investigation_id: INV, node_id: "b1", has_more: false, next_cursor: null,
+        replies: [{ id: "rp-sweep", text: "检查提问", author: null, answer: null, state: "failed", failure_code: "node_context_too_large", model: { id: "m", name: "M", provider: "p" }, reasoning: null, created_at: "2026-10-18T01:00:00Z", completed_at: null, evidence_ids: [], rollback_suggestion: null }],
+      }),
+    );
+    await page.goto(origin + `/canvas/${INV}`);
+    await page.getByText("检查分支", { exact: true }).first().click({ timeout: 20_000 });
+    await expect(page.getByText("分支上下文超过上限，没能生成回复。")).toBeVisible();
+    await expect(page.getByText(/node_context_too_large/)).toHaveCount(0);
+  });
+});

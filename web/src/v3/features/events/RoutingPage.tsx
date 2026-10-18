@@ -82,6 +82,8 @@ export default function RoutingPage() {
   const { data, error } = useGet<{ root: RouteNode | RouteNodeRead | null; root_unavailable?: "not_configured" | null; config_revision?: string | null; partial?: boolean; unavailable?: string[] }>("/notification-routes");
   // PA-141: a route draft needs the reviewed GitOps route repository and an exact Alertmanager source (route_drafts).
   const needRoutes = useNeed(["alert_rules", "manage"]);
+  // POST /notification-routes/test is marked alert_rules.manage as well (PA-228).
+  const needTest = needRoutes;
   const routesHeld = API_MODE === "mock" ? null
     : !data ? tx("暂时读不到路由配置，不能新建", "The routing configuration can't be read right now")
     : data.unavailable?.includes("route_drafts") ? tx("这个环境还没接入经审查的 GitOps 路由仓库", "No reviewed GitOps route repository is connected for this environment")
@@ -96,6 +98,7 @@ export default function RoutingPage() {
     return (root && walk(root)) ?? id;
   };
   const test = async () => {
+    if (needTest) return;
     if (API_MODE === "mock") return setResult(await api("POST", "/notification-routes/test", { body: { labels } }));
     // The real test takes a label object ("k=v, k2=v2" here) and needs an application label.
     const obj = Object.fromEntries(
@@ -147,9 +150,11 @@ export default function RoutingPage() {
               </Row>
               <form className="v3-row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); void test(); }}>
                 <Input mono value={labels} onChange={(e) => setLabels(e.target.value)} width="min(560px, 100%)" aria-label={tx("标签", "Labels")} placeholder="application=checkout-api, severity=P1" />
-                <Btn h={32} type="submit">
-                  {tx("测试", "Test")}
-                </Btn>
+                <Gated reason={needTest}>
+                  <Btn h={32} type="submit">
+                    {tx("测试", "Test")}
+                  </Btn>
+                </Gated>
               </form>
               {result && "paths" in result && (
                 <Col gap={4} className="anim-rise">

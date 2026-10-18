@@ -14,6 +14,7 @@ import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./events.css";
 import { downloadFile } from "../../ui/demo";
+import { Gate } from "../../ui/permission";
 
 export default function ExecutionPage() {
   const { id = "" } = useParams();
@@ -180,10 +181,13 @@ function RealExecutionPage() {
                 {tx("导出 Markdown", "Export Markdown")}
               </Btn>
             )}
+            {/* POST /executions/{id}/report/publish is marked knowledge.manage (PA-228). */}
             {r && !r.published && (
-              <Btn kind="primary" icon="check" disabled={!canPublish} loading={publishing} onClick={() => void publish()}>
-                {tx("确认发布", "Publish")}
-              </Btn>
+              <Gate need={["knowledge", "manage"]}>
+                <Btn kind="primary" icon="check" disabled={!canPublish} loading={publishing} onClick={() => void publish()}>
+                  {tx("确认发布", "Publish")}
+                </Btn>
+              </Gate>
             )}
           </header>
           {!r ? (

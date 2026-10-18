@@ -399,7 +399,7 @@ export default function ResourcesPage() {
                           <Muted size={11}>{r.kind}</Muted>
                         </span>
                         <span>
-                          {r.status ? <State tone={r.status}>{r.status === "danger" ? tx("异常", "Degraded") : r.status === "warn" ? tx("待定", "Warning") : tx("正常", "Healthy")}</State> : <UnknownValue reason="not_connected" source={tx("健康状态来源", "Health source")} />}
+                          {r.status ? <State tone={r.status}>{r.status === "danger" ? tx("异常", "Degraded") : r.status === "warn" ? tx("警告", "Warning") : tx("正常", "Healthy")}</State> : <UnknownValue reason="not_connected" source={tx("健康状态来源", "Health source")} />}
                         </span>
                         <span className="tnum">{r.replicas}</span>
                         <span className="v3-row" style={{ gap: 4 }}>{r.cpu !== undefined && <><Bar pct={r.cpu} tone={r.cpu > 80 ? "danger" : r.cpu > 65 ? "warn" : "ok"} width={70} /><Muted size={11.5}>{r.cpu}%</Muted></>}</span>

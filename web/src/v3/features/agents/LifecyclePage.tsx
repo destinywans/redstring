@@ -16,7 +16,8 @@ import { Unavailable, UnknownValue } from "../../ui/unknown";
 export function useAgentLabels() {
   const { tx } = useI18n();
   return {
-    status: (s: AgentSummary["status"]) => ({ stable: tx("稳定", "Stable"), canary: tx("灰度中", "Canary"), paused: tx("已暂停", "Paused"), draft: tx("草稿", "Draft") } as Record<string, string>)[s] ?? s,
+    // PA-166: an agent with no stable version yet reads "unconfigured" from the server.
+    status: (s: AgentSummary["status"]) => ({ stable: tx("稳定", "Stable"), canary: tx("灰度中", "Canary"), paused: tx("已暂停", "Paused"), draft: tx("草稿", "Draft"), unconfigured: tx("未配置", "Not configured") } as Record<string, string>)[s] ?? s,
     level: (l: string) => ({ L0: tx("L0 只建议", "L0 advise"), L1: tx("L1 只读", "L1 read-only"), L2: tx("L2 提案", "L2 propose"), L3: tx("L3 受限自动", "L3 limited auto") })[l] ?? l,
   };
 }
@@ -25,14 +26,14 @@ export default function LifecyclePage() {
   const { tx } = useI18n();
   const nav = useNavigate();
   const lb = useAgentLabels();
-  const { data, refetch } = useGet<Lifecycle>("/agents/lifecycle");
+  const { data, refetch, error } = useGet<Lifecycle>("/agents/lifecycle");
   const demo = API_MODE === "mock";
   const lists = usePickLists();
   const [creating, setCreating] = useState(false);
   const [q, setQ] = useState("");
   const rows = data?.agents.filter((a) => !q || a.id.includes(q) || a.name.includes(q));
   return (
-    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("生命周期", "Lifecycle")]} actions={
+    <Page flush error={!data ? error : undefined} errorSource={tx("Agent 生命周期", "agent lifecycle")} crumbs={[tx("Agent 运行台", "Agent console"), tx("生命周期", "Lifecycle")]} actions={
         <Gate need={["agents", "manage"]}>
         <Btn
           kind="primary"
@@ -153,7 +154,7 @@ export default function LifecyclePage() {
                   { key: "runs", header: tx("近 7 天运行", "Runs · 7 d"), render: (a) => (a.runs_7d === null ? <UnknownValue reason="not_generated" /> : <Num>{a.runs_7d}</Num>) },
                   { key: "success", header: tx("成功率", "Success"), render: (a) => (a.success === null ? <UnknownValue reason="not_generated" /> : <Num>{a.success}</Num>) },
                   { key: "tokens", header: tx("平均 tokens", "Avg tokens"), render: (a) => (a.avg_tokens === null ? <UnknownValue reason="not_generated" /> : <Num color="var(--muted)">{a.avg_tokens}</Num>) },
-                  { key: "status", header: tx("状态", "Status"), render: (a) => <State tone={a.status === "canary" ? "accent" : "ok"} pulse={a.status === "canary"}>{lb.status(a.status)}</State> },
+                  { key: "status", header: tx("状态", "Status"), render: (a) => <State tone={a.status === "canary" ? "accent" : a.status === "stable" ? "ok" : "neutral"} pulse={a.status === "canary"}>{lb.status(a.status)}</State> },
                 ]}
               />
             </Card>

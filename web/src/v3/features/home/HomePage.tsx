@@ -146,10 +146,12 @@ export default function HomePage() {
   // The range goes to the server, which bounds the trend, activity and recent items by it (PA-170).
   const [range, setRange] = useState("24h");
   const rangeLabel = useRanges().find((r) => r.value === range)?.label ?? range;
-  const { data } = useGet<HomeSummary>("/home", { range });
+  const { data, error } = useGet<HomeSummary>("/home", { range });
   const can = usePermission();
   const chatBlocked = can(["conversation", "change"]);
   // Headline counts services whose alerts are still firing (PA-58), not attention rows.
+  // PA-222: the server has no to-do source yet (todo_actions=not_connected) and always sends []; that is unknown, not 0.
+  const todosKnown = !!data && !data.availability?.todo_actions;
   const firing = data ? (data.firing_services !== undefined ? data.firing_services : data.attention.filter((x) => x.severity === "P1" || x.severity === "P2").length) : undefined;
   const fKind = useFacet(data?.activity, (a) => a.kind);
   const KIND_LABEL: Record<string, string> = { ai: tx("AI", "AI"), change: tx("变更", "Changes"), alert: tx("告警", "Alerts"), runbook: "Runbook", approval: tx("审批", "Approvals"), system: tx("系统", "System") };
@@ -164,6 +166,9 @@ export default function HomePage() {
       : [];
   return (
     <Page
+      // PA-221: a failed overview read says why instead of skeletons that never fill.
+      error={!data ? error : undefined}
+      errorSource={tx("总览", "the overview")}
       title={
         <Row gap={10}>
           <h1 style={{ fontSize: "var(--fs-lg)", fontWeight: 600 }}>{tx("总览", "Overview")}</h1>
@@ -180,6 +185,8 @@ export default function HomePage() {
             <p className="muted">
               {!data ? (
                 <Skeleton w={260} h={12} />
+              ) : !todosKnown ? (
+                firing === null ? tx("服务告警情况未知", "Service alert state unknown") : tx("{a} 个服务异常", "{a} services degraded", { a: firing ?? 0 })
               ) : firing === null ? (
                 tx("服务告警情况未知，{t} 项等待你处理", "Service alert state unknown, {t} items waiting for you", { t: data.todos.length })
               ) : (
@@ -215,7 +222,7 @@ export default function HomePage() {
             <ul>
               {data?.attention.map((a) => (
                 <li key={a.id} className="attn hrow">
-                  <Sev p={a.severity} />
+                  {a.severity ? <Sev p={a.severity} /> : <UnknownValue />}
                   <div className="v3-col grow" style={{ gap: 2 }}>
                     <Row gap={6}>
                       <b style={{ fontWeight: 600 }}>{a.service}</b>
@@ -254,7 +261,8 @@ export default function HomePage() {
           </Card>
 
           <Card className="home-card anim-rise">
-            <CardHead title={tx("待我处理", "My queue")} count={data?.todos.length} right={<TextLink to="/inbox">{tx("全部", "All")}</TextLink>} />
+            <CardHead title={tx("待我处理", "My queue")} count={todosKnown ? data?.todos.length : undefined} right={<TextLink to="/inbox">{tx("全部", "All")}</TextLink>} />
+            {data && !todosKnown && <Unavailable reason="not_tracked" icon="check" title={tx("还没有待办来源", "No to-do source yet")} desc={tx("平台目前不汇总需要你处理的事项；告警和事件在收件箱里。", "The platform doesn't gather the items waiting for you yet; alerts and incidents are in the inbox.")} />}
             <ul>
               {data?.todos.map((t) => (
                 <li key={t.id} className="todo hrow">
@@ -293,7 +301,7 @@ export default function HomePage() {
                   <tr key={s.id} className="clickable" style={{ height: 40 }} onClick={() => nav(`/services/${s.id}`)}>
                     <td>
                       <Row gap={8}>
-                        {s.status ? <Dot tone={s.status} size={7} pulse={s.status === "danger"} /> : <UnknownValue reason="not_connected" source={tx("服务健康来源", "service health source")} label={<span style={{ width: 7 }}>·</span>} />}
+                        {s.status ? <Dot tone={s.status} size={7} pulse={s.status === "danger"} /> : <UnknownValue reason="not_tracked" source={tx("服务健康", "service health")} label={<span style={{ width: 7 }}>·</span>} />}
                         <span style={{ fontWeight: 500 }}>{s.name}</span>
                         {s.tier && <Tier tier={s.tier} />}
                       </Row>

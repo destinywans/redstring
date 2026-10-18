@@ -3,7 +3,8 @@ import type { Message, ModelChoice, Part, StreamEvent, Upload } from "./types";
 import { currentLocale } from "../app/preferences";
 import { pick, type L } from "../i18n";
 
-export type SendOptions = { choice?: ModelChoice | null; attachments?: Upload[] };
+/** `onError`: the reply stream closed for good before the reply completed. */
+export type SendOptions = { choice?: ModelChoice | null; attachments?: Upload[]; onError?: () => void };
 
 /** Hands attachments picked on one page (e.g. the home composer) to the conversation that sends them. */
 const pending = new Map<string, Upload[]>();
@@ -36,6 +37,10 @@ export async function sendAndStream(conversationId: string, text: string, onEven
       const e = JSON.parse(ev.data) as StreamEvent;
       onEvent(e);
       if (e.type === "message.completed") es.close();
+    };
+    // EventSource retries on its own; CLOSED means it gave up, so the reply will never complete (PA-225).
+    es.onerror = () => {
+      if (es.readyState === EventSource.CLOSED) opts.onError?.();
     };
     return () => es.close();
   }

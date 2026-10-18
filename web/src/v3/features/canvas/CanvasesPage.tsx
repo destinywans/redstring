@@ -66,7 +66,7 @@ export default function CanvasesPage() {
   const [kind, setKind] = useState<CanvasKind | "all">("all");
   const [q, setQ] = useState("");
   const listQuery = { kind: kind === "all" ? undefined : kind, q };
-  const { data, isLoading } = useGet<{ items: CanvasSummary[]; counts: Record<string, number>; total?: number; page?: number; page_size?: number }>("/canvases", listQuery);
+  const { data, isLoading, error } = useGet<{ items: CanvasSummary[]; counts: Record<string, number>; total?: number; page?: number; page_size?: number }>("/canvases", listQuery);
   // Later pages load on request (PA-133); facets work on what is loaded.
   const paged = useMorePages("/canvases", listQuery, data);
   const loaded = data ? paged.items : undefined;
@@ -86,6 +86,9 @@ export default function CanvasesPage() {
   const c = data?.counts;
   return (
     <Page
+      // PA-221: a failed list read says why instead of an empty grid.
+      error={!data ? error : undefined}
+      errorSource={tx("画布列表", "the canvas list")}
       crumbs={[tx("对话与画布", "Conversations & canvases"), tx("画布", "Canvases")]}
       actions={
         <>
@@ -246,9 +249,12 @@ export function NewCanvasDialog({ open, onClose, initialKind = "plan", initialSe
           <Btn kind="ghost" onClick={onClose}>
             {tx("取消", "Cancel")}
           </Btn>
+          {/* POST /canvases needs canvas.change; ?new= links open this dialog from many pages (PA-228). */}
+          <Gate need={["canvas", "change"]}>
           <Btn kind="primary" icon="plus" loading={busy} onClick={create}>
             {tx("创建画布", "Create canvas")}
           </Btn>
+          </Gate>
         </>
       }
     >
@@ -299,7 +305,8 @@ export function NewCanvasDialog({ open, onClose, initialKind = "plan", initialSe
           <Row gap={8}>
             <Toggle on={draft} onChange={setDraft} label={tx("由 AI 起草初始节点", "Let the AI draft the first nodes")} />
             <span style={{ fontSize: "var(--fs-sm)" }}>{tx("由 AI 起草初始节点", "Let the AI draft the first nodes")}</span>
-            <Muted size={11.5}>{tx("基于服务映射、历史指标和已有 Runbook", "From service mapping, past metrics and runbooks")}</Muted>
+            {/* PA-225: the server drafts from the title, goal and services only; it reads no metrics or runbooks. */}
+            <Muted size={11.5}>{API_MODE === "mock" ? tx("基于服务映射、历史指标和已有 Runbook", "From service mapping, past metrics and runbooks") : tx("只根据标题、目标和所选服务起草，不读取指标或 Runbook", "From the title, goal and chosen services only; no metrics or runbooks are read")}</Muted>
           </Row>
         </div>
       </div>

@@ -327,6 +327,13 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 	}
 	assertError(call("GET", "/api/v1/postmortems/records", "dev", "", ""), 401, "unauthorized")
 	assertError(call("GET", "/api/v1/postmortems/records?tab=unknown", "dev", teamToken, ""), 422, "invalid_tab")
+	// PA-218: a postmortem in review is folded into the two-state display but keeps
+	// its stored state and names its service for the list's facet.
+	if w := call("GET", "/api/v1/postmortems", "dev", teamToken, ""); w.Code != 200 ||
+		!strings.Contains(w.Body.String(), `"status":"draft","workflow_status":"review"`) ||
+		!strings.Contains(w.Body.String(), `"application_id":"app"`) {
+		t.Fatalf("summary review state: %d %s", w.Code, w.Body.String())
+	}
 	if w := call("GET", "/api/v1/postmortems?service=nonexistent", "dev", teamToken, ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"total":0`) {
 		t.Fatalf("service facet: %d %s", w.Code, w.Body.String())
 	}

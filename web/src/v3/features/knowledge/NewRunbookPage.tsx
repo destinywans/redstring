@@ -10,6 +10,7 @@ import "../../ui/forms.css";
 import "./knowledge.css";
 import { AddChip, usePickLists } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
+import { Gate } from "../../ui/permission";
 
 type Source = "blank" | "template" | "postmortem" | "conversation" | "import";
 type Draft = {
@@ -273,8 +274,9 @@ export default function NewRunbookPage() {
               </Col>
             )}
             <Row gap={8}>
-              <Btn loading={saving === "draft"} onClick={() => save("draft")}>{tx("保存草稿", "Save draft")}</Btn>
-              <Btn kind="primary" icon="check" loading={saving === "review"} onClick={() => save("review")}>{tx("提交复核", "Submit for review")}</Btn>
+              {/* POST /runbooks needs knowledge.manage (PA-228). */}
+              <Gate need={["knowledge", "manage"]}><Btn loading={saving === "draft"} onClick={() => save("draft")}>{tx("保存草稿", "Save draft")}</Btn></Gate>
+              <Gate need={["knowledge", "manage"]}><Btn kind="primary" icon="check" loading={saving === "review"} onClick={() => save("review")}>{tx("提交复核", "Submit for review")}</Btn></Gate>
             </Row>
           </div>
         </aside>

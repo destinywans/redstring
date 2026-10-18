@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
-import { api, useGet, API_MODE } from "../../api/client";
+import { api, useGet, API_MODE, ApiError } from "../../api/client";
 import { applyEvent, newConversationUrl, sendAndStream, takeAttachments } from "../../api/stream";
 import { formatSize } from "../../api/upload";
 import type { Artifact, Conversation, Message, ModelChoice, Part, StreamEvent, Upload } from "../../api/types";
@@ -15,7 +15,7 @@ import { useModelCatalog, describeChoice } from "../../ui/ModelPicker";
 import { PartView, type PartActions } from "./Parts";
 import { ArtifactPanel, ARTIFACT_ICON } from "./ArtifactPanel";
 import { useI18n } from "../../i18n";
-import { useNeed } from "../../ui/permission";
+import { Gated, useNeed } from "../../ui/permission";
 import { useRollbackDrawer } from "../events/RollbackProposal";
 import { useNames } from "../../ui/names";
 import "./conversation.css";
@@ -120,6 +120,7 @@ const canvasHref = (conv?: Conversation) =>
 
 function SidePanel({ conv, service }: { conv: Conversation; service: string | null }) {
   const { tx } = useI18n();
+  const canvasBlocked = useNeed(["canvas", "change"]);
   const s = conv.side;
   const { used, budget } = s.context;
   const pct = used !== null && budget ? Math.round((100 * used) / budget) : null;
@@ -167,7 +168,7 @@ function SidePanel({ conv, service }: { conv: Conversation; service: string | nu
           ))}
         </Row>
         <Muted>
-          {used !== null ? fmtTokens(used) : <UnknownValue reason="not_generated" label={tx("已用 —", "used —")} />} / {budget ? fmtTokens(budget) : <UnknownValue reason="not_configured" label={tx("预算 —", "budget —")} />} tokens
+          {used !== null ? fmtTokens(used) : <UnknownValue reason="not_generated" label={tx("已用 —", "used —")} />} / {budget ? fmtTokens(budget) : <UnknownValue reason="not_tracked" label={tx("预算 —", "budget —")} />} tokens
           {pct !== null && ` · ${pct}%`}
         </Muted>
       </Col>
@@ -184,9 +185,12 @@ function SidePanel({ conv, service }: { conv: Conversation; service: string | nu
       <Divider />
       <Col gap={8}>
         <Muted size={11.5}>{tx("下一步", "Next")}</Muted>
-        <Btn icon="branch" to={canvasHref(conv)} style={{ justifyContent: "flex-start" }}>
-          {tx("转为画布", "Open as canvas")}
-        </Btn>
+        {/* Without an investigation this opens the new-investigation dialog, which needs canvas.change (PA-228). */}
+        <Gated reason={conv.investigation_id || API_MODE === "mock" ? null : canvasBlocked}>
+          <Btn icon="branch" to={canvasHref(conv)} style={{ justifyContent: "flex-start" }}>
+            {tx("转为画布", "Open as canvas")}
+          </Btn>
+        </Gated>
         {/* No backend writes a runbook draft from a chat or schedules a re-check yet: sample data only. */}
         {API_MODE === "mock" && (
           <>
@@ -237,21 +241,33 @@ export default function ConversationPage() {
       const c = pick ?? catalog?.default ?? null;
       setSending(true);
       setTurn(c);
-      stop.current = await sendAndStream(
-        id,
-        text,
-        (e) => {
-          setMessages((ms) => applyEvent(ms, e));
-          if (e.type === "message.completed") {
-            setSending(false);
-            setTurn(null);
-            stop.current = null;
-            // Refresh the list and this conversation (side panel: connectors, context meter).
-            qc.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/conversations") });
-          }
-        },
-        { choice: c, attachments: files },
-      );
+      // PA-225: a rejected send (422, 413, 503…) or a stream that gave up says so and frees the composer.
+      const fail = (text: string) => {
+        stop.current = null;
+        setSending(false);
+        setTurn(null);
+        setMessages((ms) => ms.map((m) => (m.streaming ? { ...m, streaming: false } : m)));
+        toast(text, { tone: "danger" });
+      };
+      try {
+        stop.current = await sendAndStream(
+          id,
+          text,
+          (e) => {
+            setMessages((ms) => applyEvent(ms, e));
+            if (e.type === "message.completed") {
+              setSending(false);
+              setTurn(null);
+              stop.current = null;
+              // Refresh the list and this conversation (side panel: connectors, context meter).
+              qc.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/conversations") });
+            }
+          },
+          { choice: c, attachments: files, onError: () => fail(tx("回复中断了，请稍后重试", "The reply was interrupted; try again later")) },
+        );
+      } catch (e) {
+        fail(e instanceof ApiError ? e.message : tx("这条消息没有发出去，请稍后重试", "The message wasn't sent; try again later"));
+      }
     },
     [id, sending, qc, choice, catalog],
   );

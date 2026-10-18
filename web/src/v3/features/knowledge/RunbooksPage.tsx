@@ -47,7 +47,7 @@ export default function RunbooksPage() {
   const [q, setQ] = useState("");
   const [start, setStart] = useState<null | "postmortem" | "blank">(null);
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
-  const { data, isLoading } = useGet<{ items: RunbookSummary[]; counts: Record<string, number>; kpis: KpiT[] | null; suggestions: RunbookSuggestion[] | null; unknown_fields?: string[] }>("/runbooks", { tab, q });
+  const { data, isLoading, error } = useGet<{ items: RunbookSummary[]; counts: Record<string, number>; kpis: KpiT[] | null; suggestions: RunbookSuggestion[] | null; unknown_fields?: string[] }>("/runbooks", { tab, q });
   const FIELD: Record<string, string> = { refs_30d: tx("近 30 天引用", "Cited (30d)"), resolve_rate: tx("解决率", "Resolve rate"), kpis: tx("统计", "Statistics"), suggestions: tx("AI 维护建议", "AI maintenance"), verification_provenance: tx("验证来源", "Verification source") };
   const missing = [...new Set((data?.unknown_fields ?? []).map((f) => FIELD[f] ?? f))];
   const scopeLabel = useRunbookScope();
@@ -89,6 +89,7 @@ export default function RunbooksPage() {
               <DataTable
                 rows={data?.items.filter((r) => fScope.test(r) && fOwner.test(r))}
                 loading={isLoading}
+                error={error}
                 rowKey={(r) => r.id}
                 onRowClick={(r) => nav(`/runbooks/${r.id}`)}
                 rowHeight={52}
@@ -111,7 +112,7 @@ export default function RunbooksPage() {
                   { key: "o", header: tx("维护人", "Owner"), render: (r) => <Row gap={6}><Avatar name={r.owner} size={20} /><Muted>{r.owner}</Muted></Row> },
                   { key: "v", header: tx("版本", "Version"), render: (r) => <Row gap={6}><Mono color="var(--text)">{r.version}</Mono><State tone={ST[r.status][0]}>{ST[r.status][1]}</State></Row> },
                   { key: "n", header: tx("近 30 天引用", "Cited (30d)"), sort: (a, b) => (a.refs_30d ?? -1) - (b.refs_30d ?? -1), render: (r) => (r.refs_30d == null ? <UnknownValue /> : <Num>{r.refs_30d}</Num>) },
-                  { key: "p", header: tx("解决率", "Resolve rate"), sort: (a, b) => (a.resolve_rate ?? 0) - (b.resolve_rate ?? 0), render: (r) => (r.resolve_rate == null ? <UnknownValue /> : <Row gap={6}><Bar pct={r.resolve_rate} tone={r.resolve_rate >= 80 ? "ok" : "warn"} width={48} height={4} /><Num>{r.resolve_rate}%</Num></Row>) },
+                  { key: "p", header: tx("解决率", "Resolve rate"), sort: (a, b) => (a.resolve_rate ?? -1) - (b.resolve_rate ?? -1), render: (r) => (r.resolve_rate == null ? <UnknownValue /> : <Row gap={6}><Bar pct={r.resolve_rate} tone={r.resolve_rate >= 80 ? "ok" : "warn"} width={48} height={4} /><Num>{r.resolve_rate}%</Num></Row>) },
                   { key: "l", header: tx("最近验证", "Last verified"), render: (r) => (r.last_verified == null ? <UnknownValue /> : r.stale ? <Badge tone="warn"><Icon name="clock" size={11} />{when.date(r.last_verified)}</Badge> : <Muted>{when.date(r.last_verified)}</Muted>) },
                 ]}
               />
@@ -126,7 +127,8 @@ export default function RunbooksPage() {
               <Muted size={11.5}>{tx("根据调查、复盘与仓库变化自动提出", "From investigations, postmortems and repo changes")}</Muted>
             </Col>
           </Row>
-          {data && data.suggestions === null && <Unavailable reason="not_generated" icon="sparkles" title={tx("AI 维护建议尚未生成", "No AI maintenance suggestions yet")} desc={tx("有新的调查、复盘或仓库变化后，AI 会在这里提出修订建议。", "Suggestions appear here after new investigations, postmortems or repository changes.")} />}
+          {/* PA-223: the server never produces suggestions yet; nothing will appear "after new data". */}
+          {data && data.suggestions === null && <Unavailable reason="not_tracked" icon="sparkles" title={tx("暂无 AI 维护建议", "No AI maintenance suggestions")} desc={tx("平台目前不生成 Runbook 修订建议。", "The platform doesn't generate runbook revision suggestions yet.")} />}
           <ul className="rb-suggestions">
             {data?.suggestions?.filter((s) => !dismissed.has(s.id)).map((s) => (
               <li key={s.id} className="anim-rise">

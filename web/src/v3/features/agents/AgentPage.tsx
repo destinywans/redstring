@@ -183,9 +183,16 @@ export default function AgentPage() {
                       </div>
                       <Row gap={6}>
                         <Muted size={11.5}>
-                          {a.release.current !== null
-                            ? tx("{v} 当前 {p}%", "{v} now {p}%", { v: a.release.to, p: a.release.current })
-                            : tx("{v} 配置 {p}%（实际流量未知）", "{v} configured {p}% (actual traffic unknown)", { v: a.release.to, p: current })}
+                          {a.release.current !== null ? (
+                            tx("{v} 当前 {p}%", "{v} now {p}%", { v: a.release.to, p: a.release.current })
+                          ) : a.release.configured_canary_percent != null ? (
+                            tx("{v} 配置 {p}%（实际流量未知）", "{v} configured {p}% (actual traffic unknown)", { v: a.release.to, p: current })
+                          ) : (
+                            // PA-222: no configured share and no observed traffic is unknown, not 0%.
+                            <>
+                              {tx("{v} 配置比例", "{v} configured share", { v: a.release.to })} <UnknownValue reason="not_filled" /> {tx("（实际流量未知）", "(actual traffic unknown)")}
+                            </>
+                          )}
                         </Muted>
                         <Spacer />
                         <Muted size={11.5}>{tx("目标 {p}%", "Target {p}%", { p: target })}</Muted>
@@ -196,7 +203,8 @@ export default function AgentPage() {
                         <Row gap={8}>
                           <Muted size={11.5}>{tx("评测门禁", "Eval gates")}</Muted>
                           <Spacer />
-                          <UnknownValue reason="not_generated" />
+                          {/* PA-223: no evaluation producer feeds release gates yet. */}
+                          <UnknownValue reason="not_tracked" />
                         </Row>
                       )}
                       {a.release.gates?.map((g) => (

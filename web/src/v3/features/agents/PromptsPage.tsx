@@ -10,7 +10,7 @@ import { useI18n } from "../../i18n";
 import "./agents.css";
 import { openForm, ChipSelect } from "../../ui/demo";
 import { useFirstSelection } from "../../ui/selection";
-import { Unavailable } from "../../ui/unknown";
+import { LoadError, PageUnavailable, Unavailable } from "../../ui/unknown";
 
 function withVars(text: string): ReactNode[] {
   return text.split(/(\{\w+\})/g).map((p, i) => (p.startsWith("{") ? <span key={i} className="pvar">{p}</span> : p));
@@ -18,11 +18,11 @@ function withVars(text: string): ReactNode[] {
 
 export default function PromptsPage() {
   const { tx } = useI18n();
-  const { data: list } = useGet<{ items: PromptItem[] }>("/prompts");
+  const { data: list, error: listError } = useGet<{ items: PromptItem[] }>("/prompts");
   const [sel, setSel] = useState("");
   const [q, setQ] = useState("");
   useFirstSelection(list?.items, (x) => x.id, sel, setSel);
-  const { data: p } = useGet<PromptDetail>(sel ? `/prompts/${sel}` : null);
+  const { data: p, error: detailError } = useGet<PromptDetail>(sel ? `/prompts/${sel}` : null);
   const [draft, setDraft] = useState<string | null>(null);
   const trial = useSend<{ case: string; a: string; b: string }, PromptTrial[]>("POST", `/prompts/${sel}/trial`);
   const save = useSend<{ text: string }, { version: string }>("POST", `/prompts/${sel}/versions`, ["/prompts"]);
@@ -32,7 +32,7 @@ export default function PromptsPage() {
   const group = (kind: PromptItem["kind"]) => items?.filter((i) => i.kind === kind) ?? [];
   const demo = API_MODE === "mock";
   return (
-    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), tx("提示词与 Skills", "Prompts & skills")]} actions={
+    <Page flush error={!list ? listError : undefined} errorSource={tx("提示词", "prompts")} crumbs={[tx("Agent 运行台", "Agent console"), tx("提示词与 Skills", "Prompts & skills")]} actions={
         // Real registration needs an Agent and the first text (POST /prompts); this sample form only names a draft.
         demo && <Btn
           kind="primary"
@@ -73,7 +73,12 @@ export default function PromptsPage() {
           ))}
         </div>
         <div className="main">
-          {!p ? (
+          {/* PA-221: a failed detail read says why; an empty registry has nothing to open. */}
+          {!p && detailError ? (
+            <LoadError error={detailError} source={tx("提示词", "prompts")} />
+          ) : !p && list && !list.items.length ? (
+            <PageUnavailable icon="file" configure={false} title={tx("还没有提示词", "No prompts yet")} desc={tx("登记的提示词和 Skills 会出现在这里。", "Registered prompts and skills appear here.")} />
+          ) : !p ? (
             <div className="v3-content">
               <Skeleton h={300} />
             </div>

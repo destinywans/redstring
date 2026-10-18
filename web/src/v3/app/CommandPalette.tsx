@@ -372,8 +372,14 @@ export function CommandPalette() {
             {tx("关闭", "Close")}
           </span>
           <span style={{ flexGrow: 1 }} />
-          <Icon name="shield" size={12} />
-          {tx("动作会记录到审计日志", "Actions are audited")}
+          {/* PA-229: real mode only offers navigation, theme and language, none of which is audited; the sample
+              silence shortcut is the one write. */}
+          {API_MODE === "mock" && (
+            <>
+              <Icon name="shield" size={12} />
+              {tx("动作会记录到审计日志", "Actions are audited")}
+            </>
+          )}
         </div>
       </div>
     </div>,

@@ -10,13 +10,14 @@ import { useI18n } from "../../i18n";
 import { PageHead } from "./ConversationsPage";
 import "./templates.css";
 import { openForm } from "../../ui/demo";
+import { Gate } from "../../ui/permission";
 
 export default function TemplatesPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
   const [owner, setOwner] = useState<"all" | "official" | "team">("all");
   const [q, setQ] = useState("");
-  const { data, isLoading } = useGet<{ items: InvestigationTemplate[]; counts: Record<string, number> }>("/investigation-templates", { owner: owner === "all" ? undefined : owner, q });
+  const { data, isLoading, error } = useGet<{ items: InvestigationTemplate[]; counts: Record<string, number> }>("/investigation-templates", { owner: owner === "all" ? undefined : owner, q });
   const [selId, setSel] = useState<string | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
   const sel = data?.items.find((t) => t.id === selId);
@@ -32,7 +33,7 @@ export default function TemplatesPage() {
     nav(`/canvas/${r.investigation_id}`);
   };
   return (
-    <Page crumbs={[tx("对话与画布", "Conversations & canvases"), tx("模板", "Templates")]} actions={<Btn kind="primary" icon="plus" onClick={() => setSaveOpen(true)}>{tx("新建模板", "New template")}</Btn>} flush>
+    <Page error={!data ? error : undefined} errorSource={tx("模板", "templates")} crumbs={[tx("对话与画布", "Conversations & canvases"), tx("模板", "Templates")]} actions={<Gate need={["canvas", "change"]}><Btn kind="primary" icon="plus" onClick={() => setSaveOpen(true)}>{tx("新建模板", "New template")}</Btn></Gate>} flush>
       <div className="v3-split">
         <div className="main">
           <div className="v3-content">
@@ -131,9 +132,11 @@ export default function TemplatesPage() {
                 </Row>
               </Section>
               <Row gap={8}>
+                <Gate need={["canvas", "change"]}>
                 <Btn kind="primary" icon="branch" onClick={() => start(sel)}>
                   {tx("用此模板新建调查", "Start investigation")}
                 </Btn>
+                </Gate>
                 {/* Editing only showed a toast; there is no save call here yet (PA-135). */}
                 {API_MODE === "mock" && (
                   <Btn
@@ -203,7 +206,7 @@ function SaveAsTemplateDialog({ open, onClose }: { open: boolean; onClose: () =>
           <Muted size={11.5}>{tx("模板只保存结构与只读步骤，不包含证据和对话内容", "Templates keep structure and read-only steps — never evidence or chat content")}</Muted>
           <Spacer />
           <Btn kind="ghost" onClick={onClose}>{tx("取消", "Cancel")}</Btn>
-          <Btn kind="primary" icon="save" onClick={save} disabled={!cur}>{tx("保存模板", "Save template")}</Btn>
+          <Gate need={["canvas", "change"]}><Btn kind="primary" icon="save" onClick={save} disabled={!cur}>{tx("保存模板", "Save template")}</Btn></Gate>
         </>
       }
     >

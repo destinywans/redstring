@@ -85,6 +85,7 @@ function NodeCard({
   onSelect,
   onDragStart,
   onAsk,
+  askBlocked = null,
   k = 1,
   flash,
   writebacks = 0,
@@ -95,6 +96,8 @@ function NodeCard({
   onSelect: () => void;
   onDragStart: (e: RPE) => void;
   onAsk: (text: string) => void;
+  /** Why this person can't ask in the branch (canvas.change), or null (PA-225, like PA-177). */
+  askBlocked?: string | null;
   /** Current zoom; below LITE_ZOOM the node switches to a compact form whose text does not shrink. */
   k?: number;
   /** Briefly highlighted (a node that just appeared). */
@@ -216,14 +219,16 @@ function NodeCard({
               className="cv-ask"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (!q.trim()) return;
+                if (!q.trim() || askBlocked) return;
                 onAsk(q.trim());
                 setQ("");
               }}
               onPointerDown={(e) => e.stopPropagation()}
             >
-              <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={tx("在这个分支继续追问…", "Ask a follow-up in this branch…")} aria-label={tx("在这个分支继续追问", "Follow-up in this branch")} />
-              <IconBtn icon="up" label={tx("发送", "Send")} size={24} color="var(--accent-text)" submit />
+              <input value={q} onChange={(e) => setQ(e.target.value)} disabled={!!askBlocked} placeholder={askBlocked ?? tx("在这个分支继续追问…", "Ask a follow-up in this branch…")} aria-label={tx("在这个分支继续追问", "Follow-up in this branch")} />
+              <Gated reason={askBlocked}>
+                <IconBtn icon="up" label={tx("发送", "Send")} size={24} color="var(--accent-text)" submit />
+              </Gated>
             </form>
           )}
         </div>
@@ -513,7 +518,7 @@ export default function CanvasPage() {
   const canvasChange = useNeed(["canvas", "change"]);
   const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
-  const { data, isLoading } = useGet<CanvasGraph>(id ? `/investigations/${id}/canvas` : null);
+  const { data, isLoading, error } = useGet<CanvasGraph>(id ? `/investigations/${id}/canvas` : null);
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   // Bumped when a node's suggestion hint is clicked: the inspector switches to chat and scrolls to the card.
@@ -845,6 +850,9 @@ export default function CanvasPage() {
   return (
     <Page
       flush
+      // PA-219: a failed read says why instead of an empty canvas with "0 branches · 0 evidence".
+      error={!data ? error : undefined}
+      errorSource={tx("调查画布", "the investigation canvas")}
       crumbs={[tx("对话与画布", "Conversations & canvases"), inv?.title ?? "…"]}
       actions={
         inv && (
@@ -986,6 +994,7 @@ export default function CanvasPage() {
                 selected={sel === n.id}
                 onSelect={() => setSel(n.id)}
                 onAsk={(t) => ask(n.id, t)}
+                askBlocked={canvasChange}
                 onShowSuggestion={() => {
                   setSel(n.id);
                   setSuggestionFocus((f) => f + 1);
@@ -995,6 +1004,8 @@ export default function CanvasPage() {
                   if ((e.target as HTMLElement).closest("button,input")) return;
                   e.stopPropagation();
                   setSel(n.id);
+                  // Moving a node saves its layout (PATCH, canvas.change); without the grant it only selects (PA-228).
+                  if (canvasChange) return;
                   drag.current = { kind: "node", id: n.id, sx: e.clientX, sy: e.clientY, ox: n.x, oy: n.y };
                   area.current?.setPointerCapture(e.pointerId);
                 }}
@@ -1098,7 +1109,8 @@ export default function CanvasPage() {
           // The sample relabels its root; a real write-back rereads the graph so the target shows its new revision.
           if (demo) setNodes((ns) => ns.map((n) => (n.id === "root" ? { ...n, subtitle: tx("主线 · 上下文 {v}", "Main line · context {v}", { v }) } : n)));
           else void qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith(`/investigations/${id}/`) });
-          toast(tx("已生成主线 {v}，可在“版本”中查看或撤销", "Main line {v} created — view or revert under Versions", { v }), demo ? { undo: () => toast(tx("已撤销回写", "Writeback reverted")) } : {});
+          // PA-229: a real write-back can't be undone or browsed by version; only the sample data offers that.
+          toast(demo ? tx("已生成主线 {v}，可在“版本”中查看或撤销", "Main line {v} created — view or revert under Versions", { v }) : tx("已生成主线 {v}", "Main line {v} created", { v }), demo ? { undo: () => toast(tx("已撤销回写", "Writeback reverted")) } : {});
         }}
       />
     </Page>

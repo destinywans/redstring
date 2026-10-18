@@ -15,6 +15,7 @@ import "./knowledge.css";
 import { confirmAction } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 import { UnknownValue } from "../../ui/unknown";
+import { Gate } from "../../ui/permission";
 
 /** One step's result from POST /runbooks/{id}/dry-run; `reasons` lists the conditions it failed (PA-194). */
 type DryRunCheck = { step: number; validated: boolean; reasons?: string[] };
@@ -37,7 +38,7 @@ export default function RunbookEditorPage() {
   const { id = "rb-retry-storm" } = useParams();
   const { tx } = useI18n();
   const when = useWhen();
-  const { data: rb } = useGet<Runbook>(`/runbooks/${id}`);
+  const { data: rb, error } = useGet<Runbook>(`/runbooks/${id}`);
   const scopeLabel = useRunbookScope();
   // PA-166: a real record's base is "<source kind>:<source ref>"; a postmortem reads as its title.
   const sourceName = useRunbookSourceName(!!rb?.base?.startsWith("postmortem:"));
@@ -46,7 +47,8 @@ export default function RunbookEditorPage() {
   const KIND: Record<RunbookStep["kind"], [Tone, string]> = { query: ["accent", tx("查询", "Query")], check: ["neutral", tx("判断", "Check")], action: ["warn", tx("动作", "Action")], verify: ["ok", tx("验证", "Verify")] };
   if (!rb)
     return (
-      <Page crumbs={[tx("知识与记忆", "Knowledge"), "Runbook", "…"]}>
+      // PA-221: a failed read says why instead of an endless skeleton.
+      <Page crumbs={[tx("知识与记忆", "Knowledge"), "Runbook", "…"]} error={error} errorSource="Runbook">
         <div className="v3-content">
           <Skeleton h={400} />
         </div>
@@ -121,6 +123,8 @@ export default function RunbookEditorPage() {
             {tx("预览", "Preview")}
           </Btn>
           <PromoteButton kind="runbooks" id={rb.id} title={rb.title} />
+          {/* POST /runbooks/{id}/submit and /dry-run need knowledge.manage (PA-228). */}
+          <Gate need={["knowledge", "manage"]}>
           <Btn
             kind="primary"
             icon="check"
@@ -136,6 +140,7 @@ export default function RunbookEditorPage() {
           >
             {tx("提交复核", "Submit for review")}
           </Btn>
+          </Gate>
         </>
       }
     >
@@ -234,7 +239,16 @@ export default function RunbookEditorPage() {
                 <Row key={r.name} gap={8}>
                   <Avatar name={r.name} size={22} accent={r.state === "pending"} />
                   <span className="grow" style={{ fontSize: "var(--fs-sm)" }}>{r.name}</span>
-                  {r.state === "pending" ? <State tone="warn">{tx("待复核", "Pending")}</State> : <Muted size={11.5}>{tx("可选", "Optional")}</Muted>}
+                  {/* PA-211: real records list the reviewers who approved this version; a state this page doesn't know isn't "optional". */}
+                  {r.state === "pending" ? (
+                    <State tone="warn">{tx("待复核", "Pending")}</State>
+                  ) : r.state === "approved" ? (
+                    <State tone="ok">{tx("已批准", "Approved")}</State>
+                  ) : r.state === "optional" ? (
+                    <Muted size={11.5}>{tx("可选", "Optional")}</Muted>
+                  ) : (
+                    <UnknownValue />
+                  )}
                 </Row>
               ))}
             </Section>
@@ -282,6 +296,7 @@ export default function RunbookEditorPage() {
                   ? tx("在预发用只读步骤走一遍，确认查询与判断条件仍然有效。", "Walk through the read-only steps on staging to confirm queries and checks still work.")
                   : tx("检查每一步的类型、只读标记和连接器是否齐全；不连接任何系统，也不执行步骤。", "Checks each step's kind, read-only flag and connectors; it reaches no system and runs no step.")}
               </Muted>
+              <Gate need={["knowledge", "manage"]}>
               <Btn
                 icon="play"
                 loading={running}
@@ -312,6 +327,7 @@ export default function RunbookEditorPage() {
               >
                 {API_MODE === "mock" ? tx("在预发试跑只读步骤", "Dry-run on staging") : tx("校验只读步骤", "Check the read-only steps")}
               </Btn>
+              </Gate>
             </Section>
           </Col>
         </aside>

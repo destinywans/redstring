@@ -4,20 +4,20 @@ import { Page } from "../../app/Shell";
 import { useGet, useSend, API_MODE, ApiError, api } from "../../api/client";
 import { Gate } from "../../ui/permission";
 import type { RunDetail } from "../../api/types";
-import { Badge, Btn, Card, CardHead, Col, Icon, IconBtn, Mono, Muted, Row, Skeleton, Spacer, Tabs, Tile, cx, type IconName } from "../../ui/core";
+import { Badge, Btn, Card, CardHead, Col, Icon, IconBtn, Mono, Muted, Row, Skeleton, Spacer, Tabs, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Axis } from "../../charts";
 import { useI18n } from "../../i18n";
 import { AgentTrace } from "./AgentTrace";
 import "./agents.css";
 import { openForm, openExternal, downloadFile } from "../../ui/demo";
-import { Unavailable } from "../../ui/unknown";
+import { LoadError, Unavailable, UnknownValue } from "../../ui/unknown";
 
 export default function RunDetailPage() {
   const { tx } = useI18n();
   const { id = API_MODE === "mock" ? "run_7f3a" : "" } = useParams();
   const demo = API_MODE === "mock";
-  const { data: r } = useGet<RunDetail>(id ? `/agent-runs/${id}` : null);
+  const { data: r, error } = useGet<RunDetail>(id ? `/agent-runs/${id}` : null);
   const [tab, setTab] = useState("trace");
   const [stepId, setStepId] = useState(demo ? "s2" : "");
   const [vote, setVote] = useState<"up" | "down" | null>(null);
@@ -26,6 +26,16 @@ export default function RunDetailPage() {
   // Steps are milliseconds from the run start; an unfinished run has no total, so scale to the last step.
   const total = r ? r.total ?? Math.max(1, ...(r.steps ?? []).map((s) => s.start + (s.dur ?? 0))) : 1;
   const axis = [0, 0.25, 0.5, 0.75, 1].map((f) => `${Math.round((f * total) / 1000)} s`);
+  // PA-212: a real step's `meta` is its span status and `dur` its milliseconds; the sample data's `meta` is already the
+  // duration text and its steps all succeeded.
+  type Step = NonNullable<RunDetail["steps"]>[number];
+  const SPAN: Record<string, [Tone, IconName, string]> = {
+    ok: ["ok", "check", tx("成功", "OK")],
+    failed: ["danger", "x", tx("失败", "Failed")],
+    blocked: ["warn", "shield", tx("已拦截", "Blocked")],
+  };
+  const spanState = (s: Step): [Tone, IconName, string] => SPAN[demo ? "ok" : s.meta] ?? ["neutral", "info", tx("结果未知", "Unknown result")];
+  const took = (s: Step) => (demo ? s.meta : s.dur == null ? <UnknownValue /> : s.dur < 1000 ? `${Math.round(s.dur)} ms` : `${(s.dur / 1000).toFixed(1)} s`);
   const rate = (v: "up" | "down") =>
     feedback.mutate(
       { vote: v },
@@ -105,6 +115,9 @@ export default function RunDetailPage() {
       />
       {tab === "trace" ? (
         <AgentTrace runId={id} />
+      ) : !r && error ? (
+        // PA-221: a failed read says why instead of an endless skeleton.
+        <LoadError error={error} source={tx("运行记录", "the run record")} />
       ) : !r ? (
         <div className="v3-content">
           <Skeleton h={60} />
@@ -179,7 +192,7 @@ export default function RunDetailPage() {
                       <span className="track">
                         <i style={{ left: `${(100 * s.start) / total}%`, width: `max(4px, ${(100 * (s.dur ?? 0)) / total}%)`, background: s.kind === "model" ? "var(--c1)" : "var(--c2)" }} />
                       </span>
-                      <span className="meta tnum">{s.meta}</span>
+                      <span className="meta tnum">{took(s)}</span>
                     </button>
                   ))}
                 </div>
@@ -222,9 +235,9 @@ export default function RunDetailPage() {
                   <CardHead
                     title={tx("步骤详情 · {n}", "Step · {n}", { n: step.name })}
                     right={
-                      <Badge tone="ok">
-                        <Icon name="check" size={11} />
-                        {tx("成功", "OK")}
+                      <Badge tone={spanState(step)[0]}>
+                        <Icon name={spanState(step)[1]} size={11} />
+                        {spanState(step)[2]}
                       </Badge>
                     }
                   />
@@ -238,7 +251,7 @@ export default function RunDetailPage() {
                       </Muted>
                       <Muted>{tx("只读", "Read-only")}</Muted>
                       <Muted>
-                        {tx("耗时", "Took")} {step.meta}
+                        {tx("耗时", "Took")} {took(step)}
                       </Muted>
                     </Row>
                     <Row gap={8}>

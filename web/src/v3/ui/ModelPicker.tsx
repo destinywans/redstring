@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useGet } from "../api/client";
+import { ApiError, useGet } from "../api/client";
 import type { ModelCatalog, ModelChoice, ModelInfo } from "../api/types";
 import { Brand, Icon, Muted, cx } from "./core";
 import { Popover } from "./overlays";
@@ -32,7 +32,9 @@ export function sameChoice(a?: ModelChoice | null, b?: ModelChoice | null) {
 export function ModelPicker({ value, onChange, turn, compact }: { value: ModelChoice | null; onChange: (c: ModelChoice) => void; turn?: ModelChoice | null; compact?: boolean }) {
   const { tx } = useI18n();
   const nav = useNavigate();
-  const { data } = useModelCatalog();
+  const { data, error } = useModelCatalog();
+  // PA-221: a list that couldn't be read isn't "no matching models"; "all lower environments" can't pick models (422).
+  const failure = !data && error ? (error instanceof ApiError && error.status === 422 ? tx("先在右上角选择一个具体环境，再选择模型。", "Choose a single environment (top right) to pick a model.") : tx("读不到模型列表，暂时不能切换模型。", "The model list couldn't be read, so the model can't be changed right now.")) : null;
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   const [q, setQ] = useState("");
@@ -110,7 +112,7 @@ export function ModelPicker({ value, onChange, turn, compact }: { value: ModelCh
         className={cx("mp-chip", pending && "pending", open && "open")}
         aria-label={tx("选择模型与推理强度", "Choose model and reasoning effort")}
         aria-expanded={open}
-        title={d?.label}
+        title={d?.label ?? failure ?? undefined}
         onClick={() => setOpen((o) => !o)}
       >
         {pending ? (
@@ -184,7 +186,7 @@ export function ModelPicker({ value, onChange, turn, compact }: { value: ModelCh
                 })}
               </li>
             ))}
-            {!groups.length && <li className="mp-empty">{tx("没有匹配的模型", "No matching models")}</li>}
+            {!groups.length && <li className="mp-empty">{failure ?? (data ? tx("没有匹配的模型", "No matching models") : "…")}</li>}
             {showLocked &&
               locked.map((m) => (
                 <li key={m.id} className="mp-row disabled" aria-disabled="true">

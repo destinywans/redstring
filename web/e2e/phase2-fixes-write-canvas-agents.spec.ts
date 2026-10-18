@@ -193,3 +193,73 @@ test.describe("an agent run shows the viewer's saved vote (PA-237)", () => {
     expect(m.pageErrors).toEqual([]);
   });
 });
+
+/* ---------------- PA-244 (P3): repeated writes and what a create says ---------------- */
+
+test.describe("small write-path fixes on canvases and agents (PA-244)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("W10: a double click on fork creates one branch", async ({ page }) => {
+    await page.addInitScript(zh);
+    let posts = 0;
+    await page.route(at(`/investigations/${INV}/canvas`), (r) => json(r, 200, graph()));
+    await page.route(at(`/investigations/${INV}/branches`), async (r) => {
+      if (r.request().method() !== "POST") return r.fallback();
+      const n = ++posts;
+      // Answer slowly, so the second click lands while the first fork is still in flight.
+      await new Promise((done) => setTimeout(done, 500));
+      return json(r, 201, { id: `b-new-${n}`, kind: "branch", parent: "b1", title: `新分支 ${n}`, subtitle: "调查分支", status: "active", x: 750, y: 40 * n, w: 260, summary: null, layout_version: 0, ...context("v0", 0) });
+    });
+    await page.goto(origin + `/canvas/${INV}`);
+    await branchCard(page, "b1").getByText("检查分支", { exact: true }).click({ timeout: 20_000 });
+    await page.getByRole("toolbar", { name: "画布工具" }).getByRole("button", { name: "派生" }).dblclick();
+    await expect(branchCard(page, "b-new-1")).toBeVisible();
+    await page.waitForTimeout(1000);
+    expect(posts).toBe(1);
+  });
+
+  test("W12: registering an agent that already exists doesn't say it was created", async ({ page }) => {
+    await page.addInitScript(zh);
+    const service = Buffer.from("app-write-check\u0000prod").toString("base64url");
+    const sent: unknown[] = [];
+    await page.route(at("/agents/lifecycle"), (r) => json(r, 200, { stages: null, agents: [], todos: null }));
+    await page.route(at("/services"), (r) => json(r, 200, { items: [{ id: service, name: "写路径检查服务", tier: "t2" }] }));
+    await page.route(at("/agents"), (r) => {
+      if (r.request().method() !== "POST") return r.fallback();
+      sent.push(r.request().postDataJSON());
+      return json(r, 200, { id: AGENT, created: false, application_id: "app-write-check", environment_id: "prod" });
+    });
+    await page.goto(origin + "/agents/lifecycle");
+    await page.getByRole("button", { name: "新建 Agent" }).click({ timeout: 20_000 });
+    const dialog = page.getByRole("dialog");
+    await dialog.getByPlaceholder("例如：容量巡检").fill("写路径检查 Agent");
+    await dialog.getByPlaceholder("capacity-patrol").fill(AGENT);
+    await dialog.getByRole("button", { name: "创建 Agent" }).click();
+    const toast = page.locator(".v3-toast", { hasText: "写路径检查 Agent" });
+    await expect(toast).toContainText("已存在");
+    await expect(toast).not.toContainText("已创建");
+    await expect(toast).not.toContainText("暂停");
+    expect(sent).toEqual([{ id: AGENT, application_id: "app-write-check", name: "写路径检查 Agent", summary: "" }]);
+  });
+
+  test("W13: a new canvas with an AI draft says the draft is done, not still being written", async ({ page }) => {
+    await page.addInitScript(zh);
+    const DOC = "cv-write-check";
+    await page.route(at("/canvas-templates"), (r) => json(r, 200, { items: [] }));
+    await page.route(at("/canvases"), (r) =>
+      r.request().method() === "POST" ? json(r, 201, { id: DOC, href: `/canvas/${DOC}` }) : json(r, 200, { items: [], total: 0 }),
+    );
+    await page.route(at(`/canvases/${DOC}`), (r) =>
+      json(r, 200, { id: DOC, title: "写路径检查画布", kind: "plan", status: "active", env: "prod", participants: [], note: "", nodes: [{ id: "n1", x: 0, y: 0, w: 280, icon: "file", tone: "accent", title: "AI 起草的节点", sub: "", blocks: [] }], edges: [], artifacts: [], threads: {} }),
+    );
+    await page.goto(origin + "/canvases");
+    await page.getByRole("button", { name: "新建画布" }).first().click({ timeout: 20_000 });
+    const dialog = page.getByRole("dialog");
+    await dialog.getByPlaceholder("例如：Q4 容量评估").fill("写路径检查画布");
+    await dialog.getByRole("button", { name: "创建画布" }).click();
+    const toast = page.locator(".v3-toast", { hasText: "画布已创建" });
+    await expect(toast).toBeVisible();
+    await expect(toast).not.toContainText("正在起草");
+    await expect(toast).toContainText("已起草");
+  });
+});

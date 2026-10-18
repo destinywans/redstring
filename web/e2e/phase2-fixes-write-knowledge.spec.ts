@@ -271,3 +271,40 @@ test.describe("expired API tokens (PA-241)", () => {
     expect(m.pageErrors).toEqual([]);
   });
 });
+
+/* ---------------- PA-242: AI preferences that nothing reads ---------------- */
+
+test.describe("AI preferences offer only what takes effect (PA-242)", () => {
+  test("real mode shows the default model only, keeps the other values as stored, and doesn't promise new conversations use them", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    const prefs = { default: { model: "check:a" }, canvas_inherit: false, show_reasoning: "hidden", auto_context: false, memory: false, budget_warn_tokens: 12000 };
+    const model = (id: string, name: string) => ({
+      id, name, provider: "检查提供方", brand: "openai", connector: "check", api: "chat_completions", reasoning: { kind: "none", levels: [] },
+      tools: true, vision: false, context_k: 64, cost: "—", available: true,
+    });
+    let sent: Record<string, unknown> | null = null;
+    await page.route(at("/me/ai-preferences"), (r) => {
+      if (r.request().method() === "PUT") {
+        sent = r.request().postDataJSON();
+        return json(r, 200, sent);
+      }
+      return json(r, 200, prefs);
+    });
+    await page.route(at("/models"), (r) => json(r, 200, { items: [model("check:a", "检查模型甲"), model("check:b", "检查模型乙")], default: { model: "check:a" } }));
+    await page.goto(origin + "/settings/ai");
+    const body = page.locator(".v3-page-body");
+    await expect(body.getByText("新对话与画布节点", { exact: true })).toBeVisible({ timeout: 20_000 });
+    // Only the default model has a reader on the server (internal/v3settings/ai.go, internal/v3canvas/node_messages.go).
+    for (const label of ["画布子分支继承父节点的模型", "推理过程", "自动带入当前视图", "使用记忆", "单轮用量提醒"]) await expect(body.getByText(label, { exact: true }), label).toHaveCount(0);
+    await page.getByRole("button", { name: "选择模型与推理强度" }).click();
+    await page.getByRole("option", { name: /检查模型乙/ }).click();
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect.poll(() => sent).not.toBeNull();
+    // The values the page no longer offers go back as the server gave them.
+    expect(sent).toEqual({ ...prefs, default: { model: "check:b" } });
+    await expect.poll(() => toasts(page)).toHaveLength(1);
+    expect((await toasts(page))[0]).not.toContain("新对话开始生效");
+    expect(m.pageErrors).toEqual([]);
+  });
+});

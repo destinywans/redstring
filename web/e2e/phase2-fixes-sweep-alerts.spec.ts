@@ -556,3 +556,62 @@ test.describe("the new incident drawer says what the investigation canvas really
     await expect(drawer).not.toContainText("「故障调查」模板");
   });
 });
+
+test.describe("the incident stepper ticks only stages the status proves (PA-226)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const steps = (page: Page) => page.locator(".v3-stepper");
+
+  for (const [status, done, on, absent] of [
+    ["active", [], "发现", ["确认"]],
+    ["mitigated", ["发现"], "缓解", ["确认"]],
+    // A case can go straight from active to resolved, so mitigation isn't claimed.
+    ["resolved", ["发现"], "解决", ["确认", "缓解"]],
+  ] as const) {
+    test(`${status}: done ${done.join(", ") || "none"}, current ${on}, no postmortem tick`, async ({ page }) => {
+      await page.addInitScript(zh);
+      const detail = incident({ status, status_revision: 3 });
+      await pinIncidents(page, [summaryOf(detail)], detail);
+      await page.goto(origin + `/incidents/${INC}`);
+      await expect(steps(page)).toBeVisible({ timeout: 20_000 });
+      await expect(steps(page).locator(".step.done")).toHaveText([...done]);
+      // The current step shows its number before the label.
+      await expect(steps(page).locator(".step.on")).toHaveText(new RegExp(`^\\d${on}$`));
+      for (const a of absent) await expect(steps(page)).not.toContainText(a);
+      await expect(steps(page).locator(".step.done, .step.on").filter({ hasText: "复盘" })).toHaveCount(0);
+    });
+  }
+});
+
+test.describe("incident writes need events.change (PA-228)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("without the grant, Update status and the timeline note are disabled and name the permission", async ({ page }) => {
+    await page.addInitScript(zh);
+    await meWithout(page, ["events.change"]);
+    const detail = incident();
+    await pinIncidents(page, [summaryOf(detail)], detail);
+    let posted = false;
+    await page.route((u) => u.pathname.startsWith(`/api/v1/incidents/${INC}/`) && !u.pathname.endsWith("/changes"), (r) => {
+      if (r.request().method() !== "GET") posted = true;
+      return r.fallback();
+    });
+    await page.goto(origin + `/incidents/${INC}`);
+    await expect(page.locator(".v3-stepper")).toBeVisible({ timeout: 20_000 });
+    await expect(gateReason(page, "更新状态")).toHaveText(NEEDS_EVENTS);
+    await expect(page.getByRole("button", { name: "更新状态" })).toBeDisabled();
+    const note = page.getByRole("textbox", { name: "补充时间线" });
+    await expect(note).toBeDisabled();
+    await expect(page.locator(".perm-gate", { has: note }).locator(".sr-only")).toHaveText(NEEDS_EVENTS);
+    await expect(page.getByRole("button", { name: "添加" })).toBeDisabled();
+    expect(posted).toBe(false);
+  });
+
+  test("the new incident drawer's create button names the permission too", async ({ page }) => {
+    await page.addInitScript(zh);
+    await meWithout(page, ["events.change"]);
+    await pinIncidents(page, []);
+    await page.goto(origin + "/incidents?new=incident");
+    await expect(page.locator(".v3-drawer")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".v3-drawer .perm-gate", { hasText: "创建事件" }).locator(".sr-only")).toHaveText(NEEDS_EVENTS);
+  });
+});

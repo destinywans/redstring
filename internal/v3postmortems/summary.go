@@ -51,6 +51,9 @@ type summaryItem struct {
 	Status         string  `json:"status"`
 	WorkflowStatus string  `json:"workflow_status"`
 	IncidentID     string  `json:"incident_id"`
+	// ApplicationID is the record's service (PA-218): the list's service facet
+	// reads it instead of guessing from the title.
+	ApplicationID string `json:"application_id"`
 }
 
 const summarySQL = postmortemSources + ` SELECT pm.id,pm.incident_id,pm.status,pm.created_by,
@@ -208,7 +211,8 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 			}
 			item := summaryItem{ID: v.id, IncidentID: v.incident, Title: v.title, Severity: visibleSeverity,
 				Date: v.closed.UTC().Format(time.RFC3339), Duration: visibleDuration,
-				Cause: words.pick("未知", "Unknown"), RootCause: rootCause, Actions: actionStatus, Status: status, WorkflowStatus: v.status}
+				Cause: words.pick("未知", "Unknown"), RootCause: rootCause, Actions: actionStatus, Status: status, WorkflowStatus: v.status,
+				ApplicationID: v.app}
 			all = append(all, item)
 			if len(all) > 1000 {
 				httpapi.Error(w, 413, "scope_too_large", "Postmortem collection exceeds the dashboard response limit")

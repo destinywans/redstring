@@ -69,3 +69,47 @@ func TestWebhookViewProjectsOnlyVisibleRealPushReceipts(t *testing.T) {
 		t.Fatalf("revoked connector view leaked source: %d %s", denied.Code, denied.Body.String())
 	}
 }
+
+// PA-227: each delivery names the inbound entry it belongs to, and a busy
+// entry can't push another entry's receipts out of the view.
+func TestWebhookDeliveriesNameTheirEntryAndAreBoundedPerEntry(t *testing.T) {
+	f := setupPush(t, 0)
+	f.s.RegisterPublic(f.api)
+	if _, err := f.db.Exec(t.Context(), `INSERT INTO v3_push_receipts(source_id,provider,application_id,environment_id,event_type,key_hash,code,result,latency_ms,synthetic,created_at)
+ VALUES('source-a','generic','app-a','dev','alert','alert-key',422,'invalid_event',4,false,now()-interval '2 hours')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.Exec(t.Context(), `INSERT INTO v3_push_receipts(source_id,provider,application_id,environment_id,event_type,key_hash,code,result,latency_ms,synthetic,created_at)
+ SELECT 'source-a','generic','app-a','dev','change','change-key-'||n,202,'accepted',3,false,now()-n*interval '1 second' FROM generate_series(1,40) n`); err != nil {
+		t.Fatal(err)
+	}
+	got := pushBrowserRequest(f, http.MethodGet, "/api/v1/webhooks", "dev", "en-US", "")
+	if got.Code != http.StatusOK {
+		t.Fatalf("read status=%d body=%s", got.Code, got.Body.String())
+	}
+	var view struct {
+		Deliveries []struct {
+			Time      string `json:"time"`
+			SourceID  string `json:"source_id"`
+			EventType string `json:"event_type"`
+		} `json:"deliveries"`
+	}
+	if err := json.Unmarshal(got.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	perEntry := map[string]int{}
+	for _, d := range view.Deliveries {
+		if d.SourceID != "source-a" || (d.EventType != "change" && d.EventType != "alert") {
+			t.Fatalf("delivery without its entry: %+v", d)
+		}
+		perEntry[d.SourceID+":"+d.EventType]++
+	}
+	if perEntry["source-a:alert"] != 1 || perEntry["source-a:change"] != 30 {
+		t.Fatalf("deliveries per entry = %v, want 1 alert and 30 change: %s", perEntry, got.Body.String())
+	}
+	for i := 1; i < len(view.Deliveries); i++ {
+		if view.Deliveries[i-1].Time < view.Deliveries[i].Time {
+			t.Fatalf("deliveries not newest first: %s", got.Body.String())
+		}
+	}
+}

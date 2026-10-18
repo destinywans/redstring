@@ -202,7 +202,18 @@ export default function ReviewPage() {
           </Card>
           {!p.rollback && !p.alert_rule && (
           <Card>
-            <CardHead title={tx("恢复验证 · 执行后自动观测 180 秒", "Verification · 180 s automatic watch")} icon="clock" />
+            {/* The proposal's own checks: a silence is rechecked before it is written, and a display-only proposal runs
+                nothing; only the sample keeps its watch after execution (PA-229). */}
+            <CardHead
+              title={
+                API_MODE === "mock"
+                  ? tx("恢复验证 · 执行后自动观测 180 秒", "Verification · 180 s automatic watch")
+                  : p.action_kind?.startsWith("alertmanager.silence.")
+                    ? tx("执行前复核", "Checks before writing")
+                    : tx("核对事项", "Checks")
+              }
+              icon="clock"
+            />
             <ul style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 9 }}>
               {p.verification.map((v) => (
                 <li key={v} className="v3-row" style={{ gap: 10, fontSize: "var(--fs-sm)", alignItems: "flex-start" }}>

@@ -125,7 +125,7 @@ export default function RoutingPage() {
         <div className="main">
           <div className="v3-content">
             {tab !== "tree" ? (
-              <RoutingTab tab={tab} root={root ?? undefined} />
+              <RoutingTab tab={tab} root={root ?? undefined} loading={!data} rootUnavailable={data?.root_unavailable} />
             ) : !data ? (
               <Skeleton h={400} />
             ) : !root ? (
@@ -305,8 +305,17 @@ export default function RoutingPage() {
 }
 
 /** Receivers come from the route tree; templates, on-call and the delivery log are sample-only until their endpoints exist. */
-function RoutingTab({ tab, root }: { tab: string; root?: RouteNode }) {
+function RoutingTab({ tab, root, loading, rootUnavailable }: { tab: string; root?: RouteNode; loading?: boolean; rootUnavailable?: string | null }) {
   const { tx } = useI18n();
+  // Without a route tree (still loading, or no branch for this environment) the tab says so like the tree does (PA-229);
+  // a failed read is the page's error.
+  if (tab === "receivers" && loading) return <Skeleton h={200} />;
+  if (tab === "receivers" && !root)
+    return (
+      <Card>
+        <Unavailable reason={rootUnavailable ?? "not_configured"} source={tx("这个环境的通知路由", "routing for this environment")} title={tx("这个环境还没有通知路由", "No routing for this environment")} desc={tx("Alertmanager 的路由树里没有只匹配这个环境的分支，所以这里不显示也不能编辑。", "Alertmanager's routing tree has no branch that matches exactly this environment, so nothing is shown or editable here.")} icon="bell" />
+      </Card>
+    );
   if (tab === "receivers") {
     const rows: { route: string; channel: string; target: string }[] = [];
     const walk = (n: RouteNode) => {
@@ -331,10 +340,15 @@ function RoutingTab({ tab, root }: { tab: string; root?: RouteNode }) {
                   <b>{r.target}</b>
                 </td>
                 <td>
-                  <Row gap={6}>
-                    <Brand name={r.channel} size={18} />
-                    {r.channel}
-                  </Row>
+                  {/* The real route tree names receivers only; which channel each one uses isn't read (PA-229). */}
+                  {r.channel ? (
+                    <Row gap={6}>
+                      <Brand name={r.channel} size={18} />
+                      {r.channel}
+                    </Row>
+                  ) : (
+                    <UnknownValue reason="not_tracked" />
+                  )}
                 </td>
                 <td>
                   <Muted>{r.route}</Muted>

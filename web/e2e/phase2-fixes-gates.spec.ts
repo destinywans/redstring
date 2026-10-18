@@ -110,3 +110,52 @@ test.describe("unknown context usage on the canvas (PA-198)", () => {
     await expect(dialog).not.toContainText("0k 输入预算");
   });
 });
+
+// PA-199 (WAN-557): "Bring into investigation" opens a new conversation; without conversation.change it was clickable
+// and the new-conversation page only then said the permission was missing.
+const changes = (incident: string) => ({
+  incident_id: incident,
+  service_id: "svc-check",
+  environment_id: "prod",
+  alert_started_at: at0,
+  window: { start_at: "2026-10-17T08:00:00Z", end_at: "2026-10-17T09:15:00Z" },
+  items: [
+    {
+      kind: "gitlab_deployment", id: "gitlab:deployment:42:7", at: "2026-10-17T08:50:00Z", offset_seconds: -600, basis: "time_adjacent", status: "success",
+      sha: "0123456789abcdef0123456789abcdef01234567", short_sha: "01234567", ref: "main", href: "/changes?service_id=svc-check&range=24h",
+      pipeline_id: null, merge_request: null, kubernetes_revision: null, web_url: null,
+    },
+  ],
+  untimed_revisions: [],
+  coverage: { gitlab: "complete", kubernetes: "not_configured" },
+  note: "time_adjacent_not_causal",
+  unavailable: {},
+});
+
+for (const [role, gated] of [["approver2", true], ["admin", false]] as const) {
+  test.describe(`bring changes into an investigation as ${role} (PA-199)`, () => {
+    // change-approver views everything but holds no conversation.change; admin holds it.
+    test.use({ storageState: statePath("prod", role), viewport: { width: 1440, height: 1000 } });
+
+    test(gated ? "the entry is disabled and names the permission" : "the entry stays enabled", async ({ page }) => {
+      await page.addInitScript(zh);
+      await page.goto(origin + "/healthz");
+      const id = await someId(page, "/incidents?status=all", "incident");
+      await page.route(at(`/incidents/${id}/changes`), (r) => json(r, 200, changes(id)));
+      await page.goto(origin + `/incidents/${id}`);
+      const entry = page.getByRole("button", { name: "带入调查" });
+      await entry.waitFor({ timeout: 20_000 });
+      const gate = page.locator(".perm-gate", { has: entry });
+      if (gated) {
+        await expect(entry).toBeDisabled();
+        await expect(gate.locator(".sr-only")).toHaveText("需要 对话与画布·修改 权限");
+        await entry.click({ force: true });
+        await page.waitForTimeout(500);
+        expect(new URL(page.url()).pathname).toBe(`/incidents/${id}`);
+      } else {
+        await expect(entry).toBeEnabled();
+        await expect(gate).toHaveCount(0);
+      }
+    });
+  });
+}

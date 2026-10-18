@@ -65,7 +65,30 @@ func Of(raw string) (level, reason string) {
 
 // Ptr is Of for JSON fields: nil level and a non-nil reason when unknown.
 func Ptr(raw string) (*string, *string) {
-	level, reason := Of(raw)
+	return ptr(Of(raw))
+}
+
+// legacyDefault is what ingestion stored for an alert without a severity
+// label before PA-240; it now stores "".
+const legacyDefault = "warning"
+
+// Stored resolves an ops_incidents row: raw is its severity column and
+// labels its recorded label set, nil when the row recorded none (AI patrol
+// and older rows). A row whose recorded labels have no severity but whose
+// column holds the old default never had a severity (PA-240).
+func Stored(raw string, labels map[string]string) (level, reason string) {
+	if labels != nil && strings.TrimSpace(labels["severity"]) == "" && key(raw) == legacyDefault {
+		return "", ReasonMissing
+	}
+	return Of(raw)
+}
+
+// StoredPtr is Stored for JSON fields.
+func StoredPtr(raw string, labels map[string]string) (*string, *string) {
+	return ptr(Stored(raw, labels))
+}
+
+func ptr(level, reason string) (*string, *string) {
 	if level == "" {
 		return nil, &reason
 	}

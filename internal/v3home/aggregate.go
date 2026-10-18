@@ -22,6 +22,9 @@ type incident struct {
 	// list shows them through that case, so they are not counted twice.
 	suspected, linked bool
 	starts, updated   time.Time
+	// labels is the recorded label set, nil when none was recorded; it tells
+	// the old "warning" default from a real one (PA-240).
+	labels map[string]string
 }
 
 type proposal struct {
@@ -94,7 +97,7 @@ func (s *Service) populate(ctx context.Context, tx pgx.Tx, user core.User, targe
 		}
 		// Keep an incident visible even when its severity has no V3 P-level
 		// mapping. Null remains unknown to the frontend adapter.
-		level, reason := attentionSeverity(row.severity)
+		level, reason := attentionSeverity(row.severity, row.labels)
 		out.Attention = append(out.Attention, Attention{ID: row.id, Severity: level, SeverityReason: reason,
 			Service: serviceName(targets, row.appID, row.env), Env: row.env,
 			Symptom: cleanTitle(row.title), Meta: t.incidentMeta(row), At: incidentMetaAt(row), AI: nil,
@@ -164,8 +167,10 @@ func frontendTier(tier *string) *string {
 	return nil // T3 is supported by the backend catalog, not the frozen HomeSummary type.
 }
 
-// attentionSeverity uses the events views' table (PA-239).
-func attentionSeverity(value string) (*string, *string) { return alertseverity.Ptr(value) }
+// attentionSeverity uses the events views' table (PA-239, PA-240).
+func attentionSeverity(value string, labels map[string]string) (*string, *string) {
+	return alertseverity.StoredPtr(value, labels)
+}
 
 // incidentHref opens an alert incident on the incident page, the route the
 // frontend has for it (GET /incidents/{id} reads alert incidents too); there
@@ -190,7 +195,7 @@ func loadTrend(ctx context.Context, tx pgx.Tx, incidents []incident, now time.Ti
 	for _, v := range incidents {
 		ids = append(ids, v.id)
 		severity[v.id] = -1
-		if level, _ := alertseverity.Of(v.severity); level != "" {
+		if level, _ := alertseverity.Stored(v.severity, v.labels); level != "" {
 			severity[v.id] = int(level[1] - '1')
 		}
 	}
@@ -249,7 +254,7 @@ func serviceName(targets []target, app, env string) string {
 }
 
 func loadIncidents(ctx context.Context, tx pgx.Tx, row target) ([]incident, error) {
-	rows, err := tx.Query(ctx, `SELECT i.id,i.title,i.summary,i.severity,i.status,i.alert_status,
+	rows, err := tx.Query(ctx, `SELECT i.id,i.title,i.summary,i.severity,i.labels,i.status,i.alert_status,
 	 i.suspected,EXISTS(SELECT 1 FROM v3_incident_case_alerts l WHERE l.alert_id=i.id),
 	 COALESCE(u.name,''),i.starts_at,i.updated_at
 	 FROM ops_incidents i
@@ -263,7 +268,7 @@ func loadIncidents(ctx context.Context, tx pgx.Tx, row target) ([]incident, erro
 	out := []incident{}
 	for rows.Next() {
 		v := incident{appID: row.AppID, env: row.Env}
-		if err = rows.Scan(&v.id, &v.title, &v.summary, &v.severity, &v.status, &v.alertStatus, &v.suspected, &v.linked, &v.owner, &v.starts, &v.updated); err != nil {
+		if err = rows.Scan(&v.id, &v.title, &v.summary, &v.severity, &v.labels, &v.status, &v.alertStatus, &v.suspected, &v.linked, &v.owner, &v.starts, &v.updated); err != nil {
 			break
 		}
 		out = append(out, v)

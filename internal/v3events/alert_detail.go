@@ -139,7 +139,7 @@ func (s *Service) alertDetailTx(ctx context.Context, tx pgx.Tx, v incidentRecord
 	if state != "firing" && state != "pending" && state != "resolved" {
 		return AlertDetailResponse{}, store.ErrInvalidReference
 	}
-	severityCode, severityReason := alertseverity.Ptr(v.Severity)
+	severityCode, severityReason := alertseverity.StoredPtr(v.Severity, v.Labels)
 	result := AlertDetailResponse{
 		ID: v.ID, Revision: revision, Severity: severityCode, SeverityReason: severityReason,
 		Title: v.Title, State: state, SourceID: sourceID,

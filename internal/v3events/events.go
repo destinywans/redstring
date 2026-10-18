@@ -346,7 +346,7 @@ func summarize(v incidentRecord, now time.Time, t ...text) incidentSummary {
 			elapsed = duration(v.StartsAt, *v.ResolvedAt)
 		}
 	}
-	level, reason := alertseverity.Ptr(v.Severity)
+	level, reason := alertseverity.StoredPtr(v.Severity, v.Labels)
 	return incidentSummary{ID: v.ID, Severity: level, SeverityReason: reason, Title: v.Title, Status: status, Duration: elapsed, Commander: v.Commander}
 }
 

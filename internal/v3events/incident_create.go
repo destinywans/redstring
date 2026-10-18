@@ -124,7 +124,7 @@ func (s *Service) selectedIncidentAlertsTx(r *http.Request, tx pgx.Tx, ids []str
 		}
 		// The draft and the create drawer need a known level for every
 		// alert; an unknown severity is still refused here (PA-239).
-		if _, valid := alertseverity.Level(v.Severity); !valid || v.ID == "" || v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" || strings.TrimSpace(v.Title) == "" {
+		if level, _ := alertseverity.Stored(v.Severity, v.Labels); level == "" || v.ID == "" || v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" || strings.TrimSpace(v.Title) == "" {
 			return nil, store.ErrInvalidReference
 		}
 		if len(alerts) > 0 && (alerts[0].ApplicationID != v.ApplicationID || alerts[0].EnvironmentID != v.EnvironmentID || alerts[0].EnvironmentKey != v.EnvironmentKey) {
@@ -184,7 +184,7 @@ func (s *Service) IncidentDraft(w http.ResponseWriter, r *http.Request) {
 	chosenSeverity := "P4"
 	items := make([]map[string]any, 0, len(alerts))
 	for _, v := range alerts {
-		level, _ := alertseverity.Level(v.Severity)
+		level, _ := alertseverity.Stored(v.Severity, v.Labels)
 		if severityRank(level) < severityRank(chosenSeverity) {
 			chosenSeverity = level
 		}

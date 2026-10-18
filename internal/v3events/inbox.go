@@ -138,7 +138,7 @@ func (s *Service) Inbox(w http.ResponseWriter, r *http.Request) {
 	userID := httpapi.CurrentUser(r).ID
 	for _, v := range values {
 		// An unknown severity only leaves the tone neutral (PA-239).
-		severity, _ := alertseverity.Of(v.Severity)
+		severity, _ := alertseverity.Stored(v.Severity, v.Labels)
 		if v.ID == "" || v.Title == "" || v.UpdatedAt.IsZero() {
 			httpapi.Error(w, http.StatusServiceUnavailable, "inbox_unavailable", "Persisted alert is incomplete")
 			return

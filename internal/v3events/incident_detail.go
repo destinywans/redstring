@@ -367,7 +367,7 @@ func (s *Service) Incident(w http.ResponseWriter, r *http.Request) {
 		respondIncidentDetailError(w, err)
 		return
 	}
-	severityCode, severityReason := alertseverity.Ptr(v.Severity)
+	severityCode, severityReason := alertseverity.StoredPtr(v.Severity, v.Labels)
 	if v.ID == "" || v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" ||
 		v.SourceID == "" || strings.TrimSpace(v.Title) == "" || v.StartsAt.IsZero() || v.UpdatedAt.IsZero() {
 		respondIncidentDetailError(w, store.ErrInvalidReference)

@@ -285,7 +285,7 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...st
 	}
 	groups := make(map[string]*alertGroupAccumulator)
 	for _, v := range values {
-		severityCode, severityReason := alertseverity.Of(v.Severity)
+		severityCode, severityReason := alertseverity.Stored(v.Severity, v.Labels)
 		if strings.TrimSpace(v.SourceID) == "" || strings.TrimSpace(v.Fingerprint) == "" || strings.TrimSpace(v.Title) == "" || v.StartsAt.IsZero() || v.EnvironmentKey == "" {
 			return nil, store.ErrInvalidReference
 		}

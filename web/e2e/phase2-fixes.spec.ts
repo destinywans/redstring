@@ -349,3 +349,55 @@ test.describe("lists load more (PA-133)", () => {
     await expect(page.getByText("检查用画布 3")).toBeVisible();
   });
 });
+
+test.describe("silence execution outcome on the review page (PA-188)", () => {
+  test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
+  const id = "pa188-check";
+  const t0 = "2026-10-18T00:49:49Z";
+  const approved = (status: string) => ({
+    id,
+    title: "静默应用 checkout-api 的告警",
+    status: "approved",
+    risk: "high",
+    impact: "checkout-api in prod",
+    reversible: true,
+    proposed_by: "check-proposer",
+    proposed_by_name: "Check Proposer",
+    proposed_at: t0,
+    investigation_id: "inv-pa188-check",
+    target: "alertmanager/silences",
+    diff: { path: "alertmanager/silences", lines: [] },
+    method: "silence",
+    action_kind: "alertmanager.silence.create",
+    evidence: [],
+    verification: [],
+    verification_note: "",
+    checklist: ["Matchers confirmed"],
+    requirement: "Two approvers with passkeys",
+    discussion: [],
+    decision: { state: "approved", decided_at: t0, approvers: [{ id: "a1", name: "Approver One", method: "passkey", at: t0 }, { id: "a2", name: "Approver Two", method: "passkey", at: t0 }], rejected_by: null, reason: null, revoked: null },
+    execution: { execution_id: "exe-pa188", approved_at: t0, action_kind: "alertmanager.silence.create", status, upstream_id: null, unavailable: { upstream_id: "not_generated" } },
+  });
+  // The silence executor's ledger states (docs/api/v3-silence-executor.md): only `dispatching` is still running.
+  for (const [status, badge, sub] of [
+    ["unknown", "结果待核对", "没能确认"],
+    ["manual_review", "需要人工核对", "人工核对"],
+    ["expired", "已过期，未执行", "没有执行"],
+  ] as const) {
+    test(`${status} is not shown as executing`, async ({ page }) => {
+      await page.addInitScript(zh);
+      await page.route(at(`/proposals/${id}`), (r) => json(r, 200, approved(status)));
+      await page.goto(origin + `/review/${id}`);
+      await expect(page.getByText("批准结果", { exact: true })).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText(badge, { exact: true })).toBeVisible();
+      await expect(page.getByText("执行中", { exact: true })).toHaveCount(0);
+      await expect(page.getByText(sub, { exact: false }).first()).toBeVisible();
+    });
+  }
+  test("dispatching still reads as executing", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at(`/proposals/${id}`), (r) => json(r, 200, approved("dispatching")));
+    await page.goto(origin + `/review/${id}`);
+    await expect(page.getByText("执行中", { exact: true })).toBeVisible({ timeout: 20_000 });
+  });
+});

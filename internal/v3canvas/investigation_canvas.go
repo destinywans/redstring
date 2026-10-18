@@ -264,6 +264,20 @@ func orderedGraphBranches(input []graphBranch) ([]graphBranch, error) {
 	return ordered, nil
 }
 
+// branchTitle shows the fixed title a root branch is created with — "主调查"
+// on the canvas, "Main investigation" when an alert starts the investigation —
+// in the request language. Stored data is unchanged, and any other title is a
+// person's and shown as stored (PA-166).
+func branchTitle(title, parent, language string) string {
+	if parent != "" || title != "主调查" && title != "Main investigation" {
+		return title
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(language)), "en") {
+		return "Main investigation"
+	}
+	return "主调查"
+}
+
 func (s *Service) readCanvasGraph(ctx context.Context, tx pgx.Tx, target investigationCanvasTarget, language string) (investigationCanvasGraph, *graphFailure) {
 	graph := investigationCanvasGraph{Loop: []any{}, Nodes: []investigationCanvasNode{}, Tray: []investigationCanvasEvidence{}}
 	if !canvasEnvironment(target.environment) {
@@ -338,7 +352,7 @@ func (s *Service) readCanvasGraph(ctx context.Context, tx pgx.Tx, target investi
 			status = "running"
 		}
 		node := investigationCanvasNode{
-			ID: branch.id, Kind: kind, Parent: branch.parent, Title: branch.title, Subtitle: subtitle,
+			ID: branch.id, Kind: kind, Parent: branch.parent, Title: branchTitle(branch.title, branch.parent, language), Subtitle: subtitle,
 			Status: status, X: branch.x, Y: branch.y, W: branch.w,
 			Collapsed: branch.collapsed, LayoutVersion: branch.layoutVersion,
 			Context:    investigationCanvasContext{Version: canvasVersion(branch.revision), Excludes: []string{}},

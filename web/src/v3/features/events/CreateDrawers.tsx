@@ -10,6 +10,7 @@ import { useCurrentEnv } from "../../app/EnvSwitch";
 import { ChipSelect, AddChip, usePickLists } from "../../ui/demo";
 import { useEnv } from "../../app/environment";
 import { useNames } from "../../ui/names";
+import { useWhen } from "../../ui/when";
 
 type IncidentDraft = {
   title: string;
@@ -38,6 +39,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
   const lists = usePickLists();
   // The draft names its service by application ID: show the catalog name, or the ID when the catalog doesn't list it (PA-166).
   const names = useNames();
+  const when = useWhen();
   const nav = useNavigate();
   // A draft is built only from 1–20 selected alerts (?alerts=a,b); without them the form starts blank.
   const [params] = useSearchParams();
@@ -49,6 +51,14 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
     incident_conflict: tx("所选告警刚刚变化，或已经关联了事件。已恢复的告警不能再创建事件。", "The selected alert just changed or is already linked to an incident. A resolved alert can't start an incident."),
     not_found: tx("所选告警已不可见。", "The selected alert is no longer available."),
     invalid_alerts: tx("请选择 1～20 条不同的告警。", "Select 1–20 distinct alerts."),
+  };
+  // PA-166: a refused create is said in the UI language too; an unknown code keeps the server's message.
+  const SUBMIT_REFUSAL: Record<string, string> = {
+    ...DRAFT_REFUSAL,
+    invalid_incident: tx("请确认标题、级别、一个服务和 1～20 条不同的告警。", "Confirm a title, severity, one service and 1–20 distinct alerts."),
+    incident_scope_changed: tx("所选告警与确认的环境和服务不一致。", "The selected alerts don't match the confirmed environment and service."),
+    canvas_environment_unsupported: tx("调查画布只支持 prod、staging 和 test 环境。", "Canvases support the prod, staging and test environments."),
+    canvas_title_too_long: tx("同时创建调查画布时，标题最多 200 个字符。", "With an investigation canvas, the title can have at most 200 characters."),
   };
   const refused = drafted && !data && draftError
     ? (draftError instanceof ApiError && DRAFT_REFUSAL[draftError.code ?? ""]) || tx("没能读取所选告警，请稍后重试", "Couldn't read the selected alerts; try again later")
@@ -68,8 +78,8 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
     setAlerts(Object.fromEntries(data.alerts.map((a) => [a.id, true])));
   }, [data]);
   const submit = async () => {
-    const r = await create.mutateAsync({ title, severity: sev, impact, env: envSel || (curEnv && !curEnv.viewOnly ? curEnv.id : data?.env), services: [...(data?.services.map((s) => s.id) ?? []), ...extraSvc], alert_ids: Object.keys(alerts).filter((k) => alerts[k]), commander: commander || data?.commander?.name || undefined, participants: [...(data?.participants ?? []), ...extraPeople], ...opts }).catch((e: ApiError) => {
-      toast(e.message, { tone: "danger" });
+    const r = await create.mutateAsync({ title, severity: sev, impact, env: envSel || (curEnv && !curEnv.viewOnly ? curEnv.id : data?.env), services: [...(data?.services.map((s) => s.id) ?? []), ...extraSvc], alert_ids: Object.keys(alerts).filter((k) => alerts[k]), commander: commander || data?.commander?.name || undefined, participants: [...(data?.participants ?? []), ...extraPeople], ...opts }).catch((e: Error) => {
+      toast((e instanceof ApiError && SUBMIT_REFUSAL[e.code ?? ""]) || e.message, { tone: "danger" });
       return null;
     });
     if (!r) return;
@@ -159,7 +169,7 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
                 <input type="checkbox" checked={!!alerts[a.id]} onChange={(e) => setAlerts({ ...alerts, [a.id]: e.target.checked })} />
                 <Sev p={a.severity} />
                 <span className="grow ellipsis" style={{ fontSize: "var(--fs-sub)" }}>{a.text}</span>
-                <Muted size={11.5}>{a.at}</Muted>
+                <Muted size={11.5}>{when.short(a.at)}</Muted>
               </label>
             ))}
           </div>

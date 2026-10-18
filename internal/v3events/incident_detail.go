@@ -3,6 +3,7 @@ package v3events
 import (
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -125,11 +126,14 @@ type CaseIncidentDetailResponse struct {
 	Unavailable           []string                `json:"unavailable"`
 }
 
+// caseAlert is one validated alert of a case, with its persisted title.
+type caseAlert struct{ ID, Title string }
+
 // A link has no FK to ops_incidents because that table is created after the
 // store migrations. Validate every target against the case's persisted scope
-// before reporting it as an associated alert ID.
-func readCaseAlertIDs(r *http.Request, tx pgx.Tx, v caseRecord) ([]string, error) {
-	rows, err := tx.Query(r.Context(), `SELECT link.alert_id,i.application_id,i.environment_id
+// before reporting it as an associated alert.
+func readCaseAlerts(r *http.Request, tx pgx.Tx, v caseRecord) ([]caseAlert, error) {
+	rows, err := tx.Query(r.Context(), `SELECT link.alert_id,i.application_id,i.environment_id,i.title
 		FROM v3_incident_case_alerts link
 		LEFT JOIN ops_incidents i ON i.id=link.alert_id
 		WHERE link.case_id=$1 ORDER BY link.alert_id LIMIT 65`, v.ID)
@@ -137,22 +141,45 @@ func readCaseAlertIDs(r *http.Request, tx pgx.Tx, v caseRecord) ([]string, error
 		return nil, err
 	}
 	defer rows.Close()
-	items := make([]string, 0)
+	items := make([]caseAlert, 0)
 	for rows.Next() {
 		if len(items) == 64 {
 			return nil, errTooManyCaseAlerts
 		}
 		var id string
-		var app, env *string
-		if err := rows.Scan(&id, &app, &env); err != nil {
+		var app, env, title *string
+		if err := rows.Scan(&id, &app, &env, &title); err != nil {
 			return nil, err
 		}
-		if id == "" || app == nil || env == nil || *app != v.ApplicationID || *env != v.EnvironmentID {
+		if id == "" || app == nil || env == nil || title == nil || *app != v.ApplicationID || *env != v.EnvironmentID {
 			return nil, store.ErrInvalidReference
 		}
-		items = append(items, id)
+		items = append(items, caseAlert{ID: id, Title: *title})
 	}
 	return items, rows.Err()
+}
+
+// incidentLinks lists only the links the detail has validated: its
+// investigation (when it has one) and, for a case, the alerts it was confirmed
+// from (PA-189). An alert opens on /incidents/{id} like everywhere else; alert
+// groups, proposals and changes have no source and stay in unavailable.
+func incidentLinks(investigationID, investigationTitle string, alerts []caseAlert) []incidentDetailLink {
+	links := make([]incidentDetailLink, 0, len(alerts)+1)
+	if investigationID != "" {
+		links = append(links, incidentDetailLink{Kind: "investigation", Label: linkLabel(investigationTitle, investigationID),
+			Href: "/canvas/" + url.PathEscape(investigationID)})
+	}
+	for _, a := range alerts {
+		links = append(links, incidentDetailLink{Kind: "alert", Label: linkLabel(a.Title, a.ID), Href: "/incidents/" + url.PathEscape(a.ID)})
+	}
+	return links
+}
+
+func linkLabel(title, id string) string {
+	if title = strings.TrimSpace(title); title != "" {
+		return title
+	}
+	return id
 }
 
 func (s *Service) caseIncidentDetail(w http.ResponseWriter, r *http.Request, tx pgx.Tx, v caseRecord) {
@@ -169,11 +196,12 @@ func (s *Service) caseIncidentDetail(w http.ResponseWriter, r *http.Request, tx 
 		respondIncidentDetailError(w, store.ErrInvalidReference)
 		return
 	}
+	var investigationID, investigationTitle string
 	if v.InvestigationID != nil {
 		var app string
 		var env *string
-		err := tx.QueryRow(r.Context(), `SELECT application_id,environment_id FROM investigations
-			WHERE id=$1 FOR SHARE`, *v.InvestigationID).Scan(&app, &env)
+		err := tx.QueryRow(r.Context(), `SELECT application_id,environment_id,title FROM investigations
+			WHERE id=$1 FOR SHARE`, *v.InvestigationID).Scan(&app, &env, &investigationTitle)
 		if err != nil || app != v.ApplicationID || env == nil || *env != v.EnvironmentID {
 			if errors.Is(err, pgx.ErrNoRows) || err == nil {
 				err = store.ErrInvalidReference
@@ -181,15 +209,20 @@ func (s *Service) caseIncidentDetail(w http.ResponseWriter, r *http.Request, tx 
 			respondIncidentDetailError(w, err)
 			return
 		}
+		investigationID = *v.InvestigationID
 	}
-	alertIDs, err := readCaseAlertIDs(r, tx, v)
+	alerts, err := readCaseAlerts(r, tx, v)
 	if err != nil {
 		respondIncidentDetailError(w, err)
 		return
 	}
-	if len(alertIDs) == 0 {
+	if len(alerts) == 0 {
 		respondIncidentDetailError(w, store.ErrInvalidReference)
 		return
+	}
+	alertIDs := make([]string, 0, len(alerts))
+	for _, a := range alerts {
+		alertIDs = append(alertIDs, a.ID)
 	}
 	timeline, err := readIncidentManualTimeline(r, tx, v.ID)
 	if err != nil {
@@ -206,7 +239,7 @@ func (s *Service) caseIncidentDetail(w http.ResponseWriter, r *http.Request, tx 
 		Commander: v.CommanderText, CommanderProvenance: "unknown",
 		Timeline: timeline, TimelineScope: "manual_only",
 		Impact: incidentDetailImpact{Note: v.Impact}, ImpactProvenance: "unknown",
-		Roles: []incidentDetailRole{}, Links: []incidentDetailLink{},
+		Roles: []incidentDetailRole{}, Links: incidentLinks(investigationID, investigationTitle, alerts),
 		InvestigationID: v.InvestigationID, AlertIDs: alertIDs, Partial: true,
 		Unavailable: []string{"source_id", "work_status", "alert_status", "summary", "alert_started_at",
 			"duration", "duration_basis", "assignee", "stage", "impact.peak",
@@ -343,11 +376,12 @@ func (s *Service) Incident(w http.ResponseWriter, r *http.Request) {
 	}
 	// An investigation ID alone is not proof that the referenced investigation
 	// belongs to this incident's current application and environment.
+	var investigationTitle string
 	if v.InvestigationID != "" {
 		var investigationApplication string
 		var investigationEnvironment *string
-		err = tx.QueryRow(r.Context(), `SELECT application_id,environment_id FROM investigations WHERE id=$1 FOR SHARE`, v.InvestigationID).
-			Scan(&investigationApplication, &investigationEnvironment)
+		err = tx.QueryRow(r.Context(), `SELECT application_id,environment_id,title FROM investigations WHERE id=$1 FOR SHARE`, v.InvestigationID).
+			Scan(&investigationApplication, &investigationEnvironment, &investigationTitle)
 		if errors.Is(err, pgx.ErrNoRows) {
 			respondIncidentDetailError(w, store.ErrInvalidReference)
 			return
@@ -374,9 +408,9 @@ func (s *Service) Incident(w http.ResponseWriter, r *http.Request) {
 		AlertStartedAt: v.StartsAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt:      v.UpdatedAt.UTC().Format(time.RFC3339Nano),
 		Timeline:       timeline, TimelineScope: "manual_only",
-		Roles: []incidentDetailRole{}, Links: []incidentDetailLink{},
+		Roles: []incidentDetailRole{}, Links: incidentLinks(v.InvestigationID, investigationTitle, nil),
 		AssigneeID: v.AssigneeID, InvestigationID: v.InvestigationID, Partial: true,
-		Unavailable: []string{"duration", "duration_basis", "commander", "stage", "impact.peak", "impact.budget_used", "impact.budget_left", "impact.note", "impact.series", "timeline.system_events", "links.alert_group", "links.proposal", "links.change", "links.investigation"},
+		Unavailable: []string{"duration", "duration_basis", "commander", "stage", "impact.peak", "impact.budget_used", "impact.budget_left", "impact.note", "impact.series", "timeline.system_events", "links.alert_group", "links.proposal", "links.change"},
 	}
 	if v.AssigneeID != "" {
 		if strings.TrimSpace(v.Commander) == "" {

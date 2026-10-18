@@ -164,6 +164,18 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 		count(`SELECT count(*) FROM management_audit WHERE action='v3.incident.investigation_opened' AND target='incident'`) != 1 {
 		t.Fatal("investigation structure or audit missing")
 	}
+	// PA-189: the detail links the validated investigation; an alert has no
+	// case alerts of its own, and the investigation is no longer unavailable.
+	links := func(body map[string]any) string {
+		raw, _ := json.Marshal(body["links"])
+		return string(raw)
+	}
+	if got, want := links(body), `[{"kind":"investigation","label":"LabHigh5xxRate","href":"/canvas/`+investigation+`"}]`; got != want {
+		t.Fatalf("alert links: %s, want %s", got, want)
+	}
+	if raw, _ := json.Marshal(body["unavailable"]); strings.Contains(string(raw), "links.investigation") {
+		t.Fatalf("alert unavailable: %s", raw)
+	}
 	// Again: the same investigation, nothing new.
 	if status, again := open("incident", "dev", token, `{}`); status != 200 || again["investigation_id"] != investigation ||
 		count(`SELECT count(*) FROM investigations`) != 1 {
@@ -177,6 +189,11 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 	}
 	if count(`SELECT count(*) FROM investigations WHERE id=$1 AND title='Manual checkout incident' AND goal='Checkout fails for some users'`, caseInvestigation) != 1 {
 		t.Fatal("case investigation")
+	}
+	// A case links its investigation and the alerts it was confirmed from.
+	if got, want := links(body), `[{"kind":"investigation","label":"Manual checkout incident","href":"/canvas/`+caseInvestigation+`"},`+
+		`{"kind":"alert","label":"CheckoutErrors","href":"/incidents/case-alert"}]`; got != want {
+		t.Fatalf("case links: %s, want %s", got, want)
 	}
 	if status, again := open("INC-1", "dev", token, `{}`); status != 200 || again["investigation_id"] != caseInvestigation {
 		t.Fatalf("case reuse: %d %v", status, again)

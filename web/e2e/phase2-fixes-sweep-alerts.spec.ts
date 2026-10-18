@@ -69,7 +69,8 @@ test.describe("alert rules say when Prometheus can't evaluate a rule (PA-210)", 
     await expect(editor.locator(".v3-badge", { hasText: "求值出错" })).toBeVisible();
     await expect(editor).toContainText("query timed out");
     await expect(editor.locator(".v3-badge", { hasText: /^正常$/ })).toHaveCount(0);
-    await page.locator(".rule-item", { hasText: "CheckFresh" }).click();
+    // ?q= narrows the list to the first rule, so open the second one by its own search.
+    await page.goto(origin + "/alert-rules?q=CheckFresh");
     await expect(editor.getByRole("heading", { name: "CheckFresh" })).toBeVisible();
     await expect(editor.locator(".v3-badge", { hasText: "健康未知" })).toBeVisible();
     await expect(editor.locator(".v3-badge", { hasText: /^正常$/ })).toHaveCount(0);

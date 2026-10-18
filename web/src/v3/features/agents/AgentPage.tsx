@@ -31,7 +31,7 @@ export default function AgentPage() {
   const [target, setTarget] = useState(50);
   // Both writes name the agent revision they were decided on (expected_revision, PA-159).
   const rollout = useSend<{ to: string; percent: number; override: boolean; override_reason?: string; expected_revision?: number }>("POST", `/agents/${id}/rollout`, ["/agents"]);
-  const rollback = useSend<{ expected_revision?: number }>("POST", `/agents/${id}/rollback`, ["/agents"]);
+  const rollback = useSend<{ expected_revision?: number }, { to?: string }>("POST", `/agents/${id}/rollback`, ["/agents"]);
   const promoteBlocked = useNeed(["agents", "manage"]);
   const vs = (s: AgentVersion["status"]) => ({ canary: [tx("灰度中", "Canary"), "accent"], stable: [tx("稳定", "Stable"), "ok"], retired: [tx("已下线", "Retired"), "neutral"], draft: [tx("草稿", "Draft"), "neutral"] })[s] as [string, "accent" | "ok" | "neutral"];
   if (!a)
@@ -57,6 +57,15 @@ export default function AgentPage() {
   const passed = !!a.release.gates?.every((g) => g.pass);
   const current = a.release.current ?? a.release.configured_canary_percent ?? 0;
   const noCandidate = !demo && !a.release.to;
+  // Where a rollback lands, by the server's rule (PA-236): the stable version while a canary runs, otherwise the previous
+  // stable one; null when there is none (the server then refuses with rollback_unavailable). The sample has no such field.
+  const release: AgentDetail["release"] & { rollback_to?: string | null } = a.release;
+  const rollbackTo = release.rollback_to !== undefined ? release.rollback_to : demo ? a.release.from : null;
+  const rolledBack = (res: { to?: string } | undefined) => {
+    const v = res?.to ?? rollbackTo;
+    if (!v) return tx("已回滚", "Rolled back");
+    return a.release.to ? tx("已回滚到 {v}，灰度流量清零", "Rolled back to {v}; canary traffic cleared", { v }) : tx("已回滚到 {v}", "Rolled back to {v}", { v });
+  };
   // The owner is a user ID (PA-166). Without members.view only the viewer's own name resolves; others aren't named.
   const owner = a.owner ? (people.member(a.owner) ?? (people.hidden ? tx("其他成员", "Another member") : a.owner)) : a.owner;
   return (
@@ -66,8 +75,9 @@ export default function AgentPage() {
       actions={
         <>
           <Gate need={["agents", "manage"]}>
-          <Btn icon="rotate" loading={rollback.isPending} onClick={() => rollback.mutate({ expected_revision: a.revision }, { onSuccess: () => toast(tx("已回滚到 {v}，灰度流量清零", "Rolled back to {v}; canary traffic cleared", { v: a.release.from }), demo ? { undo: () => undefined } : {}), onError: (e) => toast(e.message, { tone: "danger" }) })}>
-            {tx("回滚到 {v}", "Roll back to {v}", { v: a.release.from })}
+          {/* The toast names the version the server says it rolled back to (`to`). */}
+          <Btn icon="rotate" loading={rollback.isPending} onClick={() => rollback.mutate({ expected_revision: a.revision }, { onSuccess: (res) => toast(rolledBack(res), demo ? { undo: () => undefined } : {}), onError: (e) => toast(e.message, { tone: "danger" }) })}>
+            {rollbackTo ? tx("回滚到 {v}", "Roll back to {v}", { v: rollbackTo }) : tx("回滚", "Roll back")}
           </Btn>
           </Gate>
           {/* Real versions need an artifact reference (POST /agents/{id}/versions); this form only pretends, so sample data only (PA-134). */}

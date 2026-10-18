@@ -59,9 +59,15 @@ export default function LifecyclePage() {
               if (!application) return toast(tx("没能识别所选服务的应用", "Couldn't tell the chosen service's application"), { tone: "danger" });
               setCreating(true);
               try {
-                await api("POST", "/agents", { body: { id: r.id.trim(), application_id: application, name: r.name.trim(), summary: r.summary?.trim() ?? "" } });
+                const res = await api<{ created?: boolean }>("POST", "/agents", { body: { id: r.id.trim(), application_id: application, name: r.name.trim(), summary: r.summary?.trim() ?? "" } });
                 void refetch();
-                toast(tx("Agent「{n}」已创建，等级 L0，处于暂停状态", "Agent “{n}” created at L0, paused", { n: r.name }));
+                // The same identifier, name and summary answer created:false: nothing new was made, and the existing agent
+                // keeps its own level and state (PA-244).
+                toast(
+                  res?.created === false
+                    ? tx("Agent「{n}」已存在（标识 {id}），没有重复创建", "Agent “{n}” already exists ({id}); nothing new was created", { n: r.name, id: r.id.trim() })
+                    : tx("Agent「{n}」已创建，等级 L0，处于暂停状态", "Agent “{n}” created at L0, paused", { n: r.name }),
+                );
               } catch (e) {
                 toast(e instanceof Error ? e.message : tx("创建失败，请稍后重试", "Couldn't create; try again later"), { tone: "danger" });
               } finally {

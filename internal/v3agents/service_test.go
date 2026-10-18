@@ -241,6 +241,21 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		}
 		return string(encoded)
 	}
+	// PA-236: the detail names where a rollback lands (JSON want), by the rule the rollback itself follows.
+	checkRollbackTo := func(want string) {
+		t.Helper()
+		w := request("GET", "/api/v1/agents/triage", adminToken, "dev", "")
+		var body struct {
+			Release map[string]json.RawMessage `json:"release"`
+		}
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &body) != nil {
+			t.Fatalf("agent detail status=%d body=%s", w.Code, w.Body.String())
+		}
+		got, present := body.Release["rollback_to"]
+		if !present || string(got) != want {
+			t.Fatalf("release.rollback_to=%s (present %v), want %s", got, present, want)
+		}
+	}
 	assert(request("GET", "/api/v1/agents/triage", viewerToken, "dev", ""), 200, `"score":null`)
 	assert(request("GET", "/api/v1/agents/triage", viewerToken, "dev", ""), 200, `"status":"draft"`)
 	assert(request("GET", "/api/v1/agents/other", viewerToken, "dev", ""), 404, `"code":"not_found"`)
@@ -276,8 +291,11 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	assert(requestLanguage("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v1","percent":50}`), "zh-CN"), 409, "先设置稳定版本，再做灰度发布")
 	assert(requestLanguage("POST", "/api/v1/agents/triage/rollback", adminToken, "dev", withCurrentRevision(`{}`), "zh-CN"), 409, `"code":"rollback_unavailable","message":"没有可回滚到的上一个版本"`)
 	assert(requestLanguage("POST", "/api/v1/agents/triage/rollback", adminToken, "dev", withCurrentRevision(`{}`), "en-US"), 409, `"code":"rollback_unavailable","message":"No prior persisted version exists"`)
+	checkRollbackTo(`null`)
 	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v1","percent":100,"override":true,"override_reason":"Initial reviewed release"}`)), 200, `"routing_connected":false`)
 	assert(requestLanguage("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v1","percent":100}`), "zh-CN"), 409, "该版本已是稳定版本")
+	// A first stable version and no canary: there is nothing to roll back to.
+	checkRollbackTo(`null`)
 	assert(requestLanguage("POST", "/api/v1/agents/triage/rollback", adminToken, "dev", withCurrentRevision(`{}`), "zh-CN"), 409, "没有可回滚到的上一个版本")
 	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v2","percent":50,"expected_revision":1}`), 409, `"code":"version_conflict"`)
 	assert(requestLanguage("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", `{"to":"v2","percent":50,"expected_revision":1}`, "zh-CN"), 409, "Agent 配置已变化，请刷新后再操作")
@@ -552,6 +570,8 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	}
 	assert(request("GET", "/api/v1/evals/"+evalID, adminToken, "dev", ""), 200, `"accuracy":0.9`)
 	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v2","percent":50}`)), 200, `"gate_experiment_id":"`+evalID+`"`)
+	// A canary in progress: a rollback clears it and stays on the stable version.
+	checkRollbackTo(`"v1"`)
 	rollback := request("POST", "/api/v1/agents/triage/rollback", adminToken, "dev", withCurrentRevision(`{}`))
 	assert(rollback, 200, `"to":"v1"`)
 	assert(rollback, 200, `"configured_percent":100`)
@@ -591,6 +611,9 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 	}
 	assert(request("GET", "/api/v1/agent-runs/run1/trace", adminToken, "dev", ""), 200, `"partial":true`)
 	assert(request("POST", "/api/v1/agent-runs/run1/feedback", adminToken, "dev", `{"vote":"down"}`), 200, `"vote":"down"`)
+	// PA-237: the run detail carries each viewer's own saved vote, which the page highlights.
+	assert(request("GET", "/api/v1/agent-runs/run1", adminToken, "dev", ""), 200, `"feedback":{"up":0,"down":1,"my_vote":"down"}`)
+	assert(request("GET", "/api/v1/agent-runs/run1", viewerToken, "dev", ""), 200, `"feedback":{"up":0,"down":1,"my_vote":null}`)
 	if err = svc.RecordGuardEvent(ctx, GuardEvent{ID: "guard1", RunID: "run1", PolicyID: "mandatory", Action: "blocked", TargetKind: "tool", ReasonCode: "write_approval_required",
 		PolicyRevision: mandatoryDecision.Revision, ObservedAt: mandatoryDecision.ObservedAt}); err != nil {
 		t.Fatal(err)
@@ -829,6 +852,9 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v2","percent":100}`)), 200, `"configured_percent":100`)
+	// PA-236: stable v2, previous v1 and no canary: a rollback lands on v1, not on the stable v2 the release starts from.
+	assert(request("GET", "/api/v1/agents/triage", adminToken, "dev", ""), 200, `"from":"v2"`)
+	checkRollbackTo(`"v1"`)
 	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v3","percent":50}`)), 409, `"code":"eval_gate_unverified"`)
 	var staleRollouts int
 	if err = db.QueryRow(ctx, `SELECT count(*) FROM v3_agent_release_events WHERE to_version='v3'`).Scan(&staleRollouts); err != nil {
@@ -853,4 +879,9 @@ func TestAgentDomainPersistedAuthorizationAndUnknowns(t *testing.T) {
 		}
 	}
 	assert(request("POST", "/api/v1/agents/triage/rollout", adminToken, "dev", withCurrentRevision(`{"to":"v3","percent":50}`)), 409, `"code":"eval_gate_unverified"`)
+	// The rollback the detail named lands where it said; the next one names the version it just left.
+	checkRollbackTo(`"v1"`)
+	assert(request("POST", "/api/v1/agents/triage/rollback", adminToken, "dev", withCurrentRevision(`{}`)), 200, `"to":"v1"`)
+	assert(request("GET", "/api/v1/agents/triage", adminToken, "dev", ""), 200, `"from":"v1"`)
+	checkRollbackTo(`"v2"`)
 }

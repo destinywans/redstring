@@ -401,3 +401,43 @@ test.describe("silence execution outcome on the review page (PA-188)", () => {
     await expect(page.getByText("执行中", { exact: true })).toBeVisible({ timeout: 20_000 });
   });
 });
+
+test.describe("Runbook detail state (PA-197)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const id = "pa197-check";
+  const runbook = (status: string) => ({
+    id,
+    title: "Check: runbook state",
+    version: "v1",
+    base: "postmortem:pa197",
+    owner: "Administrator",
+    scope: "workspace",
+    tags: [],
+    when: "",
+    status,
+    steps: [{ n: 1, kind: "check", title: "Check one", body: "body", readonly: true }],
+    reviewers: [],
+    versions: [{ v: "v1", who: "Administrator", when: "2026-10-18T00:00:00Z" }],
+    usage: { refs: null, resolve_rate: null, weekly: null, highlight: null },
+    incidents: null,
+    unknown_fields: ["usage.refs", "usage.resolve_rate", "usage.weekly", "usage.highlight", "incidents"],
+  });
+  for (const [status, word] of [["review", "待复核"], ["published", "已发布"]] as const) {
+    test(`a ${status} runbook doesn't say draft and can't be submitted again`, async ({ page }) => {
+      await page.addInitScript(zh);
+      await page.route(at(`/runbooks/${id}`), (r) => json(r, 200, runbook(status)));
+      await page.goto(origin + `/runbooks/${id}`);
+      await expect(page.getByText("Check: runbook state").first()).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText(`v1 ${word} · 基于 postmortem:pa197`)).toBeVisible();
+      await expect(page.getByText("v1 草稿 · 基于 postmortem:pa197")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "提交复核" })).toBeDisabled();
+    });
+  }
+  test("a draft still says draft and can be submitted", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at(`/runbooks/${id}`), (r) => json(r, 200, runbook("draft")));
+    await page.goto(origin + `/runbooks/${id}`);
+    await expect(page.getByText("v1 草稿 · 基于 postmortem:pa197")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("button", { name: "提交复核" })).toBeEnabled();
+  });
+});

@@ -316,3 +316,60 @@ test.describe("generic canvas toolbar (PA-220)", () => {
     expect(m.pageErrors).toEqual([]);
   });
 });
+
+/* ---------------- PA-221: main reads that failed on other pages ---------------- */
+
+test.describe("pages say why their main read failed (PA-221)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  for (const [name, path, route, before] of [
+    ["home", "/", "/home", null],
+    ["runbook detail", `/runbooks/${RUNBOOK}`, `/runbooks/${RUNBOOK}`, null],
+    ["new postmortem: candidates", "/postmortems/new", "/postmortems/candidates", null],
+    ["new postmortem: draft", "/postmortems/new?incident=inc-sweep-check", "/postmortems/draft", null],
+    ["generic canvas", `/canvas/${DOC}`, `/canvases/${DOC}`, null],
+    ["canvas list", "/canvases", "/canvases", null],
+    ["templates", "/templates", "/investigation-templates", null],
+    ["agent runs", "/agents/runs", "/agent-runs", null],
+    ["agent run detail", `/agents/runs/${RUN}`, `/agent-runs/${RUN}`, "运行概览"],
+    ["agent lifecycle", "/agents/lifecycle", "/agents/lifecycle", null],
+    ["agent tools", "/agents/tools", "/agent-tools", null],
+    ["prompts", "/agents/prompts", "/prompts", null],
+    ["guardrails", "/agents/guardrails", "/guardrails", null],
+    ["experiment", `/agents/evals?id=${EXP}`, `/evals/${EXP}`, null],
+  ] as const) {
+    test(`${name}: a failed read shows the reason, not an endless skeleton`, async ({ page }) => {
+      await page.addInitScript(zh);
+      const m = monitor(page);
+      await page.route(at(route), (r) => unavailable(r));
+      await page.goto(origin + path);
+      if (before) await page.getByRole("tab", { name: before }).click({ timeout: 20_000 });
+      await expect(page.locator(".unk-page")).toContainText("暂时不可用", { timeout: 20_000 });
+      expect(m.pageErrors).toEqual([]);
+    });
+  }
+
+  test("new postmortem: an incident that can't be drafted says so", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/postmortems/draft"), (r) => json(r, 404, { error: { code: "not_found", message: "Incident is not eligible for a postmortem draft" } }));
+    await page.goto(origin + "/postmortems/new?incident=inc-sweep-check");
+    await expect(page.getByText("这个事件不能起草复盘")).toBeVisible({ timeout: 20_000 });
+  });
+
+  test("prompts: a failed prompt read says why", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/prompts"), (r) => json(r, 200, { items: [{ id: "pr-sweep", name: "sweep.check", kind: "prompt", version: "v1" }] }));
+    await page.route(at("/prompts/pr-sweep"), (r) => unavailable(r));
+    await page.goto(origin + "/agents/prompts");
+    await expect(page.locator(".unk-page")).toContainText("暂时不可用", { timeout: 20_000 });
+  });
+
+  test("model picker: a failed model list isn't “no matching models”", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/models"), (r) => unavailable(r));
+    await page.goto(origin + "/conversations/new");
+    await page.getByRole("button", { name: "选择模型与推理强度" }).click({ timeout: 20_000 });
+    await expect(page.getByText("读不到模型列表，暂时不能切换模型。")).toBeVisible();
+    await expect(page.getByText("没有匹配的模型")).toHaveCount(0);
+  });
+});

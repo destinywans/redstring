@@ -5,6 +5,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Role, RoleDetail } from "../../api/types";
 import { AvatarGroup, Badge, Btn, Card, Chip, Col, Icon, Muted, Row, SearchBox, Section, Skeleton, Tabs, Tile, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
+import { Gated, useNeed } from "../../ui/permission";
+import { LoadError } from "../../ui/unknown";
 import { useI18n } from "../../i18n";
 import "./settings.css";
 import { openForm, AddChip, usePickLists } from "../../ui/demo";
@@ -12,16 +14,19 @@ import { useFirstSelection } from "../../ui/selection";
 
 export default function RolesPage() {
   const { tx } = useI18n();
-  const { data: list } = useGet<{ items: Role[] }>("/roles");
+  // Without roles.view the list is refused (403): the page says so instead of an endless skeleton (PA-200).
+  const { data: list, error } = useGet<{ items: Role[] }>("/roles");
   const [sel, setSel] = useState("");
   const [q, setQ] = useState("");
   const [tab, setTab] = useState("perm");
   useFirstSelection(list?.items, (x) => x.id, sel, setSel);
   // The matrix is saved against the revision it was read at (If-Role-Matrix-Revision, PA-158).
-  const { data: read } = useGetWithEtag<RoleDetail>(sel ? `/roles/${sel}` : null);
+  const { data: read, error: detailError } = useGetWithEtag<RoleDetail>(sel ? `/roles/${sel}` : null);
   const r = read?.data;
   const lists = usePickLists();
   const [matrix, setMatrix] = useState<RoleDetail["matrix"] | null>(null);
+  // Saving the matrix needs roles.manage (PA-200).
+  const noManage = useNeed(["roles", "manage"]);
   const client = useQueryClient();
   const save = useMutation<unknown, ApiError, { matrix: RoleDetail["matrix"] }>({
     mutationFn: (body) => api("PUT", `/roles/${sel}`, { body, headers: read?.revision ? { "If-Role-Matrix-Revision": read.revision } : undefined }),
@@ -47,13 +52,17 @@ export default function RolesPage() {
     <Page
       flush
       ai={false}
+      error={!list ? error : undefined}
+      errorSource={tx("角色目录", "role catalogue")}
       crumbs={[tx("设置", "Settings"), tx("角色与权限", "Roles & permissions")]}
       actions={
         <>
           {dirty && (
-            <Btn kind="primary" icon="check" loading={save.isPending} onClick={() => matrix && save.mutate({ matrix }, { onSuccess: () => toast(tx("权限已保存并写入审计", "Permissions saved and audited")), onError: (e) => toast(e.status === 409 || e.status === 412 ? tx("角色刚被其他人修改，已重新读取，请核对后再保存", "Someone just changed this role; reloaded — check and save again") : e.message, { tone: "danger" }) })}>
-              {tx("保存权限", "Save permissions")}
-            </Btn>
+            <Gated reason={noManage}>
+              <Btn kind="primary" icon="check" loading={save.isPending} onClick={() => matrix && save.mutate({ matrix }, { onSuccess: () => toast(tx("权限已保存并写入审计", "Permissions saved and audited")), onError: (e) => toast(e.status === 409 || e.status === 412 ? tx("角色刚被其他人修改，已重新读取，请核对后再保存", "Someone just changed this role; reloaded — check and save again") : e.message, { tone: "danger" }) })}>
+                {tx("保存权限", "Save permissions")}
+              </Btn>
+            </Gated>
           )}
           {/* Creating a role only showed a toast; it stays in the sample until the real form is designed (PA-163, D52). */}
           {API_MODE === "mock" && (
@@ -101,7 +110,10 @@ export default function RolesPage() {
           ))}
         </div>
         <div className="main">
-          {!r || !matrix ? (
+          {detailError && !r ? (
+            // A role that can't be read says why instead of keeping the skeleton (PA-200).
+            <LoadError error={detailError} source={tx("角色目录", "role catalogue")} />
+          ) : !r || !matrix ? (
             <div className="v3-content">
               <Skeleton h={300} />
             </div>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
 import { API_MODE, useGet, useSend } from "../../api/client";
-import { Gated } from "../../ui/permission";
+import { Gated, useNeed } from "../../ui/permission";
 import type { Member, MembersView, OrgNode, Role } from "../../api/types";
 import { AiAvatar, Avatar, Badge, Brand, Btn, Card, Chip, Col, Field, Icon, Input, Mono, Muted, Pills, Row, SearchBox, Section, Spacer, State, cx } from "../../ui/core";
 import { DataTable } from "../../ui/data";
@@ -18,7 +18,8 @@ export default function MembersPage() {
   const [invite, setInvite] = useState(false);
   const [email, setEmail] = useState("");
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  const { data } = useGet<MembersView>("/members", { filter, q });
+  // Without members.view the list is refused (403): the page says so instead of an endless skeleton (PA-200).
+  const { data, error } = useGet<MembersView>("/members", { filter, q });
   const { data: roleList } = useGet<{ items: Role[] }>("/roles");
   const [inviteRole, setInviteRole] = useState("readonly");
   const fRole = useFacet(data?.items, (m) => m.roles);
@@ -26,6 +27,8 @@ export default function MembersPage() {
   const sync = useSend<void, { added: number; updated: number }>("POST", "/members/sync", ["/members"]);
   const remind = useSend<void, { sent: number }>("POST", "/members/mfa-reminders");
   const send = useSend<{ email: string }>("POST", "/members/invitations", ["/members"]);
+  // Sync, invitations and 2FA reminders all need members.manage (PA-200).
+  const noManage = useNeed(["members", "manage"]);
   const mfa = (m: Member["mfa"]) =>
     m === "passkey" ? (
       <Badge tone="ok">
@@ -66,18 +69,25 @@ export default function MembersPage() {
     <Page
       flush
       ai={false}
+      error={!data ? error : undefined}
+      errorSource={tx("成员目录", "member directory")}
       crumbs={[tx("设置", "Settings"), tx("成员与团队", "Members & teams")]}
       actions={
         <>
           {/* Without a configured directory source the sync can only fail (503); say so up front (PA-137). */}
-          <Gated reason={data?.unavailable_fields?.includes("directory_sync_source") ? tx("这个实例还没接入飞书目录", "No Feishu directory is connected to this instance") : null} kind="availability">
+          <Gated
+            reason={noManage ?? (data?.unavailable_fields?.includes("directory_sync_source") ? tx("这个实例还没接入飞书目录", "No Feishu directory is connected to this instance") : null)}
+            kind={noManage ? "permission" : "availability"}
+          >
             <Btn icon="rotate" loading={sync.isPending} onClick={() => sync.mutate(undefined, { onSuccess: (r) => toast(tx("已从飞书同步：新增 {a}，更新 {u}", "Synced from Feishu: {a} added, {u} updated", { a: r.added, u: r.updated })) })}>
               {tx("从飞书同步", "Sync from Feishu")}
             </Btn>
           </Gated>
-          <Btn kind="primary" icon="plus" onClick={() => setInvite(true)}>
-            {tx("邀请成员", "Invite")}
-          </Btn>
+          <Gated reason={noManage}>
+            <Btn kind="primary" icon="plus" onClick={() => setInvite(true)}>
+              {tx("邀请成员", "Invite")}
+            </Btn>
+          </Gated>
         </>
       }
     >
@@ -122,9 +132,11 @@ export default function MembersPage() {
                     ? tx("{n} 名成员还没有启用两步验证。", "{n} members haven't enabled 2FA.", { n: data.counts.no_mfa })
                     : tx("{n} 名成员还没有启用两步验证，宽限期还剩 {d} 天。", "{n} members haven't enabled 2FA; {d} days of grace left.", { n: data.counts.no_mfa, d: data.mfa_grace_days })}
                 </span>
-                <Btn h={26} loading={remind.isPending} onClick={() => remind.mutate(undefined, { onSuccess: (r) => toast(tx("已通过飞书提醒 {n} 人", "Reminded {n} people on Feishu", { n: r.sent })) })}>
-                  {tx("提醒他们", "Remind them")}
-                </Btn>
+                <Gated reason={noManage}>
+                  <Btn h={26} loading={remind.isPending} onClick={() => remind.mutate(undefined, { onSuccess: (r) => toast(tx("已通过飞书提醒 {n} 人", "Reminded {n} people on Feishu", { n: r.sent })) })}>
+                    {tx("提醒他们", "Remind them")}
+                  </Btn>
+                </Gated>
               </div>
             )}
             {checked.size > 0 && (

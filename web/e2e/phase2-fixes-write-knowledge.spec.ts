@@ -206,3 +206,31 @@ test.describe("testing a connector re-reads its state (PA-234)", () => {
     }
   });
 });
+
+/* ---------------- PA-243: saving a new runbook as a draft ---------------- */
+
+const SAVED = "rb-pa243-check";
+
+test.describe("saving a new runbook's draft doesn't leave a second one to create (PA-243)", () => {
+  test("after the draft is saved the page is that runbook's detail, and nothing else is created", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    let created = 0;
+    await page.route(at("/runbooks"), (r) => {
+      if (r.request().method() !== "POST") return r.fallback();
+      created++;
+      return json(r, 201, { id: SAVED });
+    });
+    await page.route(at(`/runbooks/${SAVED}`), (r) => json(r, 200, { ...runbook(), id: SAVED, title: "检查用：保存后的草稿" }));
+    await page.goto(origin + "/runbooks/new?source=blank");
+    await page.getByLabel("标题").fill("检查用：保存后的草稿", { timeout: 20_000 });
+    await page.getByRole("button", { name: "保存草稿" }).click();
+    await expect.poll(() => toasts(page)).toContain("草稿已保存");
+    await expect(page).toHaveURL(new RegExp(`/runbooks/${SAVED}$`));
+    await expect(page.locator("h1", { hasText: "检查用：保存后的草稿" })).toBeVisible();
+    // The new page's save and submit buttons are gone: nothing on screen can POST /runbooks again.
+    await expect(page.getByRole("button", { name: "保存草稿" })).toHaveCount(0);
+    expect(created).toBe(1);
+    expect(m.pageErrors).toEqual([]);
+  });
+});

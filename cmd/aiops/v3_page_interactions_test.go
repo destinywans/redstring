@@ -98,8 +98,8 @@ func TestConfiguredV3PageInteractions(t *testing.T) {
  INSERT INTO application_environments(id,application_id,key,name) VALUES('app-dev','app','dev','Dev');
  INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app','dev');
  INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,status,alert_status,starts_at,labels)
- VALUES('alert1','fixture','app','app-dev','f1','First alert','warning','open','firing',now(),'{"alertname":"HighErrors"}'),
- ('alert2','fixture','app','app-dev','f2','Second alert','warning','open','firing',now(),'{"alertname":"HighErrors"}');
+ VALUES('alert1','fixture','app','app-dev','f1','First alert','warning','open','firing',now(),'{"alertname":"HighErrors","severity":"warning"}'),
+ ('alert2','fixture','app','app-dev','f2','Second alert','warning','open','firing',now(),'{"alertname":"HighErrors","severity":"warning"}');
  INSERT INTO v3_investigation_templates(id,owner,environment_id,application_id,name,version,branches,tools,runbooks,triggers,budget)
  VALUES('tmpl','official','dev','app','Original template',1,'[{"name":"Check","step":"Read evidence","tools":[]}]','[]','[]','{"manual":true,"auto_triage":false,"matchers":[]}','{"turns":2,"tools":0,"minutes":2}');
  INSERT INTO ops_notifications(id,incident_id,application_id,environment_id,channel,event_key,status,body,created_at)

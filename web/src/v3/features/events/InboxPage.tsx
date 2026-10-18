@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import { PartialBanner, Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
-import type { AlertDetail, InboxItem } from "../../api/types";
+import type { AlertDetail, InboxItem, Incident } from "../../api/types";
 import { Badge, Brand, Btn, Card, Col, Dot, Icon, IconBtn, KV, LabelChip, Muted, Panel, Row, Sev, Skeleton, Spacer, State, Tabs, Tile, TextLink, Kbd, cx, type IconName, type Tone } from "../../ui/core";
 import { MenuButton, toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
@@ -24,6 +24,10 @@ export function AlertDetailView({ id }: { id: string }) {
   const curEnv = useCurrentEnv();
   const nav = useNavigate();
   const { data: a, refetch } = useGet<AlertDetail>(`/alerts/${id}`);
+  // PA-166: the real alert links its incident by ID only; the link reads the incident's title, or the ID when the
+  // incident can't be read.
+  const linked = API_MODE !== "mock" && a?.grouping.incident.id && !a.grouping.incident.label ? a.grouping.incident.id : null;
+  const { data: incident } = useGet<Incident>(linked ? `/incidents/${linked}` : null);
   const [claimed, setClaimed] = useState(false);
   const [starting, setStarting] = useState(false);
   const demo = API_MODE === "mock";
@@ -227,7 +231,7 @@ export function AlertDetailView({ id }: { id: string }) {
               {a.grouping.inhibited ?? <UnknownValue reason="not_generated" />}
             </KV>
             <KV k={tx("事件", "Incident")} kw={44}>
-              {a.grouping.incident.id ? <TextLink to={`/incidents/${a.grouping.incident.id}`}>{a.grouping.incident.label ?? a.grouping.incident.id}</TextLink> : <Muted>{tx("未关联", "Not linked")}</Muted>}
+              {a.grouping.incident.id ? <TextLink to={`/incidents/${a.grouping.incident.id}`}>{a.grouping.incident.label ?? incident?.title ?? a.grouping.incident.id}</TextLink> : <Muted>{tx("未关联", "Not linked")}</Muted>}
             </KV>
             <KV k={tx("变更", "Change")} kw={44}>
               {a.grouping.change ? (

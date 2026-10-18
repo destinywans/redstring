@@ -9,11 +9,29 @@ import { VBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import { PromoteButton } from "./PromoteDialog";
 import { useRunbookScope } from "./RunbooksPage";
+import { useRunbookSourceName } from "./NewRunbookPage";
 import "../../ui/forms.css";
 import "./knowledge.css";
 import { confirmAction } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 import { UnknownValue } from "../../ui/unknown";
+
+/** One step's result from POST /runbooks/{id}/dry-run; `reasons` lists the conditions it failed (PA-194). */
+type DryRunCheck = { step: number; validated: boolean; reasons?: string[] };
+
+/** Step numbers in order, three or more in a row as a range: [1, 2, 3, 5] → "1–3、5". */
+function stepRuns(steps: number[], sep: string) {
+  const sorted = [...new Set(steps)].sort((a, b) => a - b);
+  const out: string[] = [];
+  for (let i = 0; i < sorted.length; ) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
+    if (j - i >= 2) out.push(`${sorted[i]}–${sorted[j]}`);
+    else out.push(...sorted.slice(i, j + 1).map(String));
+    i = j + 1;
+  }
+  return out.join(sep);
+}
 
 export default function RunbookEditorPage() {
   const { id = "rb-retry-storm" } = useParams();
@@ -21,6 +39,8 @@ export default function RunbookEditorPage() {
   const when = useWhen();
   const { data: rb } = useGet<Runbook>(`/runbooks/${id}`);
   const scopeLabel = useRunbookScope();
+  // PA-166: a real record's base is "<source kind>:<source ref>"; a postmortem reads as its title.
+  const sourceName = useRunbookSourceName(!!rb?.base?.startsWith("postmortem:"));
   const [accepted, setAccepted] = useState<"pending" | "yes" | "no">("pending");
   const [running, setRunning] = useState(false);
   const KIND: Record<RunbookStep["kind"], [Tone, string]> = { query: ["accent", tx("查询", "Query")], check: ["neutral", tx("判断", "Check")], action: ["warn", tx("动作", "Action")], verify: ["ok", tx("验证", "Verify")] };
@@ -34,13 +54,43 @@ export default function RunbookEditorPage() {
     );
   // PA-197: the badge says this version's review state; only a draft can be submitted (the server answers 409 otherwise).
   const status = rb.status ?? "draft";
+  const base = sourceName(rb.base);
   const states: Record<string, [Tone, string]> = {
-    draft: ["accent", tx("{v} 草稿 · 基于 {b}", "{v} draft · based on {b}", { v: rb.version, b: rb.base })],
-    review: ["warn", tx("{v} 待复核 · 基于 {b}", "{v} in review · based on {b}", { v: rb.version, b: rb.base })],
-    published: ["ok", tx("{v} 已发布 · 基于 {b}", "{v} published · based on {b}", { v: rb.version, b: rb.base })],
+    draft: ["accent", tx("{v} 草稿 · 基于 {b}", "{v} draft · based on {b}", { v: rb.version, b: base })],
+    review: ["warn", tx("{v} 待复核 · 基于 {b}", "{v} in review · based on {b}", { v: rb.version, b: base })],
+    published: ["ok", tx("{v} 已发布 · 基于 {b}", "{v} published · based on {b}", { v: rb.version, b: base })],
   };
-  const stateBadge: [Tone, string] = states[status] ?? ["neutral", `${rb.version} · ${rb.base}`];
+  const stateBadge: [Tone, string] = states[status] ?? ["neutral", `${rb.version} · ${base}`];
   const submittable = status === "draft";
+  // PA-194: which steps failed the check and why, from the server's per-step reasons. A runbook with an action step
+  // never passes (by design), so an action step names only that; a step without a reason this page knows (an older
+  // server) is still named.
+  const dryRunFailure = (checks: DryRunCheck[] | undefined) => {
+    const action: number[] = [];
+    const writable: number[] = [];
+    const unbound: number[] = [];
+    const other: number[] = [];
+    for (const c of checks ?? []) {
+      if (c.validated) continue;
+      const reasons = c.reasons ?? [];
+      if (reasons.includes("action_step")) action.push(c.step);
+      else {
+        if (reasons.includes("not_readonly")) writable.push(c.step);
+        if (reasons.includes("no_connector")) unbound.push(c.step);
+        if (!reasons.includes("not_readonly") && !reasons.includes("no_connector")) other.push(c.step);
+      }
+    }
+    const s = (steps: number[]) => ({ s: stepRuns(steps, tx("、", ", ")) });
+    const parts = [
+      action.length && tx("第 {s} 步是动作步骤，含动作步骤的 Runbook 不会通过只读校验", action.length > 1 ? "steps {s} are action steps, and a runbook with action steps never passes the read-only check" : "step {s} is an action step, and a runbook with action steps never passes the read-only check", s(action)),
+      writable.length && tx("第 {s} 步没有标为只读", writable.length > 1 ? "steps {s} aren't marked read-only" : "step {s} isn't marked read-only", s(writable)),
+      unbound.length && tx("第 {s} 步没有绑定连接器", unbound.length > 1 ? "steps {s} have no connector" : "step {s} has no connector", s(unbound)),
+      other.length && tx("第 {s} 步不符合要求", other.length > 1 ? "steps {s} didn't pass" : "step {s} didn't pass", s(other)),
+    ].filter((p): p is string => !!p);
+    return parts.length
+      ? tx("结构校验没有通过：{p}", "Structure check failed: {p}", { p: parts.join(tx("；", "; ")) })
+      : tx("结构校验没有通过，请检查步骤类型、只读标记和连接器", "Structure check failed; review step kinds, read-only flags and connectors");
+  };
   return (
     <Page
       flush
@@ -238,7 +288,7 @@ export default function RunbookEditorPage() {
                 onClick={async () => {
                   setRunning(true);
                   try {
-                    const r = await api<{ steps?: number; ok?: boolean; mode?: string }>("POST", `/runbooks/${rb.id}/dry-run`);
+                    const r = await api<{ steps?: number; ok?: boolean; mode?: string; checks?: DryRunCheck[] }>("POST", `/runbooks/${rb.id}/dry-run`);
                     if (API_MODE === "mock") {
                       setTimeout(() => {
                         setRunning(false);
@@ -250,7 +300,7 @@ export default function RunbookEditorPage() {
                     toast(
                       r.ok
                         ? tx("结构校验通过：{n} 个步骤（只检查步骤类型、只读标记和连接器，不实际执行）", "Structure check passed: {n} steps (kinds, read-only flags and connectors only; nothing was executed)", { n: r.steps ?? 0 })
-                        : tx("结构校验没有通过，请检查步骤类型、只读标记和连接器", "Structure check failed; review step kinds, read-only flags and connectors"),
+                        : dryRunFailure(r.checks),
                       r.ok ? {} : { tone: "danger" },
                     );
                     setRunning(false);

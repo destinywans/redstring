@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -107,6 +108,35 @@ func TestDryRunPreviewNeverExecutesAction(t *testing.T) {
 		if check["executed"] != false {
 			t.Fatalf("preview executed a step: %#v", check)
 		}
+	}
+}
+
+// PA-194: every check says which conditions its step failed, so the page can
+// tell which steps fail and why instead of one generic message.
+func TestDryRunPreviewSaysWhyEachStepFailed(t *testing.T) {
+	// The shape a postmortem draft saves: read-only checks without connectors
+	// and one action step needing approval.
+	checks, ok := previewSteps(normalizeSteps([]Step{
+		{Kind: "query", Title: "Read metrics", Readonly: true, Connectors: []string{"prometheus"}},
+		{Kind: "check", Title: "Review impact", Readonly: true},
+		{Kind: "check", Title: "Unmarked check", Connectors: []string{"loki"}},
+		{Kind: "action", Title: "Add a rollback gate", Approval: true},
+		{Kind: "verify", Title: "Unmarked verify"},
+	}))
+	if ok {
+		t.Fatal("a preview with failing steps must not pass")
+	}
+	want := [][]string{{}, {"no_connector"}, {"not_readonly"}, {"action_step", "not_readonly", "no_connector"}, {"not_readonly", "no_connector"}}
+	for i, check := range checks {
+		reasons, _ := check["reasons"].([]string)
+		if check["step"] != i+1 || check["validated"] != (len(want[i]) == 0) || !reflect.DeepEqual(reasons, want[i]) {
+			t.Fatalf("step %d: want reasons %v, got %#v", i+1, want[i], check)
+		}
+	}
+	// A passing step serializes an empty list, never null.
+	raw, err := json.Marshal(checks[0])
+	if err != nil || !strings.Contains(string(raw), `"reasons":[]`) {
+		t.Fatalf("passing step reasons: %s (%v)", raw, err)
 	}
 }
 

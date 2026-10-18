@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
@@ -25,6 +25,23 @@ type Draft = {
 type Candidate = { id: string; title: string; severity: string; resolved: string; duration: string; evidence: number };
 /** A row of GET /postmortems: a runbook drafts from a published postmortem, by the postmortem's own ID. */
 type PostmortemRow = { id: string; title: string; status: string; date: string | null; incident_id?: string | null };
+
+/**
+ * A runbook source as people read it (PA-166): "postmortem:<ID>" reads as the postmortem's title from GET /postmortems
+ * (the list the start dialog reads). Anything else, or a postmortem that list doesn't have, keeps the original value.
+ * `enabled`: whether a postmortem source may be shown, so the list is only read when it is.
+ */
+export function useRunbookSourceName(enabled: boolean) {
+  const { tx } = useI18n();
+  const { data } = useGet<{ items: PostmortemRow[] }>(enabled && API_MODE !== "mock" ? "/postmortems" : null);
+  return useMemo(() => {
+    const titles = new Map((data?.items ?? []).map((r) => [r.id, r.title]));
+    return (ref: string) => {
+      const title = ref.startsWith("postmortem:") ? titles.get(ref.slice("postmortem:".length)) : undefined;
+      return title ? tx("复盘「{t}」", "postmortem “{t}”", { t: title }) : ref;
+    };
+  }, [data, tx]);
+}
 
 const KIND_TONE: Record<Draft["steps"][number]["kind"], Tone> = { check: "info", act: "warn", action: "warn", judge: "neutral", verify: "ok" };
 
@@ -133,6 +150,7 @@ export default function NewRunbookPage() {
   const from = params.get("from");
   const { data, isLoading, error } = useGet<Draft>(blank ? null : "/runbooks/draft", { source, from });
   const lists = usePickLists();
+  const sourceName = useRunbookSourceName(source === "postmortem");
   const draft: Draft | undefined = blank ? { title: "", applies_to: [], trigger: "", steps: [], sources: [] } : data;
   // The title is the user's to edit; saving sends what is in the field, not the draft's suggestion (PA-124).
   const [title, setTitle] = useState("");
@@ -242,7 +260,7 @@ export default function NewRunbookPage() {
                 {draft?.sources.map((s) => (
                   <Row key={s} gap={8} style={{ fontSize: "var(--fs-sub)" }}>
                     <Tile icon="file" size={22} />
-                    {s}
+                    {sourceName(s)}
                   </Row>
                 ))}
               </Col>

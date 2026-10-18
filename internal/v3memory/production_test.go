@@ -81,6 +81,52 @@ func produceTestFact(t *testing.T, f *actionsFixture, src sourceResult, excerpt 
 	}
 	return out.Fact
 }
+
+// PA-166: the view names fact and conflict sources by the document title.
+func TestMemoryViewNamesSourcesPostgres(t *testing.T) {
+	f := productionFixture(t)
+	src := publishTestSource(t, f, "source-title-key")
+	a := produceTestFact(t, f, src, "Traffic restored after rollback.")
+	b := produceTestFact(t, f, src, "Traffic did not restore after rollback.")
+	conflict := conflictInput{FactA: a.ID, FactB: b.ID, ExpectedRevisionA: 1, ExpectedRevisionB: 1, Reason: "Reviewed passages make incompatible statements about the same rollback."}
+	f.want(f.post("/api/v1/memory/conflicts", productionJSON(t, conflict)), 201, "")
+	w := f.call("GET", "/api/v1/memory", "", "dev", "actions-token")
+	f.want(w, 200, "")
+	var view struct {
+		Facts []struct {
+			Source      string  `json:"source"`
+			SourceTitle *string `json:"source_title"`
+		} `json:"facts"`
+		Conflict *struct {
+			A struct {
+				SourceTitle *string `json:"source_title"`
+			} `json:"a"`
+			B struct {
+				SourceTitle *string `json:"source_title"`
+			} `json:"b"`
+		} `json:"conflict"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &view); err != nil || len(view.Facts) != 2 || view.Conflict == nil {
+		t.Fatalf("view: %s (%v)", w.Body.String(), err)
+	}
+	const title = "Human-reviewed service note"
+	for _, fact := range view.Facts {
+		if fact.Source != src.DocumentID || fact.SourceTitle == nil || *fact.SourceTitle != title {
+			t.Fatalf("fact source title: %s", w.Body.String())
+		}
+	}
+	if view.Conflict.A.SourceTitle == nil || *view.Conflict.A.SourceTitle != title || view.Conflict.B.SourceTitle == nil || *view.Conflict.B.SourceTitle != title {
+		t.Fatalf("conflict source title: %s", w.Body.String())
+	}
+	// A blank title is unknown, not an empty name: two facts, and both sides
+	// of the conflict in `conflicts` and in `conflict`.
+	f.exec(`UPDATE knowledge_documents SET title='  ' WHERE id=$1`, src.DocumentID)
+	w = f.call("GET", "/api/v1/memory", "", "dev", "actions-token")
+	f.want(w, 200, "")
+	if strings.Contains(w.Body.String(), title) || strings.Count(w.Body.String(), `"source_title":null`) != 6 {
+		t.Fatalf("blank title: %s", w.Body.String())
+	}
+}
 func TestMemoryProductionFreshHTTPChainPostgres(t *testing.T) {
 	f := productionFixture(t)
 	src := publishTestSource(t, f, "source-chain-key")

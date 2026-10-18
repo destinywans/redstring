@@ -739,8 +739,8 @@ export type PostmortemSummary = {
 };
 export type MemoryLayer = { id: "working" | "service" | "episodic" | "semantic" | "workspace"; name: string; count: string | number; desc?: string; description?: string; /** Real layers list the facts they hold. */ evidence?: { fact_ids?: string[] } };
 /** Real facts carry `revision`/`state`; confidence, recalls and expiry are null until measured. */
-export type MemoryFact = { id: string; fact: string; source: string; confidence: "high" | "medium" | "low" | null; confirmed: string | null; recalls: number | null; expires: string | null; revision?: number; state?: string };
-export type MemoryConflictSide = { id?: string; text: string; source: string };
+export type MemoryFact = { id: string; fact: string; source: string; /** The source document's title; null when it has none (PA-166). */ source_title?: string | null; confidence: "high" | "medium" | "low" | null; confirmed: string | null; recalls: number | null; expires: string | null; revision?: number; state?: string };
+export type MemoryConflictSide = { id?: string; text: string; source: string; source_title?: string | null };
 export type MemoryView = {
   layers: MemoryLayer[];
   services: { id: string; name?: string; key?: string; count: number }[];

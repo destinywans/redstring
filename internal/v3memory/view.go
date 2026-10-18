@@ -39,16 +39,19 @@ type memoryFactEvidence struct {
 
 type memoryViewFact struct {
 	Fact
-	Confidence *string            `json:"confidence"`
-	Recalls    *int               `json:"recalls"`
-	Expires    *string            `json:"expires"`
-	Evidence   memoryFactEvidence `json:"evidence"`
+	// SourceTitle is the source document's title, null when it has none (PA-166).
+	SourceTitle *string            `json:"source_title"`
+	Confidence  *string            `json:"confidence"`
+	Recalls     *int               `json:"recalls"`
+	Expires     *string            `json:"expires"`
+	Evidence    memoryFactEvidence `json:"evidence"`
 }
 
 type memoryConflictSide struct {
-	ID     string `json:"id"`
-	Text   string `json:"text"`
-	Source string `json:"source"`
+	ID          string  `json:"id"`
+	Text        string  `json:"text"`
+	Source      string  `json:"source"`
+	SourceTitle *string `json:"source_title"`
 }
 
 type memoryViewConflict struct {
@@ -71,6 +74,14 @@ type memoryViewResponse struct {
 	Policy            *string              `json:"policy"`
 	Partial           bool                 `json:"partial"`
 	UnavailableFields []string             `json:"unavailable_fields"`
+}
+
+// sourceTitle is a source document's title, or nil when it has none.
+func (s memorySnapshot) sourceTitle(id string) *string {
+	if title, ok := s.SourceTitles[id]; ok {
+		return &title
+	}
+	return nil
 }
 
 func memoryServiceID(appID, env string) string {
@@ -182,7 +193,7 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 		} else {
 			serviceIDs = append(serviceIDs, fact.ID)
 		}
-		response.Facts = append(response.Facts, memoryViewFact{Fact: fact,
+		response.Facts = append(response.Facts, memoryViewFact{Fact: fact, SourceTitle: snapshot.sourceTitle(fact.Source),
 			Evidence: memoryFactEvidence{DocumentID: fact.Source, Version: fact.SourceVersion}})
 	}
 	response.Layers = []memoryLayer{
@@ -206,8 +217,8 @@ func (s *Service) view(w http.ResponseWriter, r *http.Request) {
 		response.Conflicts = append(response.Conflicts, memoryViewConflict{
 			ID: conflict.ID, State: "open", EnvironmentID: conflict.EnvironmentID,
 			ApplicationID: conflict.ApplicationID, TeamID: conflict.TeamID,
-			A: memoryConflictSide{ID: a.ID, Text: a.Fact, Source: a.Source},
-			B: memoryConflictSide{ID: b.ID, Text: b.Fact, Source: b.Source},
+			A: memoryConflictSide{ID: a.ID, Text: a.Fact, Source: a.Source, SourceTitle: snapshot.sourceTitle(a.Source)},
+			B: memoryConflictSide{ID: b.ID, Text: b.Fact, Source: b.Source, SourceTitle: snapshot.sourceTitle(b.Source)},
 		})
 	}
 	if len(response.Conflicts) > 0 {

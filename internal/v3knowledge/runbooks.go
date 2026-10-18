@@ -481,15 +481,30 @@ func normalizeSteps(steps []Step) []Step {
 	return steps
 }
 
+// previewSteps passes a step only when it is a read-only, non-action step
+// with a connector; an action step never passes. Each check lists every
+// condition its step failed (PA-194), in this order: action_step,
+// not_readonly, no_connector. A passing step has no reasons.
 func previewSteps(steps []Step) ([]map[string]any, bool) {
 	checks := make([]map[string]any, 0, len(steps))
 	valid := true
 	for _, step := range steps {
-		ok := step.Kind != "action" && step.Kind != "act" && step.Readonly && len(step.Connectors) > 0
+		action := step.Kind == "action" || step.Kind == "act"
+		reasons := []string{}
+		if action {
+			reasons = append(reasons, "action_step")
+		}
+		if !step.Readonly {
+			reasons = append(reasons, "not_readonly")
+		}
+		if len(step.Connectors) == 0 {
+			reasons = append(reasons, "no_connector")
+		}
+		ok := len(reasons) == 0
 		if !ok {
 			valid = false
 		}
-		checks = append(checks, map[string]any{"step": step.N, "validated": ok, "executed": false, "requires_approval": step.Approval || step.Kind == "action" || step.Kind == "act"})
+		checks = append(checks, map[string]any{"step": step.N, "validated": ok, "reasons": reasons, "executed": false, "requires_approval": step.Approval || action})
 	}
 	return checks, valid
 }

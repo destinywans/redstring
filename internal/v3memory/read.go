@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -35,6 +36,8 @@ type memorySnapshot struct {
 	Facts        []Fact
 	Conflicts    []memoryConflictRow
 	Applications map[string]memoryApplication
+	// SourceTitles names the source documents of Facts; a blank title is left out.
+	SourceTitles map[string]string
 }
 
 func readFailure(w http.ResponseWriter, err error) {
@@ -110,7 +113,7 @@ ORDER BY f.id LIMIT 501 FOR SHARE OF f`
 // bindings, the exact session and grant sources, and current published
 // documents are held until commit; a revoke that commits first is observed.
 func (s *Service) readSnapshot(r *http.Request, includeInactive, includeView bool) (memorySnapshot, error) {
-	result := memorySnapshot{Facts: []Fact{}, Conflicts: []memoryConflictRow{}, Applications: map[string]memoryApplication{}}
+	result := memorySnapshot{Facts: []Fact{}, Conflicts: []memoryConflictRow{}, Applications: map[string]memoryApplication{}, SourceTitles: map[string]string{}}
 	if !s.ready() {
 		return result, errMemoryReadUnavailable
 	}
@@ -239,12 +242,16 @@ func (s *Service) readSnapshot(r *http.Request, includeInactive, includeView boo
 }
 
 func loadMemoryViewMetadata(r *http.Request, tx pgx.Tx, snapshot *memorySnapshot) error {
-	ids, appIDs := make([]string, 0, len(snapshot.Facts)), map[string]bool{}
+	ids, appIDs, sourceIDs := make([]string, 0, len(snapshot.Facts)), map[string]bool{}, map[string]bool{}
 	for _, fact := range snapshot.Facts {
 		ids = append(ids, fact.ID)
+		sourceIDs[fact.Source] = true
 		if fact.ApplicationID != "" {
 			appIDs[fact.ApplicationID] = true
 		}
+	}
+	if err := loadMemorySourceTitles(r, tx, sourceIDs, snapshot); err != nil {
+		return err
 	}
 	if len(ids) > 0 {
 		rows, err := tx.Query(r.Context(), `SELECT c.id,c.fact_a_id,c.fact_b_id,c.environment_id,c.application_id,c.team_id,c.created_at
@@ -310,4 +317,36 @@ WHERE id=ANY($1::text[]) AND NOT archived ORDER BY id`, apps)
 		return errMemoryReadUnavailable
 	}
 	return nil
+}
+
+// loadMemorySourceTitles names the facts' source documents (PA-166). Each
+// current source was already locked by lockCurrentSource, so the title is
+// the one of the version the fact is anchored to.
+func loadMemorySourceTitles(r *http.Request, tx pgx.Tx, sourceIDs map[string]bool, snapshot *memorySnapshot) error {
+	if len(sourceIDs) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(sourceIDs))
+	for id := range sourceIDs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	rows, err := tx.Query(r.Context(), `SELECT id,title FROM knowledge_documents WHERE id=ANY($1::text[]) ORDER BY id`, ids)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var id, title string
+		if err = rows.Scan(&id, &title); err != nil {
+			break
+		}
+		if title = strings.TrimSpace(title); title != "" {
+			snapshot.SourceTitles[id] = title
+		}
+	}
+	if err == nil {
+		err = rows.Err()
+	}
+	rows.Close()
+	return err
 }

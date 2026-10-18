@@ -10,6 +10,7 @@ import { useI18n } from "../../i18n";
 import "./observe.css";
 import { RangeChip, openExternal, ChipSelect, useRanges, usePickLists } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
+import { useNames } from "../../ui/names";
 
 const LV = { ERROR: "danger", WARN: "warn", INFO: "neutral" } as const;
 
@@ -22,6 +23,8 @@ export default function LogsPage() {
   const real = API_MODE !== "mock";
   // Real toolbar (approved design): only the log sources bound to the chosen service, a service picker and plain keywords.
   const lists = usePickLists();
+  // PA-166: lines name their service by application ID; show the catalog name, or the ID when it doesn't resolve.
+  const names = useNames();
   const { data: catalog } = useGet<ServiceCatalog>(real ? "/services" : null, undefined, { staleTime: 5 * 60_000 });
   const bound = (catalog?.items.find((s) => s.id === service)?.connectors ?? []).filter((c): c is "loki" | "elasticsearch" => c === "loki" || c === "elasticsearch");
   const [source, setSource] = useState<string | undefined>(undefined);
@@ -155,7 +158,7 @@ export default function LogsPage() {
                         </Badge>
                       </td>
                       <td>
-                        <Muted>{r.service}</Muted>
+                        <Muted>{names.service(r.service) ?? r.service}</Muted>
                       </td>
                       <td className="mono ellipsis" style={{ fontSize: "var(--fs-sub)", maxWidth: 0 }}>{r.message}</td>
                       <td>{r.trace && <button type="button" className="v3-iconbtn" style={{ width: 24, height: 24 }} aria-label={tx("查看链路", "View trace")} onClick={() => nav(`/traces/${r.trace}`)}><Icon name="branch" size={14} color="var(--accent-text)" /></button>}</td>

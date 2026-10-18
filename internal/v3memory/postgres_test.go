@@ -85,7 +85,7 @@ func TestPersistedFactProvenanceScopeAndAudit(t *testing.T) {
 		`CREATE TABLE application_environments(application_id text NOT NULL,key text NOT NULL,archived boolean NOT NULL DEFAULT false)`,
 		`CREATE TABLE v3_application_environments(application_id text,environment_id text)`,
 		`CREATE TABLE v3_effective_role_grants(user_id text,module text,action text,scope_kind text,scope_id text)`,
-		`CREATE TABLE knowledge_documents(id text PRIMARY KEY,application_id text,body text,source text NOT NULL DEFAULT '',version integer,content_hash text,lifecycle text,metadata jsonb)`,
+		`CREATE TABLE knowledge_documents(id text PRIMARY KEY,application_id text,title text NOT NULL DEFAULT '',body text,source text NOT NULL DEFAULT '',version integer,content_hash text,lifecycle text,metadata jsonb)`,
 		`CREATE TABLE v3_runbooks(document_id text PRIMARY KEY)`,
 		`CREATE TABLE management_audit(id bigserial PRIMARY KEY,actor_id text,actor_kind text,application_id text,action text,target text,outcome text,changes jsonb)`,
 	} {
@@ -189,7 +189,9 @@ func TestPersistedFactProvenanceScopeAndAudit(t *testing.T) {
 		t.Fatalf("fact projection: %+v %v", listed, err)
 	}
 	if w := call("GET", "/api/v1/memory", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"partial":true`) ||
-		!strings.Contains(w.Body.String(), `"fact_ids"`) || !strings.Contains(w.Body.String(), `"conflicts"`) {
+		!strings.Contains(w.Body.String(), `"fact_ids"`) || !strings.Contains(w.Body.String(), `"conflicts"`) ||
+		// The source document has no title: unknown, never an invented name (PA-166).
+		!strings.Contains(w.Body.String(), `"source_title":null`) {
 		t.Fatalf("source-backed view unavailable: %d %s", w.Code, w.Body.String())
 	}
 	if w := call("POST", "/api/v1/memory/facts/"+a.ID+"/confirm", ""); w.Code != 200 {

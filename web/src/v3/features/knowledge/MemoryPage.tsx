@@ -31,6 +31,9 @@ export default function MemoryPage() {
   const [conflict, setConflict] = useState(true);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const fSrc = useFacet(data?.facts, (f) => f.source);
+  // PA-166: a source reads as its document's title; without one it keeps the document ID.
+  const sourceTitles = new Map((data?.facts ?? []).flatMap((f) => (f.source_title ? [[f.source, f.source_title] as const] : [])));
+  const sourceName = (s: { source: string; source_title?: string | null }) => s.source_title ?? s.source;
   const fConf = useFacet(data?.facts, (f) => f.confidence);
   // Every write here needs knowledge.manage (PA-144); the policy itself is readable with view.
   const denied = useNeed(["knowledge", "manage"]);
@@ -144,7 +147,7 @@ export default function MemoryPage() {
               <Badge>{tx("{n} 条", "{n}", { n: rows.length })}</Badge>
               <Spacer />
               <SearchBox placeholder={tx("搜索记忆", "Search memory")} value={q} onChange={setQ} width={220} />
-              <ChipSelect icon="filter" label={tx("来源", "Source")} {...fSrc.props} />
+              <ChipSelect icon="filter" label={tx("来源", "Source")} {...fSrc.props} options={fSrc.props.options.map((o) => ({ ...o, label: sourceTitles.get(o.value) ?? o.label }))} />
               <ChipSelect icon="filter" label={tx("置信度", "Confidence")} {...fConf.props} options={fConf.props.options.map((o) => ({ ...o, label: o.value === "high" ? tx("高", "High") : tx("中", "Medium") }))} />
             </Row>
             {conflict && data?.conflict && (
@@ -158,14 +161,14 @@ export default function MemoryPage() {
                     <Col gap={4}>
                       <Badge>{API_MODE === "mock" ? tx("A · 较旧", "A · older") : "A"}</Badge>
                       <span style={{ fontSize: "var(--fs-sm)" }}>{data.conflict.a.text}</span>
-                      <Muted size={11.5} style={{ overflowWrap: "anywhere" }}>{data.conflict.a.source}</Muted>
+                      <Muted size={11.5} style={{ overflowWrap: "anywhere" }}>{sourceName(data.conflict.a)}</Muted>
                     </Col>
                   </Card>
                   <Card style={{ padding: "10px 12px" }}>
                     <Col gap={4}>
                       <Badge tone="accent">{API_MODE === "mock" ? tx("B · 较新", "B · newer") : "B"}</Badge>
                       <span style={{ fontSize: "var(--fs-sm)" }}>{data.conflict.b.text}</span>
-                      <Muted size={11.5} style={{ overflowWrap: "anywhere" }}>{data.conflict.b.source}</Muted>
+                      <Muted size={11.5} style={{ overflowWrap: "anywhere" }}>{sourceName(data.conflict.b)}</Muted>
                     </Col>
                   </Card>
                 </div>
@@ -195,7 +198,7 @@ export default function MemoryPage() {
                 rowHeight={44}
                 columns={[
                   { key: "f", header: tx("事实", "Fact"), width: "38%", render: (f) => <span className="ellipsis" style={{ fontWeight: 500, display: "block" }} title={f.fact}>{f.fact}</span> },
-                  { key: "s", header: tx("来源", "Source"), render: (f) => <Muted>{f.source}</Muted> },
+                  { key: "s", header: tx("来源", "Source"), render: (f) => <Muted>{sourceName(f)}</Muted> },
                   { key: "c", header: tx("置信度", "Confidence"), render: (f) => (f.confidence ? <Badge tone={f.confidence === "high" ? "ok" : "neutral"}>{f.confidence === "high" ? tx("高", "High") : f.confidence === "low" ? tx("低", "Low") : tx("中", "Medium")}</Badge> : <UnknownValue reason="not_generated" />) },
                   { key: "k", header: tx("确认", "Confirmed"), render: (f) => (facts[f.id] === "confirmed" ? <Badge tone="ok"><Icon name="check" size={11} />{tx("刚刚", "just now")}</Badge> : f.confirmed ? <Muted>{f.confirmed}</Muted> : <Badge tone="warn">{tx("待确认", "Unconfirmed")}</Badge>) },
                   { key: "r", header: tx("被召回", "Recalled"), sort: (a, b) => (a.recalls ?? -1) - (b.recalls ?? -1), render: (f) => (f.recalls === null ? <UnknownValue reason="not_generated" /> : <Num>{f.recalls}</Num>) },

@@ -423,3 +423,98 @@ test.describe("service fields nobody filled in (PA-223)", () => {
     }
   });
 });
+
+const gitlabType = {
+  brand: "gitlab",
+  name: "GitLab",
+  kind: "Code and pipelines",
+  version: "v1",
+  auth_methods: [{ id: "pat", label: "Personal access token", desc: "Read-only token" }],
+  scopes: [{ id: "read_api", label: "read_api", required: true }],
+  tools: [{ name: "list_pipelines", desc: "Read-only" }],
+  webhook_url: "https://ops.check.test/api/v1/webhooks/gitlab/new",
+};
+
+/**
+ * PA-224 (WAN-583) and PA-229 (WAN-588): the add-connector wizard offered sample credential sources with no effect,
+ * prefilled gitlab.example.internal, said it creates webhooks automatically and "Test & create" while the server only
+ * records a disabled registration; the latency chart drew a fixed 300 ms line and 2 s ceiling; the SLO card was always
+ * amber with a red delta and a red note; the sidebar workspace was always "Trading platform".
+ */
+test.describe("add connector on the real page (PA-224, PA-229)", () => {
+  test("no sample address or credential sources, and the flow says what creating does", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/connector-types/gitlab"), (r) => json(r, 200, gitlabType));
+    let created = false;
+    await page.route(at("/connectors"), (r) => (r.request().method() === "POST" ? ((created = true), json(r, 409, { error: { code: "connector_exists", message: "check" } })) : r.fallback()));
+    const m = monitor(page);
+    await page.goto(origin + "/integrations/new");
+    await expect(page.getByRole("heading", { name: "连接与认证" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("textbox", { name: "实例地址" })).toHaveValue("");
+    await expect(page.locator(".wizard")).not.toContainText("example.internal");
+    for (const sample of ["secret/aiops/gitlab", "aiops/gitlab-token"]) await expect(page.locator(".wizard")).not.toContainText(sample);
+    await expect(page.getByText("部署方为它绑定凭据", { exact: false }).first()).toBeVisible();
+    await expect(page.getByText("自动创建 Webhook")).toHaveCount(0);
+    await expect(page.getByText("自动在上述项目创建", { exact: false })).toHaveCount(0);
+    for (let i = 0; i < 3; i++) await page.getByRole("button", { name: /下一步/ }).click();
+    await expect(page.getByRole("button", { name: "测试并创建" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "创建连接器" })).toBeVisible();
+    expect(created).toBe(false);
+    expect(m.pageErrors).toEqual([]);
+  });
+});
+
+const dashboard = (slo: Record<string, unknown>) => ({
+  window: { label_times: ["2026-10-18T01:00:00Z", "2026-10-18T01:30:00Z", "2026-10-18T02:00:00Z"], tick_times: ["2026-10-18T01:00:00Z", "2026-10-18T02:00:00Z"], release_at: null, rollback_at: null, incident: null },
+  kpis: null,
+  requests: null,
+  slo: { remaining: 80, availability: "99.950%", delta: "+0.050%", burn: [], note: "观测到的错误预算消耗速率", ...slo },
+  latency: { p50: [10, 12, 11], p95: [20, 22, 21], p99: [30, 33, 31], heat: null, buckets: null },
+  endpoints: null,
+  instances: null,
+  unavailable: {},
+});
+
+test.describe("metrics dashboard on the real page (PA-224)", () => {
+  async function open(page: Page, slo: Record<string, unknown>) {
+    await page.addInitScript(zh);
+    await page.route(at("/metrics/dashboard"), (r) => json(r, 200, dashboard(slo)));
+    await page.route(at("/services/svc-check/slo"), (r) => json(r, 200, { target: "99.9", window: "30d", revision: 1, unavailable: {} }));
+    await page.goto(origin + "/metrics?service=svc-check");
+    await expect(page.getByText("错误预算剩余", { exact: true })).toBeVisible({ timeout: 20_000 });
+  }
+
+  test("percentiles have no made-up 300 ms threshold", async ({ page }) => {
+    await open(page, {});
+    const latency = page.locator(".v3-panel", { hasText: "延迟分布" });
+    await expect(latency.locator("svg").first()).toBeVisible();
+    await expect(latency.locator(".ch-thr")).toHaveCount(0);
+  });
+
+  test("the SLO card colours follow the budget and the delta; the note isn't an alert", async ({ page }) => {
+    await open(page, {});
+    const slo = page.locator(".v3-panel", { hasText: "错误预算剩余" });
+    await expect(slo.locator(".ch-gauge b")).toHaveAttribute("style", /--ok/);
+    await expect(slo.getByText("+0.050%")).not.toHaveAttribute("style", /--danger/);
+    await expect(slo.locator(".danger-note")).toHaveCount(0);
+    await expect(slo.getByText("观测到的错误预算消耗速率")).toBeVisible();
+  });
+
+  test("a budget under half is amber and a missed target red", async ({ page }) => {
+    await open(page, { remaining: 30, availability: "99.850%", delta: "-0.050%" });
+    const slo = page.locator(".v3-panel", { hasText: "错误预算剩余" });
+    await expect(slo.locator(".ch-gauge b")).toHaveAttribute("style", /--warn/);
+    await expect(slo.getByText("-0.050%")).toHaveAttribute("style", /--danger/);
+  });
+});
+
+test.describe("sidebar workspace name (PA-224)", () => {
+  test("the workspace menu names the real workspace, not the sample one", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/workspace"), (r) => json(r, 200, { name: "检查工作区", slug: "check", timezone: "Asia/Shanghai", locale: "zh-CN", week_start: "monday", retention_days: 180, data_region: "", brand: { name: "Redstring", logo: null, pending: false } }));
+    await page.goto(origin + "/services");
+    await page.getByRole("button", { name: "切换工作区" }).click({ timeout: 20_000 });
+    await expect(page.getByText("检查工作区 · 当前工作区", { exact: true })).toBeVisible();
+    await expect(page.getByText("交易平台", { exact: false })).toHaveCount(0);
+  });
+});

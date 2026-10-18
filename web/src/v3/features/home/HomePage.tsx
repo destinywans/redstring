@@ -150,6 +150,8 @@ export default function HomePage() {
   const can = usePermission();
   const chatBlocked = can(["conversation", "change"]);
   // Headline counts services whose alerts are still firing (PA-58), not attention rows.
+  // PA-222: the server has no to-do source yet (todo_actions=not_connected) and always sends []; that is unknown, not 0.
+  const todosKnown = !!data && !data.availability?.todo_actions;
   const firing = data ? (data.firing_services !== undefined ? data.firing_services : data.attention.filter((x) => x.severity === "P1" || x.severity === "P2").length) : undefined;
   const fKind = useFacet(data?.activity, (a) => a.kind);
   const KIND_LABEL: Record<string, string> = { ai: tx("AI", "AI"), change: tx("变更", "Changes"), alert: tx("告警", "Alerts"), runbook: "Runbook", approval: tx("审批", "Approvals"), system: tx("系统", "System") };
@@ -183,6 +185,8 @@ export default function HomePage() {
             <p className="muted">
               {!data ? (
                 <Skeleton w={260} h={12} />
+              ) : !todosKnown ? (
+                firing === null ? tx("服务告警情况未知", "Service alert state unknown") : tx("{a} 个服务异常", "{a} services degraded", { a: firing ?? 0 })
               ) : firing === null ? (
                 tx("服务告警情况未知，{t} 项等待你处理", "Service alert state unknown, {t} items waiting for you", { t: data.todos.length })
               ) : (
@@ -218,7 +222,7 @@ export default function HomePage() {
             <ul>
               {data?.attention.map((a) => (
                 <li key={a.id} className="attn hrow">
-                  <Sev p={a.severity} />
+                  {a.severity ? <Sev p={a.severity} /> : <UnknownValue />}
                   <div className="v3-col grow" style={{ gap: 2 }}>
                     <Row gap={6}>
                       <b style={{ fontWeight: 600 }}>{a.service}</b>
@@ -257,7 +261,8 @@ export default function HomePage() {
           </Card>
 
           <Card className="home-card anim-rise">
-            <CardHead title={tx("待我处理", "My queue")} count={data?.todos.length} right={<TextLink to="/inbox">{tx("全部", "All")}</TextLink>} />
+            <CardHead title={tx("待我处理", "My queue")} count={todosKnown ? data?.todos.length : undefined} right={<TextLink to="/inbox">{tx("全部", "All")}</TextLink>} />
+            {data && !todosKnown && <Unavailable reason="not_tracked" icon="check" title={tx("还没有待办来源", "No to-do source yet")} desc={tx("平台目前不汇总需要你处理的事项；告警和事件在收件箱里。", "The platform doesn't gather the items waiting for you yet; alerts and incidents are in the inbox.")} />}
             <ul>
               {data?.todos.map((t) => (
                 <li key={t.id} className="todo hrow">

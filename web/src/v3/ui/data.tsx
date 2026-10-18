@@ -2,7 +2,7 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Card, Delta, Icon, Muted, Skeleton, cx, toneColor, type Tone } from "./core";
 import { Lines, Sparkline } from "../charts";
 import { useI18n } from "../i18n";
-import { LoadError } from "./unknown";
+import { LoadError, UnknownValue } from "./unknown";
 
 export type Column<T> = {
   key: string;
@@ -156,7 +156,7 @@ export function DataTable<T>({
   );
 }
 
-/** Compact KPI card with value, delta and sparkline. */
+/** Compact KPI card with value, delta and sparkline. A null value is unknown, never a blank (PA-222). */
 export function Kpi({ label, value, unit, sub, tone, values, delta, deltaGood = true, small }: { label: ReactNode; value: ReactNode; unit?: string; sub?: ReactNode; tone?: Tone; values?: number[]; delta?: string; deltaGood?: boolean; small?: boolean }) {
   const color = tone ? toneColor(tone) : "var(--text)";
   return (
@@ -168,8 +168,8 @@ export function Kpi({ label, value, unit, sub, tone, values, delta, deltaGood = 
       </div>
       <div className="v3-row" style={{ gap: 8, alignItems: "flex-end" }}>
         <b className={cx("value", small && "sm")} style={{ color }}>
-          {value}
-          {unit && <span className="unit">{unit}</span>}
+          {value ?? <UnknownValue />}
+          {unit && value != null && <span className="unit">{unit}</span>}
         </b>
         <span style={{ flexGrow: 1 }} />
         {values && !small && <Sparkline values={values} color={tone ? toneColor(tone) : "var(--accent)"} width={72} height={24} />}

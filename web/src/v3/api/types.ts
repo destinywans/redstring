@@ -7,6 +7,8 @@
 
 export type Tone = "neutral" | "accent" | "ok" | "warn" | "danger" | "info";
 export type Severity = "P1" | "P2" | "P3" | "P4";
+/** Why an alert severity is null: the alert carried none (not_filled) or its value maps onto no level (unclassified). */
+export type SeverityReason = "not_filled" | "unclassified";
 export type EnvName = "prod" | "staging" | "test";
 export type Tier = "T0" | "T1" | "T2" | "T3";
 /** Why a value is unknown (V3UnknownReason). */
@@ -79,13 +81,14 @@ export type HomeSummary = {
   suggestions: { id: string; text: string; tone?: Tone; icon: string }[];
   kpis: Kpi[];
   /** alert_state: is the incident's alert still firing (null when the source didn't say). Resolved items stay listed (D7). */
-  attention: { id: string; severity: Severity; service: string; env: EnvName; symptom: string; meta: string; ai: "done" | "running" | null; owner?: string; href: string; alert_state?: "firing" | "resolved" | null; /** PA-83: the time inside meta (alert start while firing, else last update). */ at?: string }[];
+  attention: { id: string; severity: Severity | null; severity_reason?: SeverityReason; service: string; env: EnvName; symptom: string; meta: string; ai: "done" | "running" | null; owner?: string; href: string; alert_state?: "firing" | "resolved" | null; /** PA-83: the time inside meta (alert start while firing, else last update). */ at?: string }[];
   /** Distinct visible services whose alerts are still firing; null without events.view (PA-58). */
   firing_services?: number | null;
   todos: { id: string; kind: "approval" | "report" | "runbook" | "access"; title: string; meta: string; action: string; href: string }[];
   services: { id: string; name: string; tier: Tier | null; status: "ok" | "warn" | "danger" | null; budget_pct: number | null; p99: string | null; error_rate: string | null; series: number[] | null }[];
   /** labels are UTC HH:MM (compatibility); bucket i starts at start + i * step_seconds — label it in the viewer's zone (PA-25). */
-  alert_trend: { start?: string; step_seconds?: number; counts: [number, number, number, number][]; summary: string } | null;
+  /** unknown_severity: deliveries whose alert severity is unknown, counted in the summary total but not in counts (PA-239). */
+  alert_trend: { start?: string; step_seconds?: number; counts: [number, number, number, number][]; unknown_severity?: number; summary: string } | null;
   /** Per-section evidence state from the server, e.g. { alert_trend: "no_authorized_target", oncall: "not_connected" }. */
   availability?: Record<string, string>;
   activity: Activity[];
@@ -282,7 +285,9 @@ export type AlertNotification = { channel: string; time?: string; text?: string;
  */
 export type AlertDetail = {
   id: string;
-  severity: Severity;
+  /** null when the server can't map the recorded severity onto P1–P4; severity_reason says why (PA-239). */
+  severity: Severity | null;
+  severity_reason?: SeverityReason;
   title: string;
   state: "firing" | "pending" | "resolved";
   source: string | null;
@@ -308,7 +313,9 @@ export type AlertInstance = { id: string; value: string | null; state: "firing" 
 /** Real groups are local persisted incidents: service is the application ID, owner/inhibited/notify.channel may be null. */
 export type AlertGroup = {
   id: string;
-  severity: Severity;
+  /** The highest member severity; null when a member's is unknown and none is P1 (PA-239). */
+  severity: Severity | null;
+  severity_reason?: SeverityReason;
   labels: { k: string; v: string }[];
   service: string;
   /** The members' alertname; null when they disagree, absent from older servers and the sample (PA-130). */
@@ -355,7 +362,9 @@ export type PersonPeek = { id: string; name: string; role: string | null; oncall
  */
 export type Incident = {
   id: string;
-  severity: Severity;
+  /** Alert records: null when the recorded severity maps onto no level (PA-239); cases are always P1–P4. */
+  severity: Severity | null;
+  severity_reason?: SeverityReason;
   title: string;
   status: "active" | "mitigated" | "resolved";
   duration: string | null;

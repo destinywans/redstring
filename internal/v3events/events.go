@@ -17,6 +17,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3events/alertseverity"
 	"github.com/wans/aiops-canvas/internal/v3interactionaudit"
 )
 
@@ -226,12 +227,15 @@ func (s *Service) incident(ctx context.Context, id string) (incidentRecord, erro
 }
 
 type incidentSummary struct {
-	ID        string `json:"id"`
-	Severity  string `json:"severity"`
-	Title     string `json:"title"`
-	Status    string `json:"status"`
-	Duration  string `json:"duration"`
-	Commander string `json:"commander"`
+	ID string `json:"id"`
+	// Severity is null when the recorded value maps onto no level;
+	// SeverityReason then says why (PA-239).
+	Severity       *string `json:"severity"`
+	SeverityReason *string `json:"severity_reason,omitempty"`
+	Title          string  `json:"title"`
+	Status         string  `json:"status"`
+	Duration       string  `json:"duration"`
+	Commander      string  `json:"commander"`
 }
 
 type label struct {
@@ -243,18 +247,7 @@ type badge struct {
 	Tone string `json:"tone"`
 }
 
-func severityRank(code string) int {
-	switch code {
-	case "P1":
-		return 1
-	case "P2":
-		return 2
-	case "P3":
-		return 3
-	default:
-		return 4
-	}
-}
+func severityRank(code string) int { return alertseverity.Rank(code) }
 
 // A repeated severity parameter is a union over the aggregated group's
 // highest severity. The value "all" only means no severity filter.
@@ -315,18 +308,6 @@ func inboxTone(severityCode string) string {
 	}
 }
 
-func severity(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "p1", "critical", "fatal":
-		return "P1"
-	case "p2", "warning", "warn", "high":
-		return "P2"
-	case "p3", "info", "medium":
-		return "P3"
-	default:
-		return "P4"
-	}
-}
 func incidentStatus(v incidentRecord) string {
 	if v.Status == "resolved" {
 		return "resolved"
@@ -365,7 +346,8 @@ func summarize(v incidentRecord, now time.Time, t ...text) incidentSummary {
 			elapsed = duration(v.StartsAt, *v.ResolvedAt)
 		}
 	}
-	return incidentSummary{ID: v.ID, Severity: severity(v.Severity), Title: v.Title, Status: status, Duration: elapsed, Commander: v.Commander}
+	level, reason := alertseverity.StoredPtr(v.Severity, v.Labels)
+	return incidentSummary{ID: v.ID, Severity: level, SeverityReason: reason, Title: v.Title, Status: status, Duration: elapsed, Commander: v.Commander}
 }
 
 // listVisible captures alert fields in one statement before checking current

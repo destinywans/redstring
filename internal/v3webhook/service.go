@@ -215,6 +215,11 @@ func short(value string, max int) string {
 	return string(runes)
 }
 
+// storedSeverity is the severity label as sent, cut to the column width. An
+// alert without one is stored without one (""), so the views can say the
+// severity is unknown instead of showing a default (PA-240).
+func storedSeverity(labels map[string]string) string { return short(labels["severity"], 32) }
+
 func (s *Service) ingestOne(ctx context.Context, tx pgx.Tx, sourceID string, item mappedAlert) error {
 	a := item.alert
 	m := item.mapping
@@ -226,10 +231,7 @@ func (s *Service) ingestOne(ctx context.Context, tx pgx.Tx, sourceID string, ite
 	if title == "" {
 		title = "Alert"
 	}
-	severity := short(a.Labels["severity"], 32)
-	if severity == "" {
-		severity = "warning"
-	}
+	severity := storedSeverity(a.Labels)
 	summary := short(a.Annotations["summary"], 1000)
 	var ends *time.Time
 	if a.Status == "resolved" {

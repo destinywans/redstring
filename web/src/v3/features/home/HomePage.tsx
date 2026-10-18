@@ -222,7 +222,7 @@ export default function HomePage() {
             <ul>
               {data?.attention.map((a) => (
                 <li key={a.id} className="attn hrow">
-                  {a.severity ? <Sev p={a.severity} /> : <UnknownValue />}
+                  {a.severity ? <Sev p={a.severity} /> : <UnknownValue label={tx("级别未知", "Unknown severity")} reason={a.severity_reason === "not_filled" ? a.severity_reason : undefined} />}
                   <div className="v3-col grow" style={{ gap: 2 }}>
                     <Row gap={6}>
                       <b style={{ fontWeight: 600 }}>{a.service}</b>

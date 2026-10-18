@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3events/alertseverity"
 )
 
 var errTooManyIncidentNotes = errors.New("incident manual timeline exceeds read limit")
@@ -19,13 +20,16 @@ var errTooManyCaseAlerts = errors.New("incident case alert links exceed read lim
 // In particular, an alert's start time is not an incident lifecycle event,
 // and an assignee is not necessarily the incident commander.
 type IncidentDetailResponse struct {
-	Participants    []string                `json:"participants"`
-	ID              string                  `json:"id"`
-	ApplicationID   string                  `json:"application_id"`
-	EnvironmentID   string                  `json:"environment_id"`
-	EnvironmentKey  string                  `json:"environment_key"`
-	SourceID        string                  `json:"source_id"`
-	Severity        string                  `json:"severity"`
+	Participants   []string `json:"participants"`
+	ID             string   `json:"id"`
+	ApplicationID  string   `json:"application_id"`
+	EnvironmentID  string   `json:"environment_id"`
+	EnvironmentKey string   `json:"environment_key"`
+	SourceID       string   `json:"source_id"`
+	// Severity is null, with SeverityReason and "severity" in Unavailable,
+	// when the recorded value maps onto no level (PA-239).
+	Severity        *string                 `json:"severity"`
+	SeverityReason  *string                 `json:"severity_reason,omitempty"`
 	Title           string                  `json:"title"`
 	Status          string                  `json:"status"`
 	WorkStatus      string                  `json:"work_status"`
@@ -363,8 +367,8 @@ func (s *Service) Incident(w http.ResponseWriter, r *http.Request) {
 		respondIncidentDetailError(w, err)
 		return
 	}
-	severityCode, ok := alertDetailSeverity(v.Severity)
-	if !ok || v.ID == "" || v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" ||
+	severityCode, severityReason := alertseverity.StoredPtr(v.Severity, v.Labels)
+	if v.ID == "" || v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" ||
 		v.SourceID == "" || strings.TrimSpace(v.Title) == "" || v.StartsAt.IsZero() || v.UpdatedAt.IsZero() {
 		respondIncidentDetailError(w, store.ErrInvalidReference)
 		return
@@ -403,7 +407,7 @@ func (s *Service) Incident(w http.ResponseWriter, r *http.Request) {
 	result := IncidentDetailResponse{
 		ID: v.ID, ApplicationID: v.ApplicationID, EnvironmentID: v.EnvironmentID,
 		EnvironmentKey: v.EnvironmentKey, SourceID: v.SourceID,
-		Severity: severityCode, Title: v.Title, Status: status,
+		Severity: severityCode, SeverityReason: severityReason, Title: v.Title, Status: status,
 		WorkStatus: v.Status, AlertStatus: v.AlertStatus, Summary: v.Summary,
 		AlertStartedAt: v.StartsAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt:      v.UpdatedAt.UTC().Format(time.RFC3339Nano),
@@ -411,6 +415,9 @@ func (s *Service) Incident(w http.ResponseWriter, r *http.Request) {
 		Roles: []incidentDetailRole{}, Links: incidentLinks(v.InvestigationID, investigationTitle, nil),
 		AssigneeID: v.AssigneeID, InvestigationID: v.InvestigationID, Partial: true,
 		Unavailable: []string{"duration", "duration_basis", "commander", "stage", "impact.peak", "impact.budget_used", "impact.budget_left", "impact.note", "impact.series", "timeline.system_events", "links.alert_group", "links.proposal", "links.change"},
+	}
+	if severityCode == nil {
+		result.Unavailable = append(result.Unavailable, "severity")
 	}
 	if v.AssigneeID != "" {
 		if strings.TrimSpace(v.Commander) == "" {

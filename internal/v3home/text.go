@@ -70,7 +70,13 @@ func (t text) summary(incidents, proposals int, eventsVisible, reviewsVisible bo
 	}
 }
 
-func (t text) trendSummary(d time.Duration, total int) string {
+// trendSummary counts every stored delivery; unknown of them have no known
+// severity and are not in the per-level bars (PA-239).
+func (t text) trendSummary(d time.Duration, total, unknown int) string {
+	if unknown > 0 {
+		return t.pick(fmt.Sprintf("%s已入库告警接收记录 %d 条，其中 %d 条级别未知、未计入分级柱；不代表外部来源完整覆盖", t.window(d), total, unknown),
+			fmt.Sprintf("%d alert deliveries stored in the %s, %d of them with unknown severity and not in the severity bars; this does not prove full coverage of the external source", total, t.window(d), unknown))
+	}
 	return t.pick(fmt.Sprintf("%s已入库告警接收记录 %d 条；不代表外部来源完整覆盖", t.window(d), total),
 		fmt.Sprintf("%d alert deliveries stored in the %s; this does not prove full coverage of the external source", total, t.window(d)))
 }

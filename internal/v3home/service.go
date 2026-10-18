@@ -55,11 +55,14 @@ type KPI struct {
 }
 
 type Attention struct {
-	ID       string  `json:"id"`
-	Severity *string `json:"severity"`
-	Service  string  `json:"service"`
-	Env      string  `json:"env"`
-	Symptom  string  `json:"symptom"`
+	ID string `json:"id"`
+	// Severity is null when the recorded value maps onto no level;
+	// SeverityReason then says why (PA-239).
+	Severity       *string `json:"severity"`
+	SeverityReason *string `json:"severity_reason,omitempty"`
+	Service        string  `json:"service"`
+	Env            string  `json:"env"`
+	Symptom        string  `json:"symptom"`
 	// Meta says whether the incident is a firing alert; At is its time (the
 	// alert start while firing, otherwise the last update) in RFC 3339. Meta
 	// no longer repeats the time (PA-83).
@@ -111,11 +114,15 @@ type Recent struct {
 // AlertTrend buckets: bucket i covers [start+i*step, start+(i+1)*step).
 // Clients label buckets from Start and StepSeconds in the viewer's time zone
 // (PA-25; the UTC "15:04" labels were removed in PA-83).
+// Counts holds P1–P4 per bucket; UnknownSeverity counts the deliveries in
+// the window whose alert severity is unknown, which Summary includes in its
+// total (PA-239).
 type AlertTrend struct {
-	Start       string   `json:"start"`
-	StepSeconds float64  `json:"step_seconds"`
-	Counts      [][4]int `json:"counts"`
-	Summary     string   `json:"summary"`
+	Start           string   `json:"start"`
+	StepSeconds     float64  `json:"step_seconds"`
+	Counts          [][4]int `json:"counts"`
+	UnknownSeverity int      `json:"unknown_severity"`
+	Summary         string   `json:"summary"`
 }
 
 type Summary struct {

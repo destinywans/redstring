@@ -192,10 +192,9 @@ func (s *Service) Ingest(ctx context.Context, source Source, a Alert) error {
 		title = "Alert"
 	}
 	summary := short(a.Annotations["summary"], 1000)
+	// An alert without a severity label is stored without one (""), not as a
+	// default level (PA-240).
 	severity := short(a.Labels["severity"], 32)
-	if severity == "" {
-		severity = "warning"
-	}
 	id := store.ID()
 	var ends *time.Time
 	if a.Status == "resolved" {

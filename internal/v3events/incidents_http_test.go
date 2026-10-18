@@ -140,7 +140,7 @@ func TestIncidentsRegisteredHTTPUsesScopedDurableCloseTime(t *testing.T) {
 	if len(items) != 2 || counts["all"] != 4 || counts["active"] != 2 || counts["resolved"] != 2 {
 		t.Fatalf("default active items=%+v counts=%+v", items, counts)
 	}
-	if items[0].ID != "open" || items[0].Severity != "P1" || items[0].Duration != "1h 30m" || items[1].ID != "mitigated" || items[1].Status != "mitigated" || items[1].Duration != "2h 0m" || items[1].Commander != "" {
+	if items[0].ID != "open" || items[0].Severity == nil || *items[0].Severity != "P1" || items[0].Duration != "1h 30m" || items[1].ID != "mitigated" || items[1].Status != "mitigated" || items[1].Duration != "2h 0m" || items[1].Commander != "" {
 		t.Fatalf("active DTO/order=%+v", items)
 	}
 	resolved, _ := read("dev", "?status=resolved")

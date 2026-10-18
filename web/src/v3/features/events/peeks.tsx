@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { API_MODE, ApiError, useGet } from "../../api/client";
 import { Unavailable, UnknownValue, errorReason, type UnknownReason } from "../../ui/unknown";
-import type { PersonPeek, ServicePeek } from "../../api/types";
-import { Avatar, Badge, Btn, Dot, Env, KV, Muted, Row, Skeleton, Strong, Tier, Tile } from "../../ui/core";
+import type { PersonPeek, ServicePeek, Severity, SeverityReason } from "../../api/types";
+import { Avatar, Badge, Btn, Dot, Env, KV, Muted, Row, Sev, Skeleton, Strong, Tier, Tile } from "../../ui/core";
 import { HoverPeek, toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import { openExternal, openForm } from "../../ui/demo";
@@ -159,6 +159,15 @@ function PersonCard({ name }: { name: string }) {
 }
 
 /** Service name with a hover preview card (status, KPIs, owner, last change). */
+/**
+ * An alert severity, or 级别未知 when the server can't map it onto P1–P4 (PA-239, PA-240). Only "not_filled" has a
+ * reason text that fits; an unclassified value falls back to "the server returned no value".
+ */
+export function SeverityBadge({ p, reason }: { p: Severity | null; reason?: SeverityReason }) {
+  const { tx } = useI18n();
+  return p ? <Sev p={p} /> : <UnknownValue label={tx("级别未知", "Unknown severity")} reason={reason === "not_filled" ? reason : undefined} />;
+}
+
 export function ServicePeekLink({ id, children }: { id: string; children?: ReactNode }) {
   return (
     <HoverPeek content={() => <ServiceCard id={id} />}>

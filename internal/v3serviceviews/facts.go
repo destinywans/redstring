@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/core"
 	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/wans/aiops-canvas/internal/v3events/alertseverity"
 )
 
 // Time is At in RFC 3339, the time inside Meta (PA-83).
@@ -136,12 +137,14 @@ func (s *Service) observe(ctx context.Context, scope httpapi.V3EnvironmentScope,
 	}
 	if sourceID != "" {
 		var total, critical int
+		// Critical means the events views' P1 (PA-238): every raw value the
+		// shared table maps to P1, compared as it does (trimmed, any case).
 		err = s.Store.DB.QueryRow(ctx, `SELECT count(*)::int,
- count(*) FILTER (WHERE severity IN ('critical','fatal'))::int
+ count(*) FILTER (WHERE lower(btrim(i.severity))=ANY($4::text[]))::int
  FROM ops_incidents i
  JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
  WHERE i.application_id=$1 AND e.key=$2 AND i.source_id=$3
- AND i.alert_status='firing' AND NOT i.suspected`, row.AppID, row.Env, sourceID).Scan(&total, &critical)
+ AND i.alert_status='firing' AND NOT i.suspected`, row.AppID, row.Env, sourceID, alertseverity.Aliases("P1")).Scan(&total, &critical)
 		if err != nil {
 			return out, err
 		}

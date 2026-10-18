@@ -9,6 +9,7 @@ import { VBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import { PromoteButton } from "./PromoteDialog";
 import { useRunbookScope } from "./RunbooksPage";
+import { useRunbookSourceName } from "./NewRunbookPage";
 import "../../ui/forms.css";
 import "./knowledge.css";
 import { confirmAction } from "../../ui/demo";
@@ -38,6 +39,8 @@ export default function RunbookEditorPage() {
   const when = useWhen();
   const { data: rb } = useGet<Runbook>(`/runbooks/${id}`);
   const scopeLabel = useRunbookScope();
+  // PA-166: a real record's base is "<source kind>:<source ref>"; a postmortem reads as its title.
+  const sourceName = useRunbookSourceName(!!rb?.base?.startsWith("postmortem:"));
   const [accepted, setAccepted] = useState<"pending" | "yes" | "no">("pending");
   const [running, setRunning] = useState(false);
   const KIND: Record<RunbookStep["kind"], [Tone, string]> = { query: ["accent", tx("查询", "Query")], check: ["neutral", tx("判断", "Check")], action: ["warn", tx("动作", "Action")], verify: ["ok", tx("验证", "Verify")] };
@@ -51,12 +54,13 @@ export default function RunbookEditorPage() {
     );
   // PA-197: the badge says this version's review state; only a draft can be submitted (the server answers 409 otherwise).
   const status = rb.status ?? "draft";
+  const base = sourceName(rb.base);
   const states: Record<string, [Tone, string]> = {
-    draft: ["accent", tx("{v} 草稿 · 基于 {b}", "{v} draft · based on {b}", { v: rb.version, b: rb.base })],
-    review: ["warn", tx("{v} 待复核 · 基于 {b}", "{v} in review · based on {b}", { v: rb.version, b: rb.base })],
-    published: ["ok", tx("{v} 已发布 · 基于 {b}", "{v} published · based on {b}", { v: rb.version, b: rb.base })],
+    draft: ["accent", tx("{v} 草稿 · 基于 {b}", "{v} draft · based on {b}", { v: rb.version, b: base })],
+    review: ["warn", tx("{v} 待复核 · 基于 {b}", "{v} in review · based on {b}", { v: rb.version, b: base })],
+    published: ["ok", tx("{v} 已发布 · 基于 {b}", "{v} published · based on {b}", { v: rb.version, b: base })],
   };
-  const stateBadge: [Tone, string] = states[status] ?? ["neutral", `${rb.version} · ${rb.base}`];
+  const stateBadge: [Tone, string] = states[status] ?? ["neutral", `${rb.version} · ${base}`];
   const submittable = status === "draft";
   // PA-194: which steps failed the check and why, from the server's per-step reasons. A runbook with an action step
   // never passes (by design), so an action step names only that; a step without a reason this page knows (an older

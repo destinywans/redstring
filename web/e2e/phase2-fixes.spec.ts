@@ -441,3 +441,28 @@ test.describe("Runbook detail state (PA-197)", () => {
     await expect(page.getByRole("button", { name: "提交复核" })).toBeEnabled();
   });
 });
+
+test.describe("inbound webhook status (PA-202)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+  const inbound = (name: string, status: string, basis: string) => ({
+    id: `alertmanager:${name}`, source_id: name, event_type: "alert", brand: "prometheus", name, url: `/api/v1/webhooks/alertmanager/${name}`,
+    verify: "Bearer", count: "3", last_at: "2026-10-18T01:04:30Z", last_code: status === "error" ? 422 : 202, status, status_basis: basis,
+  });
+  test("an unverified source isn't shown as an error; ok and error keep their labels", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/webhooks"), (r) =>
+      json(r, 200, {
+        inbound: [inbound("pa202-unverified", "unverified", "health_unverified"), inbound("pa202-ok", "ok", "latest_receipt_in_window"), inbound("pa202-error", "error", "latest_receipt_in_window")],
+        deliveries: [], tokens: [], mcp: { enabled: false, url: "", tools: [], clients: "unknown" }, outbound: [],
+        availability: { inbound: "configured", native_inbound: "configured_health_unverified", api_tokens: "not_connected", public_mcp: "not_connected", outbound: "not_connected", receipt_window: "past_24_hours" },
+      }),
+    );
+    await page.goto(origin + "/integrations/webhooks");
+    const row = (name: string) => page.locator("tr", { hasText: name });
+    await expect(row("pa202-unverified")).toBeVisible({ timeout: 20_000 });
+    await expect(row("pa202-unverified")).toContainText("未验证");
+    await expect(row("pa202-unverified")).not.toContainText("异常");
+    await expect(row("pa202-ok")).toContainText("已启用");
+    await expect(row("pa202-error")).toContainText("异常");
+  });
+});

@@ -170,7 +170,8 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 		raw, _ := json.Marshal(body["links"])
 		return string(raw)
 	}
-	if got, want := links(body), `[{"kind":"investigation","label":"LabHigh5xxRate","href":"/canvas/`+investigation+`"}]`; got != want {
+	// body is decoded into a map, so the encoder sorts the keys: compare in that order.
+	if got, want := links(body), `[{"href":"/canvas/`+investigation+`","kind":"investigation","label":"LabHigh5xxRate"}]`; got != want {
 		t.Fatalf("alert links: %s, want %s", got, want)
 	}
 	if raw, _ := json.Marshal(body["unavailable"]); strings.Contains(string(raw), "links.investigation") {
@@ -191,8 +192,8 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 		t.Fatal("case investigation")
 	}
 	// A case links its investigation and the alerts it was confirmed from.
-	if got, want := links(body), `[{"kind":"investigation","label":"Manual checkout incident","href":"/canvas/`+caseInvestigation+`"},`+
-		`{"kind":"alert","label":"CheckoutErrors","href":"/incidents/case-alert"}]`; got != want {
+	if got, want := links(body), `[{"href":"/canvas/`+caseInvestigation+`","kind":"investigation","label":"Manual checkout incident"},`+
+		`{"href":"/incidents/case-alert","kind":"alert","label":"CheckoutErrors"}]`; got != want {
 		t.Fatalf("case links: %s, want %s", got, want)
 	}
 	if status, again := open("INC-1", "dev", token, `{}`); status != 200 || again["investigation_id"] != caseInvestigation {

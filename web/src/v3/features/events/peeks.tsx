@@ -6,6 +6,7 @@ import { Avatar, Badge, Btn, Dot, Env, KV, Muted, Row, Skeleton, Strong, Tier, T
 import { HoverPeek, toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import { openExternal, openForm } from "../../ui/demo";
+import { useServiceStatus } from "../observe/ServicesPage";
 
 /**
  * Why a peek couldn't be read: 403/404 is something this viewer can't see (the person peek answers 404 without
@@ -16,6 +17,7 @@ const peekReason = (error: unknown): UnknownReason | undefined =>
 
 function ServiceCard({ id }: { id: string }) {
   const { tx } = useI18n();
+  const serviceStatus = useServiceStatus();
   const { data, error } = useGet<ServicePeek>(`/services/${id}/peek`);
   // A failed read says why instead of an endless skeleton (PA-221).
   if (!data && error) return <Unavailable reason={peekReason(error)} icon="box" />;
@@ -40,9 +42,10 @@ function ServiceCard({ id }: { id: string }) {
           </Muted>
         </div>
         {data.status ? (
-          <Badge tone={data.status}>
+          // Same words as the service catalog: warn also comes from the error budget or burn, not only alerts (PA-209).
+          <Badge tone={data.status} title={serviceStatus(data.status).hint}>
             <Dot tone={data.status} size={6} />
-            {data.status === "danger" ? tx("异常", "Degraded") : data.status === "warn" ? tx("告警", "Alerting") : tx("正常", "Healthy")}
+            {serviceStatus(data.status).label}
           </Badge>
         ) : (
           <Badge>

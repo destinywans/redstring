@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { INSTANCES } from "./support/env";
 import { statePath } from "./support/global-setup";
 import { monitor } from "./support/monitor";
-import { at, json, zh } from "./support/checks";
+import { at, json, patchRead, toasts, zh } from "./support/checks";
 
 /**
  * Checks for the events and alerts part of the WAN-434 category sweep before round 3 (PA-210 to PA-229, events,
@@ -208,5 +208,114 @@ test.describe("the service card says why it can't load (PA-221)", () => {
     const card = page.locator(".v3-peek");
     await expect(card.locator(".unk-block")).toContainText("暂时不可用", { timeout: 10_000 });
     await expect(card.locator(".skeleton")).toHaveCount(0);
+  });
+});
+
+/* ---------------- incidents ---------------- */
+type Grants = Record<string, Record<string, Record<string, string>>>;
+/** /me without the given "module.action" grants in every environment (the real answer, patched). */
+async function meWithout(page: Page, drop: string[]) {
+  await page.goto(origin + "/healthz");
+  await patchRead(page, "/me", (real: { permissions?: Grants }) => {
+    const permissions: Grants = {};
+    for (const [env, modules] of Object.entries(real.permissions ?? {})) {
+      permissions[env] = {};
+      for (const [module, actions] of Object.entries(modules ?? {})) permissions[env][module] = Object.fromEntries(Object.entries(actions).filter(([action]) => !drop.includes(`${module}.${action}`)));
+    }
+    return { ...real, permissions };
+  });
+}
+/** The screen-reader reason of the permission gate around the entry with this text. */
+const gateReason = (page: Page, text: string) => page.locator(".perm-gate", { hasText: text }).locator(".sr-only");
+const NEEDS_EVENTS = "需要 事件与告警·修改 权限";
+
+const INC = "INC-check-sweep";
+/** A human-confirmed case as GET /incidents/{id} returns it. */
+const incident = (patch: Record<string, unknown> = {}) => ({
+  id: INC,
+  record_kind: "case",
+  application_id: "app-check",
+  environment_id: "env-check",
+  environment_key: "prod",
+  source_id: null,
+  severity: "P2",
+  title: "检查用事件",
+  status: "active",
+  status_revision: 1,
+  resolved_status_event_id: null,
+  work_status: null,
+  alert_status: null,
+  summary: null,
+  created_at: at0,
+  alert_started_at: null,
+  updated_at: at0,
+  resolved_at: null,
+  duration: null,
+  duration_basis: null,
+  assignee_id: null,
+  assignee: null,
+  commander: null,
+  commander_provenance: "unknown",
+  stage: null,
+  timeline: [],
+  timeline_scope: "manual_only",
+  impact: { peak: null, budget_used: null, budget_left: null, note: null, series: null },
+  impact_provenance: "unknown",
+  roles: [],
+  links: [],
+  investigation_id: "INV-check",
+  alert_ids: ["alert-check"],
+  participants: [],
+  partial: true,
+  unavailable: ["source_id", "work_status", "alert_status", "summary", "duration", "duration_basis", "assignee", "stage", "impact.peak", "impact.budget_used", "impact.budget_left", "impact.series", "timeline.system_events", "commander"],
+  ...patch,
+});
+/** Pins the incident list (`items` summaries) and, when given, one incident detail. */
+async function pinIncidents(page: Page, items: Record<string, unknown>[], detail?: Record<string, unknown>) {
+  await page.route(at("/incidents"), (r) => (r.request().method() === "GET" ? json(r, 200, { items, counts: { active: items.filter((x) => x.status === "active").length } }) : r.fallback()));
+  if (detail) {
+    await page.route(at(`/incidents/${detail.id}`), (r) => json(r, 200, detail));
+    await page.route(at(`/incidents/${detail.id}/changes`), (r) => json(r, 503, { error: { code: "changes_unavailable", message: "Check: not pinned" } }));
+  }
+}
+const summaryOf = (x: Record<string, unknown>) => ({ id: x.id, severity: x.severity, title: x.title, status: x.status, duration: null, commander: null });
+
+test.describe("the incidents page explains an empty list or a record it can't read (PA-219)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("no active incidents: the main area says so instead of a skeleton", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await pinIncidents(page, []);
+    await page.goto(origin + "/incidents");
+    await expect(page.locator(".main").getByText("没有进行中的事件")).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".main .skeleton")).toHaveCount(0);
+    expect(m.pageErrors).toEqual([]);
+  });
+
+  test("an incident that doesn't exist says not found", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinIncidents(page, []);
+    await page.route(at("/incidents/INC-check-missing"), (r) => json(r, 404, { error: { code: "not_found", message: "Incident not found" } }));
+    await page.goto(origin + "/incidents/INC-check-missing");
+    await expect(page.getByText("找不到这条记录", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".main .skeleton")).toHaveCount(0);
+  });
+
+  test("a failed incident read says the source is unavailable", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinIncidents(page, [summaryOf(incident())]);
+    await page.route(at(`/incidents/${INC}`), (r) => json(r, 503, { error: { code: "events_unavailable", message: "Check" } }));
+    await page.goto(origin + `/incidents/${INC}`);
+    await expect(page.locator(".main").getByText("暂时不可用", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".main .skeleton")).toHaveCount(0);
+  });
+
+  test("a failed list read says so", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/incidents"), (r) => json(r, 503, { error: { code: "events_unavailable", message: "Check" } }));
+    await page.goto(origin + "/incidents");
+    await expect(page.locator(".main").getByText("暂时不可用", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".main .skeleton")).toHaveCount(0);
   });
 });

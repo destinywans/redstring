@@ -615,3 +615,94 @@ test.describe("incident writes need events.change (PA-228)", () => {
     await expect(page.locator(".v3-drawer .perm-gate", { hasText: "创建事件" }).locator(".sr-only")).toHaveText(NEEDS_EVENTS);
   });
 });
+
+/* ---------------- changes ---------------- */
+const SERVICE = Buffer.from("app-check\u0000prod").toString("base64url");
+const PIPELINE_STATES = { waiting_for_resource: "等待资源", preparing: "准备中", waiting_for_callback: "等待回调", canceling: "取消中", scheduled: "已排期" } as const;
+const pipeline = (n: number, status: string) => ({ id: `gitlab:pipeline:${n}`, pipeline_id: n, status, ref: "main", sha: `${n}`.padEnd(40, "a"), short_sha: `${n}`.padEnd(8, "a"), source: "push", created_at: at0, updated_at: at0, web_url: null, merge_request_iid: null, deployment_ids: [] });
+const changesView = {
+  service_id: SERVICE,
+  environment_id: "env-check",
+  source: "gitlab",
+  window: { start_at: "2026-10-17T09:00:00Z", end_at: at0 },
+  project: { connector_id: "gitlab-check", project_id: "42", path: "check/app", web_url: "https://gitlab.example.invalid/check/app", deploy_environment: "production", refs: ["main"] },
+  kpis: [],
+  series_start_at: "2026-10-17T09:00:00Z",
+  series_step_seconds: 3600,
+  deployments: [],
+  pipelines: Object.keys(PIPELINE_STATES).map((s, i) => pipeline(101 + i, s)),
+  merge_requests: [],
+  alerts: null,
+  kubernetes_revisions: null,
+  coverage: { gitlab: "complete", alerts: "unknown", kubernetes: "not_configured" },
+  captured_at: at0,
+  unavailable: {},
+};
+const job = (id: number, name: string, status: string, manual = false) => ({ id, name, status, manual, started_at: null, finished_at: null, duration_seconds: null, web_url: null });
+const pipelineDetail = {
+  id: "gitlab:pipeline:101",
+  pipeline_id: 101,
+  status: "canceled",
+  ref: "main",
+  sha: "101".padEnd(40, "a"),
+  source: "push",
+  user: { username: "check" },
+  created_at: at0,
+  started_at: null,
+  finished_at: null,
+  duration_seconds: null,
+  web_url: null,
+  stages: [{ name: "test", status: "canceled", jobs: [job(1, "check-canceled", "canceled"), job(2, "check-skipped", "skipped"), job(3, "check-manual", "manual", true), job(4, "check-pending", "pending")] }],
+  commit: null,
+  merge_request_iid: null,
+  adjacent_alerts: null,
+  unavailable: {},
+};
+async function openPipeline(page: Page) {
+  await page.route(at("/changes"), (r) => json(r, 200, changesView));
+  await page.route(at("/changes/pipelines/101"), (r) => json(r, 200, pipelineDetail));
+  await page.goto(origin + `/changes?service_id=${SERVICE}&range=24h&focus=gitlab:pipeline:101`);
+  await page.locator(".chg-table tr.clickable", { hasText: "#101" }).click({ timeout: 20_000 });
+  await expect(page.locator(".v3-drawer .dag")).toBeVisible();
+}
+
+test.describe("GitLab states the server allows are said in words (PA-166)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("pipeline states have Chinese labels, and canceled, skipped and manual jobs say what they are", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await openPipeline(page);
+    const table = page.locator(".chg-table");
+    for (const [raw, label] of Object.entries(PIPELINE_STATES)) {
+      await expect(table.locator(".v3-badge", { hasText: label })).toHaveCount(1);
+      await expect(table).not.toContainText(raw);
+    }
+    const tile = (name: string) => page.locator(".v3-drawer .dag-job", { hasText: name });
+    await expect(tile("check-canceled")).toHaveAttribute("title", /已取消/);
+    await expect(tile("check-skipped")).toHaveAttribute("title", /已跳过/);
+    await expect(tile("check-manual")).toHaveAttribute("title", /待手动/);
+    await expect(tile("check-pending")).toHaveAttribute("title", /等待中/);
+    expect(m.pageErrors).toEqual([]);
+  });
+});
+
+test.describe("pipeline drawer actions name the permission they need (PA-228)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("without conversation.change, bringing it into an investigation is disabled", async ({ page }) => {
+    await page.addInitScript(zh);
+    await meWithout(page, ["conversation.change"]);
+    await openPipeline(page);
+    await expect(gateReason(page, "带入调查")).toHaveText("需要 对话与画布·修改 权限");
+    await expect(page.locator(".v3-drawer .perm-gate", { hasText: "提议回滚" })).toHaveCount(0);
+  });
+
+  test("without proposals.change, proposing a rollback is disabled", async ({ page }) => {
+    await page.addInitScript(zh);
+    await meWithout(page, ["proposals.change"]);
+    await openPipeline(page);
+    await expect(gateReason(page, "提议回滚")).toHaveText("需要 写操作提案·修改 权限");
+    await expect(page.getByRole("button", { name: "提议回滚" })).toBeDisabled();
+  });
+});

@@ -2,9 +2,9 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, newIdempotencyKey, useGet } from "../../api/client";
-import { UnknownValue } from "../../ui/unknown";
+import { LoadError, UnknownValue } from "../../ui/unknown";
 import type { Incident } from "../../api/types";
-import { AiAvatar, Avatar, Brand, Btn, Card, Chip, Col, IconBtn, Input, KV, Mono, Muted, Panel, Pills, Row, Sev, Skeleton, Spacer, State, Stepper, TextLink, cx, type Tone } from "../../ui/core";
+import { AiAvatar, Avatar, Brand, Btn, Card, Chip, Col, Empty, IconBtn, Input, KV, Mono, Muted, Panel, Pills, Row, Sev, Skeleton, Spacer, State, Stepper, TextLink, cx, type Tone } from "../../ui/core";
 import { MenuButton, toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
@@ -26,7 +26,10 @@ export default function IncidentsPage() {
   const list = useGet<{ items: Summary[]; counts: Record<string, number> }>("/incidents", { status });
   // Without an id in the route, show the first incident of the current list (never a fixture id).
   const id = routeId ?? list.data?.items[0]?.id ?? "";
-  const { data: inc, refetch } = useGet<Incident>(id ? `/incidents/${id}` : null);
+  const { data: inc, error: incError, refetch } = useGet<Incident>(id ? `/incidents/${id}` : null);
+  // PA-219: with nothing to show, the main area says why instead of loading forever.
+  const listEmpty = !routeId && !!list.data && !list.data.items.length;
+  const mainError = incError ?? (!routeId && !list.data ? list.error : null);
   const demo = API_MODE === "mock";
   const [notes, setNotes] = useState<{ time: string; text: string }[]>([]);
   const [draft, setDraft] = useState("");
@@ -103,7 +106,15 @@ export default function IncidentsPage() {
           </ul>
         </div>
         <div className="main">
-          {!inc ? (
+          {!inc && mainError ? (
+            <LoadError error={mainError} source={tx("事件记录", "incident records")} />
+          ) : !inc && listEmpty ? (
+            <Empty
+              icon="alert"
+              title={status === "active" ? tx("没有进行中的事件", "No active incidents") : status === "resolved" ? tx("没有已解决的事件", "No resolved incidents") : tx("还没有事件", "No incidents yet")}
+              desc={demo ? undefined : tx("事件从告警创建：在收件箱的告警上选「创建事件」。", "Incidents start from alerts: use “Create incident” on an alert in the inbox.")}
+            />
+          ) : !inc ? (
             <Col gap={12} style={{ padding: 20 }}>
               <Skeleton h={28} />
               <Skeleton h={60} />

@@ -406,11 +406,27 @@ func TestServiceViewsCompleteHTTPAndBoundaries(t *testing.T) {
  VALUES('res-payments','checkout-app','checkout-test')`); err != nil {
 		t.Fatal(err)
 	}
-	if d = getDetail(t, get, "checkout-app"); d.Deps != nil || d.Unavailable["deps"] != reasonUnavailable ||
-		d.Tabs["deps"] != nil || d.Unavailable["tabs.deps"] != reasonUnavailable || d.AI == nil {
+	// A relation that can't be drawn as an edge is not a failed read: it has
+	// its own reason, so the page doesn't offer a refresh (PA-191).
+	if d = getDetail(t, get, "checkout-app"); d.Deps != nil || d.Unavailable["deps"] != reasonUnmappedRelation ||
+		d.Tabs["deps"] != nil || d.Unavailable["tabs.deps"] != reasonUnmappedRelation || d.AI == nil {
 		t.Fatalf("shared resource was attributed to one service: %+v", d)
 	}
 	if _, err = st.DB.Exec(t.Context(), `DELETE FROM cmdb_resource_applications WHERE resource_id='res-payments' AND application_id='checkout-app'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.DB.Exec(t.Context(), `INSERT INTO cmdb_resources(id,kind,name,source_kind) VALUES('res-checkout-pod','pod','checkout-0','kubernetes')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.DB.Exec(t.Context(), `INSERT INTO cmdb_resource_relations(id,source_resource_id,target_resource_id,kind,provenance,source_kind)
+ VALUES('checkout-pod-owner','res-checkout-pod','res-checkout','belongs_to','discovered','kubernetes')`); err != nil {
+		t.Fatal(err)
+	}
+	if d = getDetail(t, get, "checkout-app"); d.Deps != nil || d.Unavailable["deps"] != reasonUnmappedRelation ||
+		d.Unavailable["tabs.deps"] != reasonUnmappedRelation {
+		t.Fatalf("a discovered non-dependency relation was not an explicit unmapped relation: %+v", d)
+	}
+	if _, err = st.DB.Exec(t.Context(), `DELETE FROM cmdb_resources WHERE id='res-checkout-pod'`); err != nil {
 		t.Fatal(err)
 	}
 	// A new current context revision may retain an older assistant message.

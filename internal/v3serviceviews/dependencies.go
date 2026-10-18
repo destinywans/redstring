@@ -12,8 +12,10 @@ type relationRow struct{ id, kind, mineResource, otherResource, direction string
 // resources have a direction and service-level status suitable for this DTO.
 // Any other visible relation, shared resource or dependency the reader cannot
 // see makes the whole dependency list unknown instead of silently shorter.
-// This keeps the displayed count equal to the real edges. A dependency's own
-// status may still be unknown; its unavailable map says why.
+// This keeps the displayed count equal to the real edges. Those cases share
+// one reason, unmapped_relation, so the reply does not tell a hidden
+// dependency from an unmappable relation; a failed read fails the request.
+// A dependency's own status may still be unknown; its unavailable map says why.
 func (s *Service) dependencies(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow) (dependencySides, []checked, error) {
 	out := dependencySides{Upstream: []dependency{}, Downstream: []dependency{}}
 	visible, err := s.canView(ctx, user, row, "resources")
@@ -63,7 +65,7 @@ func (s *Service) dependencies(ctx context.Context, scope httpapi.V3EnvironmentS
 	statusCache := map[string]observation{}
 	for _, rel := range relations {
 		if rel.kind != "depends_on" {
-			return out, nil, unknown(reasonUnavailable)
+			return out, nil, unknown(reasonUnmappedRelation)
 		}
 		mineApp, err := s.resourceOwner(ctx, rel.mineResource, row.Env)
 		if err != nil {
@@ -74,7 +76,7 @@ func (s *Service) dependencies(ctx context.Context, scope httpapi.V3EnvironmentS
 			return out, nil, err
 		}
 		if mineApp != row.AppID || otherApp == row.AppID {
-			return out, nil, unknown(reasonUnavailable)
+			return out, nil, unknown(reasonUnmappedRelation)
 		}
 		edgeKey := rel.direction + "\x00" + otherApp
 		if seenEdges[edgeKey] {
@@ -85,7 +87,7 @@ func (s *Service) dependencies(ctx context.Context, scope httpapi.V3EnvironmentS
 			return out, nil, e
 		}
 		if len(matched) != 1 {
-			return out, nil, unknown(reasonUnavailable)
+			return out, nil, unknown(reasonUnmappedRelation)
 		}
 		other := matched[0]
 		resourceAllowed, e := s.canView(ctx, user, other, "resources")
@@ -93,7 +95,7 @@ func (s *Service) dependencies(ctx context.Context, scope httpapi.V3EnvironmentS
 			return out, nil, e
 		}
 		if !resourceAllowed {
-			return out, nil, unknown(reasonUnavailable)
+			return out, nil, unknown(reasonUnmappedRelation)
 		}
 		obs, cached := statusCache[otherApp]
 		if !cached {
@@ -136,7 +138,7 @@ func (s *Service) resourceOwner(ctx context.Context, resourceID, env string) (st
 		return "", err
 	}
 	if len(owners) != 1 {
-		return "", unknown(reasonUnavailable) // shared or unattributed resource
+		return "", unknown(reasonUnmappedRelation) // shared or unattributed resource
 	}
 	return owners[0], nil
 }

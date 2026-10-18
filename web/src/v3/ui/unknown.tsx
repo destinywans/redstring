@@ -12,7 +12,7 @@ import "./unknown.css";
  * reason when it has no trustworthy evidence; the UI shows that honestly and never renders an
  * unknown as 0, "healthy" or "not on call".
  */
-export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale" | (string & {});
+export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale" | "unmapped_relation" | (string & {});
 
 export function useReasonText() {
   const { tx } = useI18n();
@@ -44,6 +44,13 @@ export function useReasonText() {
         return { label: tx("跳过了不完整的链路", "Incomplete traces skipped"), desc: tx("有链路缺少部分 Span 被跳过，这次不给出总数、分面和分布。", "Traces missing spans were skipped, so no totals, facets or charts this time."), configurable: false };
       case "stale":
         return { label: tx("数据已过期", "Out of date"), desc: tx("最近一次成功采集已过期。", "The last successful collection is out of date."), configurable: false };
+      // Recorded relations that don't map to service dependencies: nothing failed and a refresh won't change it (PA-191).
+      case "unmapped_relation":
+        return {
+          label: tx("关系无法表示为依赖", "Relations don't map to dependencies"),
+          desc: tx("CMDB 里有关联不能对应到你可见的服务之间的依赖（比如非依赖类关系或共享资源），为免列表不完整，这里不列出。", "Some CMDB relations don't map to dependencies between services you can see (such as non-dependency relations or shared resources), so no list is shown rather than an incomplete one."),
+          configurable: false,
+        };
       default:
         return { label: tx("暂无数据", "No data"), desc: tx("后端没有给出这项数据。", "The server returned no value for this."), configurable: false };
     }

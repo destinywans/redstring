@@ -25,8 +25,10 @@ type searchInput struct {
 }
 
 // RetrievalHit.Vector is null when the hit has no vector score: the search
-// read no vectors (degraded) or the hit's corpus has no vector index (public
-// Web and upload sources, PA-222). Corpus names the corpora entry it came from.
+// read no vectors (degraded), the hit's corpus has no vector index (public
+// Web and upload sources), or a document passage was found by keyword only and
+// never entered the vector candidates (PA-222). Corpus names the corpora entry
+// it came from.
 type RetrievalHit struct {
 	Title   string   `json:"title"`
 	Snippet string   `json:"snippet"`
@@ -311,6 +313,9 @@ ORDER BY a.id LIMIT 201`, user.ID, envs, service)
 type scoredHit struct {
 	hit             knowledge.Hit
 	keyword, vector float64
+	// inVector says the passage was among the vector candidates; one found
+	// by keyword only has no vector similarity, which is not 0 (PA-222).
+	inVector bool
 }
 
 func rankRetrieval(keyword, vector []knowledge.Hit, limit int, keywordOnly bool) []RetrievalHit {
@@ -336,6 +341,7 @@ func rankRetrieval(keyword, vector []knowledge.Hit, limit int, keywordOnly bool)
 		if byKey[k] == nil {
 			byKey[k] = &scoredHit{hit: h}
 		}
+		byKey[k].inVector = true
 		if h.Similarity > byKey[k].vector {
 			byKey[k].vector = h.Similarity
 		}
@@ -352,7 +358,7 @@ func rankRetrieval(keyword, vector []knowledge.Hit, limit int, keywordOnly bool)
 		var vector *float64
 		if keywordOnly {
 			score = kw
-		} else if corpus == "documents" {
+		} else if corpus == "documents" && s.inVector {
 			vector = &vec
 		}
 		out = append(out, RetrievalHit{Title: s.hit.Title, Snippet: snippet(s.hit.Content, 400), Keyword: kw, Vector: vector, Score: score, Corpus: corpus})

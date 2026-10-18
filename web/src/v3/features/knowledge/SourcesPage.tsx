@@ -179,8 +179,15 @@ export default function SourcesPage() {
                     {degraded || h.vector === null ? (
                       <Badge>
                         {tx("向量", "vector")}{" "}
-                        {/* Web pages and uploads have no vector index: nothing failed, their vector score isn't kept (PA-222). */}
-                        {NOT_INDEXED.has(h.corpus ?? "") ? <UnknownValue reason="not_tracked" source={tx("向量索引", "vector index")} /> : <UnknownValue reason="unavailable" source={tx("向量检索", "vector search")} />}
+                        {/* Web pages and uploads have no vector index: nothing failed, their vector score isn't kept. A document
+                            passage found by keyword only never entered the vector candidates (PA-222). */}
+                        {NOT_INDEXED.has(h.corpus ?? "") ? (
+                          <UnknownValue reason="not_tracked" source={tx("向量索引", "vector index")} />
+                        ) : degraded ? (
+                          <UnknownValue reason="unavailable" source={tx("向量检索", "vector search")} />
+                        ) : (
+                          <UnknownValue reason="not_in_candidates" />
+                        )}
                       </Badge>
                     ) : (
                       <Badge>{tx("向量 {v}", "vector {v}", { v: h.vector.toFixed(2) })}</Badge>

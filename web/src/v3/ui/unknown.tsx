@@ -12,7 +12,7 @@ import "./unknown.css";
  * reason when it has no trustworthy evidence; the UI shows that honestly and never renders an
  * unknown as 0, "healthy" or "not on call".
  */
-export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale" | "unmapped_relation" | "not_tracked" | "not_filled" | "unclassified" | (string & {});
+export type UnknownReason = "not_connected" | "not_configured" | "no_authorized_target" | "not_generated" | "unavailable" | "stale" | "unmapped_relation" | "not_tracked" | "not_filled" | "unclassified" | "not_in_candidates" | (string & {});
 
 /**
  * English source names arrive as "a log source", "log patterns" or "Prometheus". A heading or a "No … yet" sentence
@@ -73,6 +73,9 @@ export function useReasonText() {
         return { label: tx("未记录", "Not recorded"), desc: tx("平台目前不记录这项数据。", "The platform doesn't record this yet."), configurable: false };
       case "not_filled":
         return { label: tx("未填写", "Not filled in"), desc: tx("还没有人填写这项信息。", "Nobody has filled this in yet."), configurable: false };
+      // A keyword hit whose vector similarity was never computed: it ranked below the vector candidates (PA-222).
+      case "not_in_candidates":
+        return { label: tx("未进入向量候选", "Not a vector candidate"), desc: tx("这段内容由关键词检索命中，向量相似度没排进候选，所以没有分数，并不是 0。", "Keyword search found this passage; its vector similarity didn't rank among the candidates, so it has no score rather than 0."), configurable: false };
       // A recorded value the server can't classify, such as an audit outcome it has no mapping for (PA-230).
       case "unclassified":
         return { label: tx("无法归类", "Unclassified"), desc: tx("平台还不能归类这个记录值，详情里有原始内容。", "The platform can't classify this recorded value yet; the details show it as recorded."), configurable: false };

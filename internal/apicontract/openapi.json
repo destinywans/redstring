@@ -81830,7 +81830,7 @@
                 "type": "null"
               }
             ],
-            "description": "Null when the hit has no vector score: its corpus has no vector index, or the search degraded to keyword"
+            "description": "Null when the hit has no vector score: its corpus has no vector index, the search degraded to keyword, or a document passage was found by keyword only and never entered the vector candidates"
           },
           "score": {
             "type": "number"

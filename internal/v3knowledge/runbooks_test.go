@@ -153,7 +153,8 @@ func TestRetrievalRankingKeepsPassageIdentityAndTruthfulScores(t *testing.T) {
 	keyword := []knowledge.Hit{{DocumentID: "doc", Version: 1, Chunk: 1, Title: "one", Content: "matching phrase", Similarity: 8}, {DocumentID: "doc", Version: 1, Chunk: 2, Title: "two", Content: "other passage", Similarity: 4}}
 	vector := []knowledge.Hit{{DocumentID: "doc", Version: 1, Chunk: 1, Title: "one", Content: "matching phrase", Similarity: .8}}
 	hits := rankRetrieval(keyword, vector, 2, false)
-	if len(hits) != 2 || hits[0].Title != "one" || hits[0].Vector == nil || *hits[0].Vector != .8 || hits[1].Vector == nil || *hits[1].Vector != 0 {
+	// "two" was found by keyword only: it has no vector score, not 0 (PA-222).
+	if len(hits) != 2 || hits[0].Title != "one" || hits[0].Vector == nil || *hits[0].Vector != .8 || hits[1].Vector != nil {
 		t.Fatalf("unexpected hybrid ranking: %#v", hits)
 	}
 	only := rankRetrieval(keyword, nil, 2, true)

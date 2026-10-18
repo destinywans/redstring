@@ -19,6 +19,7 @@ import "./observe.css";
 import { ChipSelect, RangeChip, AddChip, openExternal, openForm, usePickLists } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 import { useNames } from "../../ui/names";
+import { budgetTone } from "./ServicesPage";
 
 export default function MetricsPage() {
   const { tx } = useI18n();
@@ -225,13 +226,14 @@ export default function MetricsPage() {
               ) : (
               <Col gap={9}>
                 <Row gap={16}>
-                  <Gauge pct={d.slo.remaining / 100} size={140} tone="warn" label={`${d.slo.remaining}%`} sub={tx("错误预算剩余", "budget left")} />
+                  {/* Colours follow the numbers (the service status rules: budget used up is danger, under half warn), not a fixed amber (PA-224). */}
+                  <Gauge pct={d.slo.remaining / 100} size={140} tone={budgetTone(d.slo.remaining)} label={`${d.slo.remaining}%`} sub={tx("错误预算剩余", "budget left")} />
                   <Col gap={2}>
                     <Muted size={11.5}>{tx("本月可用性", "This month")}</Muted>
                     <b className="tnum" style={{ fontSize: 22, fontWeight: 600 }}>
                       {d.slo.availability}
                     </b>
-                    <span className="tnum" style={{ color: "var(--danger)", fontSize: "var(--fs-sub)" }}>{d.slo.delta}</span>
+                    <span className="tnum" style={{ color: d.slo.delta.startsWith("-") ? "var(--danger)" : "var(--muted)", fontSize: "var(--fs-sub)" }}>{d.slo.delta}</span>
                   </Col>
                 </Row>
                 {missingParts(u, "slo.burn").map((w) => (
@@ -251,12 +253,16 @@ export default function MetricsPage() {
                     </Badge>
                   </Row>
                 ))}
-                {d.slo.note && (
-                  <div className="danger-note">
-                    <Icon name="alert" size={13} />
-                    {d.slo.note}
-                  </div>
-                )}
+                {/* The real note only says what the burn rates are; it isn't an alert (PA-224). */}
+                {d.slo.note &&
+                  (demo ? (
+                    <div className="danger-note">
+                      <Icon name="alert" size={13} />
+                      {d.slo.note}
+                    </div>
+                  ) : (
+                    <Muted size={11.5}>{d.slo.note}</Muted>
+                  ))}
               </Col>
               )}
             </Panel>
@@ -289,8 +295,9 @@ export default function MetricsPage() {
                   <Lines
                     series={[{ name: "P50", values: d.latency.p50, color: "var(--c1)" }, { name: "P95", values: d.latency.p95, color: "var(--c5)" }, { name: "P99", values: d.latency.p99, color: "var(--c3)" }]}
                     height={160}
-                    max={2000}
-                    threshold={300}
+                    // The 2 s ceiling and 300 ms line belong to the sample; real charts scale to the data and have no threshold source (PA-224).
+                    max={demo ? 2000 : undefined}
+                    threshold={demo ? 300 : undefined}
                     markers={markers}
                     bands={bands}
                     labels={labels}

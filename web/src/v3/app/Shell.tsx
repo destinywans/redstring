@@ -68,6 +68,10 @@ function Sidebar() {
   const me = useGet<Me>("/me");
   const watched = useGet<{ items: WatchedService[] }>("/me/watched-services");
   const newChatBlocked = useNeed(["conversation", "change"]);
+  // The workspace menu names the real workspace (it was always the sample's "Trading platform", PA-224); without
+  // workspace.view, or before it loads, it just says "current workspace".
+  const noWorkspace = useNeed(["workspace", "view"]);
+  const workspace = useGet<{ name: string }>(noWorkspace ? null : "/workspace", undefined, { staleTime: 5 * 60_000 });
   const navTo = useNavigate();
   return (
     <nav className="v3-sidebar" aria-label={tx("主导航", "Main navigation")}>
@@ -82,7 +86,7 @@ function Sidebar() {
             </span>
           )}
           items={[
-            { label: tx("交易平台 · 当前工作区", "Trading · current workspace"), icon: "check", active: true },
+            { label: workspace.data?.name ? tx("{n} · 当前工作区", "{n} · current workspace", { n: workspace.data.name }) : tx("当前工作区", "Current workspace"), icon: "check", active: true },
             { label: tx("工作区设置", "Workspace settings"), icon: "sliders", onSelect: () => navTo("/settings/workspace") },
             { label: tx("成员与权限", "Members & access"), icon: "users", onSelect: () => navTo("/settings/members") },
           ]}

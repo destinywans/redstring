@@ -9,7 +9,7 @@ import { toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { Axis, Gauge, Lines, Swimlane } from "../../charts";
 import { useI18n } from "../../i18n";
-import { ServiceHeader, filledReason } from "./ServicesPage";
+import { ServiceHeader, budgetTone, filledReason } from "./ServicesPage";
 import "./observe.css";
 import { openExternal } from "../../ui/demo";
 import { Gated } from "../../ui/permission";
@@ -132,7 +132,7 @@ export default function ServiceDetailPage() {
             ) : (
               <Row gap={14}>
                 {s.slo.budget_left !== null ? (
-                  <Gauge pct={s.slo.budget_left / 100} size={128} tone="warn" label={`${s.slo.budget_left}%`} sub={tx("错误预算剩余", "budget left")} />
+                  <Gauge pct={s.slo.budget_left / 100} size={128} tone={budgetTone(s.slo.budget_left)} label={`${s.slo.budget_left}%`} sub={tx("错误预算剩余", "budget left")} />
                 ) : (
                   <Col gap={4} align="center" style={{ width: 128 }}>
                     <Muted size={11.5}>{tx("错误预算剩余", "budget left")}</Muted>

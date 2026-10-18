@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { useGet, useSend } from "../../api/client";
+import { API_MODE, useGet, useSend } from "../../api/client";
 import type { ConnectorType } from "../../api/types";
 import { Badge, Brand, Btn, Card, Check, Chip, Code, Col, Field, Icon, Input, LabelChip, Muted, Radio, Row, Section, Skeleton, Spacer, Stepper, Toggle } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -33,23 +33,37 @@ export default function AddConnectorPage() {
   // A type that can't be read (503, or 404 for one the server doesn't offer) says so instead of a skeleton (PA-221).
   const { data: t, error: typeError } = useGet<ConnectorType>(`/connector-types/${type}`);
   const [auth, setAuth] = useState("oauth");
-  const [url, setUrl] = useState("https://gitlab.example.internal");
+  // Sample addresses, CA and credential sources stay in the sample; the real form starts empty (PA-229, D52).
+  const demo = API_MODE === "mock";
+  const [url, setUrl] = useState(demo ? "https://gitlab.example.internal" : "");
   const [hook, setHook] = useState(true);
   const [tools, setTools] = useState<Set<string>>(new Set(["list_pipelines", "get_pipeline", "get_commit_diff", "list_merge_requests"]));
   const create = useSend<object, { id: string }>("POST", "/connectors", ["/connectors"]);
   // Kubernetes connectors (PA-08 design): API Server address, bearer token by reference, CA reference; read-only probe.
   const k8s = type === "kubernetes";
-  const [caRef, setCaRef] = useState("aiops-test-ca");
+  const [caRef, setCaRef] = useState(demo ? "aiops-test-ca" : "");
   useEffect(() => {
     if (k8s) {
-      setUrl("https://192.168.105.10:6443");
+      setUrl(demo ? "https://192.168.105.10:6443" : "");
       setAuth("bearer");
     }
-  }, [k8s]);
-  const steps = [tx("选择类型", "Type"), tx("连接与认证", "Connect"), tx("范围与映射", "Scope"), tx("Agent 能力", "Agent tools"), tx("测试", "Test"), tx("完成", "Done")];
+  }, [k8s, demo]);
+  // The server only records a registration: one that needs a credential (or a webhook, or GitLab) stays disabled until
+  // the deployer binds its credential and activates it; nothing is tested on create (docs/api/v3-contract.md, PA-229).
+  const enabledOnCreate = type !== "gitlab" && !(hook && !k8s) && auth === "none";
+  const steps = [tx("选择类型", "Type"), tx("连接与认证", "Connect"), tx("范围与映射", "Scope"), tx("Agent 能力", "Agent tools"), demo ? tx("测试", "Test") : tx("创建", "Create"), tx("完成", "Done")];
   const next = () => {
     if (step < 4) return setStep(step + 1);
-    create.mutate(k8s ? { type, url, auth, options: { ca_ref: caRef }, tools: [...tools] } : { type, url, auth, tools: [...tools], webhook: hook }, { onSuccess: () => { toast(tx("{n} 连接器已创建", "{n} connector created", { n: t?.name ?? type })); nav("/integrations"); } });
+    create.mutate(k8s ? { type, url, auth, options: { ca_ref: caRef }, tools: [...tools] } : { type, url, auth, tools: [...tools], webhook: hook }, {
+      onSuccess: () => {
+        toast(
+          demo || enabledOnCreate
+            ? tx("{n} 连接器已创建", "{n} connector created", { n: t?.name ?? type })
+            : tx("{n} 连接器已创建，暂未启用：部署方为它绑定凭据并激活后，才能测试连接和启用工具", "{n} connector created but not enabled: once the deployer binds its credential and activates it, it can be tested and its tools enabled", { n: t?.name ?? type }),
+        );
+        nav("/integrations");
+      },
+    });
   };
   return (
     <Page crumbs={[tx("集成中心", "Integrations"), tx("连接器", "Connectors"), tx("添加 {n}", "Add {n}", { n: t?.name ?? "…" })]} ai={false} actions={<Btn kind="ghost" to="/integrations">{tx("取消", "Cancel")}</Btn>}>
@@ -91,6 +105,14 @@ export default function AddConnectorPage() {
                   </Col>
                 </Field>
                 <Field label={tx("凭据来源", "Credential source")} hint={tx("平台只保存引用，不保存也不回显明文", "Only a reference is stored — secrets are never stored or shown")}>
+                  {!demo ? (
+                    // The sample sources had no effect; the server takes no credential from this form (PA-224).
+                    <Muted>
+                      {auth === "none"
+                        ? tx("这种认证方式不需要凭据。", "This auth method needs no credential.")
+                        : tx("凭据不在这里填写：创建后连接器保持未启用，部署方为它绑定凭据并激活后，才能测试连接和启用工具。", "Credentials aren't entered here: the connector stays disabled after creating, until the deployer binds its credential and activates it; then it can be tested and its tools enabled.")}
+                    </Muted>
+                  ) : (
                   <ChipSelect
                     icon="key"
                     label=""
@@ -110,6 +132,7 @@ export default function AddConnectorPage() {
                           ]
                     }
                   />
+                  )}
                 </Field>
                 {k8s && (
                   <div className="unk-banner" role="note">
@@ -134,8 +157,13 @@ export default function AddConnectorPage() {
                 <Field label={tx("事件回调", "Event callback")}>
                   <Col gap={6}>
                     <Row gap={8}>
-                      <Toggle on={hook} onChange={setHook} label={tx("自动创建 Webhook", "Create webhook")} />
-                      <span style={{ fontSize: "var(--fs-sm)" }}>{tx("自动在上述项目创建流水线与部署事件 Webhook", "Create pipeline and deployment webhooks on these projects")}</span>
+                      {/* The server only records that a webhook is wanted; it creates none upstream (PA-229). */}
+                      <Toggle on={hook} onChange={setHook} label={demo ? tx("自动创建 Webhook", "Create webhook") : tx("需要 Webhook", "Webhook wanted")} />
+                      <span style={{ fontSize: "var(--fs-sm)" }}>
+                        {demo
+                          ? tx("自动在上述项目创建流水线与部署事件 Webhook", "Create pipeline and deployment webhooks on these projects")
+                          : tx("只记录需要 Webhook，平台不会自动创建；请按下面的地址在项目里配置流水线与部署事件。", "Only records that a webhook is wanted; the platform doesn't create it. Configure pipeline and deployment events on the project with the address below.")}
+                      </span>
                     </Row>
                     {hook && t && <Code>{t.webhook_url}</Code>}
                   </Col>
@@ -190,7 +218,7 @@ export default function AddConnectorPage() {
             {step === 4 && k8s && (
               <Col gap={8}>
                 <h2>{tx("测试", "Test")}</h2>
-                <Muted>{tx("测试只发只读请求：", "The test sends read-only requests only:")}</Muted>
+                <Muted>{demo ? tx("测试只发只读请求：", "The test sends read-only requests only:") : tx("部署方激活这个连接器时，检查只发只读请求：", "When the deployer activates this connector, its check sends read-only requests only:")}</Muted>
                 <Row gap={8}>
                   <Icon name="check" size={14} color="var(--muted)" />
                   <span className="mono">GET /version</span>
@@ -230,7 +258,7 @@ export default function AddConnectorPage() {
               </Btn>
               <Spacer />
               <Btn kind="primary" iconRight="right" loading={create.isPending} disabled={step >= 1 && !t} onClick={next}>
-                {step < 4 ? tx("下一步：{s}", "Next: {s}", { s: steps[step + 1] }) : tx("测试并创建", "Test & create")}
+                {step < 4 ? tx("下一步：{s}", "Next: {s}", { s: steps[step + 1] }) : demo ? tx("测试并创建", "Test & create") : tx("创建连接器", "Create connector")}
               </Btn>
             </Row>
           </Card>

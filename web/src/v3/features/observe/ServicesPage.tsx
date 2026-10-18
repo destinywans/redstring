@@ -47,6 +47,9 @@ export function ServiceState({ status }: { status: "ok" | "warn" | "danger" }) {
  */
 export const filledReason = (reason: string | null | undefined) => (reason === "not_configured" ? "not_filled" : reason);
 
+/** Error budget left as a tone, by the service status rules: used up is danger, under half warn (PA-224). */
+export const budgetTone = (left: number) => (left <= 0 ? "danger" : left < 50 ? "warn" : "ok");
+
 /** Header + tab strip shared by the service detail views. */
 export function ServiceHeader({ s }: { s: ServiceDetail }) {
   const { tx } = useI18n();

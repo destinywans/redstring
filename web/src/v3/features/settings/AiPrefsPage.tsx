@@ -28,7 +28,7 @@ function Line({ title, desc, children }: { title: ReactNode; desc: ReactNode; ch
 export default function AiPrefsPage() {
   const { tx } = useI18n();
   const qc = useQueryClient();
-  const { data } = useGet<AiPrefs>("/me/ai-preferences");
+  const { data, error } = useGet<AiPrefs>("/me/ai-preferences");
   const [f, setF] = useState<AiPrefs | null>(null);
   const save = useSend<AiPrefs>("PUT", "/me/ai-preferences");
   useEffect(() => {
@@ -47,6 +47,9 @@ export default function AiPrefsPage() {
   return (
     <Page
       ai={false}
+      // All non-production environments answer 422; a failed read says why instead of a skeleton (PA-221).
+      error={!data ? error : undefined}
+      errorSource={tx("AI 偏好", "AI preferences")}
       bodyClass="set-narrow"
       crumbs={[tx("设置", "Settings"), tx("模型与 AI", "Models & AI")]}
       actions={

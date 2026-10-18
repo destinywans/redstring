@@ -12,6 +12,7 @@ import "./integrations.css";
 import { openForm, confirmAction } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 import { Gated, useNeed } from "../../ui/permission";
+import { LoadError } from "../../ui/unknown";
 
 export const STATUS_TONE: Record<ConnectorStatus, Tone> = { ok: "ok", unverified: "warn", error: "danger" };
 
@@ -22,11 +23,14 @@ export default function ConnectorsPage() {
   const [cat, setCat] = useState("all");
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<string | null>(null);
-  const { data, isLoading } = useGet<ConnectorList>("/connectors", { category: cat, q });
+  const { data, isLoading, error } = useGet<ConnectorList>("/connectors", { category: cat, q });
   const statusLabel = (s: ConnectorStatus) => ({ ok: tx("已连接", "Connected"), unverified: tx("未验证", "Unverified"), error: tx("异常", "Error") })[s];
   return (
     <Page
       flush
+      // A failed list says why instead of an empty card grid (PA-221).
+      error={!data ? error : undefined}
+      errorSource={tx("连接器登记", "connector registry")}
       crumbs={[tx("集成中心", "Integrations"), tx("连接器", "Connectors")]}
       actions={
         <>
@@ -93,7 +97,7 @@ export default function ConnectorsPage() {
 function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
   const { tx } = useI18n();
   const when = useWhen();
-  const { data: c, refetch } = useGet<ConnectorDetail>(`/connectors/${id}`);
+  const { data: c, refetch, error } = useGet<ConnectorDetail>(`/connectors/${id}`);
   const test = useSend<void, { ok: boolean; latency_ms: number }>("POST", `/connectors/${id}/test`);
   const [off, setOff] = useState<Set<string>>(new Set());
   // Real switches (D11): PATCH /connectors/{id} merges one tool's preference; the switch shows the pending value until
@@ -124,7 +128,9 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
   };
   return (
     <aside className="aside anim-slide" style={{ width: 360 }} key={id}>
-      {!c ? (
+      {!c && error ? (
+        <LoadError error={error} source={tx("连接器登记", "connector registry")} />
+      ) : !c ? (
         <Col gap={12} style={{ padding: 16 }}>
           <Skeleton h={40} />
           <Skeleton h={120} />

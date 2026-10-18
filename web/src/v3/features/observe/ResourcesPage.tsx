@@ -126,7 +126,7 @@ function visibleRows(tree: Topology["tree"], toggled: Set<number>) {
 export default function ResourcesPage() {
   const { tx } = useI18n();
   // While a collector is behind, check again every minute so the notice clears (and the minutes tick) on its own.
-  const { data: rawTopology, refetch: topoRefetch } = useGet<RawTopology>("/topology", undefined, {
+  const { data: rawTopology, refetch: topoRefetch, error: topoError } = useGet<RawTopology>("/topology", undefined, {
     refetchInterval: (q) => ((q.state.data?.collection ?? []).some((c) => c.state !== "fresh") ? 60_000 : false),
   });
   const stale = useStaleCollectors(rawTopology?.collection);
@@ -264,6 +264,9 @@ export default function ResourcesPage() {
   return (
     <Page
       flush
+      // A failed read (503, 422 scope too broad) says why instead of an endless skeleton (PA-221).
+      error={!rawTopology ? topoError : undefined}
+      errorSource={tx("资源拓扑", "topology")}
       crumbs={[tx("资源与观测", "Resources"), tx("资源与拓扑", "Topology")]}
       actions={
         <>

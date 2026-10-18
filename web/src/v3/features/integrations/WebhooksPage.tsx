@@ -22,7 +22,7 @@ const codeTone = (code: string) => (/^2/.test(code) ? "ok" : code === "409" ? "n
 export default function WebhooksPage() {
   const { tx, fmt } = useI18n();
   const when = useWhen();
-  const { data } = useGet<View>("/webhooks");
+  const { data, error } = useGet<View>("/webhooks");
   // The platform serves no public MCP and sends no outbound events yet: say so rather than show a switched-on server or 0 (PA-208).
   const outboundConnected = data?.availability?.outbound !== "not_connected";
   const [tab, setTab] = useState<"inbound" | "tokens" | "mcp" | "outbound">("inbound");
@@ -49,6 +49,9 @@ export default function WebhooksPage() {
   return (
     <Page
       flush
+      // A failed read says why instead of an endless skeleton (PA-221).
+      error={!data ? error : undefined}
+      errorSource={tx("Webhook 概览", "webhook overview")}
       crumbs={[tx("集成中心", "Integrations"), tx("Webhook 与 API", "Webhooks & API")]}
       actions={
         <>

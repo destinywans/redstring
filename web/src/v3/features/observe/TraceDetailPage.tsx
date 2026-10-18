@@ -23,7 +23,7 @@ export default function TraceDetailPage() {
   const when = useWhen();
   const nav = useNavigate();
   const { id = "4f2a9c17" } = useParams();
-  const { data: t } = useGet<TraceView>(`/traces/${id}`);
+  const { data: t, error } = useGet<TraceView>(`/traces/${id}`);
   const [view, setView] = useState<View>("wf");
   const [sel, setSel] = useState<string | null>(null);
   const [pinned, setPinned] = usePinned("trace-detail");
@@ -114,6 +114,9 @@ export default function TraceDetailPage() {
   return (
     <Page
       flush
+      // A trace outside Tempo's retention or scope (404) or a failed read says why instead of a skeleton (PA-221).
+      error={!t ? error : undefined}
+      errorSource={tx("链路来源", "trace source")}
       crumbs={[tx("资源与观测", "Resources"), tx("链路", "Traces"), `${id}…`]}
       actions={
         <>

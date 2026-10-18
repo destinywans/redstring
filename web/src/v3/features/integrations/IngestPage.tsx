@@ -398,8 +398,10 @@ function Pull({ id }: { id: string | null }) {
 function Push({ stackOnly, sel, setSel }: { stackOnly: boolean; sel: string; setSel: (id: string) => void }) {
   const { tx } = useI18n();
   const when = useWhen();
-  const { data: d } = useGet<PushView>("/ingest/push");
+  const { data: d, error } = useGet<PushView>("/ingest/push");
   const [deploy, setDeploy] = useState<"helm" | "compose">("helm");
+  // A failed read says why instead of an endless skeleton (PA-221).
+  if (!d && error) return <LoadError error={error} source={tx("事件接入", "event push")} />;
   if (!d)
     return (
       <div className="v3-content">

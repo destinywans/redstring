@@ -8,6 +8,7 @@ import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
 import { ChipSelect, AddChip, SampleOnly } from "../../ui/demo";
+import { LoadError } from "../../ui/unknown";
 
 const CATALOG = [
   ["gitlab", "GitLab"],
@@ -29,7 +30,8 @@ export default function AddConnectorPage() {
   const nav = useNavigate();
   const [step, setStep] = useState(1);
   const [type, setType] = useState("gitlab");
-  const { data: t } = useGet<ConnectorType>(`/connector-types/${type}`);
+  // A type that can't be read (503, or 404 for one the server doesn't offer) says so instead of a skeleton (PA-221).
+  const { data: t, error: typeError } = useGet<ConnectorType>(`/connector-types/${type}`);
   const [auth, setAuth] = useState("oauth");
   const [url, setUrl] = useState("https://gitlab.example.internal");
   const [hook, setHook] = useState(true);
@@ -84,7 +86,8 @@ export default function AddConnectorPage() {
                 )}
                 <Field label={tx("认证方式", "Auth method")}>
                   <Col gap={8}>
-                    {t?.auth_methods.map((m) => <Radio key={m.id} name="auth" checked={auth === m.id} onChange={() => setAuth(m.id)} label={m.label} sub={m.desc} />) ?? <Skeleton h={90} />}
+                    {t?.auth_methods.map((m) => <Radio key={m.id} name="auth" checked={auth === m.id} onChange={() => setAuth(m.id)} label={m.label} sub={m.desc} />) ??
+                      (typeError ? <Muted>{tx("读取不到这个类型的认证方式，见右侧说明。", "This type's auth methods couldn't be read; see the note on the right.")}</Muted> : <Skeleton h={90} />)}
                   </Col>
                 </Field>
                 <Field label={tx("凭据来源", "Credential source")} hint={tx("平台只保存引用，不保存也不回显明文", "Only a reference is stored — secrets are never stored or shown")}>
@@ -226,13 +229,15 @@ export default function AddConnectorPage() {
                 {tx("上一步", "Back")}
               </Btn>
               <Spacer />
-              <Btn kind="primary" iconRight="right" loading={create.isPending} onClick={next}>
+              <Btn kind="primary" iconRight="right" loading={create.isPending} disabled={step >= 1 && !t} onClick={next}>
                 {step < 4 ? tx("下一步：{s}", "Next: {s}", { s: steps[step + 1] }) : tx("测试并创建", "Test & create")}
               </Btn>
             </Row>
           </Card>
           <Card className="wizard-side">
-            {!t ? (
+            {!t && typeError ? (
+              <LoadError error={typeError} source={tx("连接器类型", "connector type")} />
+            ) : !t ? (
               <Skeleton h={320} />
             ) : (
               <Col gap={16}>

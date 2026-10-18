@@ -14,7 +14,7 @@ export default function MappingPage() {
   const { tx } = useI18n();
   const nav = useNavigate();
   const demo = API_MODE === "mock";
-  const { data, refetch } = useGet<ServiceMapping>("/service-mappings");
+  const { data, refetch, error } = useGet<ServiceMapping>("/service-mappings");
   const [accepted, setAccepted] = useState<Set<string>>(new Set());
   const [rejected, setRejected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
@@ -122,6 +122,9 @@ export default function MappingPage() {
   };
   return (
     <Page
+      // A failed read says why instead of an endless skeleton (PA-221).
+      error={!data ? error : undefined}
+      errorSource={tx("服务映射", "service mapping")}
       crumbs={[tx("集成中心", "Integrations"), tx("服务映射", "Service mapping")]}
       actions={
         <>

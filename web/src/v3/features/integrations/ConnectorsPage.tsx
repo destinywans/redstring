@@ -12,7 +12,7 @@ import "./integrations.css";
 import { openForm, confirmAction } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 import { Gated, useNeed } from "../../ui/permission";
-import { LoadError } from "../../ui/unknown";
+import { LoadError, UnknownValue, errorReason } from "../../ui/unknown";
 
 export const STATUS_TONE: Record<ConnectorStatus, Tone> = { ok: "ok", unverified: "warn", error: "danger" };
 
@@ -383,13 +383,14 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
 function LowerSources() {
   const { tx } = useI18n();
   const prod = useEnv((s) => s.instance?.tier === "production");
-  const { data } = useGet<{ items: LowerSource[] }>(prod ? "/integrations/lower-sources" : null);
+  const { data, error } = useGet<{ items: LowerSource[] }>(prod ? "/integrations/lower-sources" : null);
   if (!prod) return null;
   return (
     <section className="v3-card lower-src">
       <div className="v3-card-head">
         <b style={{ fontSize: "var(--fs-lg)" }}>{tx("低环境只读来源", "Read-only lower-environment sources")}</b>
-        <Badge>{data?.items.length ?? 0}</Badge>
+        {/* A failed read is unknown, not 0 sources (PA-222). */}
+        <Badge>{data ? data.items.length : error ? <UnknownValue reason={errorReason(error)} source={tx("低环境来源", "lower-environment sources")} /> : "…"}</Badge>
         <Spacer />
         <Muted size={12}>{tx("只读、单向：生产可以读取低环境用于对比，低环境不能访问生产", "Read-only, one-way: production may read lower environments for comparison; they can never reach production")}</Muted>
         {/* There is no endpoint to add a lower-environment source from here; the button only explained (PA-135). */}

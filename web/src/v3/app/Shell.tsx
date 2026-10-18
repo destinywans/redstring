@@ -117,7 +117,14 @@ function Sidebar() {
         <h2 className="nav-head">{tx("关注的服务", "Watched services")}</h2>
         {watched.data?.items.map((s) => (
           <Link key={s.id} to={`/services/${s.id}`} className="watched">
-            <Dot tone={s.status} size={7} pulse={s.status === "danger"} />
+            {/* The server sends status null when it has no current status evidence: a neutral dot that says so, not no dot (PA-222). */}
+            {s.status ? (
+              <Dot tone={s.status} size={7} pulse={s.status === "danger"} />
+            ) : (
+              <span title={tx("状态未知：现在拿不到这个服务的状态证据", "Status unknown: no current status evidence for this service")} style={{ display: "inline-flex" }}>
+                <Dot tone="neutral" size={7} />
+              </span>
+            )}
             <span className="ellipsis grow">{s.name}</span>
             {s.signal && (
               <span className="tnum" style={{ fontSize: "var(--fs-sub)", color: `var(--${s.status === "ok" ? "muted" : s.status})` }}>

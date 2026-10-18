@@ -151,11 +151,16 @@ export default function WebhooksPage() {
                               <Muted>{h.verify}</Muted>
                             </Row>
                           </td>
+                          {/* Native GitLab can't attribute past receipts, so its count is unknown (PA-222); no receipt means none in 24 h. */}
+                          <td>{h.count === "unknown" ? <UnknownValue reason="not_tracked" /> : <Num>{h.count}</Num>}</td>
                           <td>
-                            <Num>{h.count}</Num>
-                          </td>
-                          <td>
-                            <Muted>{h.last_at ? `${h.last_code ?? "—"} · ${when.short(h.last_at)}` : tx("未知", "Unknown")}</Muted>
+                            {h.last_at ? (
+                              <Muted>{`${h.last_code ?? "—"} · ${when.short(h.last_at)}`}</Muted>
+                            ) : h.count === "unknown" ? (
+                              <UnknownValue reason="not_tracked" />
+                            ) : (
+                              <Muted>{tx("24 小时内没有", "None in 24 h")}</Muted>
+                            )}
                           </td>
                           <td>
                             {/* PA-202: the server says ok, error or unverified (a native source's health is never verified); only error is an error. */}

@@ -41,6 +41,12 @@ export function ServiceState({ status }: { status: "ok" | "warn" | "danger" }) {
   );
 }
 
+/**
+ * Tier, team, on-call and SLO target are registration fields: the server's not_configured there means nobody filled
+ * them in, not a missing integration (PA-223).
+ */
+export const filledReason = (reason: string | null | undefined) => (reason === "not_configured" ? "not_filled" : reason);
+
 /** Header + tab strip shared by the service detail views. */
 export function ServiceHeader({ s }: { s: ServiceDetail }) {
   const { tx } = useI18n();
@@ -63,8 +69,8 @@ export function ServiceHeader({ s }: { s: ServiceDetail }) {
           <Col gap={2} grow>
             <Row gap={8} wrap>
               <h1 style={{ fontSize: 18, fontWeight: 600 }}>{s.name}</h1>
-              {s.tier ? <Tier tier={s.tier} /> : <Badge><UnknownValue reason={s.unavailable.tier} label={tx("等级 —", "Tier —")} /></Badge>}
-              {s.team ? <Badge>{s.team}</Badge> : <Badge><UnknownValue reason={s.unavailable.team} label={tx("团队 —", "Team —")} /></Badge>}
+              {s.tier ? <Tier tier={s.tier} /> : <Badge><UnknownValue reason={filledReason(s.unavailable.tier)} label={tx("等级 —", "Tier —")} /></Badge>}
+              {s.team ? <Badge>{s.team}</Badge> : <Badge><UnknownValue reason={filledReason(s.unavailable.team)} label={tx("团队 —", "Team —")} /></Badge>}
               <Env env={s.env} />
               {s.status ? (
                 <ServiceState status={s.status} />
@@ -106,7 +112,7 @@ export default function ServicesPage() {
   const [tier, setTier] = useState<string | undefined>();
   const { data, isLoading, error } = useGet<ServiceCatalog>("/services", { q, tier });
   const { data: me } = useGet<Me>("/me");
-  const { data: watched } = useGet<{ items: WatchedService[] }>("/me/watched-services");
+  const { data: watched, error: watchedError } = useGet<{ items: WatchedService[] }>("/me/watched-services");
   const [sort, setSort] = useState("status");
   const RANK: Record<string, number> = { danger: 0, warn: 1, ok: 2 };
   const rank = (status: string | null) => (status ? RANK[status] : 3);
@@ -170,7 +176,7 @@ export default function ServicesPage() {
               ))}
             </KpiRow>
             <Row gap={8}>
-              <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: data?.items.length }, { value: "mine", label: tx("我负责的", "Mine"), count: data?.items.filter((s) => s.oncall === me?.name || s.team === me?.team).length }, { value: "watched", label: tx("我关注的", "Watched"), count: data ? data.items.filter((s) => watched?.items.some((w) => w.id === s.id)).length : undefined }]} />
+              <Pills value={tab} onChange={setTab} options={[{ value: "all", label: tx("全部", "All"), count: data?.items.length }, { value: "mine", label: tx("我负责的", "Mine"), count: data?.items.filter((s) => s.oncall === me?.name || s.team === me?.team).length }, { value: "watched", label: tx("我关注的", "Watched"), count: data && watched ? data.items.filter((s) => watched.items.some((w) => w.id === s.id)).length : undefined }]} />
               <SearchBox placeholder={tx("搜索服务", "Search services")} value={q} onChange={setQ} />
               <span style={{ flexGrow: 1 }} />
               <ChipSelect
@@ -188,6 +194,10 @@ export default function ServicesPage() {
               />
             </Row>
             {unknownFields.length > 0 && <PartialBanner fields={unknownFields} />}
+            {/* The watched list that can't be read is not "no watched services" (PA-222). */}
+            {tab === "watched" && watchedError && !watched ? (
+              <LoadError error={watchedError} source={tx("关注列表", "watched services")} />
+            ) : (
             <Card style={{ overflow: "hidden" }}>
               <DataTable
                 rows={data?.items
@@ -203,13 +213,13 @@ export default function ServicesPage() {
                 rowHeight={52}
                 columns={[
                   { key: "n", header: tx("服务", "Service"), width: "19%", render: (s) => <Row gap={10}><Tile icon="box" size={26} /><Col gap={0} style={{ minWidth: 0 }}><span className="ellipsis" style={{ fontWeight: 600 }}>{s.name}</span><Muted size={11.5}>{s.desc}</Muted></Col></Row> },
-                  { key: "t", header: tx("等级", "Tier"), render: (s) => (s.tier ? <Tier tier={s.tier} /> : <UnknownValue reason={s.unavailable.tier} to="/services/new" />) },
-                  { key: "team", header: tx("团队", "Team"), render: (s) => (s.team ? <Muted>{s.team}</Muted> : <UnknownValue reason={s.unavailable.team} />) },
-                  { key: "o", header: tx("值班", "On call"), render: (s) => (s.oncall ? <Row gap={6}><Avatar name={s.oncall} size={20} /><Muted>{s.oncall}</Muted></Row> : <UnknownValue reason={s.unavailable.oncall} />) },
+                  { key: "t", header: tx("等级", "Tier"), render: (s) => (s.tier ? <Tier tier={s.tier} /> : <UnknownValue reason={filledReason(s.unavailable.tier)} to="/services/new" />) },
+                  { key: "team", header: tx("团队", "Team"), render: (s) => (s.team ? <Muted>{s.team}</Muted> : <UnknownValue reason={filledReason(s.unavailable.team)} />) },
+                  { key: "o", header: tx("值班", "On call"), render: (s) => (s.oncall ? <Row gap={6}><Avatar name={s.oncall} size={20} /><Muted>{s.oncall}</Muted></Row> : <UnknownValue reason={filledReason(s.unavailable.oncall)} />) },
                   { key: "st", header: tx("状态", "Status"), sort: (a, b) => rank(a.status) - rank(b.status), render: (s) => (s.status ? <ServiceState status={s.status} /> : <UnknownValue reason={s.unavailable.status} source="Prometheus" />) },
                   { key: "slo", header: tx("SLO / 错误预算", "SLO / budget"), sort: (a, b) => (a.slo.budget_left ?? 101) - (b.slo.budget_left ?? 101), render: (s) =>
                       s.slo.target === null ? (
-                        <UnknownValue reason={anyReason(s.unavailable, "slo.target", "slo.budget_left")} to={`/services/${s.id}`} />
+                        <UnknownValue reason={filledReason(anyReason(s.unavailable, "slo.target", "slo.budget_left"))} to={`/services/${s.id}`} />
                       ) : (
                         <Col gap={3}>
                           <Row gap={4}>
@@ -226,6 +236,7 @@ export default function ServicesPage() {
                 ]}
               />
             </Card>
+            )}
             <Row gap={6}>
               <Dot tone="accent" size={6} />
               <Muted size={11.5}>{tx("点击服务查看详情；在“流量与韧性”中查看灰度、熔断、限流与降级开关。", "Open a service for details; see canary, breakers, rate limits and flags under “Traffic & resilience”.")}</Muted>

@@ -7,6 +7,7 @@ import { toast } from "../../ui/overlays";
 import { AiBanner, PillSelect, Suggested } from "../../ui/forms";
 import { useI18n } from "../../i18n";
 import { ChipSelect, usePickLists } from "../../ui/demo";
+import { LoadError } from "../../ui/unknown";
 
 /** GET /services/discover item (V3DiscoveredService); `resource_id` must be sent back so registration binds the exact workload (PA-12). */
 type Workload = { id: string; resource_id?: string; namespace: string; kind: string; replicas: number | null; image: string; owner_hint: string; tier_hint: string; matched: string[]; missing: string[]; unavailable_fields?: string[] };
@@ -30,7 +31,7 @@ export default function NewServicePage() {
   const { tx } = useI18n();
   const nav = useNavigate();
   const [mode, setMode] = useState<"discover" | "manual">("discover");
-  const { data, isLoading } = useGet<Discover>(mode === "discover" ? "/services/discover" : null);
+  const { data, isLoading, error } = useGet<Discover>(mode === "discover" ? "/services/discover" : null);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [focus, setFocus] = useState<string | null>(null);
   const [forms, setForms] = useState<Record<string, Form>>({});
@@ -98,11 +99,14 @@ export default function NewServicePage() {
                     data?.cluster && <Chip icon="grid">{tx("集群 {c}", "Cluster {c}", { c: data.cluster })}</Chip>
                   )}
                   <Spacer />
-                  <Muted size={11.5}>{tx("只读发现 · 发现 {n} 个未登记的工作负载 · 已登记 {r} 个", "Read-only discovery · {n} unregistered workloads · {r} registered", { n: data?.items.length ?? 0, r: data?.registered ?? 0 })}</Muted>
+                  {/* Counted only once discovery answered; a failure or a pending read is not 0 found (PA-222). */}
+                  {data && <Muted size={11.5}>{tx("只读发现 · 发现 {n} 个未登记的工作负载 · 已登记 {r} 个", "Read-only discovery · {n} unregistered workloads · {r} registered", { n: data.items.length, r: data.registered })}</Muted>}
                 </>
               )}
             </Row>
-            {mode === "discover" ? (
+            {mode === "discover" && error && !data ? (
+              <LoadError error={error} source={tx("Kubernetes 发现", "Kubernetes discovery")} />
+            ) : mode === "discover" ? (
               <>
                 <Card style={{ overflow: "hidden" }}>
                   <table className="v3-table">

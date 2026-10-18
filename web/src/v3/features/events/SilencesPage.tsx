@@ -174,7 +174,8 @@ export default function SilencesPage() {
                         <td><Row gap={4} wrap>{p.matchers.map((m) => <LabelChip key={m.k + m.v} k={m.k} v={m.v} />)}</Row></td>
                         <td>
                           <Link to={`/review/${p.proposal_id}`} style={{ textDecoration: "none" }}>
-                            <State tone="warn">{tx("待审批 · {p}", "Pending review · {p}", { p: p.proposal_id })}</State>
+                            {/* Kept only in this tab and never reread: it says what is true, the proposal page has the state (PA-213). */}
+                            <State tone="neutral">{tx("已提交 · {p}", "Submitted · {p}", { p: p.proposal_id })}</State>
                           </Link>
                         </td>
                         <td><Muted>{p.duration < 3600 ? tx("{n} 分钟", "{n} min", { n: p.duration / 60 }) : tx("{n} 小时", "{n} h", { n: p.duration / 3600 })}</Muted></td>

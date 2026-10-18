@@ -190,3 +190,34 @@ test.describe("service status warn (PA-209)", () => {
     await expect(row).not.toContainText("Alerting");
   });
 });
+
+const pushView = (patch: Record<string, unknown> = {}) => ({
+  availability: "configured_unverified",
+  types: ["alert", "change", "incident", "resource", "oncall"].map((id) => ({ id, icon: "bell", name: id, schema: `${id}.v1`, today: "0", rejected: "0%", tone: "ok" })),
+  endpoint: { method: "POST", path: "/api/v1/events/change", host: "ops.check.test", headers: [], example: "{}", responses: [] },
+  deliveries: [],
+  // What the server sends: no starter stack (internal/v3ingestpush/view.go).
+  stack: { enabled: false, components: [], helm: "", compose: "", estimate: "" },
+  ...patch,
+});
+
+/**
+ * PA-220 (WAN-579): the starter stack's "Generate manifests" downloaded an empty file and said "values.yaml
+ * downloaded", "Docs" opened docs.example.internal, and the text promised connectors created automatically.
+ */
+test.describe("starter stack on the real page (PA-220)", () => {
+  test("says the platform offers no starter stack instead of fake download and docs", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/ingest/push"), (r) => json(r, 200, pushView()));
+    const m = monitor(page);
+    await page.goto(origin + "/integrations/ingest/stack");
+    const aside = page.locator("aside.aside");
+    await expect(aside.getByText("可选配套栈", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(aside.getByText("平台还没有提供配套栈的部署清单", { exact: false })).toBeVisible();
+    await expect(page.getByRole("button", { name: "生成部署清单" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "查看说明" })).toHaveCount(0);
+    await expect(aside).not.toContainText("自动创建连接器");
+    await expect(page.locator("a[href*='example.internal']")).toHaveCount(0);
+    expect(m.pageErrors).toEqual([]);
+  });
+});

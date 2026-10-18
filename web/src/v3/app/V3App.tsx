@@ -90,6 +90,7 @@ export const ROUTES: [string, ComponentType][] = [
   ["integrations/mapping", p(() => import("../features/integrations/MappingPage"))],
   ["integrations/coverage", p(() => import("../features/integrations/CoveragePage"))],
   ["integrations/webhooks", p(() => import("../features/integrations/WebhooksPage"))],
+  ["agents", p(() => import("../features/agents/AgentPage"))],
   ["agents/lifecycle", p(() => import("../features/agents/LifecyclePage"))],
   ["agents/prompts", p(() => import("../features/agents/PromptsPage"))],
   ["agents/tools", p(() => import("../features/agents/ToolsPage"))],

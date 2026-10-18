@@ -26,7 +26,7 @@ export const STATIC_ROUTES = [
   "/integrations", "/integrations/new", "/integrations/sync", "/integrations/models", "/integrations/mcp",
   "/integrations/ingest", "/integrations/ingest/push", "/integrations/ingest/stack", "/integrations/mapping",
   "/integrations/coverage", "/integrations/webhooks",
-  "/agents/lifecycle", "/agents/prompts", "/agents/tools", "/agents/evals", "/agents/runs", "/agents/guardrails",
+  "/agents", "/agents/lifecycle", "/agents/prompts", "/agents/tools", "/agents/evals", "/agents/runs", "/agents/guardrails",
   "/settings/profile", "/settings/notifications", "/settings/account-security", "/settings/ai", "/settings/workspace",
   "/settings/members", "/settings/roles", "/settings/security", "/settings/audit",
 ];

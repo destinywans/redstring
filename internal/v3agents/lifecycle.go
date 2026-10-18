@@ -295,7 +295,13 @@ func (s *Service) AgentDetail(w http.ResponseWriter, r *http.Request) {
 	out["summary"] = a.Summary
 	out["versions"] = versions
 	out["truncated"] = truncated
-	out["release"] = map[string]any{"from": a.Stable, "to": a.Canary, "current": nil,
+	// PA-236: where a rollback would land, so the page names that version rather
+	// than the stable one the release starts from; null when there is none.
+	var rollbackTo any
+	if to := rollbackTarget(a); to != "" {
+		rollbackTo = to
+	}
+	out["release"] = map[string]any{"from": a.Stable, "to": a.Canary, "current": nil, "rollback_to": rollbackTo,
 		"target": a.Percent, "configured_canary_percent": a.Percent, "observed_traffic": nil,
 		"routing_connected": s.ExecutionRuntime() != nil, "gates": nil, "tokens": nil,
 		"missing": []string{"observed_traffic", "eval_gate_detail", "token_comparison"}}
@@ -563,25 +569,20 @@ func (s *Service) Rollback(w http.ResponseWriter, r *http.Request) {
 		revisionConflict(w, r)
 		return
 	}
-	from := a.Stable
-	to := a.Previous
+	from, to := a.Stable, rollbackTarget(a)
 	configuredPercent := 100
+	if to == "" {
+		lifecycleRejected(w, r, 409, "rollback_unavailable", "没有可回滚到的上一个版本", "No prior persisted version exists")
+		return
+	}
 	var err error
 	if a.Canary != "" {
 		from = a.Canary
-		to = a.Stable
-		if to == "" {
-			lifecycleRejected(w, r, 409, "rollback_unavailable", "没有可回滚到的上一个版本", "No prior persisted version exists")
-			return
-		}
 		_, err = tx.Exec(r.Context(), `UPDATE v3_agents SET canary_version=NULL,canary_percent=0,
  lifecycle_revision=lifecycle_revision+1,updated_at=now() WHERE id=$1`, a.ID)
-	} else if to != "" {
+	} else {
 		_, err = tx.Exec(r.Context(), `UPDATE v3_agents SET stable_version=$2,previous_stable_version=$3,
  lifecycle_revision=lifecycle_revision+1,updated_at=now() WHERE id=$1`, a.ID, to, a.Stable)
-	} else {
-		lifecycleRejected(w, r, 409, "rollback_unavailable", "没有可回滚到的上一个版本", "No prior persisted version exists")
-		return
 	}
 	if err != nil {
 		unavailable(w)
@@ -610,6 +611,15 @@ func (s *Service) Rollback(w http.ResponseWriter, r *http.Request) {
 		"configured_canary_percent": 0,
 		"observed_traffic":          nil, "routing_connected": s.ExecutionRuntime() != nil,
 		"release_effect": s.executionReleaseEffect()})
+}
+
+// rollbackTarget is where a rollback lands: the stable version while a canary
+// runs, otherwise the previous stable version; "" when there is none.
+func rollbackTarget(a lifecycleAgent) string {
+	if a.Canary != "" {
+		return a.Stable
+	}
+	return a.Previous
 }
 
 func levelNumber(level string) int {

@@ -12,7 +12,7 @@ import { useI18n } from "../../i18n";
 import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./events.css";
 import { openExternal, copyText } from "../../ui/demo";
-import { Gate } from "../../ui/permission";
+import { Gate, useNeed } from "../../ui/permission";
 import { useWhen, parseStamp } from "../../ui/when";
 
 type Day = "today" | "yesterday" | "earlier";
@@ -30,6 +30,8 @@ export function AlertDetailView({ id }: { id: string }) {
   const { data: incident } = useGet<Incident>(linked ? `/incidents/${linked}` : null);
   const [claimed, setClaimed] = useState(false);
   const [starting, setStarting] = useState(false);
+  // A menu item can't be disabled, so without the grant creating an incident names it instead of opening the form (PA-228).
+  const needEvents = useNeed(["events", "change"]);
   const demo = API_MODE === "mock";
   // A failed read (another environment's alert, a down source) says why instead of loading forever (PA-221).
   if (!a && error) return <LoadError error={error} source={tx("告警记录", "alert records")} />;
@@ -126,7 +128,9 @@ export function AlertDetailView({ id }: { id: string }) {
         </Btn>
         <MenuButton
           items={[
-            { label: tx("创建事件", "Create incident"), icon: "alert", onSelect: () => nav(demo ? "/incidents/INC-1042" : `/incidents?new=incident&alerts=${encodeURIComponent(a.id)}`) },
+            needEvents
+              ? { label: tx("创建事件 · {r}", "Create incident · {r}", { r: needEvents }), icon: "alert", onSelect: () => toast(needEvents, { tone: "danger" }) }
+              : { label: tx("创建事件", "Create incident"), icon: "alert", onSelect: () => nav(demo ? "/incidents/INC-1042" : `/incidents?new=incident&alerts=${encodeURIComponent(a.id)}`) },
             { label: tx("复制链接", "Copy link"), icon: "link", onSelect: () => copyText(`${location.origin}/inbox?alert=${id}`, tx("链接已复制", "Link copied")) },
             ...(demo ? [{ label: tx("在 Alertmanager 中打开", "Open in Alertmanager"), icon: "external" as const, onSelect: () => openExternal("Alertmanager", `https://alertmanager.example.internal/#/alerts?filter=${encodeURIComponent(`{alert_id="${id}"}`)}`) }] : []),
           ]}

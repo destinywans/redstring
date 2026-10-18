@@ -72,6 +72,12 @@ export default function AddConnectorPage() {
       setAuth("bearer");
     }
   }, [k8s, demo]);
+  // Each type starts on a method it accepts: GitLab's oauth isn't one of Jenkins' or Argo CD's, and with none of the
+  // radios checked the create request was refused (PA-224).
+  useEffect(() => {
+    const methods = t?.auth_methods;
+    if (methods?.length && !methods.some((m) => m.id === auth)) setAuth(methods[0].id);
+  }, [t, auth]);
   // The server only records a registration: one that needs a credential (or a webhook, or GitLab) stays disabled until
   // the deployer binds its credential and activates it; nothing is tested on create (docs/api/v3-contract.md, PA-229).
   const enabledOnCreate = type !== "gitlab" && !(hook && !k8s) && auth === "none";

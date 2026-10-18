@@ -203,7 +203,17 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
           <Muted size={11.5}>{tx("作战群、干系人通知和状态页还没有接入；创建事件不会对外发送任何消息。", "War rooms, stakeholder notices and the status page are not connected; creating an incident sends nothing externally.")}</Muted>
         )}
         <Callout tone="accent" icon="branch">
-          <Check checked={opts.open_canvas} onChange={(v) => setOpts({ ...opts, open_canvas: v })} label={tx("同时创建调查画布", "Also open an investigation canvas")} sub={tx("使用「故障调查」模板，自动带入告警、最近变更和相关指标", "Uses the incident template with alerts, recent changes and metrics")} />
+          {/* The server opens a blank investigation linked to the incident, titled like it; nothing is brought in (PA-225). */}
+          <Check
+            checked={opts.open_canvas}
+            onChange={(v) => setOpts({ ...opts, open_canvas: v })}
+            label={tx("同时创建调查画布", "Also open an investigation canvas")}
+            sub={
+              API_MODE === "mock"
+                ? tx("使用「故障调查」模板，自动带入告警、最近变更和相关指标", "Uses the incident template with alerts, recent changes and metrics")
+                : tx("新建一个关联这个事件、同名的空白调查；告警、变更和指标需要在画布里自己带入", "Opens a blank investigation linked to this incident, with the same title; bring in alerts, changes and metrics on the canvas yourself")
+            }
+          />
         </Callout>
       </div>
     </Drawer>

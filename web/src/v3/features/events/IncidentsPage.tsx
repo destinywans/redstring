@@ -184,7 +184,7 @@ export default function IncidentsPage() {
                       </li>
                     ))}
                   </ol>
-                  {unknown.has("timeline.system_events") && <Muted size={11.5}>{tx("时间线只含人工记录；状态变化等系统事件还没有接入", "Only manual notes are shown; status changes and other system events aren't in the timeline yet")}</Muted>}
+                  {unknown.has("timeline.system_events") && <Muted size={11.5} style={{ display: "block", marginBottom: 10 }}>{tx("时间线只含人工记录；状态变化等系统事件还没有接入", "Only manual notes are shown; status changes and other system events aren't in the timeline yet")}</Muted>}
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();

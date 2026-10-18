@@ -395,3 +395,44 @@ test.describe("inbox: creating an incident needs events.change (PA-228)", () => 
     expect((await toasts(page)).join("\n")).toContain(NEEDS_EVENTS);
   });
 });
+
+test.describe("alerts and rules say why a list or rule can't be read (PA-221)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("the Silenced tab says silence state isn't tracked instead of a blank list", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await pinAlerts(page);
+    await page.goto(origin + "/alerts");
+    await expect(page.locator(".alert-group").first()).toBeVisible({ timeout: 20_000 });
+    await page.locator(".v3-pills button", { hasText: "已静默" }).click();
+    await expect(page.locator(".unk-block", { hasText: "还不能按静默筛选" })).toBeVisible();
+    await expect(page.locator(".alert-group")).toHaveCount(0);
+    expect(m.pageErrors).toEqual([]);
+  });
+
+  test("hiding inhibited alerts says inhibition isn't tracked instead of a blank list", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinAlerts(page);
+    await page.goto(origin + "/alerts");
+    await expect(page.locator(".alert-group").first()).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("switch", { name: "显示被抑制的告警" }).click();
+    await expect(page.locator(".unk-block", { hasText: "还不能隐藏被抑制的告警" })).toBeVisible();
+  });
+
+  test("an empty tab says there is nothing", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/alert-groups"), (r) => json(r, 200, { items: [], counts: { firing: 0, pending: 0, silenced: null } }));
+    await page.goto(origin + "/alerts");
+    await expect(page.locator(".v3-content").getByText("没有数据", { exact: true })).toBeVisible({ timeout: 20_000 });
+  });
+
+  test("a rule whose detail can't be read says so instead of an endless skeleton", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.route(at("/alert-rules"), (r) => json(r, 200, ruleList([ruleSummary("prom-check-gone", "CheckGone", "ok")])));
+    await page.route(at("/alert-rules/prom-check-gone"), (r) => json(r, 503, { error: { code: "rule_source_partial", message: "Check" } }));
+    await page.goto(origin + "/alert-rules");
+    await expect(page.locator(".main").getByText("暂时不可用", { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".main .skeleton")).toHaveCount(0);
+  });
+});

@@ -253,7 +253,7 @@ func TestAuditRegisteredHTTPScopesListAndVerifiedDetail(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &lifecycle); err != nil || len(lifecycle.Items) != 4 {
 		t.Fatalf("lifecycle rows: %s", w.Body.String())
 	}
-	if odd := lifecycle.Items[0]; odd.ID != strconv.FormatInt(oddID, 10) || odd.Result != nil || odd.Unavailable["result"] != "unavailable" {
+	if odd := lifecycle.Items[0]; odd.ID != strconv.FormatInt(oddID, 10) || odd.Result != nil || odd.Unavailable["result"] != "unclassified" {
 		t.Fatalf("unmapped row: %+v", odd)
 	}
 	if pending := lifecycle.Items[1]; pending.ID != strconv.FormatInt(pendingID, 10) || pending.Result == nil || *pending.Result != "pending" || pending.Unavailable != nil {
@@ -268,4 +268,113 @@ func TestAuditRegisteredHTTPScopesListAndVerifiedDetail(t *testing.T) {
 	}
 	assertStatus(request(token, "dev", "/api/v1/audit"), http.StatusForbidden)
 	assertStatus(request(token, "", exported.URL), http.StatusForbidden)
+}
+
+// PA-230: lifecycle writers record outcomes beyond the canonical set. Each one
+// the instances hold reads as its own result, and the result filter selects
+// exactly the rows the list shows with that result. A rollout step's outcome
+// is needs_attention for every state but reserved, succeeded and failed
+// (v3rollouts outcomeOf), so its progress steps read by their action.
+func TestAuditClassifiesLifecycleOutcomes(t *testing.T) {
+	s := isolatedAuditStore(t)
+	ctx := t.Context()
+	password := "isolated-audit-test-password"
+	if _, err := s.DB.Exec(ctx, `INSERT INTO users(id,email,name,role,password_hash) VALUES
+	 ('audit-admin','audit-admin@example.invalid','Audit Admin','admin',$1)`, store.PasswordHash(password)); err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := s.Login(ctx, "audit-admin@example.invalid", password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := &rbac.V3Policy{Store: s}
+	api := httpapi.New(s, nil, true)
+	New(s.DB, []string{"dev"}).Register(api)
+	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev"}}, policy, s.Session,
+		func(ctx context.Context, user core.User, module, action, env string) error {
+			return policy.Authorize(ctx, user, rbac.V3Decision{Module: module, Action: action, EnvironmentID: env})
+		}); err != nil {
+		t.Fatal(err)
+	}
+	list := func(query string) []entry {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/audit"+query, nil)
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		r.Header.Set("X-AIOps-Environment", "dev")
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		var body struct {
+			Items []entry `json:"items"`
+		}
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &body) != nil {
+			t.Fatalf("GET /audit%s: %d %s", query, w.Code, w.Body.String())
+		}
+		return body.Items
+	}
+	rows := []struct{ action, outcome, want string }{
+		{"v3.investigation_canvas.tool", "started", "pending"},
+		{"v3.investigation_canvas.reply_started", "started", "pending"},
+		{"v3.canvas_node.reply_started", "started", "pending"},
+		{"v3.alert_rule.execution.rechecked", "requested", "ok"},
+		{"runbook.reindex.requested", "requested", "ok"},
+		{"v3.knowledge_source.connection.test", "attempted", "pending"},
+		{"v3.knowledge_source.connection.test", "authorization_failed", "blocked"},
+		{"v3.knowledge_source.connection.test", "scope_changed", "blocked"},
+		{"v3.alert_rule.enable.execution_state", "pending_review", "pending"},
+		{"v3.alert_rule.enable.execution_state", "merged", "pending"},
+		{"v3.alert_rule.enable.execution_state", "awaiting_provider", "pending"},
+		{"v3.alert_rule.enable.execution_state", "uncertain", "unconfirmed"},
+		{"v3.alert_rule.enable.execution_state", "stale_remote", "needs_attention"},
+		{"v3.alert_rule.enable.observed", "awaiting_provider", "pending"},
+		{"v3.alert_rule.enable.observed", "enabled", "ok"},
+		{"v3.alert_rule.enable.observed", "disabled", "ok"},
+		{"v3.rollout.claimed", "needs_attention", "needs_attention"},
+		{"v3.rollout.dispatching", "needs_attention", "pending"},
+		{"v3.rollout.applied", "needs_attention", "pending"},
+		{"v3.rollout.rolling_out", "needs_attention", "pending"},
+		{"v3.rollout.verifying", "needs_attention", "pending"},
+		{"v3.rollout.unknown", "needs_attention", "unconfirmed"},
+		{"v3.rollout.needs_attention", "needs_attention", "needs_attention"},
+		{"v3.rollout.succeeded", "success", "ok"},
+		{"v3.ai.rollback_suggested", "suggested", "ok"},
+		{"v3.ai.rollback_suggested", "declined", "ok"},
+		{"v3.ai.rollback_suggested", "rejected", "blocked"},
+		{"v3.ai.rollback_suggested", "unavailable", "failed"},
+		{"v3.check.unclassifiable", "half_done", ""},
+	}
+	want := map[string]string{}
+	for _, row := range rows {
+		var id int64
+		if err := s.DB.QueryRow(ctx, `INSERT INTO management_audit(actor_id,actor_kind,action,target,outcome,changes)
+		 VALUES('audit-admin','system',$1,'pa230',$2,'{"environment_id":"dev"}') RETURNING id`, row.action, row.outcome).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		want[strconv.FormatInt(id, 10)] = row.want
+	}
+	byResult := map[string][]string{}
+	for _, item := range list("") {
+		result := ""
+		if item.Result != nil {
+			result = *item.Result
+		}
+		if result != want[item.ID] {
+			t.Errorf("%s: result %q, want %q", item.Action, result, want[item.ID])
+		}
+		if item.Result == nil && item.Unavailable["result"] != "unclassified" {
+			t.Errorf("%s: an unclassifiable outcome says %q, not that it is unclassified", item.Action, item.Unavailable["result"])
+		}
+		byResult[result] = append(byResult[result], item.ID)
+	}
+	if len(byResult[""]) != 1 {
+		t.Fatalf("unclassified rows: %v", byResult[""])
+	}
+	for _, result := range []string{"ok", "pending", "blocked", "failed", "unconfirmed", "needs_attention"} {
+		var got []string
+		for _, item := range list("?result=" + result) {
+			got = append(got, item.ID)
+		}
+		if strings.Join(got, ",") != strings.Join(byResult[result], ",") {
+			t.Errorf("result=%s selects %v; the list shows %v with that result", result, got, byResult[result])
+		}
+	}
 }

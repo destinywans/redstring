@@ -35,7 +35,8 @@ export default function AuditPage() {
   // The export is marked audit.view like the list.
   const noView = useNeed(["audit", "view"]);
   // PA-206: an unconfirmed write (only read back, or checked by a person) and one that lapsed before it ran are not
-  // failures; they read as on the review page.
+  // failures; they read as on the review page. PA-230: a rollout or an alert rule execution that stopped for a person
+  // reads as on the execution page. A null result is an outcome this server can't classify ("unclassified").
   const res = (r: string | null) =>
     r === "ok" ? ([tx("成功", "OK"), "ok"] as const)
     : r === "pending" ? ([tx("进行中", "Pending"), "accent"] as const)
@@ -43,6 +44,7 @@ export default function AuditPage() {
     : r === "failed" ? ([tx("失败", "Failed"), "danger"] as const)
     : r === "unconfirmed" ? ([tx("结果待核对", "Outcome unconfirmed"), "warn"] as const)
     : r === "expired" ? ([tx("已过期，未执行", "Expired, not run"), "neutral"] as const)
+    : r === "needs_attention" ? ([tx("需要人工处理", "Needs attention"), "warn"] as const)
     : ([tx("未知", "Unknown"), "neutral"] as const);
   const { data: d } = useGet<AuditDetail>(sel ? `/audit/${sel}` : null);
   return (

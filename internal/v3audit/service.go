@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -151,7 +153,8 @@ const filterWhere = ` WHERE ($3='all' OR actor_kind=$3)
  AND aiops_search_match(concat_ws(' ',actor_id,actor_name,action,target,outcome,changes->>'run_id'),$4)`
 
 // entry.Result is null for an outcome this server cannot classify; the row
-// stays listed and Unavailable says why (PA-42), so one row never hides the log.
+// stays listed and Unavailable says so ("unclassified", PA-42, PA-230), so one
+// row never hides the log.
 type entry struct {
 	ID          string            `json:"id"`
 	Time        string            `json:"time"`
@@ -167,33 +170,80 @@ type actor struct {
 	Name string `json:"name"`
 }
 
-func resultKind(outcome string) (string, error) {
-	switch strings.ToLower(outcome) {
-	// These values record a successful request or a persisted lifecycle event.
-	// "accepted" and "pending_manual_cleanup" do not mean the downstream work
-	// completed; the action name retains that distinction in the audit row.
-	case "success", "succeeded", "ok", "completed", "accepted", "test_accepted", "recorded", "pending_manual_cleanup", "no_change":
-		return "ok", nil
-	// A lifecycle step whose final outcome is recorded by a later row, such as
-	// a reserved or dispatching silence or a requested export.
-	case "pending":
-		return "pending", nil
-	case "blocked", "denied", "rejected", "duplicate", "invalid_event":
-		return "blocked", nil
-	case "failed", "failure", "error":
-		return "failed", nil
+// resultKinds classifies a lower-cased outcome as the result the page shows.
+// Lifecycle writers record outcomes beyond the canonical set (PA-230); each
+// group names the writers whose meaning decided it.
+var resultKinds = map[string]string{
+	// A successful request or a persisted lifecycle event. "accepted",
+	// "requested" and "pending_manual_cleanup" do not mean the downstream work
+	// completed, and no later row has to say how it did (a recheck readback,
+	// a runbook reindex); the action name retains that distinction.
+	"success": "ok", "succeeded": "ok", "ok": "ok", "completed": "ok", "accepted": "ok", "test_accepted": "ok",
+	"recorded": "ok", "pending_manual_cleanup": "ok", "no_change": "ok", "requested": "ok",
+	// An alert rule readback confirmed the rule loaded or gone.
+	"enabled": "ok", "disabled": "ok",
+	// A rollback suggestion step that ran: it made a suggestion, or found the
+	// evidence doesn't support one.
+	"suggested": "ok", "declined": "ok",
+	// A lifecycle step whose final outcome is recorded by a later row: a
+	// reserved or dispatching silence, a started reply or tool read, a source
+	// connection test about to probe, an alert rule MR in review, merged or
+	// waiting for Prometheus to load it.
+	"pending": "pending", "started": "pending", "attempted": "pending",
+	"pending_review": "pending", "merged": "pending", "awaiting_provider": "pending",
+	// Refused or withheld, such as a connection test whose result is withheld
+	// because the tester's grant or the source scope changed during the probe.
+	"blocked": "blocked", "denied": "blocked", "rejected": "blocked", "duplicate": "blocked", "invalid_event": "blocked",
+	"authorization_failed": "blocked", "scope_changed": "blocked",
+	// "unavailable" is a rollback suggestion step without usable output.
+	"failed": "failed", "failure": "failed", "error": "failed", "unavailable": "failed",
 	// The write's result wasn't confirmed: it is only read back, or a person
 	// checks it, and the action names which (PA-206). Not a failure.
-	case "unknown":
-		return "unconfirmed", nil
+	"unknown": "unconfirmed", "uncertain": "unconfirmed",
 	// Lapsed before anything ran, such as a silence whose window passed
 	// before the executor sent it.
-	case "expired":
-		return "expired", nil
-	default:
-		return "", fmt.Errorf("unmapped audit outcome %q", outcome)
-	}
+	"expired": "expired",
+	// Stopped for a person: a rollout the executor won't continue, an alert
+	// rule MR whose remote state no longer matches the approval.
+	"needs_attention": "needs_attention", "stale_remote": "needs_attention",
 }
+
+// rolloutStepKinds: the rollout executor records every state but reserved,
+// succeeded and failed with outcome needs_attention (v3rollouts outcomeOf),
+// so its progress steps read by their action. In "unknown" the write may or
+// may not have landed and the executor only reads it back.
+var rolloutStepKinds = map[string]string{
+	"v3.rollout.dispatching": "pending", "v3.rollout.applied": "pending", "v3.rollout.rolling_out": "pending",
+	"v3.rollout.verifying": "pending", "v3.rollout.unknown": "unconfirmed",
+}
+
+func resultKind(action, outcome string) (string, error) {
+	outcome = strings.ToLower(outcome)
+	if kind, ok := rolloutStepKinds[action]; ok && outcome == "needs_attention" {
+		return kind, nil
+	}
+	if kind, ok := resultKinds[outcome]; ok {
+		return kind, nil
+	}
+	return "", fmt.Errorf("unmapped audit outcome %q", outcome)
+}
+
+// resultKindSQL is resultKind over the visible rows, so the result filter
+// selects what the list shows; NULL for an unclassifiable outcome.
+var resultKindSQL = func() string {
+	var b strings.Builder
+	b.WriteString("(CASE")
+	for _, action := range slices.Sorted(maps.Keys(rolloutStepKinds)) {
+		fmt.Fprintf(&b, " WHEN action='%s' AND lower(outcome)='needs_attention' THEN '%s'", action, rolloutStepKinds[action])
+	}
+	b.WriteString(" ELSE CASE lower(outcome)")
+	for _, outcome := range slices.Sorted(maps.Keys(resultKinds)) {
+		fmt.Fprintf(&b, " WHEN '%s' THEN '%s'", outcome, resultKinds[outcome])
+	}
+	b.WriteString(" END END)")
+	return b.String()
+}()
+
 func actorKind(kind string) error {
 	if kind != "user" && kind != "agent" && kind != "system" {
 		return fmt.Errorf("unmapped audit actor kind %q", kind)
@@ -240,7 +290,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := s.DB.Query(r.Context(), visibleCTE+` SELECT id,actor_id,actor_kind,action,target,outcome,created_at,actor_name
-	 FROM visible`+filterWhere+auditPageWhere(6)+` AND ($5::bigint=0 OR id<$5) ORDER BY id DESC LIMIT 251`, envs, global, q.Filter, q.Q, cursor, pageQuery.start, pageQuery.actions, pageQuery.outcomes)
+	 FROM visible`+filterWhere+auditPageWhere(6)+` AND ($5::bigint=0 OR id<$5) ORDER BY id DESC LIMIT 251`, envs, global, q.Filter, q.Q, cursor, pageQuery.start, pageQuery.actions, pageQuery.results)
 	if err != nil {
 		unavailable(w)
 		return
@@ -257,10 +307,11 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		row := entry{ID: strconv.FormatInt(id, 10), Time: at.UTC().Format(time.RFC3339), Action: action, Target: target, Source: "management_audit"}
-		if result, mapErr := resultKind(outcome); mapErr == nil {
+		if result, mapErr := resultKind(action, outcome); mapErr == nil {
 			row.Result = &result
 		} else {
-			row.Unavailable = map[string]string{"result": "unavailable"}
+			// The outcome is recorded; this server has no result for it.
+			row.Unavailable = map[string]string{"result": "unclassified"}
 		}
 		if name == "" {
 			name = actorID
@@ -284,7 +335,7 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	counts := map[string]int64{"all": 0, "user": 0, "agent": 0, "system": 0}
 	countRows, err := s.DB.Query(r.Context(), visibleCTE+` SELECT actor_kind,count(*) FROM visible
  WHERE aiops_search_match(concat_ws(' ',actor_id,actor_name,action,target,outcome,changes->>'run_id'),$3)
- `+auditPageWhere(4)+` GROUP BY actor_kind`, envs, global, q.Q, pageQuery.start, pageQuery.actions, pageQuery.outcomes)
+ `+auditPageWhere(4)+` GROUP BY actor_kind`, envs, global, q.Q, pageQuery.start, pageQuery.actions, pageQuery.results)
 	if err != nil {
 		unavailable(w)
 		return
@@ -330,7 +381,7 @@ func (s *Service) volume(ctx context.Context, envs []string, global bool, facets
 		}
 		args[2] = start
 		extra = auditPageWhere(5)
-		args = append(args, step.Seconds(), p.start, p.actions, p.outcomes)
+		args = append(args, step.Seconds(), p.start, p.actions, p.results)
 	} else {
 		args = append(args, step.Seconds())
 	}

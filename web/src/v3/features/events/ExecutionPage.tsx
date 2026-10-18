@@ -57,6 +57,11 @@ function RealExecutionPage() {
     needs_attention: ["warn", tx("需要人工处理", "Needs attention")],
   } as const;
   const DECISION = { pending: ["neutral", tx("待批准", "Pending")], approved: ["ok", tx("已批准", "Approved")], rejected: ["danger", tx("已驳回", "Rejected")], revoked: ["warn", tx("已撤回", "Revoked")] } as const;
+  // An approved legacy plan still queued at the V3 cutover failed with a reason code, not a message (migrations/173, PA-166).
+  const errorText =
+    e.error === "legacy_plan_expired_registry_cutover"
+      ? tx("迁移到新审批流程时，这个旧计划没有执行，已过期。需要回滚请发起新的提案。", "This legacy plan hadn't run when the new approval flow took over, so it expired. To roll back, start a new proposal.")
+      : e.error;
   const o = e.observation;
   const r = e.report;
   const canPublish = !!r && !r.published && e.status === "succeeded" && o?.recovered === true;
@@ -108,7 +113,7 @@ function RealExecutionPage() {
                 <Spacer />
                 <Muted size={11.5}>{tx("第 {n} 次尝试", "Attempt {n}", { n: e.attempt })}</Muted>
               </Row>
-              {e.error && <div className="danger-note"><Icon name="alert" size={13} />{e.error}</div>}
+              {e.error && <div className="danger-note"><Icon name="alert" size={13} />{errorText}</div>}
             </Col>
             <ol className="exec-steps">
               {e.steps.map((s, i) => (

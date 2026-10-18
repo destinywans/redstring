@@ -9,6 +9,7 @@ import { Badge, Brand, Btn, Card, Icon, Muted, Row, Skeleton, Tile, cx } from ".
 import { toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
+import { Gated, useNeed } from "../../ui/permission";
 
 export default function MappingPage() {
   const { tx } = useI18n();
@@ -25,6 +26,8 @@ export default function MappingPage() {
   const [picked, setPicked] = useState<Record<string, string>>({});
   const codeLabel = useCodeLabel();
   const discover = useSend<void, { suggestions: number; source_state?: "configured" | "not_configured" }>("POST", "/service-mappings/discover");
+  // Discovering, accepting and editing mappings need services.change, as their routes declare (PA-228).
+  const noChange = useNeed(["services", "change"]);
   const save = useSend<void>("PUT", "/service-mappings");
   // Real suggestions are reviewed GitLab candidates; only those can be accepted, and only the server's answer marks them accepted.
   const candidateOf = (key: string): MappingCandidate | undefined => {
@@ -100,7 +103,7 @@ export default function MappingPage() {
     if (c.state === "suggested" && !accepted.has(key))
       return (
         <span className="map-sug">
-          <button type="button" disabled={busy || (!demo && !c.candidate)} title={tx("接受建议", "Accept suggestion")} onClick={() => void acceptKeys([key])}>
+          <button type="button" disabled={busy || (!demo && !c.candidate) || !!noChange} title={noChange ?? tx("接受建议", "Accept suggestion")} onClick={() => void acceptKeys([key])}>
             <Icon name="sparkles" size={11} />
             <span className="ellipsis">{c.value ?? c.candidate?.external_id}</span>
           </button>
@@ -128,6 +131,7 @@ export default function MappingPage() {
       crumbs={[tx("集成中心", "Integrations"), tx("服务映射", "Service mapping")]}
       actions={
         <>
+          <Gated reason={noChange}>
           <Btn
             icon="sparkles"
             loading={discover.isPending}
@@ -143,6 +147,7 @@ export default function MappingPage() {
           >
             {tx("自动发现", "Auto-discover")}
           </Btn>
+          </Gated>
           {/* Real saves replace a row's full binding set with its revision (PA-18); there is no cell editor yet, so
               nothing on this page changes bindings except accepting candidates, which saves on its own. */}
           {demo && (
@@ -168,9 +173,11 @@ export default function MappingPage() {
                 ? tx("根据标签、命名和部署记录自动发现了 {n} 条映射建议（虚线框），确认后生效。", "Found {n} mapping suggestions from labels, names and deploy records (dashed). They apply once confirmed.", { n: pending.length })
                 : tx("从已登记的 GitLab 项目发现了 {n} 条代码映射建议（虚线框），接受后才写入绑定。", "Found {n} code mapping suggestions from enrolled GitLab projects (dashed). Bindings change only when you accept.", { n: pending.length })}
             </span>
-            <Btn h={26} loading={busy} onClick={acceptAll}>
-              {tx("全部接受", "Accept all")}
-            </Btn>
+            <Gated reason={noChange}>
+              <Btn h={26} loading={busy} onClick={acceptAll}>
+                {tx("全部接受", "Accept all")}
+              </Btn>
+            </Gated>
           </div>
         )}
         <Row gap={16}>
@@ -225,9 +232,11 @@ export default function MappingPage() {
                     {data.rows.some((x) => x.save) && (
                       <td>
                         {r.save?.editable ? (
-                          <Btn h={26} icon="edit" onClick={() => setEditing({ service: r.service, save: r.save! })}>
-                            {tx("编辑", "Edit")}
-                          </Btn>
+                          <Gated reason={noChange}>
+                            <Btn h={26} icon="edit" onClick={() => setEditing({ service: r.service, save: r.save! })}>
+                              {tx("编辑", "Edit")}
+                            </Btn>
+                          </Gated>
                         ) : (
                           <Muted size={11.5}>
                             {r.save?.unavailable_reason === "ambiguous_targets"

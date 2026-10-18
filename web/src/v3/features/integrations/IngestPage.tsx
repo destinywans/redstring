@@ -7,7 +7,7 @@ import { DataTable } from "../../ui/data";
 import type { ContractKind, PullDraft, PullList, PushView } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Code, Col, Icon, KV, LabelChip, Mono, Muted, Num, Panel, Row, Segmented, Skeleton, Spacer, State, Stepper, Strong, TextLink, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
-import { Gated } from "../../ui/permission";
+import { Gated, useNeed } from "../../ui/permission";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./integrations.css";
@@ -22,6 +22,8 @@ export default function IngestPage() {
   const [pushType, setPushType] = useState("change");
   const push = useGet<PushView>(mode === "pull" ? null : "/ingest/push");
   const noPushSource = push.data?.availability === "not_configured";
+  // A test event needs connectors.manage, as POST /ingest/push/test declares (PA-228); that comes before availability.
+  const noManage = useNeed(["connectors", "manage"]);
   const test = useSend<{ type: string }, { code: number }>("POST", "/ingest/push/test");
   const [params] = useSearchParams();
   const pullId = API_MODE === "mock" ? "pull-ops-metrics" : params.get("source");
@@ -54,7 +56,7 @@ export default function IngestPage() {
             <Btn icon="key" to="/integrations/webhooks">
               {tx("新建令牌", "New token")}
             </Btn>
-            <Gated reason={noPushSource ? tx("这个实例还没有配置 Push 来源", "No Push source is configured on this instance") : null} kind="availability">
+            <Gated reason={noManage ?? (noPushSource ? tx("这个实例还没有配置 Push 来源", "No Push source is configured on this instance") : null)} kind={noManage ? "permission" : "availability"}>
               <Btn kind="primary" icon="send" loading={test.isPending} onClick={() => test.mutate({ type: pushType }, { onSuccess: (r) => toast(tx("测试事件已发送 · {c}", "Test event sent · {c}", { c: r.code })) })}>
                 {tx("发送测试事件", "Send test event")}
               </Btn>

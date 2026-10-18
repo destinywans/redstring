@@ -9,6 +9,7 @@ import { useI18n } from "../../i18n";
 import "./integrations.css";
 import { ChipSelect, AddChip, SampleOnly } from "../../ui/demo";
 import { LoadError } from "../../ui/unknown";
+import { Gated, useNeed } from "../../ui/permission";
 
 const CATALOG = [
   ["gitlab", "GitLab"],
@@ -39,6 +40,8 @@ export default function AddConnectorPage() {
   const [hook, setHook] = useState(true);
   const [tools, setTools] = useState<Set<string>>(new Set(["list_pipelines", "get_pipeline", "get_commit_diff", "list_merge_requests"]));
   const create = useSend<object, { id: string }>("POST", "/connectors", ["/connectors"]);
+  // Creating needs connectors.manage, as POST /connectors declares (PA-228); the last step's button says so.
+  const noManage = useNeed(["connectors", "manage"]);
   // Kubernetes connectors (PA-08 design): API Server address, bearer token by reference, CA reference; read-only probe.
   const k8s = type === "kubernetes";
   const [caRef, setCaRef] = useState(demo ? "aiops-test-ca" : "");
@@ -257,9 +260,11 @@ export default function AddConnectorPage() {
                 {tx("上一步", "Back")}
               </Btn>
               <Spacer />
-              <Btn kind="primary" iconRight="right" loading={create.isPending} disabled={step >= 1 && !t} onClick={next}>
-                {step < 4 ? tx("下一步：{s}", "Next: {s}", { s: steps[step + 1] }) : demo ? tx("测试并创建", "Test & create") : tx("创建连接器", "Create connector")}
-              </Btn>
+              <Gated reason={step >= 4 ? noManage : null}>
+                <Btn kind="primary" iconRight="right" loading={create.isPending} disabled={step >= 1 && !t} onClick={next}>
+                  {step < 4 ? tx("下一步：{s}", "Next: {s}", { s: steps[step + 1] }) : demo ? tx("测试并创建", "Test & create") : tx("创建连接器", "Create connector")}
+                </Btn>
+              </Gated>
             </Row>
           </Card>
           <Card className="wizard-side">

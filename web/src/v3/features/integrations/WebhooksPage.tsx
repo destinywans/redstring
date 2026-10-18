@@ -9,6 +9,7 @@ import "./integrations.css";
 import { openForm, confirmAction, SecretBox } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 import { UnknownValue } from "../../ui/unknown";
+import { Gate } from "../../ui/permission";
 
 /** What the server has behind each part of the page; "not_connected" parts have no registry yet (sample data has none). */
 type WebhookAvailability = { inbound?: string; native_inbound?: string; api_tokens?: string; public_mcp?: string; outbound?: string; receipt_window?: string };
@@ -73,6 +74,8 @@ export default function WebhooksPage() {
           >
             {tx("新建 Webhook", "New webhook")}
           </Btn>}
+          {/* Issuing a token needs connectors.manage, as POST /api-tokens declares (PA-228). */}
+          <Gate need={["connectors", "manage"]}>
           <Btn
             kind="primary"
             icon="plus"
@@ -102,6 +105,7 @@ export default function WebhooksPage() {
           >
             {tx("新建 API 令牌", "New API token")}
           </Btn>
+          </Gate>
         </>
       }
     >

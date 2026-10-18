@@ -9,7 +9,8 @@ import { Badge, Brand, Btn, Card, Chip, Dot, Icon, IconBtn, Legend, Muted, Num, 
 import { StackedBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import "./trace.css";
-import { ChipSelect, openForm, usePickLists, useRanges } from "../../ui/demo";
+import { ChipSelect, confirmAction, openForm, usePickLists, useRanges } from "../../ui/demo";
+import { Gated, useNeed } from "../../ui/permission";
 import { toast } from "../../ui/overlays";
 import { BudgetNotice, DenseCard, IncompleteMarker, LookbackCard, coveredWindow, isScopeLimit, lookbackOf, rangeSeconds, useAxisNote, useWindowText, withErrors } from "./TraceLimit";
 import { useWhen, thinLabels } from "../../ui/when";
@@ -52,6 +53,9 @@ export default function TracesPage() {
   const [source, setSource] = useState<string | undefined>(undefined);
   const activeSource = source && bound.includes(source) ? source : bound.length === 1 ? bound[0] : undefined;
   const teamViews = useGet<{ items: { id: string; name: string; query: string; owner: string }[] }>(real ? "/trace-views" : null, { scope });
+  // Saving and deleting team views need traces.manage (internal/v3traces/views.go, PA-228). The permission names
+  // have no "traces" entry yet, so the reason is worded here.
+  const noViews = useNeed(["traces", "manage"]) ? tx("需要 链路·管理 权限", "Needs Traces · Manage permission") : null;
   const setService = (v: string) => {
     const next = new URLSearchParams(params);
     if (v) next.set("service", v);
@@ -71,6 +75,8 @@ export default function TracesPage() {
     }
   };
   const deleteTeamView = async (id: string, name: string) => {
+    const ok = await confirmAction({ title: tx("删除团队视图「{n}」？", "Delete team view “{n}”?", { n: name }), desc: tx("团队成员都不能再使用这个视图。此操作不能撤销。", "Nobody on the team can use this view any more. This can't be undone."), confirm: tx("删除", "Delete"), danger: true });
+    if (!ok) return;
     try {
       await api("DELETE", `/trace-views/${id}`);
       void teamViews.refetch();
@@ -276,13 +282,17 @@ export default function TracesPage() {
                   {v.name}
                   <Muted size={11}>· {v.owner}</Muted>
                 </Chip>
-                <IconBtn icon="x" label={tx("删除团队视图 {n}", "Delete team view {n}", { n: v.name })} size={20} onClick={() => void deleteTeamView(v.id, v.name)} />
+                <Gated reason={noViews}>
+                  <IconBtn icon="x" label={tx("删除团队视图 {n}", "Delete team view {n}", { n: v.name })} size={20} onClick={() => void deleteTeamView(v.id, v.name)} />
+                </Gated>
               </span>
             ))}
             {real && (
-              <Chip icon="plus" onClick={() => void saveTeamView()}>
-                {tx("保存为团队视图", "Save as team view")}
-              </Chip>
+              <Gated reason={noViews}>
+                <Chip icon="plus" onClick={() => void saveTeamView()}>
+                  {tx("保存为团队视图", "Save as team view")}
+                </Chip>
+              </Gated>
             )}
             {saved.map((v) => (
               <Chip key={v.name} active={q === v.query} onClick={() => setQ(v.query)}>

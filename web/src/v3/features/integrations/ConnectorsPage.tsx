@@ -18,6 +18,8 @@ export const STATUS_TONE: Record<ConnectorStatus, Tone> = { ok: "ok", unverified
 
 export default function ConnectorsPage() {
   const { tx } = useI18n();
+  // Adding and testing connectors need connectors.manage, as their routes declare (PA-228).
+  const noManage = useNeed(["connectors", "manage"]);
   const when = useWhen();
   const nav = useNavigate();
   const [cat, setCat] = useState("all");
@@ -35,9 +37,11 @@ export default function ConnectorsPage() {
       actions={
         <>
           <SearchBox placeholder={tx("搜索连接器", "Search connectors")} value={q} onChange={setQ} width={200} />
-          <Btn kind="primary" icon="plus" to="/integrations/new">
-            {tx("添加连接器", "Add connector")}
-          </Btn>
+          <Gated reason={noManage}>
+            <Btn kind="primary" icon="plus" to="/integrations/new">
+              {tx("添加连接器", "Add connector")}
+            </Btn>
+          </Gated>
         </>
       }
     >
@@ -79,7 +83,7 @@ export default function ConnectorsPage() {
                 </button>
               ))}
               {data && (
-                <button type="button" className="conn-card add" onClick={() => nav("/integrations/new")}>
+                <button type="button" className="conn-card add" disabled={!!noManage} title={noManage ?? undefined} onClick={() => nav("/integrations/new")}>
                   <Icon name="plus" size={18} />
                   {tx("企业微信、Jira 等", "WeCom, Jira and more")}
                 </button>
@@ -326,13 +330,15 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
               </Section>
             )}
             <Row gap={8}>
-              <Btn
-                icon="rotate"
-                loading={test.isPending}
-                onClick={() => test.mutate(undefined, { onSuccess: (r) => toast(tx("连接正常 · {n} ms", "Connection OK · {n} ms", { n: r.latency_ms })) })}
-              >
-                {tx("测试连接", "Test connection")}
-              </Btn>
+              <Gated reason={manage}>
+                <Btn
+                  icon="rotate"
+                  loading={test.isPending}
+                  onClick={() => test.mutate(undefined, { onSuccess: (r) => toast(tx("连接正常 · {n} ms", "Connection OK · {n} ms", { n: r.latency_ms })) })}
+                >
+                  {tx("测试连接", "Test connection")}
+                </Btn>
+              </Gated>
               {/* Editing settings (PUT /connectors/{id}/settings, POST …/activate) and disabling aren't wired; the sample
                   forms only showed a toast, so they stay in the sample (PA-163, D52). */}
               {API_MODE === "mock" && <Btn

@@ -528,13 +528,48 @@ const CONVERSATION = {
   id: CONV, title: "清扫检查对话", mode: "chat", status: "active", scope: { inferred: false }, messages: [], artifacts: [],
   side: { connectors: [], context: { used: null, budget: null, parts: [] }, recalled: [] },
 };
+/** Selecting a node opens the inspector, which reads its context and versions: a node without them crashes the page. */
+const nodeContext = (version: string) => ({ context: { version, tokens: null, messages: 0, excludes: [] }, versions: [] });
 const BRANCHED = {
   ...CANVAS,
   nodes: [
-    { id: "r1", kind: "root", title: "检查根节点", subtitle: "", status: "active", x: 0, y: 0, w: 280 },
-    { id: "b1", kind: "branch", parent: "r1", title: "检查分支", subtitle: "", status: "active", x: 400, y: 0, w: 280, summary: null },
+    { id: "r1", kind: "root", title: "检查根节点", subtitle: "", status: "active", x: 0, y: 0, w: 280, layout_version: 1, ...nodeContext("v1") },
+    { id: "b1", kind: "branch", parent: "r1", title: "检查分支", subtitle: "", status: "active", x: 400, y: 0, w: 280, summary: null, layout_version: 1, ...nodeContext("v1.1") },
   ],
 };
+
+/**
+ * Drags a node by its header (the drag handle; the tile at its left edge is clear of buttons) once the fit animation
+ * has settled, so the press lands on the node and not on the empty canvas (which pans instead).
+ */
+async function dragNode(page: Page, nodeId: string) {
+  const head = page.locator(`article.cv-node[data-node="${nodeId}"]`).locator(".cv-head, .cv-lite").first();
+  await expect(head).toBeVisible({ timeout: 20_000 });
+  let box = await head.boundingBox();
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(150);
+    const next = await head.boundingBox();
+    if (box && next && Math.abs(next.x - box.x) < 0.5 && Math.abs(next.y - box.y) < 0.5) break;
+    box = next;
+  }
+  if (!box) throw new Error(`node ${nodeId} isn't laid out`);
+  const x = box.x + 14;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 80, y + 60, { steps: 10 });
+  await page.mouse.move(x + 160, y + 120, { steps: 10 });
+  await page.mouse.up();
+}
+/** Counts layout saves (PATCH of a node) and answers them without writing. */
+function countLayoutSaves(page: Page) {
+  const saves = { n: 0 };
+  void page.route(
+    (u) => u.pathname.startsWith(`/api/v1/investigations/${INV}/nodes/`),
+    (r) => (r.request().method() === "PATCH" ? (saves.n++, json(r, 200, { id: "b1", layout_version: 2 })) : r.fallback()),
+  );
+  return saves;
+}
 
 test.describe("AI flows say what they do and recover from failures (PA-225)", () => {
   test.describe("as admin", () => {
@@ -644,21 +679,31 @@ test.describe("write entries are gated at the entry (PA-228)", () => {
 
   test("investigation canvas: dragging a node doesn't try to save its layout without canvas.change", async ({ page }) => {
     await page.addInitScript(zh);
-    let patched = 0;
+    const m = monitor(page);
+    const saves = countLayoutSaves(page);
     await page.route(at(`/investigations/${INV}/canvas`), (r) => json(r, 200, BRANCHED));
-    await page.route((u) => u.pathname.startsWith(`/api/v1/investigations/${INV}/nodes/`), (r) =>
-      r.request().method() === "PATCH" ? (patched++, json(r, 403, { error: { code: "forbidden", message: "check" } })) : r.fallback(),
-    );
     await page.goto(origin + `/canvas/${INV}`);
-    const node = page.getByText("检查分支", { exact: true }).first();
-    const box = await node.boundingBox({ timeout: 20_000 });
-    if (!box) throw new Error("node not laid out");
-    await page.mouse.move(box.x + 10, box.y + 5);
-    await page.mouse.down();
-    await page.mouse.move(box.x + 160, box.y + 120, { steps: 8 });
-    await page.mouse.up();
+    await dragNode(page, "b1");
+    // The press reached the node (it is selected), yet nothing was saved.
+    await expect(page.locator('article.cv-node[data-node="b1"]')).toHaveClass(/selected/);
     await page.waitForTimeout(800);
-    expect(patched).toBe(0);
+    expect(saves.n).toBe(0);
+    expect(m.pageErrors).toEqual([]);
+  });
+});
+
+test.describe("node drag saves its layout with canvas.change (PA-228 control)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("dragging a node as someone with canvas.change saves its layout once", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    const saves = countLayoutSaves(page);
+    await page.route(at(`/investigations/${INV}/canvas`), (r) => json(r, 200, BRANCHED));
+    await page.goto(origin + `/canvas/${INV}`);
+    await dragNode(page, "b1");
+    await expect.poll(() => saves.n).toBe(1);
+    expect(m.pageErrors).toEqual([]);
   });
 });
 

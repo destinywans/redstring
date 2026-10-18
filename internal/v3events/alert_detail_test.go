@@ -18,24 +18,6 @@ import (
 	"github.com/wans/aiops-canvas/internal/store"
 )
 
-func TestAlertDetailSeverityRefusesUnmappedRawValue(t *testing.T) {
-	for _, tc := range []struct {
-		raw, want string
-		valid     bool
-	}{
-		{"critical", "P1", true},
-		{"warning", "P2", true},
-		{"info", "P3", true},
-		{"p4", "P4", true},
-		{"not-a-severity", "", false},
-	} {
-		got, valid := alertDetailSeverity(tc.raw)
-		if got != tc.want || valid != tc.valid {
-			t.Errorf("severity %q = %q,%t; want %q,%t", tc.raw, got, valid, tc.want, tc.valid)
-		}
-	}
-}
-
 func TestAlertDetailReadsOnlyEvidenceBackedFields(t *testing.T) {
 	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
@@ -141,7 +123,7 @@ func TestAlertDetailReadsOnlyEvidenceBackedFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	if detail.ID != "alert" || detail.Revision == "" || detail.SourceID != "source-alpha" || detail.Source != nil || detail.Env != "dev" ||
-		detail.Severity != "P1" || detail.State != "firing" || detail.Summary != "Observed summary" ||
+		detail.Severity == nil || *detail.Severity != "P1" || detail.State != "firing" || detail.Summary != "Observed summary" ||
 		detail.Rule != nil || detail.Series != nil || detail.Labels != nil || detail.Triage != nil || detail.Runbook != nil ||
 		detail.Grouping.Group != nil || detail.Grouping.Inhibited != nil || detail.Grouping.Incident.ID != "alert" ||
 		len(detail.Notifications) != 2 || detail.Notifications[0].ID != "first" || detail.Notifications[0].Status != "sent" ||

@@ -4,7 +4,7 @@ import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import { LoadError, PartialBanner, Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
 import type { AlertDetail, InboxItem, Incident } from "../../api/types";
-import { Badge, Brand, Btn, Card, Col, Dot, Icon, IconBtn, KV, LabelChip, Muted, Panel, Row, Sev, Skeleton, Spacer, State, Tabs, Tile, TextLink, Kbd, cx, type IconName, type Tone } from "../../ui/core";
+import { Badge, Brand, Btn, Card, Col, Dot, Icon, IconBtn, KV, LabelChip, Muted, Panel, Row, Skeleton, Spacer, State, Tabs, Tile, TextLink, Kbd, cx, type IconName, type Tone } from "../../ui/core";
 import { MenuButton, toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
 import { Lines } from "../../charts";
@@ -14,6 +14,7 @@ import "./events.css";
 import { openExternal, copyText } from "../../ui/demo";
 import { Gate, useNeed } from "../../ui/permission";
 import { useWhen, parseStamp } from "../../ui/when";
+import { SeverityBadge } from "./peeks";
 
 type Day = "today" | "yesterday" | "earlier";
 const KIND_ICON: Record<InboxItem["kind"], IconName> = { alert: "alert", approval: "shield", mention: "message", runbook: "book", report: "file", access: "user", agent: "cpu", assignment: "pin" };
@@ -94,7 +95,7 @@ export function AlertDetailView({ id }: { id: string }) {
   return (
     <div className="alert-detail anim-fade" key={id}>
       <Row gap={8} wrap>
-        <Sev p={a.severity} />
+        <SeverityBadge p={a.severity} reason={a.severity_reason} />
         <h2 style={{ fontSize: 16, fontWeight: 600 }}>{a.title}</h2>
         <State tone={STATE[a.state][0]} pulse={a.state === "firing"}>
           {STATE[a.state][1]}
@@ -145,7 +146,7 @@ export function AlertDetailView({ id }: { id: string }) {
       <Muted>
         {a.source ?? <UnknownValue reason="not_tracked" label={tx("来源 —", "source —")} />} · {curEnv?.label ?? "—"} · {when.short(a.since)} · {a.rule ? tx("规则「{r}」", "Rule “{r}”", { r: a.rule }) : <UnknownValue reason="not_tracked" label={tx("规则 —", "rule —")} />}
       </Muted>
-      {!!a.unavailable?.length && <PartialBanner fields={[...new Set(a.unavailable.map((f) => ({ source: tx("来源", "source"), rule: tx("规则", "rule"), triage: tx("AI 初查", "AI triage"), series: tx("告警值曲线", "value chart"), labels: tx("标签", "labels"), runbook: "Runbook" })[f.split(".")[0]] ?? tx("分组与关联", "grouping")))]} />}
+      {!!a.unavailable?.length && <PartialBanner fields={[...new Set(a.unavailable.map((f) => ({ severity: tx("级别", "severity"), source: tx("来源", "source"), rule: tx("规则", "rule"), triage: tx("AI 初查", "AI triage"), series: tx("告警值曲线", "value chart"), labels: tx("标签", "labels"), runbook: "Runbook" })[f.split(".")[0]] ?? tx("分组与关联", "grouping")))]} />}
       {a.triage && (
         <div className="ai-triage">
           <Icon name="sparkles" size={16} color="var(--accent-text)" style={{ marginTop: 2 }} />

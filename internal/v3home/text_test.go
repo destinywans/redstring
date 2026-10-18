@@ -8,10 +8,10 @@ import (
 
 func TestTextFollowsRequestLanguage(t *testing.T) {
 	zh, en := textFor("zh-CN"), textFor("en-US,en;q=0.9")
-	if got := zh.trendSummary(24*time.Hour, 3); !strings.HasPrefix(got, "近 24 小时已入库告警接收记录 3 条") {
+	if got := zh.trendSummary(24*time.Hour, 3, 0); !strings.HasPrefix(got, "近 24 小时已入库告警接收记录 3 条") {
 		t.Fatalf("zh trend summary = %q", got)
 	}
-	if got := en.trendSummary(24*time.Hour, 3); !strings.HasPrefix(got, "3 alert deliveries stored in the last 24 hours") {
+	if got := en.trendSummary(24*time.Hour, 3, 0); !strings.HasPrefix(got, "3 alert deliveries stored in the last 24 hours") {
 		t.Fatalf("en trend summary = %q", got)
 	}
 	for d, want := range map[time.Duration]string{15 * time.Minute: "last 15 minutes", time.Hour: "last hour", 6 * time.Hour: "last 6 hours", 7 * 24 * time.Hour: "last 7 days"} {

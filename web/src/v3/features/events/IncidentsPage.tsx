@@ -4,7 +4,7 @@ import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, newIdempotencyKey, useGet } from "../../api/client";
 import { LoadError, UnknownValue } from "../../ui/unknown";
 import type { Incident } from "../../api/types";
-import { AiAvatar, Avatar, Brand, Btn, Card, Chip, Col, Empty, IconBtn, Input, KV, Mono, Muted, Panel, Pills, Row, Sev, Skeleton, Spacer, State, Stepper, TextLink, cx, type Tone } from "../../ui/core";
+import { AiAvatar, Avatar, Brand, Btn, Card, Chip, Col, Empty, IconBtn, Input, KV, Mono, Muted, Panel, Pills, Row, Skeleton, Spacer, State, Stepper, TextLink, cx, type Tone } from "../../ui/core";
 import { MenuButton, toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
@@ -12,10 +12,11 @@ import { Gated, useNeed } from "../../ui/permission";
 import { useCreateParam } from "../../ui/forms";
 import { NewIncidentDrawer } from "./CreateDrawers";
 import { IncidentChanges } from "./IncidentChanges";
+import { SeverityBadge } from "./peeks";
 import "./events.css";
 import { useWhen } from "../../ui/when";
 
-type Summary = Pick<Incident, "id" | "severity" | "title" | "status" | "duration" | "commander">;
+type Summary = Pick<Incident, "id" | "severity" | "severity_reason" | "title" | "status" | "duration" | "commander">;
 
 export default function IncidentsPage() {
   const { tx } = useI18n();
@@ -92,7 +93,7 @@ export default function IncidentsPage() {
               <li key={it.id}>
                 <button type="button" className={cx("inc-item", it.id === id && "on")} onClick={() => nav(`/incidents/${it.id}`)}>
                   <Row gap={6}>
-                    <Sev p={it.severity} />
+                    <SeverityBadge p={it.severity} reason={it.severity_reason} />
                     <Mono size={11.5}>{it.id}</Mono>
                     <Spacer />
                     <State tone={STATUS[it.status][0]}>{STATUS[it.status][1]}</State>
@@ -126,7 +127,7 @@ export default function IncidentsPage() {
           ) : (
             <div className="v3-content anim-fade" key={inc.id}>
               <Row gap={8} wrap>
-                <Sev p={inc.severity} />
+                <SeverityBadge p={inc.severity} reason={inc.severity_reason} />
                 <Mono>{inc.id}</Mono>
                 <h2 style={{ fontSize: 17, fontWeight: 600 }}>{inc.title}</h2>
                 <State tone={STATUS[inc.status][0]} pulse={inc.status === "active"}>

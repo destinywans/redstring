@@ -10,15 +10,19 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3events/alertseverity"
 )
 
 // AlertDetailResponse is the evidence-backed portion of the frozen alert page.
 // Revision belongs only to the incident row. Notification state may change
 // without changing that revision, so it is not an HTTP representation ETag.
 type AlertDetailResponse struct {
-	ID                     string                  `json:"id"`
-	Revision               string                  `json:"revision"`
-	Severity               string                  `json:"severity"`
+	ID       string `json:"id"`
+	Revision string `json:"revision"`
+	// Severity is null, with SeverityReason and "severity" in Unavailable,
+	// when the recorded value maps onto no level (PA-239).
+	Severity               *string                 `json:"severity"`
+	SeverityReason         *string                 `json:"severity_reason,omitempty"`
 	Title                  string                  `json:"title"`
 	State                  string                  `json:"state"`
 	SourceID               string                  `json:"source_id"`
@@ -135,12 +139,9 @@ func (s *Service) alertDetailTx(ctx context.Context, tx pgx.Tx, v incidentRecord
 	if state != "firing" && state != "pending" && state != "resolved" {
 		return AlertDetailResponse{}, store.ErrInvalidReference
 	}
-	severityCode, ok := alertDetailSeverity(v.Severity)
-	if !ok {
-		return AlertDetailResponse{}, store.ErrInvalidReference
-	}
+	severityCode, severityReason := alertseverity.Ptr(v.Severity)
 	result := AlertDetailResponse{
-		ID: v.ID, Revision: revision, Severity: severityCode,
+		ID: v.ID, Revision: revision, Severity: severityCode, SeverityReason: severityReason,
 		Title: v.Title, State: state, SourceID: sourceID,
 		Env: v.EnvironmentKey, Since: v.StartsAt.UTC().Format(time.RFC3339Nano),
 		Summary: v.Summary, Notifications: notifications, NotificationsTruncated: truncated,
@@ -150,6 +151,9 @@ func (s *Service) alertDetailTx(ctx context.Context, tx pgx.Tx, v incidentRecord
 	}
 	if truncated {
 		result.Unavailable = append(result.Unavailable, "notifications_complete")
+	}
+	if severityCode == nil {
+		result.Unavailable = append(result.Unavailable, "severity")
 	}
 	result.Grouping.Incident.ID = v.ID
 	var caseID, caseApp, caseEnv *string
@@ -177,21 +181,6 @@ func alertDetailGroupID(v incidentRecord) *string {
 	}
 	id := localAlertGroupID(v)
 	return &id
-}
-
-func alertDetailSeverity(raw string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "p1", "critical", "fatal":
-		return "P1", true
-	case "p2", "warning", "warn", "high":
-		return "P2", true
-	case "p3", "info", "medium":
-		return "P3", true
-	case "p4":
-		return "P4", true
-	default:
-		return "", false
-	}
 }
 
 // AlertDetail resolves one persisted alert. The incident row is held FOR

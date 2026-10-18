@@ -15,6 +15,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/searchtext"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3alertmanager"
+	"github.com/wans/aiops-canvas/internal/v3events/alertseverity"
 	"github.com/wans/aiops-canvas/internal/v3pagequery"
 )
 
@@ -35,8 +36,8 @@ type GroupPolicySource interface {
 // recently (PA-174); the ID only breaks ties so the order is stable.
 func sortAlertGroups(items []alertGroup) {
 	sort.Slice(items, func(i, j int) bool {
-		if items[i].Severity != items[j].Severity {
-			return severityRank(items[i].Severity) < severityRank(items[j].Severity)
+		if a, b := groupSeverity(items[i]), groupSeverity(items[j]); a != b {
+			return severityRank(a) < severityRank(b)
 		}
 		if items[i].LastSeen != items[j].LastSeen {
 			return lastSeenAfter(items[i].LastSeen, items[j].LastSeen)
@@ -80,10 +81,15 @@ type alertGroupNotify struct {
 }
 
 type alertGroup struct {
-	ID       string  `json:"id"`
-	Severity string  `json:"severity"`
-	Labels   []label `json:"labels"`
-	Service  string  `json:"service"`
+	ID string `json:"id"`
+	// Severity is the highest member severity. It is null, with
+	// SeverityReason and "severity" in Unavailable, when a member's severity
+	// is unknown and no member is P1, since the unknown one could be higher
+	// (PA-239).
+	Severity       *string `json:"severity"`
+	SeverityReason *string `json:"severity_reason,omitempty"`
+	Labels         []label `json:"labels"`
+	Service        string  `json:"service"`
 	// AlertName is the members' alertname label (or the persisted alert title when the
 	// label is missing), null when members disagree (PA-130).
 	AlertName      *string `json:"alert_name"`
@@ -122,6 +128,18 @@ type alertGroupAccumulator struct {
 	latest      *localNotification
 	alertName   string
 	mixedNames  bool
+	// best is the highest known member severity; unknownReason is set once
+	// a member's severity is unknown.
+	best          string
+	unknownReason string
+}
+
+// groupSeverity is the group's level for sorting and filtering, "" when unknown.
+func groupSeverity(g alertGroup) string {
+	if g.Severity == nil {
+		return ""
+	}
+	return *g.Severity
 }
 
 type localNotification struct {
@@ -267,8 +285,8 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...st
 	}
 	groups := make(map[string]*alertGroupAccumulator)
 	for _, v := range values {
-		severityCode, valid := alertDetailSeverity(v.Severity)
-		if !valid || strings.TrimSpace(v.SourceID) == "" || strings.TrimSpace(v.Fingerprint) == "" || strings.TrimSpace(v.Title) == "" || v.StartsAt.IsZero() || v.EnvironmentKey == "" {
+		severityCode, severityReason := alertseverity.Of(v.Severity)
+		if strings.TrimSpace(v.SourceID) == "" || strings.TrimSpace(v.Fingerprint) == "" || strings.TrimSpace(v.Title) == "" || v.StartsAt.IsZero() || v.EnvironmentKey == "" {
 			return nil, store.ErrInvalidReference
 		}
 		if v.AlertStatus != "firing" && v.AlertStatus != "pending" && v.AlertStatus != "resolved" {
@@ -283,7 +301,7 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...st
 			g = &alertGroupAccumulator{key: key, earliest: v.StartsAt, latestStart: v.StartsAt, ownerID: v.AssigneeID,
 				ownerName: v.Commander, sharedOwner: v.AssigneeID != "" && v.Commander != "", alertName: memberAlertName(v)}
 			g.group = alertGroup{
-				ID: id, Severity: severityCode,
+				ID: id,
 				Labels: []label{{K: "application_id", V: v.ApplicationID}, {K: "environment", V: v.EnvironmentKey},
 					{K: "source_id", V: v.SourceID}, {K: "fingerprint", V: v.Fingerprint}},
 				Service: v.ApplicationID, SourceID: v.SourceID, Fingerprint: v.Fingerprint,
@@ -323,8 +341,12 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...st
 				g.group.Fingerprint = ""
 			}
 		}
-		if severityRank(severityCode) < severityRank(g.group.Severity) {
-			g.group.Severity = severityCode
+		if severityCode == "" {
+			if g.unknownReason == "" || severityReason == alertseverity.ReasonUnrecognized {
+				g.unknownReason = severityReason
+			}
+		} else if g.best == "" || severityRank(severityCode) < severityRank(g.best) {
+			g.best = severityCode
 		}
 		if v.AlertStatus == "firing" || v.AlertStatus == "pending" && g.group.State != "firing" {
 			g.group.State = v.AlertStatus
@@ -353,6 +375,14 @@ func aggregateAlertGroups(values []incidentRecord, now time.Time, grouping ...st
 		}
 	}
 	for _, g := range groups {
+		if g.best != "" && (g.best == "P1" || g.unknownReason == "") {
+			level := g.best
+			g.group.Severity = &level
+		} else {
+			reason := g.unknownReason
+			g.group.SeverityReason = &reason
+			g.group.Unavailable = append(g.group.Unavailable, "severity")
+		}
 		if g.sharedOwner {
 			owner := g.ownerName
 			g.group.Owner = &owner
@@ -520,7 +550,7 @@ func (s *Service) AlertGroups(w http.ResponseWriter, r *http.Request) {
 	all, firing, pending, resolved := 0, 0, 0, 0
 	counts["silenced"] = nil
 	for _, g := range groups {
-		if !matchesAlertSeverity(severities, g.group.Severity) {
+		if !matchesAlertSeverity(severities, groupSeverity(g.group)) {
 			continue
 		}
 		all++

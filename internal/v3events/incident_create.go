@@ -18,6 +18,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
 	"github.com/wans/aiops-canvas/internal/v3canvas"
+	"github.com/wans/aiops-canvas/internal/v3events/alertseverity"
 )
 
 const maxIncidentCreateAlerts = 20
@@ -121,7 +122,9 @@ func (s *Service) selectedIncidentAlertsTx(r *http.Request, tx pgx.Tx, ids []str
 		if v.AlertStatus != "firing" && v.AlertStatus != "pending" || v.Status == "resolved" || v.SourceID == "ai-patrol" {
 			return nil, store.ErrConflict
 		}
-		if _, valid := alertDetailSeverity(v.Severity); !valid || v.ID == "" || v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" || strings.TrimSpace(v.Title) == "" {
+		// The draft and the create drawer need a known level for every
+		// alert; an unknown severity is still refused here (PA-239).
+		if _, valid := alertseverity.Level(v.Severity); !valid || v.ID == "" || v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" || strings.TrimSpace(v.Title) == "" {
 			return nil, store.ErrInvalidReference
 		}
 		if len(alerts) > 0 && (alerts[0].ApplicationID != v.ApplicationID || alerts[0].EnvironmentID != v.EnvironmentID || alerts[0].EnvironmentKey != v.EnvironmentKey) {
@@ -181,7 +184,7 @@ func (s *Service) IncidentDraft(w http.ResponseWriter, r *http.Request) {
 	chosenSeverity := "P4"
 	items := make([]map[string]any, 0, len(alerts))
 	for _, v := range alerts {
-		level, _ := alertDetailSeverity(v.Severity)
+		level, _ := alertseverity.Level(v.Severity)
 		if severityRank(level) < severityRank(chosenSeverity) {
 			chosenSeverity = level
 		}

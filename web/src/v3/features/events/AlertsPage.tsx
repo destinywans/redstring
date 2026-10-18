@@ -6,13 +6,13 @@ import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { AlertGroup, AlertGroupPolicy, ServiceCatalog } from "../../api/types";
 import { serviceParts } from "../../api/ids";
 import { Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
-import { Badge, Brand, Btn, Card, Chip, Col, Icon, IconBtn, Kbd, LabelChip, Muted, Pills, Row, SearchBox, Section, Sev, Skeleton, Spacer, State, Strong, Tile, Toggle, Bar, cx, type Tone } from "../../ui/core";
+import { Badge, Brand, Btn, Card, Chip, Col, Icon, IconBtn, Kbd, LabelChip, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, Tile, Toggle, Bar, cx, type Tone } from "../../ui/core";
 import { toast, Tooltip } from "../../ui/overlays";
 import { DataTable } from "../../ui/data";
 import { Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
 import { Gate, usePermission } from "../../ui/permission";
-import { PersonPeekLink, ServicePeekLink } from "./peeks";
+import { PersonPeekLink, ServicePeekLink, SeverityBadge } from "./peeks";
 import "./events.css";
 import { ChipSelect } from "../../ui/demo";
 import { useFirstSelection } from "../../ui/selection";
@@ -223,7 +223,7 @@ export default function AlertsPage() {
                     <div className="ag-head" onClick={() => setFocus(g.id)}>
                       <input type="checkbox" aria-label={tx("选择", "Select")} checked={checked.has(g.id)} onChange={() => setChecked((c) => toggle(c, g.id))} onClick={(e) => e.stopPropagation()} />
                       <IconBtn icon={expanded ? "down" : "right"} label={expanded ? tx("收起", "Collapse") : tx("展开", "Expand")} size={22} onClick={() => setOpen((o) => toggle(o, g.id))} />
-                      <Sev p={g.severity} />
+                      <SeverityBadge p={g.severity} reason={g.severity_reason} />
                       <ServicePeekLink id={svcOf(g).id}>
                         <LabelChip k="service" v={svcOf(g).name} />
                       </ServicePeekLink>

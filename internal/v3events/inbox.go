@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3events/alertseverity"
 )
 
 // persistedInboxItem is an alert backed by one persisted incident. A read receipt is
@@ -136,8 +137,9 @@ func (s *Service) Inbox(w http.ResponseWriter, r *http.Request) {
 	all, mineCount := 0, 0
 	userID := httpapi.CurrentUser(r).ID
 	for _, v := range values {
-		severity, valid := alertDetailSeverity(v.Severity)
-		if !valid || v.ID == "" || v.Title == "" || v.UpdatedAt.IsZero() {
+		// An unknown severity only leaves the tone neutral (PA-239).
+		severity, _ := alertseverity.Of(v.Severity)
+		if v.ID == "" || v.Title == "" || v.UpdatedAt.IsZero() {
 			httpapi.Error(w, http.StatusServiceUnavailable, "inbox_unavailable", "Persisted alert is incomplete")
 			return
 		}

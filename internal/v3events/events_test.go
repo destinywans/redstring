@@ -108,7 +108,7 @@ func TestInvalidFiltersReturn422BeforeDatabaseAccess(t *testing.T) {
 func TestSummaryUsesActualAssigneeAndElapsedTime(t *testing.T) {
 	since := time.Date(2026, 9, 28, 8, 0, 0, 0, time.UTC)
 	got := summarize(incidentRecord{ID: "i", Severity: "critical", Status: "open", AlertStatus: "firing", Title: "Disk full", Commander: "Li", StartsAt: since}, since.Add(90*time.Minute))
-	if got.Severity != "P1" || got.Status != "active" || got.Duration != "1h 30m" || got.Commander != "Li" {
+	if got.Severity == nil || *got.Severity != "P1" || got.Status != "active" || got.Duration != "1h 30m" || got.Commander != "Li" {
 		t.Fatalf("unexpected summary: %+v", got)
 	}
 }

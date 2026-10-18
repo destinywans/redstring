@@ -44,8 +44,11 @@ export default function IncidentsPage() {
     resolved: ["ok", tx("已解决", "Resolved")],
   };
   const stages = [tx("发现", "Detected"), tx("确认", "Acknowledged"), tx("缓解", "Mitigated"), tx("解决", "Resolved"), tx("复盘", "Postmortem")];
-  // Real records have no stage; the stepper follows the confirmed status instead.
   const cur = stage ?? inc?.stage ?? (inc ? { active: 1, mitigated: 2, resolved: 3 }[inc.status] : 0);
+  // PA-226: a real record has only its current status (no acknowledgement or postmortem is tracked, and a case can go
+  // straight from active to resolved), so the stepper marks that status as current and ticks only what it implies.
+  const realStages = inc?.status === "resolved" ? [tx("发现", "Detected"), tx("解决", "Resolved"), tx("复盘", "Postmortem")] : [tx("发现", "Detected"), tx("缓解", "Mitigated"), tx("解决", "Resolved"), tx("复盘", "Postmortem")];
+  const realCur = inc ? { active: 0, mitigated: 1, resolved: 1 }[inc.status] : 0;
   const fmtTime = (t: string) => when.short(t) ?? t;
   // PA-189: what the server says it has no source for is shown as unknown, not left as an empty panel.
   const unknown = new Set(inc?.unavailable ?? []);
@@ -176,7 +179,7 @@ export default function IncidentsPage() {
                 )}
               </Row>
               <Card style={{ padding: "12px 16px" }}>
-                <Stepper steps={stages} active={cur} />
+                {demo ? <Stepper steps={stages} active={cur} /> : <Stepper steps={realStages} active={realCur} />}
               </Card>
               <IncidentChanges incidentId={inc.id} />
               <div className="inc-grid">

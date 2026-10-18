@@ -9,6 +9,7 @@ import { toast } from "../../ui/overlays";
 import { StackedBars } from "../../charts";
 import { useI18n } from "../../i18n";
 import { UnknownValue } from "../../ui/unknown";
+import { Gated, useNeed } from "../../ui/permission";
 import "./settings.css";
 import { ChipSelect, useFacet, RangeChip, useRanges } from "../../ui/demo";
 import { LoadMore, useMorePages } from "../../ui/loadMore";
@@ -24,12 +25,15 @@ export default function AuditPage() {
   const [range, setRange] = useState("7d");
   const rangeLabel = useRanges().find((r) => r.value === range)?.label ?? range;
   const listQuery = { filter, q, range };
-  const { data } = useGet<AuditView>("/audit", listQuery);
+  // Without audit.view (viewer, operator) the list is refused (403): the page says so instead of an endless skeleton (PA-200).
+  const { data, error } = useGet<AuditView>("/audit", listQuery);
   // Earlier records load on request through next_cursor (PA-133); facets work on what is loaded.
   const paged = useMorePages("/audit", listQuery, data);
   const fAct = useFacet(data ? paged.items : undefined, (a) => a.action);
   const fRes = useFacet(data ? paged.items : undefined, (a) => a.result ?? "unknown");
   const exp = useSend<{ filter: string; q?: string; range: string }, { url: string }>("POST", "/audit/export");
+  // The export is marked audit.view like the list.
+  const noView = useNeed(["audit", "view"]);
   const res = (r: AuditEntry["result"] | "unknown") =>
     r === "ok" ? ([tx("成功", "OK"), "ok"] as const) : r === "pending" ? ([tx("进行中", "Pending"), "accent"] as const) : r === "blocked" ? ([tx("已拦截", "Blocked"), "warn"] as const) : r === "failed" ? ([tx("失败", "Failed"), "danger"] as const) : ([tx("未知", "Unknown"), "neutral"] as const);
   const { data: d } = useGet<AuditDetail>(sel ? `/audit/${sel}` : null);
@@ -37,23 +41,27 @@ export default function AuditPage() {
     <Page
       flush
       ai={false}
+      error={!data ? error : undefined}
+      errorSource={tx("审计日志", "audit log")}
       crumbs={[tx("设置", "Settings"), tx("审计日志", "Audit log")]}
       actions={
-        <Btn icon="download" loading={exp.isPending} onClick={() =>
-            // Exports what the list shows and downloads the CSV the server returns (PA-162); the sample has no file.
-            exp.mutate(
-              { filter, range, ...(q.trim() ? { q: q.trim() } : {}) },
-              {
-                onSuccess: (r) => {
-                  if (API_MODE === "mock") return toast(tx("导出任务已创建，完成后通过飞书通知", "Export started — you'll be notified on Feishu"));
-                  if (r?.url) window.location.assign(r.url);
-                  toast(tx("审计日志已导出，开始下载", "Audit log exported; the download is starting"));
+        <Gated reason={noView}>
+          <Btn icon="download" loading={exp.isPending} onClick={() =>
+              // Exports what the list shows and downloads the CSV the server returns (PA-162); the sample has no file.
+              exp.mutate(
+                { filter, range, ...(q.trim() ? { q: q.trim() } : {}) },
+                {
+                  onSuccess: (r) => {
+                    if (API_MODE === "mock") return toast(tx("导出任务已创建，完成后通过飞书通知", "Export started — you'll be notified on Feishu"));
+                    if (r?.url) window.location.assign(r.url);
+                    toast(tx("审计日志已导出，开始下载", "Audit log exported; the download is starting"));
+                  },
                 },
-              },
-            )
-          }>
-          {tx("导出", "Export")}
-        </Btn>
+              )
+            }>
+            {tx("导出", "Export")}
+          </Btn>
+        </Gated>
       }
     >
       <div className="v3-split">

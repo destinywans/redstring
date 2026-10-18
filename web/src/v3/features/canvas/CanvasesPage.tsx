@@ -212,7 +212,8 @@ export function NewCanvasDialog({ open, onClose, initialKind = "plan", initialSe
       // The API takes application IDs; catalog service IDs carry the application (base64url application NUL environment).
       const services = API_MODE === "mock" ? svcs : [...new Set(svcs.map((sv) => serviceApplicationId(sv) ?? sv))];
       const r = await api<{ id: string; href: string }>("POST", "/canvases", { body: { title, kind, template_id: tpl, goal, ai_draft: draft, services } });
-      toast(draft ? tx("画布已创建，AI 正在起草初始节点", "Canvas created — the AI is drafting the first nodes") : tx("画布已创建", "Canvas created"));
+      // The server drafts before it answers: a created canvas already holds the AI's first nodes (PA-244).
+      toast(draft ? tx("画布已创建，AI 已起草初始节点", "Canvas created with the AI's first nodes") : tx("画布已创建", "Canvas created"));
       onClose();
       nav(r.href);
     } catch (e) {

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { AlertRule, AlertRuleLifecycle, AlertRuleList, AlertRulePending, AlertRuleSummary, Tone } from "../../api/types";
-import { Unavailable, UnknownValue } from "../../ui/unknown";
+import { LoadError, Unavailable, UnknownValue } from "../../ui/unknown";
 import { useWhen } from "../../ui/when";
 import { Badge, Brand, Btn, Card, Chip, Code, Col, Dot, Env, Icon, Input, KV, LabelChip, Legend, Muted, Pills, Radio, Row, SearchBox, Sev, Skeleton, Spacer, State, Tabs, TextLink, Toggle, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -57,7 +57,7 @@ export default function RulesPage() {
     return hit && items ? [hit, ...items.filter((x) => x !== hit)] : items;
   }, [list.data, params]);
   useFirstSelection(preferred, (x) => x.id, sel, setSel);
-  const { data: r } = useGet<AlertRule>(sel ? `/alert-rules/${sel}` : null);
+  const { data: r, error: ruleError } = useGet<AlertRule>(sel ? `/alert-rules/${sel}` : null);
   const [threshold, setThreshold] = useState(1);
   const [forMin, setForMin] = useState(5);
   const [mode, setMode] = useState<"continuous" | "cron">("continuous");
@@ -181,6 +181,9 @@ export default function RulesPage() {
                 <Unavailable reason="not_generated" title={tx("还没有告警规则", "No alert rules yet")} desc={tx("新建一条规则，或导入现有的 Prometheus 规则文件。", "Create a rule or import an existing Prometheus rule file.")} icon="bell" />
               )}
             </div>
+          ) : !r && ruleError ? (
+            // A rule that can't be read says why instead of loading forever (PA-221).
+            <LoadError error={ruleError} source={tx("告警规则来源", "alert rule source")} />
           ) : !r ? (
             <Skeleton h={300} style={{ margin: 22 }} />
           ) : (

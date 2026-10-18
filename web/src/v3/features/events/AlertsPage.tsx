@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { AlertGroup, AlertGroupPolicy, ServiceCatalog } from "../../api/types";
 import { serviceParts } from "../../api/ids";
-import { Unavailable, UnknownValue } from "../../ui/unknown";
+import { Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, IconBtn, Kbd, LabelChip, Muted, Pills, Row, SearchBox, Section, Sev, Skeleton, Spacer, State, Strong, Tile, Toggle, Bar, cx, type Tone } from "../../ui/core";
 import { toast, Tooltip } from "../../ui/overlays";
 import { DataTable } from "../../ui/data";
@@ -30,7 +30,7 @@ export default function AlertsPage() {
   const [state, setState] = useState<"firing" | "pending" | "silenced" | "resolved">("firing");
   const [q, setQ] = useState("");
   const [showInhibited, setShowInhibited] = useState(true);
-  const { data, isLoading } = useGet<{ items: AlertGroup[]; counts: Record<string, number | null> }>("/alert-groups", { state, q, show_inhibited: showInhibited });
+  const { data, isLoading, error } = useGet<{ items: AlertGroup[]; counts: Record<string, number | null> }>("/alert-groups", { state, q, show_inhibited: showInhibited });
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [focus, setFocus] = useState("");
@@ -195,6 +195,24 @@ export default function AlertsPage() {
             </Row>
             <Col gap={10} className="stagger">
               {isLoading && Array.from({ length: 4 }, (_, i) => <Skeleton key={i} h={48} style={{ borderRadius: 10 }} />)}
+              {/* PA-221: the server refuses filters it can't apply (silence state and inhibition aren't tracked); say so, and say when a tab is empty. */}
+              {!isLoading && error && !data ? (
+                error instanceof ApiError && error.code === "silence_state_unavailable" ? (
+                  <Unavailable reason="unavailable" icon="mute" title={tx("还不能按静默筛选", "Silenced alerts can't be listed yet")} desc={tx("平台还没有记录告警的静默状态，这个页签暂时不会有内容。", "The platform doesn't record whether an alert is silenced yet, so this tab stays empty for now.")} />
+                ) : error instanceof ApiError && error.code === "inhibition_unavailable" ? (
+                  <Unavailable reason="unavailable" icon="layers" title={tx("还不能隐藏被抑制的告警", "Inhibited alerts can't be hidden yet")} desc={tx("平台还没有记录告警是否被抑制，打开“显示被抑制的告警”即可查看全部告警。", "The platform doesn't record whether an alert is inhibited yet; turn “Show inhibited” back on to see all alerts.")} />
+                ) : (
+                  <Unavailable reason={errorReason(error)} icon="alert" title={tx("暂时读不到告警", "Alerts can't be read right now")} />
+                )
+              ) : (
+                !isLoading &&
+                data &&
+                !data.items.length && (
+                  <div style={{ padding: 28, textAlign: "center" }}>
+                    <Muted>{tx("没有数据", "No data")}</Muted>
+                  </div>
+                )
+              )}
               {data?.items.map((g) => {
                 const expanded = open.has(g.id);
                 return (

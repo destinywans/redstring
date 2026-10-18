@@ -107,3 +107,102 @@ test.describe("runbook submit for review re-reads the runbook (PA-233)", () => {
     }
   });
 });
+
+/* ---------------- PA-234: testing a connector ---------------- */
+
+const CONNECTOR = "conn-pa234-check";
+type ConnectorState = { status: "ok" | "unverified" | "error"; checked_at: string | null; meta: string };
+const connector = (s: ConnectorState) => ({ id: CONNECTOR, brand: "prometheus", name: "测试检查连接器", kind: "指标", category: "observe", tags: [], ...s });
+const connectorList = (s: ConnectorState) => ({
+  items: [connector(s)],
+  counts: { ok: s.status === "ok" ? 1 : 0, unverified: s.status === "unverified" ? 1 : 0, error: s.status === "error" ? 1 : 0 },
+  categories: [{ id: "all", label: "全部", count: 1 }],
+});
+const connectorDetail = (s: ConnectorState) => ({ ...connector(s), scope: "prod", address: "https://check.example.invalid", auth: { text: "无认证" }, services: [], queries: [], tools: [] });
+/** Answers the connector list and detail with `state()` as the server holds it now. */
+async function pinConnector(page: Page, state: () => ConnectorState) {
+  await page.route(at("/connectors"), (r) => (r.request().method() === "GET" ? json(r, 200, connectorList(state())) : r.fallback()));
+  await page.route(at(`/connectors/${CONNECTOR}`), (r) => (r.request().method() === "GET" ? json(r, 200, connectorDetail(state())) : r.fallback()));
+}
+const card = (page: Page) => page.locator(".conn-card", { hasText: "测试检查连接器" });
+const aside = (page: Page) => page.locator("aside.aside");
+const checkedRow = (page: Page) => aside(page).locator(".v3-kv", { hasText: "检查" });
+const PASSED: ConnectorState = { status: "ok", checked_at: "2026-10-01T01:00:00Z", meta: "连接检查通过" };
+const FAILED: ConnectorState = { status: "error", checked_at: "2026-10-18T02:30:00Z", meta: "连接检查失败：connection_failed" };
+
+test.describe("testing a connector re-reads its state (PA-234)", () => {
+  test("a failed test turns a connected connector into an error everywhere, with a Chinese reason", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    let tested = false;
+    await pinConnector(page, () => (tested ? FAILED : PASSED));
+    await page.route(at(`/connectors/${CONNECTOR}/test`), (r) => {
+      if (r.request().method() !== "POST") return r.fallback();
+      // The server writes status=error and the check time, commits, then answers 503 (internal/v3integrations/service.go).
+      tested = true;
+      return json(r, 503, { error: { code: "connector_test_failed", message: "Connector connection check failed", details: { reason: "connection_failed", latency_ms: 5000 } } });
+    });
+    await page.goto(origin + "/integrations");
+    await card(page).click({ timeout: 20_000 });
+    await expect(aside(page).locator(".v3-badge").first()).toHaveText("已连接");
+    const checkedBefore = await checkedRow(page).innerText();
+    await aside(page).getByRole("button", { name: "测试连接" }).click();
+    await expect.poll(() => toasts(page)).toHaveLength(1);
+    const shown = (await toasts(page))[0];
+    expect(shown).not.toContain("Connector connection check failed");
+    expect(shown).toContain("连接测试没有通过");
+    await expect(aside(page).locator(".v3-badge").first()).toHaveText("异常");
+    await expect(checkedRow(page)).not.toHaveText(checkedBefore);
+    // The list re-reads too: the card's dot, its meta and the counts say error.
+    await expect(card(page).locator(".v3-dot.pulse")).toHaveCount(1);
+    await expect(card(page)).toContainText("连接检查失败");
+    await expect(page.locator(".v3-badge", { hasText: /^异常 1$/ })).toHaveCount(1);
+    await expect(page.locator(".v3-badge", { hasText: /^已连接 1$/ })).toHaveCount(0);
+    expect(m.pageErrors).toEqual([]);
+  });
+
+  test("a passed test turns an unverified connector into connected", async ({ page }) => {
+    await page.addInitScript(zh);
+    let tested = false;
+    await pinConnector(page, () => (tested ? { status: "ok", checked_at: "2026-10-18T02:30:00Z", meta: "连接检查通过" } : { status: "unverified", checked_at: null, meta: "尚未检查连接" }));
+    await page.route(at(`/connectors/${CONNECTOR}/test`), (r) => {
+      if (r.request().method() !== "POST") return r.fallback();
+      tested = true;
+      return json(r, 200, { ok: true, latency_ms: 42 });
+    });
+    await page.goto(origin + "/integrations");
+    await card(page).click({ timeout: 20_000 });
+    await expect(aside(page).locator(".v3-badge").first()).toHaveText("未验证");
+    await expect(checkedRow(page)).toContainText("尚未检查");
+    await aside(page).getByRole("button", { name: "测试连接" }).click();
+    await expect.poll(() => toasts(page)).toContain("连接正常 · 42 ms");
+    await expect(aside(page).locator(".v3-badge").first()).toHaveText("已连接");
+    await expect(checkedRow(page)).not.toContainText("尚未检查");
+    await expect(card(page)).toContainText("连接检查通过");
+    await expect(page.locator(".v3-badge", { hasText: /^已连接 1$/ })).toHaveCount(1);
+    await expect(page.locator(".v3-badge", { hasText: /^未验证 1$/ })).toHaveCount(0);
+  });
+
+  test("a test the server refuses before probing doesn't show the server's English", async ({ page }) => {
+    await page.addInitScript(zh);
+    const answers = [
+      [409, "connector_disabled", "Complete connector credentials and scope before testing"],
+      [503, "credential_not_authorized", "Connector credential has no server-side binding"],
+      [503, "credential_unavailable", "Vault credential is unavailable"],
+      [422, "invalid_connector", "Connector settings cannot be tested"],
+      [409, "connector_changed", "Connector configuration changed during connection check"],
+      [503, "storage_unavailable", "Connector storage is unavailable"],
+    ] as const;
+    await pinConnector(page, () => PASSED);
+    for (const [status, code, message] of answers) {
+      await page.route(at(`/connectors/${CONNECTOR}/test`), (r) => (r.request().method() === "POST" ? json(r, status, { error: { code, message } }) : r.fallback()));
+      // A fresh load per answer, so only this answer's toast is on screen.
+      await page.goto(origin + "/integrations");
+      await card(page).click({ timeout: 20_000 });
+      await aside(page).getByRole("button", { name: "测试连接" }).click();
+      await expect.poll(() => toasts(page), code).toHaveLength(1);
+      expect((await toasts(page))[0], code).not.toContain(message);
+      await page.unroute(at(`/connectors/${CONNECTOR}/test`));
+    }
+  });
+});

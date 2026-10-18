@@ -182,3 +182,31 @@ test.describe("review page read failures (PA-219)", () => {
     });
   }
 });
+
+// Silence page fixtures (PA-213, PA-228).
+const silence = { id: "pa228-silence", matchers: [{ k: "application", v: "checkout-api" }], state: "active", starts_at: at0, ends_at: "2099-01-01T00:00:00Z", affects: 1, creator: "Check Creator", reason: "pa228 check" };
+const silences = (items: object[]) => ({ items, counts: { active: items.length, planned: 0, expired: 0 }, empty_reason: null, unavailable: {} });
+const pinSilences = async (page: Page, items: object[]) => {
+  await page.route(at("/silences"), (r) => json(r, 200, silences(items)));
+  await page.route(at("/inhibitions"), (r) => json(r, 200, { items: [] }));
+};
+
+// PA-213 (WAN-572): proposals submitted from the silence page kept a fixed "pending review" badge, read once from
+// session storage and never again, even after they were approved, rejected or ran.
+test.describe("proposals submitted on the silence page (PA-213)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("say they were submitted and leave the current state to the proposal page", async ({ page }) => {
+    await page.addInitScript(zh);
+    await page.addInitScript(() =>
+      sessionStorage.setItem("aiops-v3-silence-proposals", JSON.stringify([{ proposal_id: "pa213-check", matchers: [{ k: "application", op: "=", v: "checkout-api" }], duration: 3600, at: Date.now() }])),
+    );
+    await pinSilences(page, []);
+    await page.goto(origin + "/silences");
+    const table = page.locator("table", { hasText: "你在本页提交的提案" });
+    await expect(table).toContainText("pa213-check", { timeout: 20_000 });
+    await expect(table).toContainText("已提交");
+    await expect(table).not.toContainText("待审批");
+    await expect(table.getByRole("link", { name: /pa213-check/ })).toHaveAttribute("href", "/review/pa213-check");
+  });
+});

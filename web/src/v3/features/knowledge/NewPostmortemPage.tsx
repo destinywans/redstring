@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import { AiAvatar, Avatar, Badge, Brand, Btn, Col, Dot, Icon, KV, Mono, Muted, Row, Sev, Skeleton, Spacer, Stepper, Strong, Textarea, TextLink, type Severity, type Tone } from "../../ui/core";
+import { AiAvatar, Avatar, Badge, Brand, Btn, Col, Dot, Icon, KV, Mono, Muted, Row, Skeleton, Spacer, Stepper, Strong, Textarea, TextLink, type Severity, type Tone } from "../../ui/core";
+import type { SeverityReason } from "../../api/types";
+import { SeverityBadge } from "../events/peeks";
 import { toast } from "../../ui/overlays";
 import { Gate } from "../../ui/permission";
 import { useI18n } from "../../i18n";
@@ -10,10 +12,11 @@ import "./knowledge.css";
 import { useWhen } from "../../ui/when";
 import { LoadError, PageUnavailable, UnknownValue } from "../../ui/unknown";
 
-type Candidate = { id: string; title: string; severity: Severity; resolved: string; duration: string; evidence: number };
+/** severity is null with severity_reason when the incident's recorded severity is unknown (PA-247). */
+type Candidate = { id: string; title: string; severity: Severity | null; severity_reason?: SeverityReason; resolved: string; duration: string; evidence: number };
 type Draft = {
   /** started_at / closed_at bound the incident (RFC 3339; null with `missing`, PA-83). */
-  incident: { id: string; title: string; severity: Severity; duration: string | null; started_at: string | null; closed_at: string | null };
+  incident: { id: string; title: string; severity: Severity | null; severity_reason?: SeverityReason; duration: string | null; started_at: string | null; closed_at: string | null };
   sections: { key: string; title: string; text: string }[];
   timeline: { at: string; text: string; tone: Tone }[];
   actions: { text: string; owner: string; due: string }[];
@@ -81,7 +84,7 @@ export default function NewPostmortemPage() {
             {cands.data?.items.map((c) => (
               <button key={c.id} type="button" className="lift" onClick={() => setParams({ incident: c.id }, { replace: true })}>
                 <Row gap={6}>
-                  <Sev p={c.severity} />
+                  <SeverityBadge p={c.severity} reason={c.severity_reason} />
                   <b>{c.id}</b>
                   <Spacer />
                   <Badge tone="ok">{tx("已解决", "Resolved")}</Badge>
@@ -98,7 +101,7 @@ export default function NewPostmortemPage() {
             {data && (
               <div className="v3-card" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
                 <Row gap={6}>
-                  <Sev p={data.incident.severity} />
+                  <SeverityBadge p={data.incident.severity} reason={data.incident.severity_reason} />
                   <Strong size={13}>{data.incident.id}</Strong>
                   <Badge tone="ok">{tx("已解决", "Resolved")}</Badge>
                 </Row>

@@ -18,19 +18,20 @@ func TestPostmortemsReadIncidentSeverityThroughTheSharedTable(t *testing.T) {
 	f := newPostmortemTextFixture(t)
 	for _, statement := range []string{
 		`INSERT INTO investigations(id,application_id,title,status)
- SELECT 'inv-'||id,'app',id,'closed' FROM unnest(ARRAY['odd','legacy','unlabelled','errored']) id`,
+ SELECT 'inv-'||id,'app',id,'closed' FROM unnest(ARRAY['odd','legacy','unlabelled','jsonnull','errored']) id`,
 		`INSERT INTO action_plans(id,investigation_id,proposal,digest,created_by)
- SELECT 'plan-'||id,'inv-'||id,'{}','digest',$1 FROM unnest(ARRAY['odd','legacy','unlabelled','errored']) id`,
+ SELECT 'plan-'||id,'inv-'||id,'{}','digest',$1 FROM unnest(ARRAY['odd','legacy','unlabelled','jsonnull','errored']) id`,
 		`INSERT INTO executions(id,plan_id,status,created_by)
- SELECT 'exe-'||id,'plan-'||id,'succeeded',$1 FROM unnest(ARRAY['odd','legacy','unlabelled','errored']) id`,
+ SELECT 'exe-'||id,'plan-'||id,'succeeded',$1 FROM unnest(ARRAY['odd','legacy','unlabelled','jsonnull','errored']) id`,
 		`INSERT INTO investigation_reports(investigation_id,execution_id,report)
- SELECT 'inv-'||id,'exe-'||id,'{}' FROM unnest(ARRAY['odd','legacy','unlabelled','errored']) id`,
+ SELECT 'inv-'||id,'exe-'||id,'{}' FROM unnest(ARRAY['odd','legacy','unlabelled','jsonnull','errored']) id`,
 		`INSERT INTO events(investigation_id,type,payload,created_at)
- SELECT 'inv-'||id,'investigation.closed','{}',now()-interval '1 hour' FROM unnest(ARRAY['odd','legacy','unlabelled','errored']) id`,
+ SELECT 'inv-'||id,'investigation.closed','{}',now()-interval '1 hour' FROM unnest(ARRAY['odd','legacy','unlabelled','jsonnull','errored']) id`,
 		`INSERT INTO ops_incidents(id,source_id,application_id,environment_id,fingerprint,title,severity,status,alert_status,starts_at,investigation_id,labels) VALUES
  ('odd','am','app','app-dev','odd','Odd severity','major','resolved','resolved',now()-interval '2 hours','inv-odd','{"severity":"major"}'),
  ('legacy','am','app','app-dev','legacy','Legacy default','warning','resolved','resolved',now()-interval '2 hours','inv-legacy','{"alertname":"Legacy"}'),
  ('unlabelled','ai-patrol','app','app-dev','unlabelled','No recorded labels','warning','resolved','resolved',now()-interval '2 hours','inv-unlabelled',NULL),
+ ('jsonnull','am','app','app-dev','jsonnull','JSON null labels','warning','resolved','resolved',now()-interval '2 hours','inv-jsonnull','null'),
  ('errored','am','app','app-dev','errored','Error severity','error','resolved','resolved',now()-interval '2 hours','inv-errored','{"severity":"error"}')`,
 	} {
 		args := []any{}
@@ -49,7 +50,7 @@ func TestPostmortemsReadIncidentSeverityThroughTheSharedTable(t *testing.T) {
 		UnknownFields  []string `json:"unknown_fields"`
 	}
 	// want is a level, or "unknown:<reason>".
-	want := map[string]string{"odd": "unknown:unclassified", "legacy": "unknown:not_filled", "unlabelled": "P2", "errored": "P2", "INC-tl": "P2"}
+	want := map[string]string{"odd": "unknown:unclassified", "legacy": "unknown:not_filled", "unlabelled": "P2", "jsonnull": "P2", "errored": "P2", "INC-tl": "P2"}
 	check := func(where string, v item, durationKnown bool) {
 		t.Helper()
 		expected, listed := want[v.ID]

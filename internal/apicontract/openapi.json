@@ -7640,7 +7640,7 @@
       "get": {
         "summary": "Read environment-scoped audit events",
         "operationId": "get_audit",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Unknown or ambiguous historical environment rows are omitted; counts reflect visible records only. An application row is listed only in the environment named by its changes.environment_id; executor, canvas reply and other rows written before PA-93 without one stay in the hash chain unchanged and are not listed. Repeated action is exact persisted action code; result uses ok/pending/blocked/failed/unconfirmed/expired with the same canonical outcome mapping as the response (outcome unknown is unconfirmed, not failed; expired is expired, PA-206); a row whose outcome cannot be classified has result null and unavailable.result. Time/action/result filters apply before cursor selection, counts and volume. range volume uses seven equal-duration buckets; default volume retains seven UTC calendar days.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Unknown or ambiguous historical environment rows are omitted; counts reflect visible records only. An application row is listed only in the environment named by its changes.environment_id; executor, canvas reply and other rows written before PA-93 without one stay in the hash chain unchanged and are not listed. Repeated action is exact persisted action code; result uses ok/pending/blocked/failed/unconfirmed/expired/needs_attention with the same canonical outcome mapping as the response (outcome unknown is unconfirmed, not failed; expired is expired, PA-206; lifecycle outcomes such as started, merged, enabled, stale_remote and needs_attention are classified by outcome and, for rollout steps, by action, PA-230); an unknown result filter value is 422; a row whose outcome cannot be classified has result null and unavailable.result. Time/action/result filters apply before cursor selection, counts and volume. range volume uses seven equal-duration buckets; default volume retains seven UTC calendar days.",
         "responses": {
           "200": {
             "description": "Success",
@@ -55838,8 +55838,8 @@
                 "properties": {
                   "matrix": {
                     "type": "array",
-                    "minItems": 13,
-                    "maxItems": 13,
+                    "minItems": 18,
+                    "maxItems": 18,
                     "items": {
                       "type": "object",
                       "properties": {
@@ -66262,7 +66262,8 @@
             "no_authorized_target",
             "not_generated",
             "unavailable",
-            "stale"
+            "stale",
+            "unclassified"
           ]
         },
         "description": "Field path (dot-separated; [] marks a field of every array item) -> reason for each unknown field, which is null in the body. Empty when every field is proven. not_configured: no source or registration; not_connected: no integration; no_authorized_target: nothing visible to this user; not_generated: the platform has not produced or recorded it; unavailable: a configured source failed or did not prove it; stale: evidence expired."
@@ -81821,10 +81822,26 @@
             "type": "number"
           },
           "vector": {
-            "type": "number"
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the hit has no vector score: its corpus has no vector index, or the search degraded to keyword"
           },
           "score": {
             "type": "number"
+          },
+          "corpus": {
+            "type": "string",
+            "enum": [
+              "documents",
+              "public_web_sources",
+              "upload_sources"
+            ]
           }
         },
         "additionalProperties": false
@@ -90849,8 +90866,8 @@
           },
           "matrix": {
             "type": "array",
-            "minItems": 13,
-            "maxItems": 13,
+            "minItems": 18,
+            "maxItems": 18,
             "items": {
               "type": "object",
               "properties": {
@@ -91346,8 +91363,8 @@
           },
           "matrix": {
             "type": "array",
-            "minItems": 13,
-            "maxItems": 13,
+            "minItems": 18,
+            "maxItems": 18,
             "items": {
               "type": "object",
               "properties": {
@@ -91596,6 +91613,7 @@
               "failed",
               "unconfirmed",
               "expired",
+              "needs_attention",
               null
             ]
           },

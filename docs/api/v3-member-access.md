@@ -16,7 +16,7 @@
 }
 ```
 
-示例的 matrix 必须补齐现有 13 个资源，每个资源 5 个操作（view/change/delete/approve/manage）；使用既有角色矩阵资源码。服务同时创建相同范围的 `environment.view`，确保角色不是无环境入口的空壳。审批转换为 passkey 条件授权，仍受既有审批策略限制。
+示例的 matrix 必须补齐现有 18 个资源（PA-231 补了总览、链路、日志、模型、工作区设置），每个资源 5 个操作（view/change/delete/approve/manage）；使用既有角色矩阵资源码。服务同时创建相同范围的 `environment.view`，确保角色不是无环境入口的空壳。审批转换为 passkey 条件授权，仍受既有审批策略限制。
 
 初版仅接受一个范围：所选具体环境，或请求中明确的 `global:*`。不会把所选环境暗中解释为全局；`all` 写入继续统一 409。角色固定为非内置 business，不写 legacy permission，也不创建 machine/system 角色。
 

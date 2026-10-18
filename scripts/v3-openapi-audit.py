@@ -6,7 +6,9 @@ S['V3AuditEntry'] = obj({**fieldnames('id time action target source'),
     # outcome this server cannot classify; unavailable.result says so (PA-42).
     # unconfirmed: outcome unknown, the write is only read back or checked by
     # a person; expired: lapsed before anything ran (PA-206).
-    'result':{'type':['string','null'],'enum':['ok','pending','blocked','failed','unconfirmed','expired',None]},
+    # needs_attention: a person has to act, such as a rule execution whose remote
+    # changed (PA-230). null with unavailable.result=unclassified otherwise.
+    'result':{'type':['string','null'],'enum':['ok','pending','blocked','failed','unconfirmed','expired','needs_attention',None]},
     'unavailable':ref('V3Unavailable')},
     ['id','time','actor','action','target','result','source'])
 S['V3AuditView'] = obj({'items':arr(ref('V3AuditEntry')),

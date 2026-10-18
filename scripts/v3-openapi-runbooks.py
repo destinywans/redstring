@@ -224,8 +224,11 @@ P['/postmortems/{id}']['patch'].setdefault('parameters', []).append(
 v3_route('post','/postmortems/{id}/publish','Publish a reviewed postmortem',
     response=obj({'id':string(),'status':string(enum=['published'])},['id','status']),
     desc='Auxiliary human review operation requiring scoped knowledge.manage. The author cannot publish their own report. The saved exact legacy investigation close source or human case resolved status event and current source revision are rechecked under authorization before publication; drift returns 409 and requires refresh. This records review and audit locally without external publication.')
+# PA-222: vector is null when the hit's corpus has no vector index (public Web,
+# uploads) or vectors could not be read (degraded); corpus names its corpora entry.
 S['V3KnowledgeSearchHit'] = obj({**fieldnames('title snippet'),
-    'keyword':v3_num(),'vector':v3_num(),'score':v3_num()})
+    'keyword':v3_num(),'vector':{**v3_nullable(v3_num()),'description':'Null when the hit has no vector score: its corpus has no vector index, or the search degraded to keyword'},'score':v3_num(),
+    'corpus':string(enum=['documents','public_web_sources','upload_sources'])})
 v3_route('post','/knowledge/search','Search scoped knowledge with keyword/vector ranking',
     body=obj({'q':string(),'service':string(),'top_k':integer(minimum=1,maximum=20)},['q']),
     response=obj({'hits':arr(ref('V3KnowledgeSearchHit')),

@@ -25,7 +25,7 @@ def v3_route(method, path, summary, *, body=None, response=None, status=200, que
 # PA-05 (2026-10-09): a read with missing optional evidence returns 200, sets
 # the affected fields to null and names each one in an "unavailable" map. A
 # null is never replaced by 0, false, an empty list, "healthy" or a placeholder.
-V3_UNAVAILABLE_REASONS = ['not_connected', 'not_configured', 'no_authorized_target', 'not_generated', 'unavailable', 'stale']
+V3_UNAVAILABLE_REASONS = ['not_connected', 'not_configured', 'no_authorized_target', 'not_generated', 'unavailable', 'stale', 'unclassified']
 def v3_nullable(schema): return {'oneOf': [schema, {'type': 'null'}]}
 # PA-09: a list that is empty because nothing is visible to the caller says so
 # instead of returning 403; null when the list is not empty for that reason.

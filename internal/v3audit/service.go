@@ -180,8 +180,16 @@ func resultKind(outcome string) (string, error) {
 		return "pending", nil
 	case "blocked", "denied", "rejected", "duplicate", "invalid_event":
 		return "blocked", nil
-	case "failed", "failure", "error", "unknown":
+	case "failed", "failure", "error":
 		return "failed", nil
+	// The write's result wasn't confirmed: it is only read back, or a person
+	// checks it, and the action names which (PA-206). Not a failure.
+	case "unknown":
+		return "unconfirmed", nil
+	// Lapsed before anything ran, such as a silence whose window passed
+	// before the executor sent it.
+	case "expired":
+		return "expired", nil
 	default:
 		return "", fmt.Errorf("unmapped audit outcome %q", outcome)
 	}

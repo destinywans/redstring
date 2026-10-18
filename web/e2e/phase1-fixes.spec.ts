@@ -586,7 +586,8 @@ test.describe("alert rule import, preview and dry run refusals (PA-151, PA-152)"
     test.skip(!service, "no service in the catalog");
     await page.goto(origin + `/alert-rules/new?tab=import&service=${encodeURIComponent(service!)}`);
     await page.locator("textarea").first().fill("groups: []", { timeout: 20_000 });
-    await page.getByRole("button", { name: "解析" }).click();
+    // PA-224: in real mode the import button says what it does; it is the one write request.
+    await page.getByRole("button", { name: "导入为草稿" }).click();
     await expect.poll(() => toasts(page)).toContain("规则草稿仓库还没有接入，暂时不能导入。");
     await page.goto(origin + `/alert-rules/new?service=${encodeURIComponent(service!)}`);
     await page.locator("textarea.mono").fill("sum(rate(http_requests_total[5m]))", { timeout: 20_000 });

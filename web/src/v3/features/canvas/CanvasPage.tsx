@@ -770,11 +770,14 @@ export default function CanvasPage() {
     setNodes((ns) => [...ns, node]);
     setSel(node.id);
     toast(tx("已从「{p}」派生：继承其上下文 {v}，之后互不影响", "Forked from “{p}”: inherits context {v}, isolated from now on", { p: parent.title, v: parent.context.version }));
-    setTimeout(() => setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, status: "active", summary: tx("等待你的第一个问题。", "Waiting for your first question.") } : n))), 1200);
+    // The sample's branch settles a moment later; a real branch stays as the server returned it, with no summary
+    // until its first reply (PA-235).
+    if (demo) setTimeout(() => setNodes((ns) => ns.map((n) => (n.id === node.id ? { ...n, status: "active", summary: tx("等待你的第一个问题。", "Waiting for your first question.") } : n))), 1200);
   };
   const ask = async (nodeId: string, text: string) => {
     const before = nodes.find((n) => n.id === nodeId)?.status;
     setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, status: "running" } : n)));
+    // `new_branch` is the sample's: the real reply carries only the summary and the suggestion.
     let res: { summary: string; new_branch?: { title: string; subtitle: string; summary: string }; rollback_suggestion?: RollbackSuggestion | null };
     try {
       res = await api<typeof res>("POST", `/investigations/${id}/nodes/${nodeId}/messages`, { body: { text } });
@@ -785,6 +788,14 @@ export default function CanvasPage() {
     }
     // The inspector reads the persisted thread; reread it now that this reply is stored (PA-75).
     void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === `/investigations/${id}/nodes/${nodeId}/replies` });
+    if (!demo) {
+      // The server has no "confirmed" state and keeps the branch's summary, suggestion and message count: put the node
+      // back as it was read and reread the graph rather than compose them here (PA-235).
+      setNodes((ns) => ns.map((n) => (n.id === nodeId && before ? { ...n, status: before } : n)));
+      void qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === `/investigations/${id}/canvas` });
+      return;
+    }
+    // The sample marks the branch confirmed and, on the first follow-up, derives one more branch.
     setTimeout(() => {
       setNodes((ns) => {
         // The node shows the branch's most recent suggestion (contract): a reply without one keeps the earlier one.

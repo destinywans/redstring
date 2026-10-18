@@ -1,15 +1,24 @@
 import type { ReactNode } from "react";
-import { API_MODE, useGet } from "../../api/client";
-import { UnknownValue } from "../../ui/unknown";
+import { API_MODE, ApiError, useGet } from "../../api/client";
+import { Unavailable, UnknownValue, errorReason, type UnknownReason } from "../../ui/unknown";
 import type { PersonPeek, ServicePeek } from "../../api/types";
 import { Avatar, Badge, Btn, Dot, Env, KV, Muted, Row, Skeleton, Strong, Tier, Tile } from "../../ui/core";
 import { HoverPeek, toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import { openExternal, openForm } from "../../ui/demo";
 
+/**
+ * Why a peek couldn't be read: 403/404 is something this viewer can't see (the person peek answers 404 without
+ * members.view), 409 is an ambiguous name, anything else a failed source.
+ */
+const peekReason = (error: unknown): UnknownReason | undefined =>
+  error instanceof ApiError && (error.status === 403 || error.status === 404) ? "no_authorized_target" : error instanceof ApiError && error.status === 409 ? undefined : errorReason(error);
+
 function ServiceCard({ id }: { id: string }) {
   const { tx } = useI18n();
-  const { data } = useGet<ServicePeek>(`/services/${id}/peek`);
+  const { data, error } = useGet<ServicePeek>(`/services/${id}/peek`);
+  // A failed read says why instead of an endless skeleton (PA-221).
+  if (!data && error) return <Unavailable reason={peekReason(error)} icon="box" />;
   if (!data)
     return (
       <>
@@ -74,14 +83,17 @@ function ServiceCard({ id }: { id: string }) {
 
 function PersonCard({ name }: { name: string }) {
   const { tx } = useI18n();
-  const { data } = useGet<PersonPeek>(`/people/${encodeURIComponent(name)}/peek`);
+  const { data, error } = useGet<PersonPeek>(`/people/${encodeURIComponent(name)}/peek`);
+  // PA-214: unknown is never "off call". A failed read (404 without members.view, 409, 503) and a null on-call are
+  // unknown; while it loads nothing is claimed. Only the sample's null means off call.
+  const failed = !data && !!error;
   return (
     <>
       <Row gap={10}>
         <Avatar name={name} size={34} />
         <div className="v3-col grow" style={{ gap: 0 }}>
           <Strong size={13}>{name}</Strong>
-          <Muted size={11.5}>{data ? data.role ?? "—" : "…"}</Muted>
+          <Muted size={11.5}>{data ? data.role ?? "—" : failed ? <UnknownValue reason={peekReason(error)} /> : "…"}</Muted>
         </div>
       </Row>
       <Row gap={6}>
@@ -90,13 +102,15 @@ function PersonCard({ name }: { name: string }) {
             <Dot tone="ok" size={6} />
             {data.oncall}
           </Badge>
-        ) : data && API_MODE !== "mock" ? (
-          // null means no on-call source proved it either way.
+        ) : data && API_MODE === "mock" ? (
+          <Badge>{tx("非值班", "Off call")}</Badge>
+        ) : data || failed ? (
+          // The platform has no on-call source, so null proves nothing either way.
           <Badge>
-            <UnknownValue label={tx("值班 —", "on call —")} />
+            <UnknownValue reason={failed ? peekReason(error) : "not_tracked"} label={tx("值班 —", "on call —")} />
           </Badge>
         ) : (
-          <Badge>{tx("非值班", "Off call")}</Badge>
+          <Badge>…</Badge>
         )}
         {data?.load && <Muted size={11.5}>{data.load}</Muted>}
       </Row>

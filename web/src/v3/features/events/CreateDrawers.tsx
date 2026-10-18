@@ -11,6 +11,7 @@ import { ChipSelect, AddChip, usePickLists } from "../../ui/demo";
 import { useEnv } from "../../app/environment";
 import { useNames } from "../../ui/names";
 import { useWhen } from "../../ui/when";
+import { Gate } from "../../ui/permission";
 
 type IncidentDraft = {
   title: string;
@@ -100,7 +101,10 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
           <Muted size={11.5}>{tx("创建后写入审计，并出现在收件箱", "Audited and added to the inbox")}</Muted>
           <Spacer />
           <Btn kind="ghost" onClick={onClose}>{tx("取消", "Cancel")}</Btn>
-          <Btn kind="primary" icon="check" loading={create.isPending} disabled={!title.trim() || !!refused} onClick={submit}>{tx("创建事件", "Create incident")}</Btn>
+          {/* The drawer also opens from a link (?new=incident), so creating is gated here too (PA-228). */}
+          <Gate need={["events", "change"]}>
+            <Btn kind="primary" icon="check" loading={create.isPending} disabled={!title.trim() || !!refused} onClick={submit}>{tx("创建事件", "Create incident")}</Btn>
+          </Gate>
         </>
       }
     >

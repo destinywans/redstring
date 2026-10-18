@@ -155,9 +155,12 @@ export default function IncidentsPage() {
                       ]}
                       trigger={({ onClick, ref }) => (
                         <span ref={ref}>
-                          <Chip caret onClick={onClick}>
-                            {tx("更新状态", "Update status")}
-                          </Chip>
+                          {/* Moving the status needs events.change (PA-228). */}
+                          <Gated reason={needEvents}>
+                            <Chip caret onClick={onClick}>
+                              {tx("更新状态", "Update status")}
+                            </Chip>
+                          </Gated>
                         </span>
                       )}
                     />
@@ -200,9 +203,10 @@ export default function IncidentsPage() {
                   </ol>
                   {unknown.has("timeline.system_events") && <Muted size={11.5} style={{ display: "block", marginBottom: 10 }}>{tx("时间线只含人工记录；状态变化等系统事件还没有接入", "Only manual notes are shown; status changes and other system events aren't in the timeline yet")}</Muted>}
                   <form
+                    style={{ display: "flex" }}
                     onSubmit={(e) => {
                       e.preventDefault();
-                      if (!draft.trim()) return;
+                      if (!draft.trim() || (!demo && needEvents)) return;
                       if (demo) {
                         const now = new Date();
                         setNotes((n) => [...n, { time: `${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`, text: draft.trim() }]);
@@ -221,7 +225,10 @@ export default function IncidentsPage() {
                       );
                     }}
                   >
-                    <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={tx("补充一条时间线记录…", "Add a timeline note…")} aria-label={tx("补充时间线", "Add timeline note")} width="100%" right={<IconBtn icon="send" label={tx("添加", "Add")} size={24} submit />} />
+                    {/* Adding a note needs events.change, like every other incident write (PA-228). */}
+                    <Gated reason={demo ? null : needEvents} grow={1}>
+                      <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={tx("补充一条时间线记录…", "Add a timeline note…")} aria-label={tx("补充时间线", "Add timeline note")} width="100%" right={<IconBtn icon="send" label={tx("添加", "Add")} size={24} submit disabled={!demo && !!needEvents} />} />
+                    </Gated>
                   </form>
                 </Panel>
                 <Col gap={12}>

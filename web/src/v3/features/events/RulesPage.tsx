@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import type { AlertRule, AlertRuleLifecycle, AlertRuleList, AlertRulePending, AlertRuleSummary, Tone } from "../../api/types";
-import { Unavailable, UnknownValue } from "../../ui/unknown";
+import { LoadError, Unavailable, UnknownValue } from "../../ui/unknown";
 import { useWhen } from "../../ui/when";
 import { Badge, Brand, Btn, Card, Chip, Code, Col, Dot, Env, Icon, Input, KV, LabelChip, Legend, Muted, Pills, Radio, Row, SearchBox, Sev, Skeleton, Spacer, State, Tabs, TextLink, Toggle, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -14,6 +14,14 @@ import "./events.css";
 import { ChipSelect, AddChip, SampleOnly } from "../../ui/demo";
 import { useFirstSelection } from "../../ui/selection";
 import { DisableRuleDialog } from "./DisableRuleDialog";
+
+/**
+ * PA-210: besides firing, pending and ok, the server says "error" (Prometheus fails to evaluate the rule, so its alert
+ * state is stale) and "unknown" (not evaluated yet); last_error is Prometheus's error for an "error" rule.
+ */
+type RuleState = AlertRuleSummary["state"] | "error" | "unknown";
+const ruleState = (x: { state: string }) => x.state as RuleState;
+const lastError = (r: AlertRule) => (r as AlertRule & { last_error?: string | null }).last_error ?? null;
 
 function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }) {
   return (
@@ -49,7 +57,7 @@ export default function RulesPage() {
     return hit && items ? [hit, ...items.filter((x) => x !== hit)] : items;
   }, [list.data, params]);
   useFirstSelection(preferred, (x) => x.id, sel, setSel);
-  const { data: r } = useGet<AlertRule>(sel ? `/alert-rules/${sel}` : null);
+  const { data: r, error: ruleError } = useGet<AlertRule>(sel ? `/alert-rules/${sel}` : null);
   const [threshold, setThreshold] = useState(1);
   const [forMin, setForMin] = useState(5);
   const [mode, setMode] = useState<"continuous" | "cron">("continuous");
@@ -61,7 +69,13 @@ export default function RulesPage() {
     items.forEach((x) => m.set(x.folder, [...(m.get(x.folder) ?? []), x]));
     return [...m.entries()];
   }, [list.data, filter, q]);
-  const STATE = { firing: ["danger", tx("触发中", "Firing")], pending: ["warn", tx("待定", "Pending")], ok: ["ok", tx("正常", "OK")] } as const;
+  const STATE: Record<RuleState, [Tone, string]> = {
+    firing: ["danger", tx("触发中", "Firing")],
+    pending: ["warn", tx("待定", "Pending")],
+    ok: ["ok", tx("正常", "OK")],
+    error: ["danger", tx("求值出错", "Evaluation error")],
+    unknown: ["neutral", tx("健康未知", "Health unknown")],
+  };
   const nav = useNavigate();
   // D11 §11.6: the lifecycle (where the rule is in enable/disable) is told apart from the trigger state (the dot).
   const LIFE: Record<AlertRuleLifecycle["state"], [Tone, string]> = {
@@ -72,12 +86,14 @@ export default function RulesPage() {
   };
   const pendingLabel = (x: AlertRulePending): [Tone, string] => {
     const enable = x.operation === "enable";
-    const map: Record<AlertRulePending["state"], [Tone, string]> = {
+    // PA-217: "expired" is an approval that lapsed or was revoked before any executor took it up; it will not run.
+    const map: Record<AlertRulePending["state"] | "expired", [Tone, string]> = {
       pending_approval: enable ? ["accent", tx("启用待批准", "Enable pending")] : ["warn", tx("停用待批准", "Disable pending")],
       executing: ["accent", enable ? tx("启用中", "Enabling") : tx("停用中", "Disabling")],
       needs_attention: ["warn", tx("需要处理", "Needs attention")],
       failed: ["danger", tx("失败", "Failed")],
       rejected: ["neutral", tx("已驳回", "Rejected")],
+      expired: ["neutral", tx("批准已失效", "Approval lapsed")],
     };
     return map[x.state];
   };
@@ -142,7 +158,7 @@ export default function RulesPage() {
               </div>
               {rules.map((x) => (
                 <button key={x.id} type="button" className={cx("rule-item", x.id === sel && "on")} onClick={() => setSel(x.id)}>
-                  <Dot tone={x.state === "firing" ? "danger" : x.state === "pending" ? "warn" : "ok"} size={7} pulse={x.state === "firing"} />
+                  <Dot tone={STATE[ruleState(x)][0]} size={7} pulse={x.state === "firing"} />
                   <span className="ellipsis grow">{x.name}</span>
                   {x.schedule && <Muted size={11}>{x.schedule}</Muted>}
                   {x.lifecycle && x.lifecycle.state !== "active" && <Badge tone={LIFE[x.lifecycle.state][0]}>{LIFE[x.lifecycle.state][1]}</Badge>}
@@ -165,16 +181,20 @@ export default function RulesPage() {
                 <Unavailable reason="not_generated" title={tx("还没有告警规则", "No alert rules yet")} desc={tx("新建一条规则，或导入现有的 Prometheus 规则文件。", "Create a rule or import an existing Prometheus rule file.")} icon="bell" />
               )}
             </div>
+          ) : !r && ruleError ? (
+            // A rule that can't be read says why instead of loading forever (PA-221).
+            <LoadError error={ruleError} source={tx("告警规则来源", "alert rule source")} />
           ) : !r ? (
             <Skeleton h={300} style={{ margin: 22 }} />
           ) : (
             <div className="rule-editor anim-fade" key={r.id + tab}>
               <Row gap={8} wrap>
                 <h2 style={{ fontSize: 16, fontWeight: 600 }}>{r.name}</h2>
-                <State tone={STATE[r.state][0]}>{STATE[r.state][1]}</State>
+                <State tone={STATE[ruleState(r)][0]}>{STATE[ruleState(r)][1]}</State>
                 <Muted size={11.5}>
                   {r.last_eval ? tx("最近评估 {t}", "Last evaluated {t}", { t: when.clock(r.last_eval) ?? "—" }) : tx("最近评估", "Last evaluated")}
                   {r.evaluation_ms != null && tx(" · 用时 {n} ms", " · {n} ms", { n: Math.round(r.evaluation_ms) })}
+                  {lastError(r) && tx(" · 出错：{e}", " · error: {e}", { e: lastError(r)! })}
                 </Muted>
                 {!r.last_eval && <UnknownValue />}
                 <Spacer />

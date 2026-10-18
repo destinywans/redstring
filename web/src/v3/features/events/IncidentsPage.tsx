@@ -2,9 +2,9 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, newIdempotencyKey, useGet } from "../../api/client";
-import { UnknownValue } from "../../ui/unknown";
+import { LoadError, UnknownValue } from "../../ui/unknown";
 import type { Incident } from "../../api/types";
-import { AiAvatar, Avatar, Brand, Btn, Card, Chip, Col, IconBtn, Input, KV, Mono, Muted, Panel, Pills, Row, Sev, Skeleton, Spacer, State, Stepper, TextLink, cx, type Tone } from "../../ui/core";
+import { AiAvatar, Avatar, Brand, Btn, Card, Chip, Col, Empty, IconBtn, Input, KV, Mono, Muted, Panel, Pills, Row, Sev, Skeleton, Spacer, State, Stepper, TextLink, cx, type Tone } from "../../ui/core";
 import { MenuButton, toast } from "../../ui/overlays";
 import { Lines } from "../../charts";
 import { useI18n } from "../../i18n";
@@ -26,7 +26,10 @@ export default function IncidentsPage() {
   const list = useGet<{ items: Summary[]; counts: Record<string, number> }>("/incidents", { status });
   // Without an id in the route, show the first incident of the current list (never a fixture id).
   const id = routeId ?? list.data?.items[0]?.id ?? "";
-  const { data: inc, refetch } = useGet<Incident>(id ? `/incidents/${id}` : null);
+  const { data: inc, error: incError, refetch } = useGet<Incident>(id ? `/incidents/${id}` : null);
+  // PA-219: with nothing to show, the main area says why instead of loading forever.
+  const listEmpty = !routeId && !!list.data && !list.data.items.length;
+  const mainError = incError ?? (!routeId && !list.data ? list.error : null);
   const demo = API_MODE === "mock";
   const [notes, setNotes] = useState<{ time: string; text: string }[]>([]);
   const [draft, setDraft] = useState("");
@@ -41,8 +44,11 @@ export default function IncidentsPage() {
     resolved: ["ok", tx("已解决", "Resolved")],
   };
   const stages = [tx("发现", "Detected"), tx("确认", "Acknowledged"), tx("缓解", "Mitigated"), tx("解决", "Resolved"), tx("复盘", "Postmortem")];
-  // Real records have no stage; the stepper follows the confirmed status instead.
   const cur = stage ?? inc?.stage ?? (inc ? { active: 1, mitigated: 2, resolved: 3 }[inc.status] : 0);
+  // PA-226: a real record has only its current status (no acknowledgement or postmortem is tracked, and a case can go
+  // straight from active to resolved), so the stepper marks that status as current and ticks only what it implies.
+  const realStages = inc?.status === "resolved" ? [tx("发现", "Detected"), tx("解决", "Resolved"), tx("复盘", "Postmortem")] : [tx("发现", "Detected"), tx("缓解", "Mitigated"), tx("解决", "Resolved"), tx("复盘", "Postmortem")];
+  const realCur = inc ? { active: 0, mitigated: 1, resolved: 1 }[inc.status] : 0;
   const fmtTime = (t: string) => when.short(t) ?? t;
   // PA-189: what the server says it has no source for is shown as unknown, not left as an empty panel.
   const unknown = new Set(inc?.unavailable ?? []);
@@ -103,7 +109,15 @@ export default function IncidentsPage() {
           </ul>
         </div>
         <div className="main">
-          {!inc ? (
+          {!inc && mainError ? (
+            <LoadError error={mainError} source={tx("事件记录", "incident records")} />
+          ) : !inc && listEmpty ? (
+            <Empty
+              icon="alert"
+              title={status === "active" ? tx("没有进行中的事件", "No active incidents") : status === "resolved" ? tx("没有已解决的事件", "No resolved incidents") : tx("还没有事件", "No incidents yet")}
+              desc={demo ? undefined : tx("事件从告警创建：在收件箱的告警上选「创建事件」。", "Incidents start from alerts: use “Create incident” on an alert in the inbox.")}
+            />
+          ) : !inc ? (
             <Col gap={12} style={{ padding: 20 }}>
               <Skeleton h={28} />
               <Skeleton h={60} />
@@ -141,9 +155,12 @@ export default function IncidentsPage() {
                       ]}
                       trigger={({ onClick, ref }) => (
                         <span ref={ref}>
-                          <Chip caret onClick={onClick}>
-                            {tx("更新状态", "Update status")}
-                          </Chip>
+                          {/* Moving the status needs events.change (PA-228). */}
+                          <Gated reason={needEvents}>
+                            <Chip caret onClick={onClick}>
+                              {tx("更新状态", "Update status")}
+                            </Chip>
+                          </Gated>
                         </span>
                       )}
                     />
@@ -165,7 +182,7 @@ export default function IncidentsPage() {
                 )}
               </Row>
               <Card style={{ padding: "12px 16px" }}>
-                <Stepper steps={stages} active={cur} />
+                {demo ? <Stepper steps={stages} active={cur} /> : <Stepper steps={realStages} active={realCur} />}
               </Card>
               <IncidentChanges incidentId={inc.id} />
               <div className="inc-grid">
@@ -186,9 +203,10 @@ export default function IncidentsPage() {
                   </ol>
                   {unknown.has("timeline.system_events") && <Muted size={11.5} style={{ display: "block", marginBottom: 10 }}>{tx("时间线只含人工记录；状态变化等系统事件还没有接入", "Only manual notes are shown; status changes and other system events aren't in the timeline yet")}</Muted>}
                   <form
+                    style={{ display: "flex" }}
                     onSubmit={(e) => {
                       e.preventDefault();
-                      if (!draft.trim()) return;
+                      if (!draft.trim() || (!demo && needEvents)) return;
                       if (demo) {
                         const now = new Date();
                         setNotes((n) => [...n, { time: `${now.getHours()}:${String(now.getMinutes()).padStart(2, "0")}`, text: draft.trim() }]);
@@ -207,17 +225,20 @@ export default function IncidentsPage() {
                       );
                     }}
                   >
-                    <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={tx("补充一条时间线记录…", "Add a timeline note…")} aria-label={tx("补充时间线", "Add timeline note")} width="100%" right={<IconBtn icon="send" label={tx("添加", "Add")} size={24} submit />} />
+                    {/* Adding a note needs events.change, like every other incident write (PA-228). */}
+                    <Gated reason={demo ? null : needEvents} grow={1}>
+                      <Input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder={tx("补充一条时间线记录…", "Add a timeline note…")} aria-label={tx("补充时间线", "Add timeline note")} width="100%" right={<IconBtn icon="send" label={tx("添加", "Add")} size={24} submit disabled={!demo && !!needEvents} />} />
+                    </Gated>
                   </form>
                 </Panel>
                 <Col gap={12}>
                   <Panel title={tx("影响", "Impact")}>
                     <Col gap={8}>
                       <Row gap={6}>
-                        {inc.impact.peak !== null ? <b className="tnum" style={{ color: "var(--danger)" }}>{inc.impact.peak}</b> : <UnknownValue reason="not_generated" />}
+                        {inc.impact.peak !== null ? <b className="tnum" style={{ color: "var(--danger)" }}>{inc.impact.peak}</b> : <UnknownValue reason="not_tracked" />}
                         <Muted>{demo ? tx("5xx 峰值", "5xx peak") : tx("峰值", "Peak")}</Muted>
                         <Spacer />
-                        {inc.impact.budget_used !== null ? <b className="tnum" style={{ color: "var(--warn)" }}>{inc.impact.budget_used}</b> : <UnknownValue reason="not_generated" />}
+                        {inc.impact.budget_used !== null ? <b className="tnum" style={{ color: "var(--warn)" }}>{inc.impact.budget_used}</b> : <UnknownValue reason="not_tracked" />}
                         <Muted>{tx("本次消耗错误预算", "budget burned")}</Muted>
                       </Row>
                       {inc.impact.series && <Lines series={[{ values: inc.impact.series, color: "var(--c3)", fill: "var(--c3s)" }]} height={44} max={demo ? 10 : undefined} grid={1} hover={false} markers={demo ? [{ at: 10, label: tx("回滚", "rollback"), tone: "ok" }] : []} />}

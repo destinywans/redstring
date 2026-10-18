@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import { PartialBanner, Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
+import { LoadError, PartialBanner, Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
 import type { AlertDetail, InboxItem, Incident } from "../../api/types";
 import { Badge, Brand, Btn, Card, Col, Dot, Icon, IconBtn, KV, LabelChip, Muted, Panel, Row, Sev, Skeleton, Spacer, State, Tabs, Tile, TextLink, Kbd, cx, type IconName, type Tone } from "../../ui/core";
 import { MenuButton, toast } from "../../ui/overlays";
@@ -12,7 +12,7 @@ import { useI18n } from "../../i18n";
 import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./events.css";
 import { openExternal, copyText } from "../../ui/demo";
-import { Gate } from "../../ui/permission";
+import { Gate, useNeed } from "../../ui/permission";
 import { useWhen, parseStamp } from "../../ui/when";
 
 type Day = "today" | "yesterday" | "earlier";
@@ -23,14 +23,18 @@ export function AlertDetailView({ id }: { id: string }) {
   const when = useWhen();
   const curEnv = useCurrentEnv();
   const nav = useNavigate();
-  const { data: a, refetch } = useGet<AlertDetail>(`/alerts/${id}`);
+  const { data: a, error, refetch } = useGet<AlertDetail>(`/alerts/${id}`);
   // PA-166: the real alert links its incident by ID only; the link reads the incident's title, or the ID when the
   // incident can't be read.
   const linked = API_MODE !== "mock" && a?.grouping.incident.id && !a.grouping.incident.label ? a.grouping.incident.id : null;
   const { data: incident } = useGet<Incident>(linked ? `/incidents/${linked}` : null);
   const [claimed, setClaimed] = useState(false);
   const [starting, setStarting] = useState(false);
+  // A menu item can't be disabled, so without the grant creating an incident names it instead of opening the form (PA-228).
+  const needEvents = useNeed(["events", "change"]);
   const demo = API_MODE === "mock";
+  // A failed read (another environment's alert, a down source) says why instead of loading forever (PA-221).
+  if (!a && error) return <LoadError error={error} source={tx("告警记录", "alert records")} />;
   if (!a)
     return (
       <Col gap={12} style={{ padding: 20 }}>
@@ -124,7 +128,9 @@ export function AlertDetailView({ id }: { id: string }) {
         </Btn>
         <MenuButton
           items={[
-            { label: tx("创建事件", "Create incident"), icon: "alert", onSelect: () => nav(demo ? "/incidents/INC-1042" : `/incidents?new=incident&alerts=${encodeURIComponent(a.id)}`) },
+            needEvents
+              ? { label: tx("创建事件 · {r}", "Create incident · {r}", { r: needEvents }), icon: "alert", onSelect: () => toast(needEvents, { tone: "danger" }) }
+              : { label: tx("创建事件", "Create incident"), icon: "alert", onSelect: () => nav(demo ? "/incidents/INC-1042" : `/incidents?new=incident&alerts=${encodeURIComponent(a.id)}`) },
             { label: tx("复制链接", "Copy link"), icon: "link", onSelect: () => copyText(`${location.origin}/inbox?alert=${id}`, tx("链接已复制", "Link copied")) },
             ...(demo ? [{ label: tx("在 Alertmanager 中打开", "Open in Alertmanager"), icon: "external" as const, onSelect: () => openExternal("Alertmanager", `https://alertmanager.example.internal/#/alerts?filter=${encodeURIComponent(`{alert_id="${id}"}`)}`) }] : []),
           ]}
@@ -135,8 +141,9 @@ export function AlertDetailView({ id }: { id: string }) {
           )}
         />
       </Row>
+      {/* Source, rule, series, labels and grouping stay null until an occurrence binding exists: not tracked (PA-223). */}
       <Muted>
-        {a.source ?? <UnknownValue reason="not_generated" label={tx("来源 —", "source —")} />} · {curEnv?.label ?? "—"} · {when.short(a.since)} · {a.rule ? tx("规则「{r}」", "Rule “{r}”", { r: a.rule }) : <UnknownValue reason="not_generated" label={tx("规则 —", "rule —")} />}
+        {a.source ?? <UnknownValue reason="not_tracked" label={tx("来源 —", "source —")} />} · {curEnv?.label ?? "—"} · {when.short(a.since)} · {a.rule ? tx("规则「{r}」", "Rule “{r}”", { r: a.rule }) : <UnknownValue reason="not_tracked" label={tx("规则 —", "rule —")} />}
       </Muted>
       {!!a.unavailable?.length && <PartialBanner fields={[...new Set(a.unavailable.map((f) => ({ source: tx("来源", "source"), rule: tx("规则", "rule"), triage: tx("AI 初查", "AI triage"), series: tx("告警值曲线", "value chart"), labels: tx("标签", "labels"), runbook: "Runbook" })[f.split(".")[0]] ?? tx("分组与关联", "grouping")))]} />}
       {a.triage && (
@@ -169,7 +176,7 @@ export function AlertDetailView({ id }: { id: string }) {
           ) : (
             <Row gap={6} style={{ height: 60 }}>
               <Muted>{tx("告警值曲线", "Value over time")}</Muted>
-              <UnknownValue reason="not_generated" />
+              <UnknownValue reason="not_tracked" />
             </Row>
           )}
           {demo && (
@@ -185,7 +192,7 @@ export function AlertDetailView({ id }: { id: string }) {
         <Panel title={tx("标签与说明", "Labels & summary")}>
           <Col gap={8}>
             <Row gap={6} wrap>
-              {a.labels ? a.labels.map((x) => <LabelChip key={x.k} k={x.k} v={x.v} />) : <UnknownValue reason="not_generated" label={tx("标签 —", "labels —")} />}
+              {a.labels ? a.labels.map((x) => <LabelChip key={x.k} k={x.k} v={x.v} />) : <UnknownValue reason="not_tracked" label={tx("标签 —", "labels —")} />}
             </Row>
             <KV k={tx("摘要", "Summary")} kw={52}>
               {a.summary}
@@ -225,10 +232,10 @@ export function AlertDetailView({ id }: { id: string }) {
         <Panel title={tx("分组与关联", "Grouping & links")}>
           <Col gap={9}>
             <KV k={tx("分组", "Group")} kw={44}>
-              {a.grouping.group ? <TextLink to="/alerts">{a.grouping.group}</TextLink> : <UnknownValue reason="not_generated" />}
+              {a.grouping.group ? <TextLink to="/alerts">{a.grouping.group}</TextLink> : <UnknownValue reason="not_tracked" />}
             </KV>
             <KV k={tx("抑制", "Inhibits")} kw={44}>
-              {a.grouping.inhibited ?? <UnknownValue reason="not_generated" />}
+              {a.grouping.inhibited ?? <UnknownValue reason="not_tracked" />}
             </KV>
             <KV k={tx("事件", "Incident")} kw={44}>
               {a.grouping.incident.id ? <TextLink to={`/incidents/${a.grouping.incident.id}`}>{a.grouping.incident.label ?? incident?.title ?? a.grouping.incident.id}</TextLink> : <Muted>{tx("未关联", "Not linked")}</Muted>}
@@ -240,7 +247,7 @@ export function AlertDetailView({ id }: { id: string }) {
                   <TextLink to="/changes">{a.grouping.change.label}</TextLink>
                 </Row>
               ) : (
-                <UnknownValue reason="not_generated" />
+                <UnknownValue reason="not_tracked" />
               )}
             </KV>
           </Col>
@@ -305,9 +312,12 @@ export default function InboxPage() {
       flush
       crumbs={[tx("事件与告警", "Events"), tx("收件箱", "Inbox")]}
       actions={
-        <Btn kind="ghost" icon="check" onClick={() => { setRead(new Set(items.map((i) => i.id))); toast(tx("已全部标为已读", "All marked as read")); }}>
-          {tx("全部标为已读", "Mark all read")}
-        </Btn>
+        // The server keeps no read state, so marking everything read only exists in the sample (PA-220, D52).
+        API_MODE === "mock" && (
+          <Btn kind="ghost" icon="check" onClick={() => { setRead(new Set(items.map((i) => i.id))); toast(tx("已全部标为已读", "All marked as read")); }}>
+            {tx("全部标为已读", "Mark all read")}
+          </Btn>
+        )
       }
     >
       <div className="v3-split">

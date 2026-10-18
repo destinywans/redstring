@@ -62,7 +62,8 @@ export default function NewRulePage() {
   const [night, setNight] = useState(false);
   const [range, setRange] = useState<"1h" | "24h" | "7d">("1h");
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [yaml, setYaml] = useState(SAMPLE_YAML);
+  // The sample file lacks the application, environment and severity labels a real import needs (PA-224).
+  const [yaml, setYaml] = useState(API_MODE === "mock" ? SAMPLE_YAML : "");
   const [imported, setImported] = useState<Imported[] | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   // Real rules belong to one application (approved design); the service ID carries application and environment.
@@ -222,7 +223,8 @@ export default function NewRulePage() {
         )
       }
     >
-      <Tabs value={tab} onChange={setTab} options={[{ value: "editor", label: tx("编辑器", "Editor") }, { value: "import", label: tx("导入 Prometheus 规则", "Import Prometheus rules") }, { value: "yaml", label: "YAML" }]} />
+      {/* The YAML tab isn't tied to the editor or to saving, so it only exists in the sample (PA-224, D52). */}
+      <Tabs value={tab} onChange={setTab} options={[{ value: "editor", label: tx("编辑器", "Editor") }, { value: "import", label: tx("导入 Prometheus 规则", "Import Prometheus rules") }, ...(real ? [] : [{ value: "yaml" as const, label: "YAML" }])]} />
       {tab === "editor" && (
         <div className="f-editor">
           <div className="f-left">
@@ -364,7 +366,14 @@ export default function NewRulePage() {
                 <div className="v3-col" style={{ gap: 6 }}>
                   <Lines series={[{ name: API_MODE === "mock" ? tx("5xx 比例", "5xx ratio") : tx("查询结果", "Query result"), values: preview.values, color: "var(--c3)", fill: "var(--c3s)" }]} height={150} threshold={Number(threshold)} bands={bands} markers={API_MODE === "mock" ? [{ at: 15, label: tx("发布 v2.8.1", "v2.8.1"), tone: "warn" }] : []} axis={API_MODE === "mock" ? ["13:35", "14:05", "14:35"] : []} format={(v) => (API_MODE === "mock" ? `${v}%` : String(v))} />
                   <Row gap={8}>
-                    <Legend items={[[tx("5xx 比例", "5xx ratio"), "var(--c3)"], [tx("阈值 {t}%", "Threshold {t}%", { t: threshold }), "var(--danger)"], [tx("会触发", "Would fire"), "var(--danger-soft)"]]} />
+                    {/* The real series is the written query, in the unit the generator gave (if any), not a 5xx ratio (PA-229). */}
+                    <Legend
+                      items={[
+                        [real ? tx("查询结果", "Query result") : tx("5xx 比例", "5xx ratio"), "var(--c3)"],
+                        [real ? tx("阈值 {t}", "Threshold {t}", { t: unit && unit !== "unknown" ? `${threshold}${unit}` : threshold }) : tx("阈值 {t}%", "Threshold {t}%", { t: threshold }), "var(--danger)"],
+                        [tx("会触发", "Would fire"), "var(--danger-soft)"],
+                      ]}
+                    />
                     <Spacer />
                     <Muted size={11.5}>{tx("当前值 {v} · {s}", "Now {v} · {s}", { v: preview.current ?? "—", s: preview.fires ? tx("会触发", "would fire") : tx("不会触发", "would not fire") })}</Muted>
                   </Row>
@@ -446,7 +455,9 @@ export default function NewRulePage() {
         <div className="v3-content" style={{ maxWidth: 960 }}>
           <Muted size={12.5}>
             {tab === "import"
-              ? tx("粘贴 Prometheus / Alertmanager 规则文件，或从已接入的 Prometheus 拉取。导入后先进入草稿，逐条确认后启用。", "Paste a Prometheus rule file or pull from a connected Prometheus. Imported rules start as drafts to confirm one by one.")
+              ? real
+                ? tx("粘贴 Prometheus 规则文件（groups 或 PrometheusRule）。导入会为新规则建待审核的草稿合并请求，已有的规则标为重复；不会启用任何规则。", "Paste a Prometheus rule file (groups or PrometheusRule). Importing opens a draft merge request for review with the new rules and marks existing ones as duplicates; nothing is enabled.")
+                : tx("粘贴 Prometheus / Alertmanager 规则文件，或从已接入的 Prometheus 拉取。导入后先进入草稿，逐条确认后启用。", "Paste a Prometheus rule file or pull from a connected Prometheus. Imported rules start as drafts to confirm one by one.")
               : tx("以 YAML 编辑同一条规则；保存时与编辑器双向同步。", "Edit the same rule as YAML; it stays in sync with the editor.")}
           </Muted>
           <Textarea rows={14} className="v3-textarea mono" value={yaml} onChange={(e) => setYaml(e.target.value)} spellCheck={false} />
@@ -457,21 +468,26 @@ export default function NewRulePage() {
               <Btn
                 kind="primary"
                 icon="upload"
+                disabled={real && !yaml.trim()}
                 onClick={async () => {
                   // A refusal is said, not thrown (PA-151): without a draft repository the import can't export drafts.
                   try {
-                    setImported((await api<{ items: Imported[] }>("POST", "/alert-rules/import", { body: { yaml } })).items);
+                    // This one request writes: new rules become drafts for review right here (v3-alert-rule-writes.md, PA-224).
+                    const r = await api<{ status?: string; items: Imported[] }>("POST", "/alert-rules/import", { body: { yaml } });
+                    setImported(r.items);
+                    if (real && r.status === "pending_review") toast(tx("已导入为草稿，合并请求等待审核", "Imported as drafts; the merge request awaits review"));
+                    if (real && r.status === "duplicates_only") toast(tx("都是已有的规则或草稿，没有新建草稿", "All of them already exist as rules or drafts; no new draft"));
                   } catch (e) {
                     toast(e instanceof ApiError && e.status === 503 && e.code === "not_connected" ? tx("规则草稿仓库还没有接入，暂时不能导入。", "The rule draft repository isn't connected, so rules can't be imported yet.") : e instanceof ApiError ? e.message : tx("解析失败，请稍后重试", "Couldn't parse; try again later"), { tone: "danger" });
                   }
                 }}
               >
-                {tx("解析", "Parse")}
+                {real ? tx("导入为草稿", "Import as drafts") : tx("解析", "Parse")}
               </Btn>
             </Row>
           )}
           {imported && (
-            <Panel title={tx("解析结果 · {n} 条", "Parsed · {n}", { n: imported.length })} bodyStyle={{ padding: "6px 16px" }} right={<Btn kind="primary" h={26} onClick={() => { toast(tx("已导入为草稿", "Imported as drafts")); nav("/alert-rules"); }}>{tx("导入为草稿", "Import as drafts")}</Btn>}>
+            <Panel title={tx("解析结果 · {n} 条", "Parsed · {n}", { n: imported.length })} bodyStyle={{ padding: "6px 16px" }} right={real ? <Btn h={26} onClick={() => nav("/alert-rules")}>{tx("返回告警规则", "Back to alert rules")}</Btn> : <Btn kind="primary" h={26} onClick={() => { toast(tx("已导入为草稿", "Imported as drafts")); nav("/alert-rules"); }}>{tx("导入为草稿", "Import as drafts")}</Btn>}>
               {imported.map((r) => (
                 <Row key={r.name} gap={8} style={{ height: 36, borderBottom: "1px solid var(--border)", fontSize: "var(--fs-sm)" }}>
                   <span className="mono grow">{r.name}</span>

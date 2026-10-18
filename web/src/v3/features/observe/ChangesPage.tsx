@@ -14,10 +14,15 @@ import { ChipSelect, usePickLists } from "../../ui/demo";
 import { parseStamp, useWhen } from "../../ui/when";
 import { useRollbackDrawer } from "../events/RollbackProposal";
 import { useRevisionTime } from "./revisionTime";
+import { useRollbackBlocked } from "../events/rollback";
+import { Gate, Gated } from "../../ui/permission";
 
 type Tab = "deployments" | "pipelines" | "merge_requests";
 type OpenRow = { pipeline_id: number; deployment_ids: number[] };
-const TONE: Record<string, Tone> = { success: "ok", merged: "ok", failed: "danger", running: "accent", pending: "accent", opened: "accent", created: "neutral", canceled: "neutral", skipped: "neutral", closed: "neutral", locked: "neutral", blocked: "warn", manual: "neutral" };
+const TONE: Record<string, Tone> = {
+  success: "ok", merged: "ok", failed: "danger", running: "accent", pending: "accent", opened: "accent", created: "neutral", canceled: "neutral", skipped: "neutral", closed: "neutral", locked: "neutral", blocked: "warn", manual: "neutral",
+  waiting_for_resource: "accent", preparing: "accent", waiting_for_callback: "accent", canceling: "neutral", scheduled: "neutral",
+};
 
 /** "Started 3 min after the change" from offset_seconds (alert start minus change time). */
 export function useOffsetText() {
@@ -33,6 +38,9 @@ function statusLabel(tx: (zh: string, en: string) => string, s: string) {
   const L: Record<string, [string, string]> = {
     success: ["成功", "Succeeded"], failed: ["失败", "Failed"], running: ["运行中", "Running"], pending: ["等待中", "Pending"], created: ["已创建", "Created"],
     canceled: ["已取消", "Canceled"], skipped: ["已跳过", "Skipped"], blocked: ["受阻", "Blocked"], manual: ["待手动", "Manual"],
+    // Every other state the server lets through (validPipelineStatus), in words rather than GitLab's raw value (PA-166).
+    waiting_for_resource: ["等待资源", "Waiting for resource"], preparing: ["准备中", "Preparing"], waiting_for_callback: ["等待回调", "Waiting for callback"],
+    canceling: ["取消中", "Canceling"], scheduled: ["已排期", "Scheduled"],
     merged: ["已合并", "Merged"], opened: ["打开中", "Open"], closed: ["已关闭", "Closed"], locked: ["已锁定", "Locked"],
   };
   const l = L[s];
@@ -392,6 +400,7 @@ function PipelineDrawer({ serviceId, row, view, onClose }: { serviceId: string; 
   const nav = useNavigate();
   const offsetText = useOffsetText();
   const rollback = useRollbackDrawer((s) => s.open);
+  const rollbackBlocked = useRollbackBlocked();
   const { data: p, error, refetch } = useGet<GitLabPipelineDetail>(`/changes/pipelines/${row.pipeline_id}`, { service_id: serviceId });
   const mr = p && p.merge_request_iid !== null ? view.merge_requests?.find((m) => m.iid === p.merge_request_iid) : undefined;
   // The detail has no deployment IDs; they come from the list row (D11 §11.2).
@@ -410,8 +419,13 @@ function PipelineDrawer({ serviceId, row, view, onClose }: { serviceId: string; 
       sub={p ? [view.project.path, p.ref, p.sha.slice(0, 8), p.user?.username, when.short(p.created_at), dur(p.duration_seconds)].filter(Boolean).join(" · ") : undefined}
       footer={
         <>
-          <Btn kind="primary" icon="branch" onClick={ask}>{tx("带入调查", "Add to investigation")}</Btn>
-          <Btn icon="undo" onClick={() => { onClose(); rollback({ serviceId }); }}>{tx("提议回滚", "Propose rollback")}</Btn>
+          {/* It opens a new conversation (conversation.change); a rollback needs the rollback grants (PA-228). */}
+          <Gate need={["conversation", "change"]}>
+            <Btn kind="primary" icon="branch" onClick={ask}>{tx("带入调查", "Add to investigation")}</Btn>
+          </Gate>
+          <Gated reason={rollbackBlocked}>
+            <Btn icon="undo" onClick={() => { onClose(); rollback({ serviceId }); }}>{tx("提议回滚", "Propose rollback")}</Btn>
+          </Gated>
           <Spacer />
           {p?.web_url && <Btn kind="ghost" icon="external" onClick={() => window.open(p.web_url!, "_blank", "noopener")}>{tx("在 GitLab 中打开", "Open in GitLab")}</Btn>}
         </>
@@ -430,8 +444,9 @@ function PipelineDrawer({ serviceId, row, view, onClose }: { serviceId: string; 
               <div key={s.name} className="dag-stage">
                 <Muted size={11}>{s.name}</Muted>
                 {s.jobs.map((j) => (
-                  <span key={j.id} className={cx("dag-job", JOB[j.status] ?? "pending", j.manual && "manual")} title={dur(j.duration_seconds) ?? undefined}>
-                    <Icon name={j.status === "success" ? "check" : j.status === "failed" ? "x" : j.status === "running" ? "rotate" : "clock"} size={12} />
+                  // A canceled, skipped or manual job isn't waiting: its icon and tooltip say which it is (PA-166).
+                  <span key={j.id} className={cx("dag-job", JOB[j.status] ?? "pending", j.manual && "manual")} title={[statusLabel(tx, j.status), dur(j.duration_seconds)].filter(Boolean).join(" · ")}>
+                    <Icon name={j.status === "success" ? "check" : j.status === "failed" ? "x" : j.status === "running" ? "rotate" : j.status === "canceled" || j.status === "canceling" || j.status === "skipped" ? "slash" : j.status === "manual" ? "play" : "clock"} size={12} />
                     <span className="ellipsis">{j.name}</span>
                   </span>
                 ))}

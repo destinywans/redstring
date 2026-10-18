@@ -91,8 +91,9 @@ type Detail struct {
 	Annotations        map[string]string `json:"annotations"`
 	LastEvaluation     string            `json:"last_evaluation,omitempty"`
 	EvaluationMS       float64           `json:"evaluation_ms"`
-	Partial            bool              `json:"partial"`
-	Unavailable        []string          `json:"unavailable"`
+	lastError          string
+	Partial            bool     `json:"partial"`
+	Unavailable        []string `json:"unavailable"`
 }
 
 type Service struct {
@@ -394,22 +395,35 @@ func contains(values []string, wanted string) bool {
 
 func toDetail(env, app string, rule ObservedRule) Detail {
 	idBytes := sha256.Sum256([]byte(env + "\x00" + app + "\x00" + rule.GroupIdentity + "\x00" + rule.Name))
-	state := "ok"
-	if rule.State == "firing" || rule.State == "pending" {
-		state = rule.State
-	}
 	last := ""
 	if !rule.LastEvaluation.IsZero() {
 		last = rule.LastEvaluation.UTC().Format(time.RFC3339Nano)
 	}
 	return Detail{
-		Summary:    Summary{ID: "prom-" + hex.EncodeToString(idBytes[:12]), Folder: rule.Group, Name: rule.Name, State: state, EnvironmentID: env, ApplicationID: app},
+		Summary:    Summary{ID: "prom-" + hex.EncodeToString(idBytes[:12]), Folder: rule.Group, Name: rule.Name, State: ruleState(rule), EnvironmentID: env, ApplicationID: app},
 		Datasource: "prometheus", Expr: rule.Expression, ForSeconds: rule.Duration,
 		evaluationInterval: rule.EvaluationInterval,
 		Labels:             rule.Labels, Annotations: rule.Annotations, LastEvaluation: last,
-		EvaluationMS: rule.EvaluationTime * 1000, Partial: true,
+		EvaluationMS: rule.EvaluationTime * 1000, lastError: rule.LastError, Partial: true,
 		Unavailable: []string{"preview", "condition", "evaluation_schedule", "route_path", "ai_triage", "runbook"},
 	}
+}
+
+// ruleState is the state a rule is shown in (PA-210): "error" while its
+// evaluation fails, since any firing or pending state is then stale;
+// Prometheus's firing or pending; "ok" only for an inactive rule whose last
+// evaluation succeeded; and "unknown" for a rule Prometheus has not
+// evaluated or reports no health for.
+func ruleState(rule ObservedRule) string {
+	switch {
+	case rule.Health == "err":
+		return "error"
+	case rule.State == "firing" || rule.State == "pending":
+		return rule.State
+	case rule.Health == "ok":
+		return "ok"
+	}
+	return "unknown"
 }
 
 func (s *Service) List(w http.ResponseWriter, r *http.Request) {

@@ -167,17 +167,20 @@ export default function AlertsPage() {
                 ]}
               />
               <SearchBox placeholder={tx("按标签过滤，如 service=checkout-api", "Filter by label, e.g. service=checkout-api")} value={q} onChange={setQ} width={280} />
-              <ChipSelect
-                icon="layers"
-                label={tx("分组", "Group")}
-                defaultValue="service,alertname"
-                options={[
-                  { value: "service,alertname", label: "service, alertname" },
-                  { value: "service", label: "service" },
-                  { value: "alertname", label: "alertname" },
-                  { value: "cluster,namespace", label: "cluster, namespace" },
-                ]}
-              />
+              {/* Real groups are formed by the server (source and fingerprint); a picker the request never carries stays in the sample (PA-224, D52). */}
+              {demo && (
+                <ChipSelect
+                  icon="layers"
+                  label={tx("分组", "Group")}
+                  defaultValue="service,alertname"
+                  options={[
+                    { value: "service,alertname", label: "service, alertname" },
+                    { value: "service", label: "service" },
+                    { value: "alertname", label: "alertname" },
+                    { value: "cluster,namespace", label: "cluster, namespace" },
+                  ]}
+                />
+              )}
               <Spacer />
               <Muted>{tx("显示被抑制的告警", "Show inhibited")}</Muted>
               <Toggle on={showInhibited} onChange={setShowInhibited} label={tx("显示被抑制的告警", "Show inhibited")} />

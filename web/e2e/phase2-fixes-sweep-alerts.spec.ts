@@ -436,3 +436,47 @@ test.describe("alerts and rules say why a list or rule can't be read (PA-221)", 
     await expect(page.locator(".main .skeleton")).toHaveCount(0);
   });
 });
+
+/** Every unknown mark in `scope` explains itself as untracked, never as a failed source or data still to come. */
+async function expectUntracked(scope: import("@playwright/test").Locator, count: number) {
+  const marks = scope.locator(".unk");
+  await expect(marks).toHaveCount(count);
+  for (const label of await marks.evaluateAll((els) => els.map((e) => e.getAttribute("aria-label") ?? ""))) {
+    expect(label).toContain("未记录");
+    expect(label).not.toContain("连接失败");
+    expect(label).not.toContain("有新数据后会自动生成");
+  }
+}
+
+test.describe("fields the server never fills say they aren't tracked (PA-223)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("alerts: current value, last 30 min, notification delivery and inhibition", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinAlerts(page);
+    await page.goto(origin + "/alerts");
+    await expect(page.locator(".ag-body")).toBeVisible({ timeout: 20_000 });
+    await expectUntracked(page.locator(".ag-body"), 2);
+    await expect(page.locator(".aside").getByText("Check notification")).toBeVisible();
+    await expectUntracked(page.locator(".aside"), 2);
+  });
+
+  test("incident impact peak and budget", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinIncidents(page, [summaryOf(incident())], incident());
+    await page.goto(origin + `/incidents/${INC}`);
+    const impact = page.locator(".v3-panel", { has: page.locator("h2", { hasText: /^影响$/ }) });
+    await expect(impact).toBeVisible({ timeout: 20_000 });
+    await expectUntracked(impact, 2);
+  });
+
+  test("inbox alert: source, rule, value chart, labels and grouping", async ({ page }) => {
+    await page.addInitScript(zh);
+    await pinInbox(page);
+    await page.goto(origin + "/inbox?item=inbox-check-1");
+    const detail = page.locator(".alert-detail");
+    await expect(detail.getByRole("heading", { name: "CheckHighErrorRate" })).toBeVisible({ timeout: 20_000 });
+    // source, rule, value chart, labels, group, inhibits, change
+    await expectUntracked(detail, 7);
+  });
+});

@@ -8,11 +8,18 @@ import { useI18n } from "../../i18n";
 import "./integrations.css";
 import { openForm, confirmAction, SecretBox } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
+import { UnknownValue } from "../../ui/unknown";
+
+/** What the server has behind each part of the page; "not_connected" parts have no registry yet (sample data has none). */
+type WebhookAvailability = { inbound?: string; native_inbound?: string; api_tokens?: string; public_mcp?: string; outbound?: string; receipt_window?: string };
+type View = WebhookView & { availability?: WebhookAvailability };
 
 export default function WebhooksPage() {
   const { tx, fmt } = useI18n();
   const when = useWhen();
-  const { data } = useGet<WebhookView>("/webhooks");
+  const { data } = useGet<View>("/webhooks");
+  // The platform serves no public MCP and sends no outbound events yet: say so rather than show a switched-on server or 0 (PA-208).
+  const outboundConnected = data?.availability?.outbound !== "not_connected";
   const [tab, setTab] = useState<"inbound" | "tokens" | "mcp" | "outbound">("inbound");
   // The sample opens on its GitLab hook, whose deliveries the fixture lists; real ids are `<kind>:<source>`, so a
   // real page opens on the first hook the server lists (PA-106).
@@ -93,8 +100,8 @@ export default function WebhooksPage() {
         options={[
           { value: "inbound", label: tx("入站 Webhook", "Inbound webhooks"), count: data?.inbound.length },
           { value: "tokens", label: tx("API 令牌", "API tokens"), count: tokenRows.length },
-          { value: "mcp", label: tx("MCP 服务", "MCP service"), count: 1 },
-          { value: "outbound", label: tx("出站事件", "Outbound events"), count: data?.outbound.length },
+          { value: "mcp", label: tx("MCP 服务", "MCP service"), count: data?.availability?.public_mcp === "not_connected" ? undefined : 1 },
+          { value: "outbound", label: tx("出站事件", "Outbound events"), count: outboundConnected ? data?.outbound.length : undefined },
         ]}
       />
       <div className="v3-split">
@@ -250,7 +257,12 @@ export default function WebhooksPage() {
               </Card>
             )}
             {data && tab === "mcp" && <McpOut data={data} on={mcpOn} setOn={setMcpOn} />}
-            {data && tab === "outbound" && (
+            {data && tab === "outbound" && !outboundConnected && (
+              <Card style={{ padding: 16 }}>
+                <OutboundNotConnected />
+              </Card>
+            )}
+            {data && tab === "outbound" && outboundConnected && (
               <Card>
                 <ul className="plain-list" style={{ padding: "4px 16px" }}>
                   {data.outbound.map((o) => (
@@ -270,9 +282,11 @@ export default function WebhooksPage() {
         {data && tab === "inbound" && (
           <aside className="aside" style={{ width: 380, padding: 16, display: "flex", flexDirection: "column", gap: 18 }}>
             <Section title={tx("API 令牌", "API tokens")} right={<TextLink onClick={() => setTab("tokens")}>{tx("管理", "Manage")}</TextLink>}>
+              {/* The same tokens the API token tab lists: real ones come from /api-tokens, not /webhooks (PA-208). */}
+              {tokenRows.length === 0 && <Muted size={11.5}>{tx("还没有 API 令牌。", "No API tokens yet.")}</Muted>}
               <ul className="plain-list col">
-                {data.tokens.map((t) => (
-                  <li key={t.name}>
+                {tokenRows.map((t) => (
+                  <li key={t.key}>
                     <Row gap={6}>
                       <Icon name="link" size={14} />
                       <b style={{ fontSize: "var(--fs-sm)" }}>{t.name}</b>
@@ -293,6 +307,7 @@ export default function WebhooksPage() {
             </Section>
             <McpOut data={data} on={mcpOn} setOn={setMcpOn} compact />
             <Section title={tx("出站事件", "Outbound events")}>
+              {!outboundConnected && <OutboundNotConnected />}
               <Col gap={8}>
                 {data.outbound.map((o) => (
                   <KV key={o.event} k={o.event} kw={84}>
@@ -311,8 +326,15 @@ export default function WebhooksPage() {
   );
 }
 
-function McpOut({ data, on, setOn, compact }: { data: WebhookView; on: boolean; setOn: (v: boolean) => void; compact?: boolean }) {
+function OutboundNotConnected() {
   const { tx } = useI18n();
+  return <Muted size={11.5}>{tx("未接入：平台还没有出站事件投递，这里暂时没有可配置的事件。", "Not connected: the platform doesn't send outbound events yet, so there is nothing to configure here.")}</Muted>;
+}
+
+function McpOut({ data, on, setOn, compact }: { data: View; on: boolean; setOn: (v: boolean) => void; compact?: boolean }) {
+  const { tx } = useI18n();
+  // Real mode shows what the server says: mcp.enabled, and no address, tools or clients while public MCP isn't served (PA-208).
+  const served = data.availability?.public_mcp !== "not_connected";
   const body = (
     <Col gap={8}>
       <Row gap={10}>
@@ -322,19 +344,25 @@ function McpOut({ data, on, setOn, compact }: { data: WebhookView; on: boolean; 
           <Muted size={11.5}>{tx("让其他 Agent 查询事件与 Runbook", "Lets other agents query incidents and runbooks")}</Muted>
         </Col>
         {/* Turning the MCP server on/off has no endpoint yet; real mode shows the state read-only. */}
-        <Toggle on={on} disabled={API_MODE !== "mock"} onChange={(v) => { setOn(v); toast(v ? tx("MCP 服务已开启", "MCP service enabled") : tx("MCP 服务已关闭", "MCP service disabled"), { undo: () => setOn(!v) }); }} label={tx("MCP 服务", "MCP service")} />
+        <Toggle on={API_MODE === "mock" ? on : data.mcp.enabled} disabled={API_MODE !== "mock"} onChange={(v) => { setOn(v); toast(v ? tx("MCP 服务已开启", "MCP service enabled") : tx("MCP 服务已关闭", "MCP service disabled"), { undo: () => setOn(!v) }); }} label={tx("MCP 服务", "MCP service")} />
       </Row>
-      <Code>{data.mcp.url}</Code>
-      <Row gap={4} wrap>
-        {data.mcp.tools.map((t) => (
-          <Badge key={t} tone="accent" mono>
-            {t}
-          </Badge>
-        ))}
-      </Row>
-      <KV k={tx("允许的客户端", "Allowed clients")} kw={84}>
-        {data.mcp.clients}
-      </KV>
+      {!served ? (
+        <Muted size={11.5}>{tx("未接入：平台目前还没有对外提供 MCP 服务，没有地址、工具或允许的客户端。", "Not connected: the platform doesn't serve MCP yet, so there is no address, tool or allowed client.")}</Muted>
+      ) : (
+        <>
+          {data.mcp.url && <Code>{data.mcp.url}</Code>}
+          <Row gap={4} wrap>
+            {data.mcp.tools.map((t) => (
+              <Badge key={t} tone="accent" mono>
+                {t}
+              </Badge>
+            ))}
+          </Row>
+          <KV k={tx("允许的客户端", "Allowed clients")} kw={84}>
+            {data.mcp.clients === "unknown" ? <UnknownValue reason="not_tracked" /> : data.mcp.clients}
+          </KV>
+        </>
+      )}
     </Col>
   );
   return compact ? <Section title={tx("作为 MCP 服务对外提供", "Serve as an MCP server")}>{body}</Section> : <Card style={{ padding: 16 }}>{body}</Card>;

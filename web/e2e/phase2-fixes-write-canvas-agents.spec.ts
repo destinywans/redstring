@@ -146,3 +146,50 @@ test.describe("an agent rollback names where it lands (PA-236)", () => {
     await expect(page.locator(".v3-toast")).toContainText("没有可回滚到的上一个版本");
   });
 });
+
+/* ---------------- PA-237: the viewer's vote on an agent run ---------------- */
+
+const RUN = "run-write-check";
+const run = (myVote: "up" | "down" | null) => ({
+  id: RUN, agent: "写路径检查 Agent", agent_id: AGENT, application_id: "app", environment_id: "prod", version: "v1", trigger: "manual", status: "success",
+  error_code: null, started_at: "2026-10-18T01:00:00Z", finished_at: "2026-10-18T01:00:05Z",
+  chain: [{ label: "Agent", value: "写路径检查 Agent", icon: "bot" }, { label: "Version", value: "v1", icon: "version" }],
+  stats: [{ k: "status", v: "success" }], steps: [], total: 5000, context: null, budget: null, isolated: null, memory: null,
+  feedback: { up: myVote === "up" ? 1 : 0, down: myVote === "down" ? 1 : 0, my_vote: myVote }, partial: true, missing: [],
+});
+const vote = (page: Page, name: "有用" | "无用") => page.getByRole("button", { name, exact: true });
+
+test.describe("an agent run shows the viewer's saved vote (PA-237)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("a vote saved earlier is highlighted when the run opens", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await page.route(at(`/agent-runs/${RUN}`), (r) => json(r, 200, run("down")));
+    await page.goto(origin + `/agents/runs/${RUN}`);
+    await expect(vote(page, "无用")).toHaveClass(/active/, { timeout: 20_000 });
+    await expect(vote(page, "有用")).not.toHaveClass(/active/);
+    expect(m.pageErrors).toEqual([]);
+  });
+
+  test("a new vote says what was saved, promises no improvement queue, and still shows after a reload", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    let saved: "up" | "down" | null = null;
+    await page.route(at(`/agent-runs/${RUN}`), (r) => json(r, 200, run(saved)));
+    await page.route(at(`/agent-runs/${RUN}/feedback`), (r) => {
+      if (r.request().method() !== "POST") return r.fallback();
+      saved = "down";
+      return json(r, 200, { vote: "down", feedback: { up: 0, down: 1, my_vote: "down" } });
+    });
+    await page.goto(origin + `/agents/runs/${RUN}`);
+    await expect(vote(page, "无用")).not.toHaveClass(/active/, { timeout: 20_000 });
+    await vote(page, "无用").click();
+    await expect(page.locator(".v3-toast")).toContainText("已标记为无用");
+    await expect(page.locator(".v3-toast")).not.toContainText("改进队列");
+    await expect(vote(page, "无用")).toHaveClass(/active/);
+    await page.reload();
+    await expect(vote(page, "无用")).toHaveClass(/active/, { timeout: 20_000 });
+    expect(m.pageErrors).toEqual([]);
+  });
+});

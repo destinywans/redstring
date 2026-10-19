@@ -4,7 +4,7 @@
 
 2026-10-19 更新：v0.1.0 公开发布前改用系统字体，不再下载或随仓库分发任何字体文件（用户确认，看过 MiSans 与系统字体的前后对比）。字号、字重、行高和颜色角色不变；下文“字体与覆盖范围”“字体分发与许可记录”已按此改写，提到 MiSans 的其余段落是当时的决定记录。
 
-关联：[WAN-96](https://linear.app/wansss/issue/WAN-96)。实现入口为 [`web/src/typography.css`](../../web/src/typography.css)，主题文字颜色在 [`web/src/styles.css`](../../web/src/styles.css)。
+关联：WAN-96。实现入口为 [`web/src/typography.css`](../../web/src/typography.css)，主题文字颜色在 [`web/src/styles.css`](../../web/src/styles.css)。
 
 ## 参考方向与保留的产品规则
 

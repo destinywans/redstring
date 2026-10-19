@@ -1,6 +1,6 @@
 # AIOps 本地 Docker 清理记录
 
-2026-10-07（北京时间），[WAN-117](https://linear.app/wansss/issue/WAN-117)。用户明确授权清理本地 Docker 中无用的 AIOps 容器及镜像；当前 context 为 `desktop-linux`。
+2026-10-07（北京时间），WAN-117。用户明确授权清理本地 Docker 中无用的 AIOps 容器及镜像；当前 context 为 `desktop-linux`。
 
 ## 结果与依据
 

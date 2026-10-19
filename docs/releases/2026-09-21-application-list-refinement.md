@@ -28,7 +28,7 @@
 
 ## 交付
 
-分支 `codex/wan-81-application-list-refinement`，依赖未合并但已推送的 `c16e99a`。仅提交本需求的 UI 与记录，已有暂停交付代码和文档修改保留。确切提交、推送回读及用户评审状态维护在 [WAN-81](https://linear.app/wansss/issue/WAN-81)。
+分支 `codex/wan-81-application-list-refinement`，依赖未合并但已推送的 `c16e99a`。仅提交本需求的 UI 与记录，已有暂停交付代码和文档修改保留。确切提交、推送回读及用户评审状态维护在 WAN-81。
 
 ## 第二版：检索语义、标准分页与分区详情
 

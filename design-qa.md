@@ -51,11 +51,11 @@
 
 本次检查未覆盖全部断点、动画、卡片状态或逐像素比较；卡片密度和排版仍由用户体验后调整。完整运行边界及后端证据见 [产品体验记录](docs/releases/2026-09-20-lab-integration.md)。以下较早记录只描述对应轮次；例如成员现已独立导航、真实遥测现已有结构化展示，均由后续决定覆盖旧描述。
 
-关联 [WAN-57](https://linear.app/wansss/issue/WAN-57)、[WAN-58](https://linear.app/wansss/issue/WAN-58)、[WAN-67](https://linear.app/wansss/issue/WAN-67)。目标是按照用户批准的八张正式图尽量 1:1 复刻；当前为可运行实现及限定检查，等待用户视觉验收，不宣称逐像素一致或完整 MVP 已验收。
+关联 WAN-57、WAN-58、WAN-67。目标是按照用户批准的八张正式图尽量 1:1 复刻；当前为可运行实现及限定检查，等待用户视觉验收，不宣称逐像素一致或完整 MVP 已验收。
 
 ## 来源与范围
 
-设计权威为 [Linear UI 基线](https://linear.app/wansss/document/ui-与交互设计基线-99b3936bbc8e) 和 [WAN-49 原始附件](https://linear.app/wansss/issue/WAN-49)。本轮读取全部八张图，第三张使用修正版。原图缓存在忽略目录 `.local/design-reference/01.png` 至 `08.png`，不是产品运行资产。
+设计权威为 Linear UI 基线 和 WAN-49 原始附件。本轮读取全部八张图，第三张使用修正版。原图缓存在忽略目录 `.local/design-reference/01.png` 至 `08.png`，不是产品运行资产。
 
 | 图 | 实现 | 对照与保留的差异 |
 | --- | --- | --- |

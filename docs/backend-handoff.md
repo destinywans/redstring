@@ -9,7 +9,7 @@
 - [机器契约](../internal/apicontract/openapi.json)：OpenAPI 3.1，37 个路径、44 项操作；由 `scripts/build-openapi.py` 生成，本轮未运行契约校验。
 - [接口语义](api-contract.md)：认证、上下文、SSE、布局、知识、审批和结案。
 - [架构和模块](architecture.md)、[领域语言](../CONTEXT.md)、[演示及遥测配置](demo.md)。
-- [Linear 项目](https://linear.app/wansss/project/aiops-canvas-3c9fce50a53b)：任务保持 In Progress，等待测试放行；前端任务暂缓。
+- Linear 项目：任务保持 In Progress，等待测试放行；前端任务暂缓。
 
 ## 本轮源码范围
 

@@ -25,7 +25,7 @@
 
 - [应用样板](http://127.0.0.1:18081/applications?environment_scope=all)
 - [组件状态](http://127.0.0.1:18081/design-review/components)
-- [Linear WAN-96](https://linear.app/wansss/issue/WAN-96)
+- Linear WAN-96
 
 ## 依据与取舍
 

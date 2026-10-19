@@ -1,6 +1,6 @@
 # V3 正常使用入口交付（2026-10-07）
 
-用户批准优先补齐成员授权、MCP 登记、调查与知识只读工具接线；记忆生产、评测执行与 Agent 执行治理留作后续待办。本批仅后端，三个需求分别为 [WAN-237](https://linear.app/wansss/issue/WAN-237)、[WAN-238](https://linear.app/wansss/issue/WAN-238)、[WAN-239](https://linear.app/wansss/issue/WAN-239)。
+用户批准优先补齐成员授权、MCP 登记、调查与知识只读工具接线；记忆生产、评测执行与 Agent 执行治理留作后续待办。本批仅后端，三个需求分别为 WAN-237、WAN-238、WAN-239。
 
 分支 `codex/wan-117-v3-entrypoints`，依赖已推送基线 `1e34477f31a50f2f0c226bd5ddbe180a7ecd519e`。实现按三个需求分项提交；精确提交、远端核验和当前验收状态见对应 Linear 交付记录。本文件不代表已合并、部署或整体验收。
 
@@ -30,7 +30,7 @@
 
 ## 剩余工作
 
-已按用户决定在 [WAN-123](https://linear.app/wansss/issue/WAN-123) 留作后续：
+已按用户决定在 WAN-123 留作后续：
 
 - 记忆事实/冲突的真实生产链。
 - Eval 执行器、用例输入、快照与结果生产，以及 Prompt 试运行所需真实用例来源。

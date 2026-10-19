@@ -28,7 +28,7 @@
 - 本机 `http://127.0.0.1:18081` 静态资源已更新，原设计图库恢复保留。
 - [分页交互样板](http://127.0.0.1:18081/design-review/components)、[资源目录](http://127.0.0.1:18081/resources/catalog?environment_scope=all)、[角色管理](http://127.0.0.1:18081/platform/roles?environment_scope=all)。
 - [分页规范](../design/pagination.md)、[组件方向和授权](../design/application-ui-sample.md)、[搜索筛选规范](../design/search-filters.md)。
-- 原暂停的 delivery/deployment 及相关配置/文档未提交改动继续保留，不属于本轮提交。确切提交、推送回读及 In Review 状态维护在 [WAN-96](https://linear.app/wansss/issue/WAN-96)。合并及产品最终验收尚未进行。
+- 原暂停的 delivery/deployment 及相关配置/文档未提交改动继续保留，不属于本轮提交。确切提交、推送回读及 In Review 状态维护在 WAN-96。合并及产品最终验收尚未进行。
 
 ## 同日反馈：页码悬停和选中切换迟缓
 

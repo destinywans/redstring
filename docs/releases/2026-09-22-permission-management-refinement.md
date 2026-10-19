@@ -19,4 +19,4 @@
 
 本机 18081 验收服务已使用新二进制重启并通过健康检查，启动执行 `015_rbac_permission_scope.sql`；运行页面可读取新增范围计数并打开旧应用授权候选，既有 7 角色/17 权限保留。图库保留。机器契约和生成器同步新范围字段及创建/关联语义。
 
-暂停的 delivery/deployment 文件、配置及文档改动保留，不纳入本轮提交；未进行集群操作、生产发布或合并。完成提交推送后状态为 In Review，等待用户继续体验和调整。Linear：https://linear.app/wansss/issue/WAN-105
+暂停的 delivery/deployment 文件、配置及文档改动保留，不纳入本轮提交；未进行集群操作、生产发布或合并。完成提交推送后状态为 In Review，等待用户继续体验和调整。Linear：WAN-105

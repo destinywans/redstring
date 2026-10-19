@@ -1,6 +1,6 @@
 # WAN-96 · 记忆页通用搜索与筛选
 
-- 需求：[WAN-96](https://linear.app/wansss/issue/WAN-96)
+- 需求：WAN-96
 - 分支：`codex/wan-96-search-filters`
 - 设计基线：[通用搜索与筛选](../design/search-filters.md)
 - 状态：源码、受影响构建和记忆页限定浏览器检查完成，等待产品体验。提交与推送结果回读记录在 WAN-96；未合并、未正式发布。

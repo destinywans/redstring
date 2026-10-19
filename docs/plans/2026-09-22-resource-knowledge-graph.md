@@ -1,6 +1,6 @@
 # 资源关系知识图谱 · WAN-101
 
-2026-09-22 用户确认实施。问题、备选方案与确认历史在 [WAN-101](https://linear.app/wansss/issue/WAN-101)。基于 `0281ff0`，分支 `codex/wan-101-resource-knowledge-graph`；依赖已推送未合并的 WAN-112，不纳入暂停中的交付中心改动。
+2026-09-22 用户确认实施。问题、备选方案与确认历史在 WAN-101。基于 `0281ff0`，分支 `codex/wan-101-resource-knowledge-graph`；依赖已推送未合并的 WAN-112，不纳入暂停中的交付中心改动。
 
 ## 2026-09-22 体验反馈修订
 

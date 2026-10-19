@@ -1,6 +1,6 @@
 # V3 v1.1 后端页面交互交付
 
-2026-10-07，任务 [WAN-245](https://linear.app/wansss/issue/WAN-245)，子需求 WAN-246～248。分支 `codex/wan-245-v3-page-interactions`，起点 `97cfb3887d50acd63a03c2813d71f3d413ce04bf`。范围与用户确认见[计划](../plans/2026-10-07-v3-page-interactions.md)，接口细节见[契约 v1.1](../api/v3-contract.md#v11-页面交互接口2026-10-07)。提交及远端回读由对应 Linear 交付记录登记；尚未合并或部署。
+2026-10-07，任务 WAN-245，子需求 WAN-246～248。分支 `codex/wan-245-v3-page-interactions`，起点 `97cfb3887d50acd63a03c2813d71f3d413ce04bf`。范围与用户确认见[计划](../plans/2026-10-07-v3-page-interactions.md)，接口细节见[契约 v1.1](../api/v3-contract.md#v11-页面交互接口2026-10-07)。提交及远端回读由对应 Linear 交付记录登记；尚未合并或部署。
 
 分项提交：[WAN-246 / 7c32e7b](https://github.com/destinywans/aiops-canvas/commit/7c32e7b)、[WAN-247 / e9541ac](https://github.com/destinywans/aiops-canvas/commit/e9541ac)；WAN-248 与本记录同提交。每个分项均从该提交暂存源码生成对应的机器契约，并校验源声明操作集合一致，依次 433 / 442 / 460，不提前提交未来端点。
 

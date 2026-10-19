@@ -4,7 +4,7 @@
 
 - [首页](approved-home.png)：大对话框、三项快捷入口、需要关注、待我处理、最近会话。
 - [右侧展开](approved-drawer.png)：三处“查看全部”使用同一右侧卡片模式，各自展示相应记录。
-- Linear：[WAN-95](https://linear.app/wansss/issue/WAN-95)。导航延续 WAN-87，范围语义修订关联 WAN-88。
+- Linear：WAN-95。导航延续 WAN-87，范围语义修订关联 WAN-88。
 
 ## 确认的交互
 

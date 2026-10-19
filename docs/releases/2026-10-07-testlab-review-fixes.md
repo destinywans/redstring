@@ -2,7 +2,7 @@
 
 日期：2026-10-07。用户在代码复审后确认修复两个测试工具问题。
 分支：`codex/wan-138-backend-testlab`；修复前 HEAD：`7f8c800ad2ef927b45cd9e55813b4b19bc9d8ca8`。
-需求和交付记录：[WAN-138](https://linear.app/wansss/issue/WAN-138)。
+需求和交付记录：WAN-138。
 
 ## 修复行为
 

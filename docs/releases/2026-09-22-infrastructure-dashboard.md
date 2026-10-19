@@ -1,6 +1,6 @@
 # WAN-112 · 基础设施 Dashboard 与采集恢复
 
-2026-09-22，用户批准 V2 图表方案并要求修复采集失联、相关指标缺失。范围与决策历史：[WAN-112](https://linear.app/wansss/issue/WAN-112)。分支 `codex/wan-112-infrastructure-dashboard`，基线 `f254b13419cd7102067fc98069f80de17eec4310`；依赖已推送、未合并的 WAN-109/111 基线。
+2026-09-22，用户批准 V2 图表方案并要求修复采集失联、相关指标缺失。范围与决策历史：WAN-112。分支 `codex/wan-112-infrastructure-dashboard`，基线 `f254b13419cd7102067fc98069f80de17eec4310`；依赖已推送、未合并的 WAN-109/111 基线。
 
 ## 交付
 

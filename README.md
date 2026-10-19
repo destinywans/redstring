@@ -7,7 +7,7 @@
 
 **让 AI 分头调查，由人来批准。** 可自托管的 AI 运维工作区：故障调查在画布上分支进行，证据都有出处，线上变更要人批准一份具体的提案，再交给独立执行器执行并验证恢复。
 
-[在线演示](https://redstring.wans.run/)（示例数据） · [产品页](https://wans.run/redstring/) · [Linear 项目](https://linear.app/wansss/project/redstring-3c9fce50a53b)
+[在线演示](https://redstring.wans.run/)（示例数据） · [产品页](https://wans.run/redstring/) · Linear 项目
 
 > **状态：v0.1.0 beta，不建议用于生产环境。** 作为 MVP 和实验环境演示可用，尚未达到生产可用，差距见下方[「还没做」](#还没做)；已知问题见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)。执行器会对接入的系统做写操作，只接测试环境，先读[「安全须知」](#安全须知)。
 

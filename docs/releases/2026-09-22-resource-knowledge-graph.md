@@ -1,6 +1,6 @@
 # 资源关系知识图谱交付 · WAN-101
 
-2026-09-22。[需求与确认历史](https://linear.app/wansss/issue/WAN-101)，[页面合同](../plans/2026-09-22-resource-knowledge-graph.md)，[接口合同](../resources-api.md)。基于已推送、未合并的 WAN-112 `0281ff0`，分支 `codex/wan-101-resource-knowledge-graph`。本机页面已更新，产品验收待用户；不把本轮技术检查视为视觉验收通过。
+2026-09-22。需求与确认历史（WAN-101），[页面合同](../plans/2026-09-22-resource-knowledge-graph.md)，[接口合同](../resources-api.md)。基于已推送、未合并的 WAN-112 `0281ff0`，分支 `codex/wan-101-resource-knowledge-graph`。本机页面已更新，产品验收待用户；不把本轮技术检查视为视觉验收通过。
 
 ## 2026-09-22 体验反馈修复：径向网络与悬浮对比度
 

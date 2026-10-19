@@ -1,6 +1,6 @@
 # RBAC 关联管理与直接跳页
 
-任务：[WAN-105](https://linear.app/wansss/issue/WAN-105)；共用分页：[WAN-96](https://linear.app/wansss/issue/WAN-96)。分支 `codex/wan-105-rbac-associations`，依赖已推送、未合并的 `ff81ef8`。用户确认两张宽幅设计图后授权实施，并要求真实数据库角色/权限、每页数字居中和直接跳页。
+任务：WAN-105；共用分页：WAN-96。分支 `codex/wan-105-rbac-associations`，依赖已推送、未合并的 `ff81ef8`。用户确认两张宽幅设计图后授权实施，并要求真实数据库角色/权限、每页数字居中和直接跳页。
 
 ## 验收范围
 

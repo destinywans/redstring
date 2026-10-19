@@ -4,7 +4,7 @@
 
 记录时分支为 `codex/wan-95-composer-feedback`，已提交基线为 `1013a67`。UI 提交为 `ec23f35`，后续 Skills/Prompt 与契约提交接续本记录；最终推送回读记录到 Linear。预览二进制由本轮非交付模块源码快照构建，静态资源来自本轮 Web 构建，尚未合并或正式发布。
 
-范围来自本轮用户反馈：统一全站筛选和排版、应用右侧抽屉、首页输入交互、Skills/Prompt 通用范围及权限。关联 [WAN-96](https://linear.app/wansss/issue/WAN-96)、[WAN-95](https://linear.app/wansss/issue/WAN-95)、WAN-93；附件继续由 [WAN-97](https://linear.app/wansss/issue/WAN-97) 跟踪并延期。状态为已完成下述定向检查、待用户体验，未据此宣称正式发布或验收。
+范围来自本轮用户反馈：统一全站筛选和排版、应用右侧抽屉、首页输入交互、Skills/Prompt 通用范围及权限。关联 WAN-96、WAN-95、WAN-93；附件继续由 WAN-97 跟踪并延期。状态为已完成下述定向检查、待用户体验，未据此宣称正式发布或验收。
 
 设计规则见[全站搜索、筛选与排版基线](../design/search-filters.md)。更早[记忆页限定检查](2026-09-20-search-filters.md)属于旧快照，其中移动端、深色证据不自动覆盖本轮修改。
 

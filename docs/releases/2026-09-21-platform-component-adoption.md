@@ -29,4 +29,4 @@
 
 未逐个业务流程验收全部页面，也未完成所有移动端、辅助设备和减少动效设备的运行验证。样板已获用户确认，本轮全平台效果仍待用户体验；未合并或生产发布。
 
-[需求与提交状态 WAN-96](https://linear.app/wansss/issue/WAN-96)、[组件规范](../design/application-ui-sample.md)、[上一轮推广](./2026-09-21-component-rollout.md)。原暂停的 delivery/deployment 及关联配置/文档改动保留，不纳入此提交。
+需求与提交状态 WAN-96、[组件规范](../design/application-ui-sample.md)、[上一轮推广](./2026-09-21-component-rollout.md)。原暂停的 delivery/deployment 及关联配置/文档改动保留，不纳入此提交。

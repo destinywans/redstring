@@ -4,7 +4,7 @@
 
 ## 方向与边界
 
-- 保留 React/Vite、现有 API 与权限、MiSans、Phosphor、浅色/深色和紫色强调。
+- 保留 React/Vite、现有 API 与权限、全站字体规范（当时为 MiSans，2026-10-19 起为系统字体）、Phosphor、浅色/深色和紫色强调。
 - 本地源码组件采用 shadcn 的组合方式，以 Radix Select/Dialog/Popover/AlertDialog 和 cmdk 承担交互。`components.json` 与 `@/` 别名作为后续维护入口；本轮源码按现有 token 适配，不宣称是未经修改的 CLI 模板。
 - `ui/` 承担 Button、Input/Textarea、Select、Sheet；`patterns/` 承担 ListPage/ListPanel、FilterPicker/FilterGroup 与未保存提醒。原始样板曾开放独立每页控件槽；当前 Pagination 已统一数字分页及完整“N 条/页”选择器，移除该槽，见后续授权。
 - 样板阶段其他页面先保留原组件；样板获认可后逐批迁移并删除旧实现，不能把两套 UI 永久并行作为完成状态。
@@ -45,7 +45,7 @@
 - 旧筛选适配器统一接入 `FilterPicker`：空选显示字段名，无独立“全部”候选，多选先编辑草稿再应用。保留原页面的本地 `onChange` 筛选语义；已有后端提交型查询通过 Enter 提交，普通搜索不显示提交按钮，确有业务需要时显式 `showSubmit`。
 - 共享 Sheet 推广到资源、基础设施、平台编辑、目录和 RBAC；基础页面不因右侧卡片被挤压。首页可固定卡片、中央 Modal 和专用编辑器保留其业务结构，不机械改为 Sheet。
 - 共用 `PageHeader` 推广到资源、基础设施和目录设置页面，保留既有业务操作与内容。
-- 保留全局环境、权限、真实数据、MiSans 和主题；暂停的 CI/CD 不纳入推广。
+- 保留全局环境、权限、真实数据、全站字体规范和主题；暂停的 CI/CD 不纳入推广。
 
 此处记录授权与组件契约，不宣称已逐个浏览验收全站全部页面。受影响构建、定向交互及视觉证据由对应发布记录列明，未验证项需明确保留。
 

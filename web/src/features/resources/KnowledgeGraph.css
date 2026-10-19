@@ -380,7 +380,7 @@
   accent-color: var(--accent);
 }
 .knowledge-tooltip {
-  font-family: MiSans, sans-serif;
+  font-family: var(--font-ui);
   font-size: 12px;
   line-height: 1.5;
   max-width: 320px;

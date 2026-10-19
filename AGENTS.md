@@ -16,7 +16,7 @@
 
 ## 构建与校验
 
-需要 Go 1.27.1、Node 与 pnpm、Docker Compose（本地 PostgreSQL + pgvector）。
+需要 Go 1.27.1、Node 与 pnpm（版本固定在 `web/package.json` 的 `packageManager`，可用 `corepack enable` 自动切换）、Docker Compose（本地 PostgreSQL + pgvector）。
 
 ```sh
 go build ./...
@@ -27,12 +27,12 @@ pnpm --dir web build            # tsc -b + vite build
 ```
 
 - 只跑受影响的包和检查即可，提交说明里写清跑了哪些。
-- 需要数据库的测试读 `TEST_DATABASE_URL`，每个测试套件只建、删自己随机命名的 schema。全量校验：先 `make init db`（生成 `.env` 并启动本地数据库），再 `./scripts/verify.sh --postgres`（`go test -race ./...`、`go vet ./...` 和契约检查）。
+- 需要数据库的测试读 `TEST_DATABASE_URL`，每个测试套件只建、删自己随机命名的 schema。全量校验：先 `make init db`（生成 `.env` 并启动本地数据库），再 `./scripts/verify.sh --postgres`（`go test -race ./...`、`go vet ./...` 和 `check-contract.py`；下文的契约生成比对和 `check-v3-contract.py` 不在其中，改了路由要另外跑）。
 - 真实模型、真实 Kubernetes 的冒烟测试是单独的证据，不在默认测试里。
 
 ## API 契约
 
-- 语义说明在 `docs/api-contract.md`，V3 接口在 `docs/api/`。`internal/apicontract/openapi.json` 由 `scripts/build-openapi.py` 及其引入的 `scripts/*-openapi.py` 生成，不要手改 JSON。
+- 语义说明在 `docs/api-contract.md`，V3 接口在 `docs/api/`。`internal/apicontract/openapi.json` 由 `scripts/build-openapi.py` 生成：它依次执行引入的 `scripts/*-openapi.py`（V3 片段是 `scripts/v3-openapi.py` 和 `scripts/v3-openapi-*.py`），再合并手写的 `internal/v3security/openapi.json`。不要手改生成的 JSON。
 - 新增、删除或修改路由时，在同一个提交里更新生成脚本、重新生成契约，并跑下面的检查。生成成功不等于校验通过。
 
 ```sh
@@ -45,7 +45,8 @@ python3 scripts/check-v3-contract.py                     # docs/api/v3-contract.
 ## 数据库迁移
 
 - 数据结构变化写成 `migrations/` 里的新迁移（用下一个序号），或者放进对应模块的 `Migrate`。
-- 迁移按文件名记录在 `schema_migrations` 表里：已经在某个库上执行过的文件，改内容不会再执行，所以结构变化要用新文件表达。
+- `migrations/` 的文件按文件名记录在 `schema_migrations` 表里：已经在某个库上执行过的文件，改内容不会再执行，所以结构变化要用新文件表达。
+- 模块自己的 `Migrate`（例如 `internal/knowledge`、`internal/operations`）不记账，每次启动都整段执行，语句必须幂等（`CREATE TABLE IF NOT EXISTS`、`ADD COLUMN IF NOT EXISTS` 等）。
 - 提交或 PR 说明里写明迁移有没有在本地数据库上实际执行过。
 
 ## 产品原则
@@ -62,4 +63,4 @@ python3 scripts/check-v3-contract.py                     # docs/api/v3-contract.
 
 - 不提交 `.env`、`.local/`、IDE 配置、运行会话、kubeconfig 或任何凭据。配置示例只放占位符（见 `.env.example`）。
 - 测试里的假凭据用一眼能看出是假的值，例如 `example.invalid` 域名、`synthetic-*`、`test-*`。
-- 个人或本机的代理指令放在不进仓库的文件里，`.gitignore` 已经列出 `CLAUDE.local.md`、`AGENTS.override.md`。注意：Claude Code 发现 `CLAUDE.local.md` 后默认不再读取本文件，需要在里面写一行 `@AGENTS.md` 导入；Codex 的 `AGENTS.override.md` 会代替本文件，需要把本文件的内容一并放进去。
+- 个人或本机的代理指令放在不进仓库的文件里，`.gitignore` 已经列出 `CLAUDE.local.md`、`AGENTS.override.md`。注意：Claude Code（2.1.277 起直接读取本文件）发现 `CLAUDE.local.md` 后默认不再读取本文件，需要在里面写一行 `@AGENTS.md` 导入；Codex 的 `AGENTS.override.md` 会代替本文件，需要把本文件的内容一并放进去，本文件更新后要重新同步。

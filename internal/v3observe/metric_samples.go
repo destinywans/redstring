@@ -72,6 +72,9 @@ func metricResultSamples(result v3integrations.PrometheusMetricEvidence, window 
 		return nil, "", false
 	}
 	samples := make([]connectors.MetricSample, 0, 32)
+	// A NaN sample is a bin without a value (PA-264): it is left out, and a read
+	// of only such bins has no samples.
+	gaps := 0
 	for _, series := range result.Series {
 		if len(series.Samples) > 32 || len(series.Labels) > 64 {
 			return nil, "", false
@@ -79,17 +82,21 @@ func metricResultSamples(result v3integrations.PrometheusMetricEvidence, window 
 		previous := math.Inf(-1)
 		for _, sample := range series.Samples {
 			value, err := strconv.ParseFloat(sample.Value, 64)
-			if len(sample.Value) == 0 || len(sample.Value) > 64 || err != nil || math.IsNaN(value) || math.IsInf(value, 0) ||
+			if len(sample.Value) == 0 || len(sample.Value) > 64 || err != nil || math.IsInf(value, 0) ||
 				math.IsNaN(sample.Timestamp) || math.IsInf(sample.Timestamp, 0) ||
 				sample.Timestamp <= previous || sample.Timestamp < float64(window.Start.Unix()) ||
 				sample.Timestamp > float64(window.End.Unix()) {
 				return nil, "", false
 			}
 			previous = sample.Timestamp
+			if math.IsNaN(value) {
+				gaps++
+				continue
+			}
 			samples = append(samples, sample)
 		}
 	}
-	if result.Empty != (len(samples) == 0) {
+	if result.Empty != (len(samples)+gaps == 0) {
 		return nil, "", false
 	}
 	if len(samples) == 0 {

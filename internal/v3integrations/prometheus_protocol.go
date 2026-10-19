@@ -167,9 +167,12 @@ func queryRegisteredPrometheus(ctx context.Context, rawEndpoint, authMethod, cre
 			}
 			asFloat, tsErr := timestamp.Float64()
 			parsed, err := strconv.ParseFloat(value, 64)
+			// NaN is a bin without a value (a quantile over no traffic) and goes
+			// to the callers as a gap, like the instant read; infinities and
+			// malformed values are refused (PA-264).
 			if tsErr != nil || math.IsNaN(asFloat) || math.IsInf(asFloat, 0) ||
 				asFloat < float64(window.Start.Unix())-1 || asFloat > float64(window.End.Unix())+1 ||
-				err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+				err != nil || math.IsInf(parsed, 0) {
 				return nil, prometheusQueryError("protocol")
 			}
 			// The cheap float check above rules out pathological exponents before

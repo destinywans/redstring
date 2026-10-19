@@ -49,12 +49,24 @@ func TestValidateCreateInput(t *testing.T) {
 	}
 }
 
+// PA-247: postmortems read severity through the shared alert severity
+// table, including PA-240's old default for alerts that carried none.
 func TestSeverityDoesNotInventUnknownLevel(t *testing.T) {
-	if got, ok := severity("critical"); !ok || got != "P1" {
-		t.Fatalf("critical = %q, %v", got, ok)
-	}
-	if got, ok := severity("legacy-custom"); ok || got != "" {
-		t.Fatalf("unknown severity invented: %q, %v", got, ok)
+	for _, tc := range []struct {
+		raw           string
+		labels        map[string]string
+		level, reason string
+	}{
+		{"critical", nil, "P1", ""},
+		{"P3", nil, "P3", ""},
+		{"error", map[string]string{"severity": "error"}, "P2", ""},
+		{"legacy-custom", nil, "", "unclassified"},
+		{"warning", map[string]string{"severity": ""}, "", "not_filled"},
+		{"warning", nil, "P2", ""},
+	} {
+		if level, reason := severity(tc.raw, tc.labels); level != tc.level || reason != tc.reason {
+			t.Errorf("severity(%q, %v) = %q, %q; want %q, %q", tc.raw, tc.labels, level, reason, tc.level, tc.reason)
+		}
 	}
 }
 

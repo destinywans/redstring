@@ -43,6 +43,7 @@ type summaryItem struct {
 	ID             string  `json:"id"`
 	Title          string  `json:"title"`
 	Severity       *string `json:"severity"`
+	SeverityReason *string `json:"severity_reason,omitempty"`
 	Date           string  `json:"date"`
 	Duration       *string `json:"duration"`
 	Cause          string  `json:"cause"`
@@ -57,7 +58,7 @@ type summaryItem struct {
 }
 
 const summarySQL = postmortemSources + ` SELECT pm.id,pm.incident_id,pm.status,pm.created_by,
- s.application_id,s.team_id,s.environment_id,s.title,s.severity,s.started_at,
+ s.application_id,s.team_id,s.environment_id,s.title,s.severity,s.severity_labels,s.started_at,
  CASE WHEN pm.source_kind='ops' THEN saved_close.created_at ELSE saved_case.created_at END,
  pm.sections,pm.actions,pm.created_at
  ` + recordSourceFrom + `
@@ -67,6 +68,7 @@ const summarySQL = postmortemSources + ` SELECT pm.id,pm.incident_id,pm.status,p
 
 type summaryRow struct {
 	id, incident, status, author, app, team, env, title, rawSeverity string
+	labels                                                           map[string]string
 	started                                                          *time.Time
 	closed, created                                                  time.Time
 	sections, actions                                                []byte
@@ -133,7 +135,7 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var v summaryRow
 			if err = rows.Scan(&v.id, &v.incident, &v.status, &v.author, &v.app, &v.team,
-				&v.env, &v.title, &v.rawSeverity, &v.started, &v.closed, &v.sections,
+				&v.env, &v.title, &v.rawSeverity, &v.labels, &v.started, &v.closed, &v.sections,
 				&v.actions, &v.created); err != nil {
 				break
 			}
@@ -167,11 +169,11 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 			if !v3pagequery.Matches(services, v.app) {
 				continue
 			}
-			sev, valid := severity(v.rawSeverity)
-			var visibleSeverity *string
-			if valid {
+			var visibleSeverity, severityReason *string
+			if sev, reason := severity(v.rawSeverity, v.labels); sev != "" {
 				visibleSeverity = &sev
 			} else {
+				severityReason = &reason
 				unknownSeverity = true
 			}
 			var visibleDuration *string
@@ -209,7 +211,7 @@ func (s *Service) Summary(w http.ResponseWriter, r *http.Request) {
 			if status == "review" {
 				status = "draft" // V3's two-state display treats unapproved review as unpublished.
 			}
-			item := summaryItem{ID: v.id, IncidentID: v.incident, Title: v.title, Severity: visibleSeverity,
+			item := summaryItem{ID: v.id, IncidentID: v.incident, Title: v.title, Severity: visibleSeverity, SeverityReason: severityReason,
 				Date: v.closed.UTC().Format(time.RFC3339), Duration: visibleDuration,
 				Cause: words.pick("未知", "Unknown"), RootCause: rootCause, Actions: actionStatus, Status: status, WorkflowStatus: v.status,
 				ApplicationID: v.app}

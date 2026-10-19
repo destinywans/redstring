@@ -12,10 +12,15 @@ import (
 // postmortemSources is the sole mapping from incident lifecycles into review
 // sources. An ops close remains an investigation.closed event; a manual case
 // close is its own human status event. Neither can stand in for the other.
+// severity_labels holds only the alert's recorded severity label, NULL when
+// the row recorded no label set (SQL or JSON null, as the events views read
+// it), for severity() (PA-247).
 const postmortemSources = `WITH source AS (
  SELECT i.id incident_id,'ops'::text source_kind,i.application_id,
    COALESCE(a.owner_team_id,'') team_id,e.key environment_id,
-   i.title,i.severity,i.summary,i.starts_at started_at,
+   i.title,i.severity,
+   CASE WHEN jsonb_typeof(i.labels)='object' THEN jsonb_build_object('severity',COALESCE(i.labels->>'severity','')) END severity_labels,
+   i.summary,i.starts_at started_at,
    closed.created_at resolved_at,i.status,
    i.investigation_id,closed.seq close_event_seq,
    NULL::bigint status_event_id,
@@ -34,7 +39,7 @@ const postmortemSources = `WITH source AS (
      AND ev.created_at>=i.starts_at ORDER BY ev.created_at,ev.seq LIMIT 1) closed ON true
  UNION ALL
  SELECT c.id,'case'::text,c.application_id,COALESCE(a.owner_team_id,''),e.key,
-   c.title,c.severity,''::text,NULL::timestamptz,c.resolved_at,c.status,
+   c.title,c.severity,NULL::jsonb,''::text,NULL::timestamptz,c.resolved_at,c.status,
    COALESCE(c.investigation_id,''),NULL::bigint,se.id,
    (se.id IS NOT NULL AND se.to_status='resolved' AND se.revision=c.status_revision
      AND c.resolved_at=se.created_at),

@@ -27,7 +27,7 @@ Redstring 目前是 **v0.1.0 beta**，不建议用于生产环境，也没有做
 
 ## 响应预期
 
-这是个人维护的项目，没有专职安全团队，**不承诺响应或修复时限**。收到报告后会尽力：确认收到、评估影响、在 `main` 上修复，并在修复发布后通过 GitHub Security Advisory 公开说明（报告人愿意的话会致谢）。修复发布前请不要公开细节。
+这是个人维护的项目，没有专职安全团队。收到报告后**一周内确认收到**并给出初步判断；修复**不承诺时限**，会尽力评估影响、在 `main` 上修复，并在修复发布后通过 GitHub Security Advisory 公开说明（报告人愿意的话会致谢）。修复发布前请不要公开细节。
 
 ## 范围
 
@@ -51,5 +51,5 @@ Redstring is **v0.1.0 beta**, not recommended for production and not independent
 
 - **Supported:** the latest v0.1.x release and `main`. Fixes land on `main` and ship in the next release; older commits are not patched.
 - **Reporting:** do not open public issues, discussions or PRs. Use GitHub private vulnerability reporting (**Security** tab → **Report a vulnerability**). If that is unavailable, open an issue with no details asking for a private contact.
-- **Response:** this is a personally maintained project with no dedicated security team and **no committed response or fix times**. Reports are acknowledged, assessed and fixed on a best-effort basis, then disclosed through a GitHub Security Advisory after the fix ships. Please keep details private until then.
+- **Response:** this is a personally maintained project with no dedicated security team. Reports are **acknowledged within one week** with an initial assessment; there is **no committed fix time**. Fixes are made on a best-effort basis on `main`, then disclosed through a GitHub Security Advisory after the fix ships. Please keep details private until then.
 - **Scope:** Redstring's own code (authentication and sessions, permissions and environment isolation, proposal approval and the executor, connector credentials, AI evidence tools including prompt injection that bypasses read-only limits or human approval). Out of scope: documented limitations (no login MFA, non-HTTPS default dev config with `AIOPS_SECURE_COOKIES` off, executor writes to connected systems), instances exposed to the internet against the guidance, upstream dependency bugs, the demo site's hosting, and lab-only scripts under `tools/` and `demo/`. Test only on your own deployment and never run denial-of-service tests.

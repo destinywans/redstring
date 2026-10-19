@@ -24,7 +24,7 @@
 
 远端删除使用 atomic 和每个 ref 的精确旧 tip 条件；本地使用事务 compare-and-swap，main 被明确排除。独立复核重跑全部 164 个不同 tip 的祖先/补丁/merge 检查，确认清单与归档对应。失败前提不会降级为无条件删除。最终回读确认仅 main、30 个归档均可恢复，main 跟踪配置保留，旧分支跟踪配置已清理。
 
-原工作区 14 项未提交文件在合并、切换及删除后逐一 SHA256 一致，tracked/index patch 保持，未混入提交。此次 PLAN/CHECKPOINT 新记录仅按前缀单独提交，其旧修改继续留在工作区。另一干净 worktree `/Users/wans/.codex/worktrees/fd34/aiops` 仅 detach 到原 `20ffef7dc93afc61310987c1b5dcdccf092ffe7a`；目录、原提交及索引保持，未删除工作文件。
+原工作区 14 项未提交文件在合并、切换及删除后逐一 SHA256 一致，tracked/index patch 保持，未混入提交。此次 PLAN/CHECKPOINT 新记录仅按前缀单独提交，其旧修改继续留在工作区。另一干净 worktree `<home>/.codex/worktrees/fd34/aiops` 仅 detach 到原 `20ffef7dc93afc61310987c1b5dcdccf092ffe7a`；目录、原提交及索引保持，未删除工作文件。
 
 ## 恢复与历史
 

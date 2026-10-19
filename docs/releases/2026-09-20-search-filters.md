@@ -17,7 +17,7 @@
 
 ## 验证证据与边界
 
-- 2026-09-20，定向预览快照运行 `pnpm --dir .local/home-review/web build --outDir /Users/wans/Home/code/codex/aiops/web/dist --emptyOutDir` 成功，包括 `tsc -b` 与 Vite 构建（1864 modules）。更新的是已有 Go 服务使用的 `web/dist` 静态资源，未重启后端。
+- 2026-09-20，定向预览快照运行 `pnpm --dir .local/home-review/web build --outDir <repo>/web/dist --emptyOutDir` 成功，包括 `tsc -b` 与 Vite 构建（1864 modules）。更新的是已有 Go 服务使用的 `web/dist` 静态资源，未重启后端。
 - 快照继续剥离历史尚未验收的 delivery `RunEvidence` 与 reconcile 按钮；未将临时剥离改回正式源码。此次没有修改交付功能、后端、数据库、模型或运行环境。
 - 受影响已跟踪文件 `git diff --check` 通过。新组件和记忆页文件已格式化。
 - 主代理复用现有浏览器完成限定检查：应用多选取消不提交，应用后 URL/标签同步；连续打开类型/状态仅一个 dialog；Escape 返回触发器焦点；关键词 Enter 提交并刷新回填，清除保留 Demo 全局环境。

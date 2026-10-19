@@ -187,7 +187,7 @@ alert_relabel_configs:
   {
     "sources": [
       {"id": "lab-alertmanager-nonprod",
-       "token_file": "/Users/wans/Home/code/codex/aiops/.local/acceptance/nonprod/ops-lab-alertmanager.token",
+       "token_file": "<repo>/.local/acceptance/nonprod/ops-lab-alertmanager.token",
        "mappings": [
          {"labels": {"application": "checkout-api", "environment": "test"},
           "application_id": "0a5cb01131f3c2387b848004e8f5db23", "environment_id": "1f0649144effff46430748571f03cff2"}

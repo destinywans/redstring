@@ -4,7 +4,7 @@
 
 ## 已执行的清理
 
-- 删除 `/Users/wans/.codex/worktrees/fd34/aiops` 目录及 Git 工作树登记。删除前 detached HEAD 为 `20ffef7dc93afc61310987c1b5dcdccf092ffe7a`，源码干净，无未跟踪文件；忽略内容只有 `.local/go-cache` 和三个 Python 字节码缓存。目录原占用约 1.2 GB，其中 Go 缓存约 1.1 GB；没有以该目录为 cwd 的活动进程。
+- 删除 `<home>/.codex/worktrees/fd34/aiops` 目录及 Git 工作树登记。删除前 detached HEAD 为 `20ffef7dc93afc61310987c1b5dcdccf092ffe7a`，源码干净，无未跟踪文件；忽略内容只有 `.local/go-cache` 和三个 Python 字节码缓存。目录原占用约 1.2 GB，其中 Go 缓存约 1.1 GB；没有以该目录为 cwd 的活动进程。
 - 原提交由私有 `.local/branch-cleanup-20261007/before-cleanup.bundle` 的 `refs/heads/codex/wan-121-canvas-history-pages` 保留。bundle SHA256 复核仍为 `024397a34133f05e8fffdeccd369b884e0ec9d5f995addcc0c72db8ac3bd4b2f`。
 - 本地及远端归档标签由 30 减至 19；删除下列 11 个完整历史被其他归档覆盖的重复引用。远端使用 atomic 和 tag 对象精确旧 SHA 条件，本地使用 compare-and-swap 事务；删除后逐一回读保留标签对象和 peeled commit。
 - 原 40 个不同历史补丁均可从 19 个保留标签访问；删除引用不表示旧代码已经合入或功能被废弃。本地/远端仍各只有 main，Git 仅登记主工作区。

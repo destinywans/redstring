@@ -13,7 +13,10 @@ type matrixResource struct {
 }
 
 var matrixCatalog = []matrixResource{
-	{"conversation", "对话与画布", "Conversations & canvases", []string{"conversation"}},
+	// Conversations and canvases are authorized by separate modules, so this row
+	// is conversation only and 画布 is its own row at the end; one combined row
+	// showed canvas access a role never held (PA-232).
+	{"conversation", "对话", "Conversations", []string{"conversation"}},
 	{"events", "事件与告警", "Incidents & alerts", []string{"events"}},
 	{"alert_rules", "告警规则与路由", "Alert rules & routing", []string{"alert_rules"}},
 	{"silences", "静默", "Silences", []string{"silences"}},
@@ -36,6 +39,8 @@ var matrixCatalog = []matrixResource{
 	{"logs", "日志", "Logs", []string{"logs"}},
 	{"models", "模型", "Models", []string{"models"}},
 	{"workspace", "工作区设置", "Workspace settings", []string{"workspace"}},
+	// PA-232: appended for the same reason as the rows above.
+	{"canvas", "画布", "Canvases", []string{"canvas"}},
 }
 
 var matrixActions = []string{"view", "change", "delete", "approve", "manage"}

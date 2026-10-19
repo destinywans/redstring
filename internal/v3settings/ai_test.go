@@ -2,6 +2,7 @@ package v3settings
 
 import (
 	"net/http"
+	"os"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -61,5 +62,45 @@ func TestModelCatalogToolsFollowV3Allowlist(t *testing.T) {
 	}
 	if !runtime.Models()[1].Tools {
 		t.Fatal("V3 catalog must not change legacy model capabilities")
+	}
+}
+
+// PA-251: `make init` writes .env through scripts/dev-init.sh. Its default
+// model must be one the V3 catalog can list; native Ollama made the whole
+// catalog 503, so a fresh setup had no usable model at all.
+func TestDevInitDefaultModelServesV3Catalog(t *testing.T) {
+	raw, err := os.ReadFile("../../scripts/dev-init.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	script := string(raw)
+	start := strings.Index(script, "cat > .env <<EOF\n")
+	end := strings.Index(script, "\nEOF\n")
+	if start < 0 || end < start {
+		t.Fatal("dev-init.sh no longer writes .env from a heredoc")
+	}
+	for _, prefix := range []string{"OLLAMA", "OPENAI", "CLAUDE"} {
+		for _, suffix := range []string{"_MODEL", "_API", "_BASE_URL"} {
+			t.Setenv(prefix+suffix, "")
+		}
+	}
+	for _, line := range strings.Split(script[start+len("cat > .env <<EOF\n"):end], "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if ok && strings.HasPrefix(key, "OLLAMA_") && !strings.Contains(value, "$") {
+			t.Setenv(key, value)
+		}
+	}
+	runner, err := inference.NewFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The catalog itself, as in TestModelCatalogToolsFollowV3Allowlist: the
+	// handler goes on to read the user's preferences, which need a store.
+	items, err := New(nil, runner).modelCatalogItems(httptest.NewRequest(http.MethodGet, "/api/v1/models", nil), "")
+	if err != nil {
+		t.Fatalf("the make init default model is refused by the V3 catalog: %v", err)
+	}
+	if len(items) != 1 || items[0]["api"] != "chat_completions" || items[0]["available"] != true {
+		t.Fatalf("the make init default model is not listed as an available chat_completions model: %v", items)
 	}
 }

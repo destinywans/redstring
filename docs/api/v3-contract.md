@@ -410,8 +410,8 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 | POST | `/members/sync` | 单环境、空请求体；当前人类成员管理员 | 受审、完整的单环境飞书目录快照落库后返回 `{ added, updated }`；新成员默认禁用 viewer，不自动授应用/环境权限，身份冲突失败 | implemented |
 | POST | `/members/mfa-reminders` | 单环境、空请求体；当前人类成员管理员 | 同实例、租户与环境绑定的完整新鲜 MFA/飞书收件人证据下，受限向未登记成员发送；飞书接受并保存回执后返回 `{ sent }`，部分发送或不确定结果明确报错 | implemented |
 | GET | `/roles` | | `{ items: Role[] }` | implemented |
-| GET | `/roles/{id}` | | `RoleDetail` 与响应头 `X-Role-Matrix-Revision`；矩阵 18 行，PA-231 补了总览、链路、日志、模型、工作区设置 | implemented |
-| PUT | `/roles/{id}` | `{ matrix }`（必须带齐 18 行，旧的 13 行请求返回 422 `invalid_matrix`、不改授权）和 GET 返回的 `If-Role-Matrix-Revision`；机器身份的“批准”列必须拒绝 | `{ ok: true }` 与新矩阵版本响应头 | implemented |
+| GET | `/roles/{id}` | | `RoleDetail` 与响应头 `X-Role-Matrix-Revision`；矩阵 19 行，PA-231 补了总览、链路、日志、模型、工作区设置，PA-232 把“对话与画布”拆成“对话”（conversation）和末尾的“画布”（canvas） | implemented |
+| PUT | `/roles/{id}` | `{ matrix }`（必须带齐 19 行，旧的 13 行或 18 行请求返回 422 `invalid_matrix`、不改授权）和 GET 返回的 `If-Role-Matrix-Revision`；机器身份的“批准”列必须拒绝 | `{ ok: true }` 与新矩阵版本响应头 | implemented |
 | GET | `/security` | 单环境、当前人类平台管理员和全局 `workspace.manage` | 受审权威控制器提供完整、新鲜、同实例/环境且实际生效的 `SecurityView`、空 `unavailable` 与强 ETag；未配置权威时 200，九个字段全部为 `null`（`not_configured`）且无 ETag；已配置权威失败或待对账 503 | implemented |
 | PUT | `/security` | GET 的强 `If-Match` 与完整 `SecurityView`；只允许受支持的策略开关变动 | 同一操作 ID 的权威 apply 回执和完整同修订读回均验证后记录台账/审计，返回新视图与 ETag；未知结果不报成功 | implemented |
 | GET | `/me/notification-settings` | | `{ quiet: { enabled, from, to }, digest: off\|daily\|weekly, subscriptions }`；只读取当前账号已保存偏好，无记录时返回平台默认值，不代表通知渠道已接通 | implemented |
@@ -606,6 +606,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-10-19 | 发布前修复：角色矩阵“对话与画布”拆为“对话”（conversation）和末尾新增的“画布”（canvas），共 19 行，18 行的写请求 422（PA-232）；拉取接入列表的 `state: ready` 只表示配置齐全，界面写“已配置”（PA-248）。 |
 | 2026-10-18 | 缺陷收敛后端与写路径清扫批：告警级别统一归一化（`internal/v3events/alertseverity`），`GET /alert-groups`、`/alerts/{id}`、`/incidents`、`/incidents/{id}` 与 `GET /home` 的需要关注项在原始级别不认识或没有时 `severity` 为 `null` 并带 `severity_reason`（`unclassified`/`not_filled`），`GET /inbox` 不再因未知级别整页 503，首页告警趋势新增 `unknown_severity`；没有级别标签的告警入库存空串、不再写 `warning`；服务健康按归一化后的 P1 判定严重告警（PA-238～240）。`GET /agents/{id}` 的 `release` 新增 `rollback_to`，与回滚实际目标同一规则（PA-236）。`POST /knowledge/search` 文档命中没进入向量候选时 `vector` 为 `null`（PA-222）。 |
 | 2026-10-18 | 缺陷收敛剩余项批：`GET /audit` 的 `result` 新增 `needs_attention`，生命周期 outcome 归类，无法归类时 `unavailable.result=unclassified`，未知筛选值 422（PA-230）；角色矩阵 13 行改为 18 行（PA-231）；`POST /knowledge/search` 的命中新增 `corpus`，`vector` 可为 `null`（PA-222）。 |
 | 2026-10-18 | 缺陷收敛按类清扫批（PA-205～229）：`GET /proposals/{id}` 的 `execution` 新增 `failure_code`，顶层新增 `my_vote`（PA-205）；`GET /audit` 的 `result` 新增 `unconfirmed`、`expired`，outcome `unknown` 不再算 `failed`（PA-206）；告警规则 `state` 新增 `error`、`unknown`，详情新增 `last_error`（PA-210），`pending[].state` 新增 `expired`（PA-217）；`GET /postmortems` 的 `items[]` 新增 `application_id`（PA-218）；`GET /webhooks` 的 `deliveries[]` 新增 `source_id`、`event_type`，改为每个入站条目各最近 30 条（PA-227）。 |

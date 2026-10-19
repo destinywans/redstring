@@ -89,9 +89,6 @@ func TestMatrixShowsAndWritesRouteModuleCells(t *testing.T) {
 var modulesOutsideMatrix = map[string]string{
 	// Environment admission is shown as environment_access, not a row (PA-55).
 	"environment": "environment access",
-	// The 对话与画布 row maps conversation only. Whether canvas joins that row
-	// or gets its own is an open decision recorded with PA-231.
-	"canvas": "pending decision",
 }
 
 func TestEveryRouteModuleIsGrantableFromMatrix(t *testing.T) {

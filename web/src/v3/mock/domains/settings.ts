@@ -93,7 +93,7 @@ mock("GET", "/roles/:id", ({ params }) => {
     scope: [P("环境：生产", "Env: prod"), P("应用：交易平台全部", "Apps: all Trading"), P("团队：平台工程", "Team: Platform eng.")],
     actions: [P("查看", "View"), P("创建 / 编辑", "Create / edit"), P("删除", "Delete"), P("批准", "Approve"), P("管理", "Manage")],
     matrix: [
-      { resource: P("对话与画布", "Conversations & canvases"), grants: [1, 1, 0, 0, 0] },
+      { resource: P("对话", "Conversations"), grants: [1, 1, 0, 0, 0] },
       { resource: P("事件与告警", "Incidents & alerts"), grants: [1, 1, 0, 0, 0] },
       { resource: P("告警规则与路由", "Alert rules & routing"), grants: [1, 1, 0, 0, 0] },
       { resource: P("静默", "Silences"), grants: [1, 1, 1, 0, 0] },
@@ -108,6 +108,7 @@ mock("GET", "/roles/:id", ({ params }) => {
       { resource: P("日志", "Logs"), grants: [1, 0, 0, 0, 0] },
       { resource: P("模型", "Models"), grants: [1, 0, 0, 0, 0] },
       { resource: P("工作区设置", "Workspace settings"), grants: [1, 0, 0, 0, 0] },
+      { resource: P("画布", "Canvases"), grants: [1, 1, 0, 0, 0] },
     ],
     notes: P("Agent 服务账号不能被授予“批准”；同一提案的发起人与批准人不能是同一人；高风险动作需要两名批准人。", "Agent service accounts can never be granted Approve; a proposal's author cannot approve it; high-risk actions need two approvers."),
   };

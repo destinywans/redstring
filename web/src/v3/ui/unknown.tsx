@@ -245,6 +245,9 @@ export function LoadError({ error, source, title, icon }: { error: unknown; sour
   // A page read per environment refuses "all environments"; picking one is the fix, not a retry (PA-221).
   if (error instanceof ApiError && error.status === 422 && error.code === "invalid_environment")
     return <PageUnavailable icon="layers" configure={false} title={tx("需要选择一个环境", "Choose one environment")} desc={tx("这一页按单个环境显示，先在右上角选择一个具体环境再查看。", "This page shows one environment at a time; choose a single environment (top right) to see it.")} />;
+  // PA-250: the environment has no model bindings set up on the server; nothing failed and a refresh won't change it.
+  if (error instanceof ApiError && error.status === 503 && error.code === "model_binding_unavailable")
+    return <PageUnavailable icon="plug" configure={false} title={tx("这个环境还没有绑定模型", "No models are bound to this environment")} desc={tx("需要管理员在服务端的模型绑定文件里，为这个环境指定可用模型和默认模型。", "An admin needs to list this environment's models and its default model in the server's model bindings file.")} detail={admin ? `${error.status} ${error.code}` : undefined} />;
   // A missing record is not a source failure and retrying won't bring it back (PA-125).
   if (error instanceof ApiError && error.status === 404)
     return <PageUnavailable icon="search" configure={false} title={tx("找不到这条记录", "Not found")} desc={tx("它可能不存在，或在当前环境里看不到。", "It may not exist, or isn't visible in this environment.")} detail={admin ? `${error.status} ${error.code}` : undefined} />;

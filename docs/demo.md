@@ -1,6 +1,6 @@
 # 专用真实故障演示环境
 
-仅使用新建的 `aiops-canvas-demo` kind 集群。所有 kubectl 命令显式指定 `.local/aiops-canvas-demo/kubeconfig` 和 `kind-aiops-canvas-demo` context；不修改默认 kubeconfig，不接触 `cka-daily` 或 `portfolio-agent-lab`。Kubernetes API 仅绑定 `127.0.0.1`，业务 Service 没有宿主端口或公开入口。
+仅使用新建的 `aiops-canvas-demo` kind 集群。所有 kubectl 命令显式指定 `.local/aiops-canvas-demo/kubeconfig` 和 `kind-aiops-canvas-demo` context；不修改默认 kubeconfig，也不接触本机上的其他集群。Kubernetes API 仅绑定 `127.0.0.1`，业务 Service 没有宿主端口或公开入口。
 
 ## 创建与取证
 

@@ -147,7 +147,7 @@ React · TypeScript · Vite · React Flow · assistant-ui · Go 1.27.1 · Google
 
 ## 文档
 
-[架构](docs/architecture.md) · [Web 工作区](docs/web-workspace.md) · [API 语义](docs/api-contract.md) · [OpenAPI 3.1](internal/apicontract/openapi.json) · [领域语言](CONTEXT.md) · [计划](PLAN.md) · [检查点](CHECKPOINT.md) · [故障演示环境](docs/demo.md)
+[架构](docs/architecture.md) · [Web 工作区](docs/web-workspace.md) · [API 语义](docs/api-contract.md) · [OpenAPI 3.1](internal/apicontract/openapi.json) · [领域语言](CONTEXT.md) · [故障演示环境](docs/demo.md)
 
 原名 AIOps Canvas，2026-10-09 起更名为 Redstring；代码中的模块名、命令和接口路径保持不变。标志与使用规范见 [docs/brand](docs/brand/README.md)。
 

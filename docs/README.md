@@ -1,6 +1,6 @@
 # 项目文档
 
-> 文中的 `WAN-xxx` 是作者私有 Linear 里的 issue 编号，外部无法访问。[`plans/`](plans/README.md) 和 [`releases/`](releases/README.md) 是作者在实验环境里的计划与验收记录，包含实验集群、授权与过程细节，不是用户文档。
+> 文中的 `WAN-xxx` 是作者私有 Linear 里的 issue 编号，`CP-xxx` 是作者私有检查点记录的编号，外部都无法访问。[`plans/`](plans/README.md) 和 [`releases/`](releases/README.md) 是作者在实验环境里的计划与验收记录，包含实验集群、授权与过程细节，不是用户文档。
 
 - [V3 v1.1 页面交互后端交付](releases/2026-10-07-v3-page-interactions.md)、[范围与取舍](plans/2026-10-07-v3-page-interactions.md)：WAN-245～248，新增路由、持久化、服务端筛选及可信来源 503 边界。
 
@@ -78,7 +78,7 @@
 - [V3 规则助手](api/v3-rule-assistant.md)：受审目录中的模型草稿生成、Prometheus 采样预览与真实来源边界。
 - [视觉与交互检查](../design-qa.md)：概念图映射、已检查行为及差异。
 - [历史后端交接](backend-handoff.md)、[演示环境](demo.md)。
-- [实施计划](../PLAN.md)、[可恢复检查点](../CHECKPOINT.md)、[领域术语](../CONTEXT.md)。
+- [领域术语](../CONTEXT.md)。
 - [原始研究报告](research/)：保留原文；其中的旧建议不覆盖后续已确认决定。
 
 - [独立设置工作区](settings-api.md)、[设置页面交付记录](releases/2026-09-21-settings-workspace.md)：平台资料、组织目录、固定角色和示例数据。

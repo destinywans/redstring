@@ -41,7 +41,7 @@ TARGET_SERVICE = 'checkout-api'  # the silence drawer and the alert it silences 
 # photo and preferences on a throwaway account (tools/acceptance/accounts.py prod mfa:viewer); it skips without one.
 SPECS = {'golden-conversation.spec.ts': {}, 'golden-invite.spec.ts': {}, 'phase1-fixes.spec.ts': {}, 'account-security.spec.ts': {},
          'golden-silence-ui.spec.ts': None}
-# Phase 2 rounds add their fix checks here (docs/plans/2026-10-17-convergence-round.md §7); run once the file exists.
+# Phase 2 rounds add their fix checks here (the author's round instructions, §7); run once the file exists.
 # Fixes made in parallel sessions keep their checks in phase2-fixes-<topic>.spec.ts; they run after the main file.
 _phase2 = sorted(p.name for p in (ROOT / 'web/e2e').glob('phase2-fixes*.spec.ts'))
 if _phase2:

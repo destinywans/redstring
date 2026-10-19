@@ -25,7 +25,7 @@ const readSubmitted = (): SubmittedSilence[] => {
 import "./events.css";
 import { SampleOnly } from "../../ui/demo";
 import { Unavailable, errorReason } from "../../ui/unknown";
-import { useWhen } from "../../ui/when";
+import { useNow, useWhen } from "../../ui/when";
 
 type Preview = { kind: "idle" } | { kind: "loading" } | { kind: "ok"; affects: number; sample: string[] } | { kind: "error"; text: string };
 const OPS = ["=", "!=", "=~", "!~"];
@@ -57,6 +57,24 @@ export default function SilencesPage() {
   const [ended, setEnded] = useState<Set<string>>(new Set());
   const list = useGet<SilenceList>("/silences", { state });
   const inhib = useGet<{ items: Inhibition[]; empty_reason?: EmptyReason; unavailable?: string[] }>("/inhibitions");
+  // An active silence ends at ends_at whatever the list said when it was read: its state and time left follow the
+  // clock while the page stays open (time left in the server's format), and the list is read again once one ends (PA-263).
+  const now = useNow(15_000);
+  const shown = (s: Silence): Silence["state"] => (s.state === "active" && Date.parse(s.ends_at) <= now ? "expired" : s.state);
+  const left = (endsAt: number) => {
+    const minutes = Math.floor((endsAt - now) / 60_000);
+    if (minutes >= 60) return tx("{h} 小时 {m} 分", "{h} h {m} m", { h: Math.floor(minutes / 60), m: minutes % 60 });
+    return minutes > 0 ? tx("{m} 分", "{m} m", { m: minutes }) : tx("不到 1 分钟", "< 1 m");
+  };
+  const nextEnd = Math.min(...(list.data?.items ?? []).filter((s) => s.state === "active").map((s) => Date.parse(s.ends_at)).filter(Number.isFinite));
+  useEffect(() => {
+    const wait = nextEnd - Date.now() + 1_000;
+    // setTimeout can't wait longer than about 24 days; a silence ending later is re-read on the next visit.
+    if (!Number.isFinite(wait) || wait > 2 ** 31 - 1) return;
+    const t = setTimeout(() => void list.refetch(), Math.max(0, wait));
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nextEnd]);
   // PA-123: a draft needs the reviewed GitOps inhibition repository and an exact Alertmanager source; the list says
   // inhibition_drafts when either is missing, and a failed read leaves nothing to draft against.
   const needInhibit = useNeed(["silences", "manage"]);
@@ -203,22 +221,27 @@ export default function SilencesPage() {
                 rowHeight={48}
                 columns={[
                   { key: "m", header: tx("匹配条件", "Matchers"), width: "30%", render: (s) => <Row gap={4} wrap>{s.matchers.map((m) => <LabelChip key={m.k} k={m.k} v={m.v} />)}</Row> },
-                  { key: "s", header: tx("状态", "State"), render: (s) => <State tone={STATE[s.state][0]}>{STATE[s.state][1]}</State> },
+                  { key: "s", header: tx("状态", "State"), render: (s) => <State tone={STATE[shown(s)][0]}>{STATE[shown(s)][1]}</State> },
                   { key: "w", header: tx("时间", "Window"), render: (s) => <Muted>{windowOf(s)?.text ?? "—"}</Muted> },
                   {
                     key: "r",
                     header: tx("剩余", "Remaining"),
                     render: (s) => {
-                      // remaining.pct is the remaining share; without it, the window's timestamps give it.
+                      // While a silence is active, the share and the time left follow the clock from its window (PA-263);
+                      // otherwise remaining.pct and text are the server's.
                       const w = windowOf(s);
-                      const pct = s.remaining?.pct ?? (w && s.state === "active" ? Math.max(0, Math.min(100, (100 * (w.end - Date.now())) / Math.max(1, w.end - w.start))) : 0);
-                      return s.remaining ? <Row gap={6}><Bar pct={pct ?? 0} width={70} height={4} /><Muted size={11.5}>{s.remaining.text}</Muted></Row> : <Muted>—</Muted>;
+                      if (s.remaining && s.state === "active" && w) {
+                        if (shown(s) !== "active") return <Muted>—</Muted>;
+                        const share = Math.max(0, Math.min(100, (100 * (w.end - now)) / Math.max(1, w.end - w.start)));
+                        return <Row gap={6}><Bar pct={share} width={70} height={4} /><Muted size={11.5}>{left(w.end)}</Muted></Row>;
+                      }
+                      return s.remaining ? <Row gap={6}><Bar pct={s.remaining.pct ?? 0} width={70} height={4} /><Muted size={11.5}>{s.remaining.text}</Muted></Row> : <Muted>—</Muted>;
                     },
                   },
                   { key: "a", header: tx("影响", "Affects"), render: (s) => (s.affects ? <Num>{tx("{n} 条", "{n}", { n: s.affects })}</Num> : <Muted>—</Muted>) },
                   { key: "c", header: tx("创建人", "Creator"), render: (s) => <Row gap={6}><Avatar name={s.creator} size={20} /><Muted>{s.creator}</Muted></Row> },
                   { key: "why", header: tx("原因", "Reason"), render: (s) => <Muted>{s.reason}</Muted> },
-                  { key: "x", header: "", width: 40, render: (s) => s.state !== "expired" && <span className="hact"><Gated reason={needExpire}><IconBtn icon="x" label={real ? tx("提议提前结束", "Propose ending early") : tx("提前结束", "Expire now")} size={24} onClick={async () => {
+                  { key: "x", header: "", width: 40, render: (s) => shown(s) !== "expired" && <span className="hact"><Gated reason={needExpire}><IconBtn icon="x" label={real ? tx("提议提前结束", "Propose ending early") : tx("提前结束", "Expire now")} size={24} onClick={async () => {
                     if (real) return setExpiring(s.id);
                     try {
                       await api("DELETE", `/silences/${s.id}`);

@@ -6,6 +6,7 @@ import { ALERT_RULE_KINDS, type Me, type Proposal, type Tone } from "../../api/t
 import { AiAvatar, Avatar, Badge, Btn, Card, CardHead, Col, Icon, IconBtn, KV, Muted, Row, Skeleton, Spacer, Textarea, type IconName } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
 import { Markdown } from "../../ui/Markdown";
+import { useNow } from "../../ui/when";
 import { Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
 import { PasskeyApproval } from "./PasskeyApproval";
@@ -35,6 +36,8 @@ export default function ReviewPage() {
     refetchInterval: (q) => (q.state.data?.execution && !q.state.data.execution.status ? 3000 : false),
   });
   const [approving, setApproving] = useState(false);
+  // A first vote lapses at my_vote.expires_at; re-evaluate while the page stays open (PA-263).
+  const now = useNow(15_000);
   const [checks, setChecks] = useState<Set<number>>(new Set());
   const [note, setNote] = useState("");
   const [reply, setReply] = useState("");
@@ -62,7 +65,7 @@ export default function ReviewPage() {
   const proposer = isMine ? me!.name : p.proposed_by_name || (idLike ? tx("用户 {id}", "User {id}", { id: `${p.proposed_by.slice(0, 6)}…` }) : p.proposed_by);
   const when = (t: string) => (/^\d{4}-\d{2}-\d{2}T/.test(t) ? fmt.dateTime(t) : t);
   // A first vote already cast and still counting needs nothing more from this approver (PA-205).
-  const voted = !!p.my_vote && Date.parse(p.my_vote.expires_at) > Date.now();
+  const voted = !!p.my_vote && Date.parse(p.my_vote.expires_at) > now;
   const [statusTone, statusLabel] = ((): [Tone, string] => {
     switch (p.status) {
       case "pending":

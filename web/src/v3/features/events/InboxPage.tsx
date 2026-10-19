@@ -13,7 +13,7 @@ import { useCurrentEnv } from "../../app/EnvSwitch";
 import "./events.css";
 import { openExternal, copyText } from "../../ui/demo";
 import { Gate, useNeed } from "../../ui/permission";
-import { useWhen, parseStamp } from "../../ui/when";
+import { useNow, useWhen, parseStamp } from "../../ui/when";
 import { SeverityBadge } from "./peeks";
 
 type Day = "today" | "yesterday" | "earlier";
@@ -266,6 +266,8 @@ export default function InboxPage() {
   const [tab, setTab] = useState<"all" | "mine" | "mentions" | "subscribed">("all");
   const { data, isLoading, error } = useGet<{ items: InboxItem[]; counts: Record<string, number> }>("/inbox", { tab });
   const [read, setRead] = useState<Set<string>>(new Set());
+  // Today / yesterday move at local midnight even while the page stays open (PA-263).
+  useNow(60_000);
   const items = useMemo(() => data?.items ?? [], [data]);
   // Without an item in the URL, show the first item of the current list (never a fixture id).
   const selId = params.get("item") ?? items[0]?.id ?? "";

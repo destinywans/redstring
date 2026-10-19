@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "../i18n";
 
 /** RFC3339 instants (the backend sends up to nanoseconds). */
@@ -14,6 +14,19 @@ export function parseStamp(v: string | number | null | undefined): number | null
   // JS dates keep milliseconds; longer fractions don't parse everywhere.
   const t = Date.parse(v.replace(/(\.\d{3})\d+/, "$1"));
   return Number.isFinite(t) ? t : null;
+}
+
+/**
+ * The current time, refreshed every `ms` (half a minute by default), for anything a page shows relative to now: a vote
+ * that lapses, a silence that ends, today and yesterday. Without it such text stays as it was at render (PA-263).
+ */
+export function useNow(ms = 30_000) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(t);
+  }, [ms]);
+  return now;
 }
 
 /** A present value always formats to text; only null/undefined give null. */

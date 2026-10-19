@@ -686,3 +686,31 @@ func mustParse(t *testing.T, value string) time.Time {
 	}
 	return at
 }
+
+// PA-264: a NaN sample in a registered metric read is a bin without a value:
+// it is left out of the samples, not a reason to call the whole read
+// incomplete; a read whose samples are all NaN has none.
+func TestMetricResultSamplesSkipNaNGaps(t *testing.T) {
+	end := time.Now().UTC().Truncate(time.Minute)
+	window := connectors.TimeWindow{Start: end.Add(-15 * time.Minute), End: end, StepSeconds: 30}
+	at := func(i int) float64 { return float64(window.Start.Unix() + int64(i*30)) }
+	evidence := func(values ...string) v3integrations.PrometheusMetricEvidence {
+		line := connectors.MetricSeries{Labels: map[string]string{}}
+		for i, v := range values {
+			line.Samples = append(line.Samples, connectors.MetricSample{Timestamp: at(i), Value: v})
+		}
+		return v3integrations.PrometheusMetricEvidence{ApplicationID: "app", EnvironmentID: "prod", BindingID: "b", ConnectorID: "c",
+			ResourceID: "r", QueryID: "http_p95_seconds", CapturedAt: end, Series: []connectors.MetricSeries{line}, Empty: len(values) == 0}
+	}
+	samples, status, ok := metricResultSamples(evidence("0.1", "NaN", "0.2"), window)
+	if !ok || status != "observed" || len(samples) != 2 || samples[0].Value != "0.1" || samples[1].Value != "0.2" {
+		t.Fatalf("NaN gap: ok=%v status=%s samples=%v", ok, status, samples)
+	}
+	samples, status, ok = metricResultSamples(evidence("NaN", "NaN"), window)
+	if !ok || status != "no_samples" || len(samples) != 0 {
+		t.Fatalf("all NaN: ok=%v status=%s samples=%v", ok, status, samples)
+	}
+	if _, _, ok = metricResultSamples(evidence("0.1", "+Inf"), window); ok {
+		t.Fatal("an infinity is still malformed")
+	}
+}

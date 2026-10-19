@@ -198,3 +198,26 @@ func TestQueryRegisteredPrometheusLongExpressionAndMillisecondWindow(t *testing.
 		t.Fatalf("over the limit: %v", err)
 	}
 }
+
+// PA-264: a bin without traffic gives NaN (a histogram quantile with no
+// observations). A range read passes it through as a gap for the callers,
+// like the instant read; only infinities and malformed values are refused.
+func TestQueryRegisteredPrometheusRangeKeepsNaNGaps(t *testing.T) {
+	window := prometheusTestWindow()
+	value := "NaN"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"panel":"latency_p99_ms"},"values":[[%d,"%s"],[%d,"2.5"]]}]}}`,
+			window.Start.Unix(), value, window.Start.Unix()+15)
+	}))
+	defer server.Close()
+	series, err := queryRegisteredPrometheus(context.Background(), server.URL, "none", "", "q", window, nil)
+	if err != nil || len(series) != 1 || len(series[0].Samples) != 2 || series[0].Samples[0].Value != "NaN" || series[0].Samples[1].Value != "2.5" {
+		t.Fatalf("a NaN bin must stay a gap: series=%+v error=%v", series, err)
+	}
+	for _, bad := range []string{"+Inf", "-Inf", "not-a-number"} {
+		value = bad
+		if _, err := queryRegisteredPrometheus(context.Background(), server.URL, "none", "", "q", window, nil); prometheusCode(err) != "protocol" {
+			t.Errorf("%s: want protocol error, got %v", bad, err)
+		}
+	}
+}

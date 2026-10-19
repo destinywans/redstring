@@ -69,7 +69,7 @@ pnpm --dir web install --frozen-lockfile
 - `make init` 生成权限为 0600 的 `.env`，包含随机数据库与初始管理员密码，不覆盖已有文件。管理员邮箱默认 `admin@localhost`，密码是 `.env` 里 `AIOPS_ADMIN_PASSWORD` 的值。不要提交或分享该文件。
 - `AIOPS_V3_INSTANCE_CONFIG` 指向实例描述（实例名、域名、环境列表），必须设。不设时服务以旧版模式启动，当前界面依赖的 `/api/v1/instance` 返回 404，服务目录、成员等页面会一直停在加载骨架；旧版模式只供 `/legacy` 使用。示例 `v3-instance.nonprod.json` 含 dev、test、staging 三个非生产环境，域名是占位值，本机运行不需要改。
 - 数据库第一次以这个配置启动后就绑定该实例，之后漏设变量会拒绝启动（`database is bound to a V3 instance`）。以旧版模式启动过的库，补上变量后可以直接切过来。
-- 追加的 `OLLAMA_MODEL=` 覆盖 `make init` 写的模型，表示先不接模型；直接改原来那一行也一样。原因见下面的“模型”。
+- 追加的 `OLLAMA_MODEL=` 覆盖 `make init` 写的本机 Ollama 模型，表示先不接模型；直接改原来那一行也一样。本机已经装好 Ollama 的话可以不加这一行，见下面的“模型”。
 
 两个终端分别运行：
 
@@ -85,21 +85,21 @@ VITE_API_MODE=http make web-dev
 
 浏览器打开 **http://127.0.0.1:5173** 并登录。Vite 将 `/api`、`/healthz`、`/openapi.json` 代理到 `127.0.0.1:18080`。`make web-api` 在加载 `.env` 后设置 `AIOPS_ADDR=127.0.0.1:18080`、`AIOPS_PUBLIC_ORIGIN=http://127.0.0.1:5173`；保持这组地址一致，避免写请求被同源检查拒绝。每个终端用 Ctrl+C 停止对应进程。
 
-登录后顶栏环境是 Development。服务、告警、事件、Runbook 等列表为空；日志、链路、通知路由等显示“未接入”，从集成中心接入。「集成中心 › 模型」管理页还需要环境模型绑定（`AIOPS_V3_MODEL_BINDINGS_FILE`，格式见 [模型绑定示例](examples/v3-model-bindings.md)），没配时显示“暂时不可用”和 `503 model_binding_unavailable`；对话里能选哪些模型不受它影响。静默与抑制页在没接 Alertmanager 时同样显示“暂时读不到”。
+登录后顶栏环境是 Development。服务、告警、事件、Runbook 等列表为空；日志、链路、通知路由等显示“未接入”，从集成中心接入。「集成中心 › 模型」管理页还需要环境模型绑定（`AIOPS_V3_MODEL_BINDINGS_FILE`，格式见 [模型绑定示例](examples/v3-model-bindings.md)），没配时显示“这个环境还没有绑定模型”（管理员还能看到 `503 model_binding_unavailable`）；对话里能选哪些模型不受它影响。静默与抑制页在没接 Alertmanager 时同样显示“暂时读不到”。
 
 ### 模型
 
 模型按 `.env` 显式配置，项目不会自动下载模型；支持的适配器与配置项见 [模型说明](../internal/inference/README.md)。
 
-`make init` 写入的是 `OLLAMA_MODEL=qwen3.6:latest`，没有设 `OLLAMA_API`，也就是原生 Ollama 协议。当前界面的模型目录不支持原生 Ollama 协议，这样配置时 `/api/v1/models` 整体返回 `503 model_catalog_unavailable`，所有 AI 输入框的模型位只显示“…”；本机没有 Ollama 时，发出的消息显示“模型回复失败”。按需要选一种：
+`make init` 写入的是本机 Ollama 的 `OLLAMA_MODEL=qwen3.6:latest`，并设 `OLLAMA_API=chat_completions`、`OLLAMA_BASE_URL=http://127.0.0.1:11434/v1`，走 Ollama 的 OpenAI 兼容接口。本机没有 Ollama 或没拉这个模型时，模型目录照样列出它，但发出的消息会显示“模型回复失败”。不要去掉 `OLLAMA_API`：当前界面的模型目录不支持原生 Ollama 协议，那样 `/api/v1/models` 会整体返回 `503 model_catalog_unavailable`，所有 AI 输入框的模型位只显示“…”。按需要选一种：
 
 | 想要 | `.env` 怎么写 | 界面表现 |
 | --- | --- | --- |
 | 先不接模型 | `OLLAMA_MODEL=` | 模型列表为空，选择器提示“没有匹配的模型”；发送时提示没有可用模型 |
-| 本机 Ollama | 保留 `OLLAMA_MODEL`，加 `OLLAMA_API=chat_completions`，并把 `OLLAMA_BASE_URL` 改成 `http://127.0.0.1:11434/v1` | 走 Ollama 的 OpenAI 兼容接口，模型显示“已配置；连接状态未验证” |
+| 本机 Ollama | `make init` 的默认值，不用改；先 `ollama pull qwen3.6:latest`，换模型只改 `OLLAMA_MODEL` | 走 Ollama 的 OpenAI 兼容接口，模型显示“已配置；连接状态未验证” |
 | DeepSeek 等 OpenAI 兼容接口 | 按 `.env.example` 的 `OPENAI_*` 注释配置 | 同上 |
 
-2026-10-19 只验证了前两行的模型目录和空模型时的提示，没有用真实模型生成过回复。
+2026-10-19 只验证了前两行的模型目录和空模型时的提示（第二行当时是手工加的同一组配置，`make init` 默认值后来改成了它），没有用真实模型生成过回复。
 
 ## 构建后由 Go 托管
 

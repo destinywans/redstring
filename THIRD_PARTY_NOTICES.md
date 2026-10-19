@@ -26,6 +26,10 @@ MiSans is not an open-source font. Its license requires the software to state th
 | 来源 | [go-pinyin v0.21.0](https://github.com/mozillazg/go-pinyin/tree/v0.21.0) 的完整字符词典（41,923 字），每字只保留首个无声调读音；生成器为 `scripts/generate-search-dictionary.go` |
 | 版权与许可 | Copyright (c) 2016 mozillazg，MIT License，全文：[`shared/search/LICENSE.go-pinyin`](shared/search/LICENSE.go-pinyin) |
 
+`pinyin.json` 经 `go:embed` 编进 Go 二进制（`shared/search/data.go`），也被前端打进 `web/dist` 产物（`web/src/lib/search.ts`）。分发这些构建产物时，请随附上面的 MIT 许可全文。
+
+`pinyin.json` is compiled into the Go binary through `go:embed` (`shared/search/data.go`) and bundled into `web/dist` (`web/src/lib/search.ts`). Include the MIT license text above when you distribute those build outputs.
+
 ## 3. 集成图标 / Integration logos
 
 `web/src/v3/assets/brands/` 下的 46 个 SVG 图标只用来在集成中心、模型设置等处标识对应的产品或服务。这些名称和标志是各自所有者的商标；使用它们不代表这些公司认可、赞助或与本项目有关联。

@@ -9065,7 +9065,7 @@
       "post": {
         "summary": "Create a human-confirmed incident from persisted alerts",
         "operationId": "post_incidents",
-        "description": "Minimum role: operator. V3 instance and environment scope apply. Requires an Idempotency-Key header (8–128 ASCII identifier characters). Selected alerts must be active, unlinked, currently authorized for events.view and events.change, and bound to one current application/environment mapping. The human-confirmed incident, alert links, optional blank investigation and audit commit in one transaction; the same key/body retry returns 200, a changed body or already-linked alert returns 409. open_canvas requires independent canvas.view and canvas.change and supports prod/staging/test only. war_room, notify and status_page currently return 503 when requested because V3 has no configured and running executor for those external actions. No delivery or AI inference is claimed. The frozen frontend defaults to unavailable external actions and sends no idempotency key; page acceptance remains pending.",
+        "description": "Minimum role: operator. V3 instance and environment scope apply. Requires an Idempotency-Key header (8–128 ASCII identifier characters). Selected alerts must be active, unlinked, currently authorized for events.view and events.change, and bound to one current application/environment mapping. An unknown alert severity does not block creation: the incident takes the P1–P4 severity the person chose in the request (PA-246). The human-confirmed incident, alert links, optional blank investigation and audit commit in one transaction; the same key/body retry returns 200, a changed body or already-linked alert returns 409. open_canvas requires independent canvas.view and canvas.change and supports prod/staging/test only. war_room, notify and status_page currently return 503 when requested because V3 has no configured and running executor for those external actions. No delivery or AI inference is claimed. The frozen frontend defaults to unavailable external actions and sends no idempotency key; page acceptance remains pending.",
         "responses": {
           "201": {
             "description": "Success",
@@ -34767,7 +34767,7 @@
       "get": {
         "summary": "Prefill an incident from selected persisted alerts",
         "operationId": "get_incidents_draft",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit alert IDs. Every active alert must be currently visible, unlinked, and bound to the same application and environment. The title and highest severity come from persisted alerts; impact, service tier, commander, participants, war room and AI analysis are unknown. A current session and V3 events.view are checked under transaction locks. The frozen page sends no alerts query and expects fabricated non-null values; frontend acceptance remains pending.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit alert IDs. Every active alert must be currently visible, unlinked, and bound to the same application and environment. The title and highest known severity come from persisted alerts; alerts with an unknown severity are listed with severity null and severity_reason, never block the draft, and severity_hint says how many are unknown (PA-246); impact, service tier, commander, participants, war room and AI analysis are unknown. A current session and V3 events.view are checked under transaction locks. The frozen page sends no alerts query and expects fabricated non-null values; frontend acceptance remains pending.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40906,7 +40906,7 @@
       "get": {
         "summary": "Read scoped persisted postmortem dashboard evidence",
         "operationId": "get_postmortems",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads persisted reports and their exact legacy investigation close or manual case resolved status event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, real source event date, recorded workflow status, action total and the application_id of each record (its service, PA-218). A manual case has no proven outage duration, so duration stays null and dashboard duration coverage is unknown. Invalid severity or absent root text are nullable rather than blocking other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid legacy durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413. service filters stable application IDs before aggregation/page; cause categories have no producer and requests containing cause return 503 cause_classification_unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Reads persisted reports and their exact legacy investigation close or manual case resolved status event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, real source event date, recorded workflow status, action total and the application_id of each record (its service, PA-218). A manual case has no proven outage duration, so duration stays null and dashboard duration coverage is unknown. Unknown severity is null with severity_reason, including the warning default stored before PA-240 for alerts without a severity label (PA-247); absent root text is null; neither blocks other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid legacy durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413. service filters stable application IDs before aggregation/page; cause categories have no producer and requests containing cause return 503 cause_classification_unavailable.",
         "responses": {
           "200": {
             "description": "Success",
@@ -41322,7 +41322,7 @@
       "get": {
         "summary": "List resolved incidents eligible for a postmortem",
         "operationId": "get_postmortems_candidates",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Legacy ops incidents require a real investigation.closed event and retained report; human-confirmed cases require a real resolved status event and may have no Canvas. Both require no existing postmortem and current events:view plus knowledge:view on their registered application or owner team. source_revision binds the observed close event or case status event. Case outage duration and investigation evidence remain null/unknown unless independently proven. More than 1000 visible candidates returns 413; unknown severity returns 503 rather than an invented classification.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Legacy ops incidents require a real investigation.closed event and retained report; human-confirmed cases require a real resolved status event and may have no Canvas. Both require no existing postmortem and current events:view plus knowledge:view on their registered application or owner team. source_revision binds the observed close event or case status event. Case outage duration and investigation evidence remain null/unknown unless independently proven. More than 1000 visible candidates returns 413. An unknown severity is null with severity_reason and listed in unknown_fields rather than an invented classification, and does not fail the list (PA-247).",
         "responses": {
           "200": {
             "description": "Success",
@@ -41592,7 +41592,28 @@
                           "type": "string"
                         },
                         "severity": {
-                          "type": "string"
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "P1",
+                                "P2",
+                                "P3",
+                                "P4"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Null when the incident severity is unknown; severity_reason says why and missing lists incident.severity (PA-247)"
+                        },
+                        "severity_reason": {
+                          "type": "string",
+                          "enum": [
+                            "unclassified",
+                            "not_filled"
+                          ]
                         },
                         "duration": {
                           "type": [
@@ -76941,12 +76962,27 @@
             "type": "string"
           },
           "severity": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3",
+                  "P4"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the alert severity is unknown; severity_reason says why (PA-246)"
+          },
+          "severity_reason": {
             "type": "string",
             "enum": [
-              "P1",
-              "P2",
-              "P3",
-              "P4"
+              "unclassified",
+              "not_filled"
             ]
           },
           "text": {
@@ -76972,13 +77008,21 @@
             "type": "string"
           },
           "severity": {
-            "type": "string",
-            "enum": [
-              "P1",
-              "P2",
-              "P3",
-              "P4"
-            ]
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3",
+                  "P4"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Highest known alert severity; null with severity in unavailable when every selected alert has an unknown severity (PA-246)"
           },
           "severity_hint": {
             "type": "string"
@@ -81631,6 +81675,13 @@
               }
             ]
           },
+          "severity_reason": {
+            "type": "string",
+            "enum": [
+              "unclassified",
+              "not_filled"
+            ]
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -81682,15 +81733,31 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "Null only when unknown_fields lists duration"
           },
           "severity": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3",
+                  "P4"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the incident severity is unknown; severity_reason says why and unknown_fields lists severity (PA-247)"
+          },
+          "severity_reason": {
             "type": "string",
             "enum": [
-              "P1",
-              "P2",
-              "P3",
-              "P4"
+              "unclassified",
+              "not_filled"
             ]
           },
           "evidence": {
@@ -81698,7 +81765,8 @@
               "integer",
               "null"
             ],
-            "minimum": 0
+            "minimum": 0,
+            "description": "Null only when unknown_fields lists evidence"
           },
           "unknown_fields": {
             "type": "array",
@@ -81785,12 +81853,27 @@
             ]
           },
           "severity": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "P1",
+                  "P2",
+                  "P3",
+                  "P4"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the incident severity is unknown; severity_reason says why and unknown_fields lists severity (PA-247)"
+          },
+          "severity_reason": {
             "type": "string",
             "enum": [
-              "P1",
-              "P2",
-              "P3",
-              "P4"
+              "unclassified",
+              "not_filled"
             ]
           },
           "status": {

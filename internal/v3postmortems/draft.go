@@ -35,11 +35,12 @@ func (s *Service) Draft(w http.ResponseWriter, r *http.Request) {
 	var kind, app, team, env, title, rawSeverity, summary, investigation string
 	var started, closed *time.Time
 	var closeSeq, statusEventID *int64
+	var labels map[string]string
 	err := tx.QueryRow(ctx, postmortemSources+` SELECT s.source_kind,s.application_id,s.team_id,s.environment_id,
- s.title,s.severity,s.summary,s.started_at,s.resolved_at,s.investigation_id,s.close_event_seq,s.status_event_id
+ s.title,s.severity,s.severity_labels,s.summary,s.started_at,s.resolved_at,s.investigation_id,s.close_event_seq,s.status_event_id
  FROM source s WHERE s.incident_id=$1 AND s.status='resolved' AND s.eligible AND s.resolved_at IS NOT NULL
  AND NOT EXISTS(SELECT 1 FROM v3_postmortems pm WHERE pm.incident_id=s.incident_id)`, id).
-		Scan(&kind, &app, &team, &env, &title, &rawSeverity, &summary, &started, &closed, &investigation, &closeSeq, &statusEventID)
+		Scan(&kind, &app, &team, &env, &title, &rawSeverity, &labels, &summary, &started, &closed, &investigation, &closeSeq, &statusEventID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// PA-65: point to the postmortem already saved for this incident.
 		existing, existingErr := s.visibleExistingPostmortem(ctx, tx, r, scope, id)
@@ -69,8 +70,9 @@ func (s *Service) Draft(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	sev, valid := severity(rawSeverity)
-	if !valid || closed == nil || kind == "ops" && (started == nil || closeSeq == nil || closed.Before(*started)) {
+	// An unknown severity is drafted as unknown instead of refused (PA-247).
+	sev, sevReason := severity(rawSeverity, labels)
+	if closed == nil || kind == "ops" && (started == nil || closeSeq == nil || closed.Before(*started)) {
 		httpapi.Error(w, 503, "source_unavailable", "Incident source cannot be represented by the V3 contract")
 		return
 	}
@@ -134,8 +136,12 @@ func (s *Service) Draft(w http.ResponseWriter, r *http.Request) {
 	}
 	// started_at and closed_at bound the incident in RFC 3339 (PA-83; the
 	// "<RFC 3339> – <RFC 3339>" window text was removed).
-	incident := map[string]any{"id": id, "title": title, "severity": sev, "duration": nil, "started_at": nil, "closed_at": nil}
+	incident := map[string]any{"id": id, "title": title, "severity": nullable(sev), "duration": nil, "started_at": nil, "closed_at": nil}
 	missing := []string{"verified_impact", "root_cause", "action_recommendations", "war_room_messages"}
+	if sev == "" {
+		incident["severity_reason"] = sevReason
+		missing = append(missing, "incident.severity")
+	}
 	if started != nil {
 		incident["started_at"], incident["closed_at"] = started.UTC().Format(time.RFC3339), closed.UTC().Format(time.RFC3339)
 		incident["duration"] = duration(*started, *closed)

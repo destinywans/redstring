@@ -319,7 +319,7 @@ export default function KnowledgeGraphCanvas({
               labelPlacement: "bottom",
               labelOffsetY: 9,
               labelFill: dark ? "#e0e2ee" : "#394253",
-              labelFontFamily: "MiSans, sans-serif",
+              labelFontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif',
               labelFontSize: 14,
               labelFontWeight: 400,
               labelBackground: true,

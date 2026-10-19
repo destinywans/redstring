@@ -152,7 +152,8 @@ function Pull({ id }: { id: string | null }) {
               { key: "n", header: tx("拉取来源", "Pull source"), width: "34%", render: (x) => <span style={{ fontWeight: 500 }}>{x.name}</span> },
               { key: "c", header: tx("连接器", "Connector"), render: (x) => <Muted>{x.connector_name ?? x.connector_id}</Muted> },
               { key: "q", header: tx("查询", "Query"), render: (x) => <Mono size={12}>{x.query_id}</Mono> },
-              { key: "s", header: tx("状态", "Status"), render: (x) => (x.state === "ready" ? <Badge tone="ok">{tx("可用", "Ready")}</Badge> : <Badge tone="warn">{tx("来源不可用", "Source unavailable")}</Badge>) },
+              // ready only means the connector is enabled and bound; the list never reads the upstream (PA-248).
+              { key: "s", header: tx("状态", "Status"), render: (x) => (x.state === "ready" ? <Badge tone="neutral" title={tx("连接器已启用并绑定；列表不读取上游，打开后可以测试", "The connector is enabled and bound; the list doesn't read the upstream. Open it to test.")}>{tx("已配置", "Configured")}</Badge> : <Badge tone="warn">{tx("来源不可用", "Source unavailable")}</Badge>) },
             ]}
           />
         </Card>

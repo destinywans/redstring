@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/wans/aiops-canvas/internal/httpapi"
 	"github.com/wans/aiops-canvas/internal/rbac"
 	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/wans/aiops-canvas/internal/v3events/alertseverity"
 )
 
 type Access interface {
@@ -159,9 +161,11 @@ func (s *Service) authorizeModuleTx(ctx context.Context, tx pgx.Tx, user core.Us
 }
 
 type Candidate struct {
-	ID             string   `json:"id"`
-	Title          string   `json:"title"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// Severity is "" when unknown; SeverityReason then says why (PA-247).
 	Severity       string   `json:"severity"`
+	SeverityReason string   `json:"severity_reason,omitempty"`
 	Resolved       string   `json:"resolved"`
 	Duration       string   `json:"duration"`
 	Evidence       int      `json:"evidence"`
@@ -173,34 +177,38 @@ func (v Candidate) MarshalJSON() ([]byte, error) {
 	type candidateJSON struct {
 		ID             string   `json:"id"`
 		Title          string   `json:"title"`
-		Severity       string   `json:"severity"`
+		Severity       any      `json:"severity"`
+		SeverityReason string   `json:"severity_reason,omitempty"`
 		Resolved       string   `json:"resolved"`
 		Duration       any      `json:"duration"`
 		Evidence       any      `json:"evidence"`
 		SourceRevision string   `json:"source_revision"`
 		UnknownFields  []string `json:"unknown_fields,omitempty"`
 	}
-	out := candidateJSON{ID: v.ID, Title: v.Title, Severity: v.Severity, Resolved: v.Resolved,
+	out := candidateJSON{ID: v.ID, Title: v.Title, Severity: nullable(v.Severity), SeverityReason: v.SeverityReason, Resolved: v.Resolved,
 		Duration: v.Duration, Evidence: v.Evidence, SourceRevision: v.SourceRevision, UnknownFields: v.UnknownFields}
-	if len(v.UnknownFields) > 0 {
+	if slices.Contains(v.UnknownFields, "duration") {
 		out.Duration = nil
+	}
+	if slices.Contains(v.UnknownFields, "evidence") {
 		out.Evidence = nil
 	}
 	return json.Marshal(out)
 }
 
-func severity(raw string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "p1", "critical", "fatal":
-		return "P1", true
-	case "p2", "warning", "warn", "high":
-		return "P2", true
-	case "p3", "info", "medium":
-		return "P3", true
-	case "p4", "low":
-		return "P4", true
+func nullable(s string) any {
+	if s == "" {
+		return nil
 	}
-	return "", false
+	return s
+}
+
+// severity reads an incident's recorded severity through the shared alert
+// severity table, like every events view (PA-247): the level, or "" and the
+// reason it is unknown. labels is the source's severity_labels, nil when the
+// row recorded no labels; a manual case's P1–P4 maps onto itself.
+func severity(raw string, labels map[string]string) (level, reason string) {
+	return alertseverity.Stored(raw, labels)
 }
 
 func duration(start, end time.Time) string {
@@ -218,7 +226,7 @@ func duration(start, end time.Time) string {
 }
 
 const candidatesSQL = postmortemSources + ` SELECT s.incident_id,s.source_kind,s.application_id,s.team_id,s.environment_id,
- s.title,s.severity,s.started_at,s.resolved_at,s.close_event_seq,s.status_event_id,COALESCE(s.evidence_count,0)
+ s.title,s.severity,s.severity_labels,s.started_at,s.resolved_at,s.close_event_seq,s.status_event_id,COALESCE(s.evidence_count,0)
  FROM source s
  WHERE s.status='resolved' AND s.eligible AND s.resolved_at IS NOT NULL
    AND s.environment_id=ANY($1::text[])
@@ -233,6 +241,7 @@ func (s *Service) Candidates(w http.ResponseWriter, r *http.Request) {
 	}
 	type row struct {
 		candidate               Candidate
+		labels                  map[string]string
 		app, team, env          string
 		start                   *time.Time
 		closed                  time.Time
@@ -253,7 +262,7 @@ func (s *Service) Candidates(w http.ResponseWriter, r *http.Request) {
 		batch := make([]row, 0, 256)
 		for rows.Next() {
 			var v row
-			if err = rows.Scan(&v.candidate.ID, &v.kind, &v.app, &v.team, &v.env, &v.candidate.Title, &v.candidate.Severity, &v.start, &v.closed, &v.closeSeq, &v.statusEventID, &v.candidate.Evidence); err != nil {
+			if err = rows.Scan(&v.candidate.ID, &v.kind, &v.app, &v.team, &v.env, &v.candidate.Title, &v.candidate.Severity, &v.labels, &v.start, &v.closed, &v.closeSeq, &v.statusEventID, &v.candidate.Evidence); err != nil {
 				break
 			}
 			batch = append(batch, v)
@@ -274,18 +283,17 @@ func (s *Service) Candidates(w http.ResponseWriter, r *http.Request) {
 				httpapi.Error(w, 503, "authorization_unavailable", "Postmortem access could not be checked")
 				return
 			}
-			parsed, valid := severity(v.candidate.Severity)
-			if !valid {
-				httpapi.Error(w, 503, "source_unavailable", "Incident severity cannot be represented by the V3 contract")
-				return
-			}
-			v.candidate.Severity = parsed
+			// An unknown severity is listed as unknown; the page stays readable (PA-247).
+			v.candidate.Severity, v.candidate.SeverityReason = severity(v.candidate.Severity, v.labels)
 			v.candidate.Resolved = v.closed.UTC().Format(time.RFC3339)
 			v.candidate.SourceRevision = sourceRevision(v.kind, v.closeSeq, v.statusEventID)
+			if v.candidate.Severity == "" {
+				v.candidate.UnknownFields = append(v.candidate.UnknownFields, "severity")
+			}
 			if v.start != nil {
 				v.candidate.Duration = duration(*v.start, v.closed)
 			} else {
-				v.candidate.UnknownFields = []string{"duration", "evidence"}
+				v.candidate.UnknownFields = append(v.candidate.UnknownFields, "duration", "evidence")
 			}
 			items = append(items, v.candidate)
 			if len(items) > 1000 {

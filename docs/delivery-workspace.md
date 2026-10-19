@@ -9,7 +9,7 @@ Go 服务按需装配 `internal/delivery`、`internal/deployment`、`internal/ai
 - `AIOPS_DELIVERY_CONFIG`：GitLab、Argo Workflows、S3 及允许的产物地址。字段定义见 `internal/delivery/service.go`。
 - `AIOPS_DEPLOYMENT_CONFIG`：已登记 GitOps／Compose／systemd 目标、固定健康条件与私有凭据引用。字段见 `internal/deployment/types.go`。不接受浏览器提交任意 SSH 主机、命令或 kubeconfig。
 - `AIOPS_MCP_CREDENTIAL_ROOT`：0700 目录，凭据文件 0600；产品接口只提交文件引用。完整 MCP/Skills 契约见 [模块说明](../internal/aiextensions/README.md)。
-- `scripts/connect-delivery-lab.py --lab /path/to/aiops-test`：只向回环地址的隔离 review 工作区登记 Delivery Demo 与私有配置，不触发执行。需先完成 aiops-test/delivery 的准备流程。
+- `scripts/connect-delivery-lab.py --lab /path/to/lab`：只向回环地址的隔离 review 工作区登记 Delivery Demo 与私有配置，不触发执行。实验目录需先完成 delivery 的准备流程（生成 `.local/delivery`）；这套实验环境是作者自己的，不随本仓库发布。
 - `scripts/verify-delivery-product.py`：默认仅检查配置；`--execute` 才会在明确的专用实验目标创建运行、批准并发布。真实运行耗时包含每目标连续 180 秒健康观察，不能拿构建完成代替发布验收。
 
 凭据、运行数据库、实验令牌、验证输出和生成制品位于忽略的 `.local`，不入 Git。核心工作区不启用原生流水线时仍可单独通过 Compose 运行。

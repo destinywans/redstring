@@ -122,9 +122,9 @@ func (s *Service) selectedIncidentAlertsTx(r *http.Request, tx pgx.Tx, ids []str
 		if v.AlertStatus != "firing" && v.AlertStatus != "pending" || v.Status == "resolved" || v.SourceID == "ai-patrol" {
 			return nil, store.ErrConflict
 		}
-		// The draft and the create drawer need a known level for every
-		// alert; an unknown severity is still refused here (PA-239).
-		if level, _ := alertseverity.Stored(v.Severity, v.Labels); level == "" || v.ID == "" || v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" || strings.TrimSpace(v.Title) == "" {
+		// An alert whose severity is unknown can still start an incident:
+		// the person confirms the incident's level either way (PA-246).
+		if v.ID == "" || v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" || strings.TrimSpace(v.Title) == "" {
 			return nil, store.ErrInvalidReference
 		}
 		if len(alerts) > 0 && (alerts[0].ApplicationID != v.ApplicationID || alerts[0].EnvironmentID != v.EnvironmentID || alerts[0].EnvironmentKey != v.EnvironmentKey) {
@@ -160,6 +160,8 @@ func respondIncidentCreateError(w http.ResponseWriter, err error) {
 
 // IncidentDraft projects only selected, current, authorized persisted alerts.
 // No model is called and missing impact, owner or collaborator facts stay null.
+// The drafted severity is the highest known level; it is null when no
+// selected alert has one, and the hint says how many are unknown (PA-246).
 func (s *Service) IncidentDraft(w http.ResponseWriter, r *http.Request) {
 	ids, valid := incidentDraftIDs(r)
 	if !valid {
@@ -181,14 +183,25 @@ func (s *Service) IncidentDraft(w http.ResponseWriter, r *http.Request) {
 		respondIncidentCreateError(w, err)
 		return
 	}
-	chosenSeverity := "P4"
+	chosenSeverity, unknownSeverities := "", 0
 	items := make([]map[string]any, 0, len(alerts))
 	for _, v := range alerts {
-		level, _ := alertseverity.Stored(v.Severity, v.Labels)
-		if severityRank(level) < severityRank(chosenSeverity) {
-			chosenSeverity = level
+		level, reason := alertseverity.StoredPtr(v.Severity, v.Labels)
+		item := map[string]any{"id": v.ID, "severity": level, "text": v.Title, "at": v.StartsAt.UTC().Format(time.RFC3339Nano)}
+		if level == nil {
+			unknownSeverities++
+			item["severity_reason"] = *reason
+		} else if chosenSeverity == "" || severityRank(*level) < severityRank(chosenSeverity) {
+			chosenSeverity = *level
 		}
-		items = append(items, map[string]any{"id": v.ID, "severity": level, "text": v.Title, "at": v.StartsAt.UTC().Format(time.RFC3339Nano)})
+		items = append(items, item)
+	}
+	var draftSeverity any
+	unavailable := []string{"impact", "service.tier", "commander", "participants", "war_room", "ai_analysis"}
+	if chosenSeverity == "" {
+		unavailable = append([]string{"severity"}, unavailable...)
+	} else {
+		draftSeverity = chosenSeverity
 	}
 	if err := activeAlertReadSession(r.Context(), tx, r); err != nil {
 		respondIncidentCreateError(w, err)
@@ -198,13 +211,13 @@ func (s *Service) IncidentDraft(w http.ResponseWriter, r *http.Request) {
 		respondIncidentCreateError(w, err)
 		return
 	}
+	hint := textFor(r.Header.Get("Accept-Language")).severityHint(unknownSeverities, len(alerts))
 	w.Header().Set("Cache-Control", "no-store")
 	httpapi.WriteJSON(w, 200, map[string]any{
-		"title": alerts[0].Title, "severity": chosenSeverity, "severity_hint": textFor(r.Header.Get("Accept-Language")).severityHint(),
+		"title": alerts[0].Title, "severity": draftSeverity, "severity_hint": hint,
 		"env": alerts[0].EnvironmentKey, "services": []map[string]any{{"id": alerts[0].ApplicationID, "tier": nil}},
 		"impact": nil, "alerts": items, "commander": nil, "participants": nil, "war_room": nil,
-		"source": "persisted_alerts", "partial": true,
-		"unavailable": []string{"impact", "service.tier", "commander", "participants", "war_room", "ai_analysis"},
+		"source": "persisted_alerts", "partial": true, "unavailable": unavailable,
 	})
 }
 

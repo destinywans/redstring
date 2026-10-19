@@ -17,7 +17,7 @@ go collector.Run(ctx) // ctx 取消关闭 watch 与循环；只启动一次
   "interval_seconds": 30,
   "grant_permission_ids": ["live-infrastructure-view"],
   "prometheus_url": "http://127.0.0.1:19090",
-  "external_snapshot_file": "/absolute/aiops-test/.local/inventory/snapshot.json",
+  "external_snapshot_file": "/absolute/path/to/inventory/snapshot.json",
   "sources": [{
     "id": "aiops-vm-cluster",
     "name": "本地 Kubernetes 集群",

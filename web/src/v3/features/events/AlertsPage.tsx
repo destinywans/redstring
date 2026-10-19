@@ -374,7 +374,12 @@ export default function AlertsPage() {
               </Muted>
             </Col>
           </Row>
-          {policy.error && !policy.data ? (
+          {!focus && !isLoading ? (
+            // PA-249: no group is selected (an empty list, or one that failed to load), so there is no policy to read.
+            <div style={{ padding: 28, textAlign: "center" }}>
+              <Muted>{tx("没有选中的告警组", "No alert group selected")}</Muted>
+            </div>
+          ) : policy.error && !policy.data ? (
             // The whole policy read failed (e.g. 503 alert_policy_unavailable): say so instead of loading forever.
             <div style={{ padding: 16 }}>
               <Unavailable reason="unavailable" icon="layers" source="Alertmanager" title={tx("聚合与通知策略暂时读不到", "The grouping and notification policy can't be read right now")} />

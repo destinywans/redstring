@@ -1,0 +1,88 @@
+name: 缺陷报告 / Bug report
+description: 报告 Redstring 的缺陷。安全问题请按 SECURITY.md 私密报告，不要在这里提。 / Report a bug. For security issues, use private reporting as described in SECURITY.md.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先看一眼 [已知问题](https://github.com/destinywans/redstring/blob/main/docs/KNOWN_ISSUES.md)，已列出的不用重复提。贴日志、截图或配置前，去掉令牌、密码和内网地址。
+        Please check the [known issues](https://github.com/destinywans/redstring/blob/main/docs/KNOWN_ISSUES.md) first, and remove tokens, passwords and internal addresses from logs, screenshots and configs.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 确认 / Before you submit
+      options:
+        - label: 这不是安全漏洞（安全问题按 SECURITY.md 私密报告） / This is not a security vulnerability
+          required: true
+        - label: 已查过已知问题，没有列出这个问题 / It is not in the known issues
+          required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: 从打开哪个页面开始，一步一步写。 / Start from the page you opened, step by step.
+      placeholder: |
+        1. 打开 …
+        2. 点击 …
+        3. 看到 …
+    validations:
+      required: true
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: 期望与实际 / Expected and actual behavior
+      description: 期望看到什么，实际看到什么（错误提示原文、状态码）。 / What you expected and what happened (exact error text, status code).
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 实例模式 / Instance mode
+      options:
+        - 示例数据（在线演示或 make web-dev） / Sample data (online demo or make web-dev)
+        - 最小实例（按 README 快速开始） / Minimal instance (README quick start)
+        - 自己配置的非生产实例 / Self-configured non-production instance
+        - 自己配置的生产实例 / Self-configured production instance
+        - 旧版界面 /legacy / Legacy UI at /legacy
+        - 其他（在下面说明） / Other (describe below)
+    validations:
+      required: true
+  - type: dropdown
+    id: run
+    attributes:
+      label: 运行方式 / How you run it
+      options:
+        - 宿主机：make web-api 加 Vite / Host: make web-api with Vite
+        - 宿主机：make run 托管构建产物 / Host: make run serving the build
+        - Docker Compose
+        - 在线演示，不适用 / Online demo, not applicable
+        - 其他（在下面说明） / Other (describe below)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / Version
+      description: 界面上不显示版本号。填 tag，或在仓库目录运行 `git rev-parse --short HEAD` 的输出；在线演示填 demo。 / The UI shows no version. Give the tag or the output of `git rev-parse --short HEAD`; use "demo" for the online demo.
+      placeholder: v0.1.0 或 a1b2c3d4
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: 浏览器 / Browser
+      placeholder: Chrome 140 / macOS 15
+    validations:
+      required: true
+  - type: dropdown
+    id: language
+    attributes:
+      label: 界面语言 / UI language
+      options:
+        - 中文
+        - English
+  - type: textarea
+    id: context
+    attributes:
+      label: 其他信息 / Additional context
+      description: 截图、服务端日志、相关连接器（Kubernetes、Prometheus、Alertmanager、GitLab 等）的版本、使用的模型。 / Screenshots, server logs, versions of related connectors, the model in use.

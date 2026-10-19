@@ -1,16 +1,9 @@
 /* Shared by the application, standalone settings, portals, charts and canvas.
-   Font faces are self-hosted; feature styles consume roles, not new type scales. */
-@font-face {
-  font-family: "MiSans";
-  src: url("./assets/fonts/MiSansVF.woff2") format("woff2");
-  font-weight: 150 700;
-  font-style: normal;
-  font-display: swap;
-}
+   System fonts only, nothing is downloaded; feature styles consume roles, not new type scales. */
 
 :root {
-  --font-ui: "MiSans", "PingFang SC", "Microsoft YaHei", sans-serif;
-  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", "MiSans", monospace;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+  --font-mono: "SFMono-Regular", ui-monospace, Menlo, Consolas, "Liberation Mono", monospace;
   --type-caption: 13px;
   --type-meta: var(--type-caption);
   --type-small: 14px;
@@ -47,15 +40,4 @@ svg text,
   :root {
     --type-hero: 28px;
   }
-}
-
-.font-attribution {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin-top: 20px;
-  font-size: var(--type-caption);
-  font-weight: var(--weight-regular);
-  color: var(--muted);
 }

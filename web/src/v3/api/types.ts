@@ -742,7 +742,7 @@ export type Runbook = {
   unknown_fields?: string[];
 };
 /** status merges review into draft; workflow_status is the recorded one; application_id is the record's service (PA-218). */
-export type Postmortem = { id: string; title: string; severity: Severity | null; date: string; duration: string | null; cause: string; actions: string; status: "draft" | "published"; workflow_status?: "draft" | "review" | "published"; application_id?: string; incident_id?: string };
+export type Postmortem = { id: string; title: string; severity: Severity | null; severity_reason?: SeverityReason; date: string; duration: string | null; cause: string; actions: string; status: "draft" | "published"; workflow_status?: "draft" | "review" | "published"; application_id?: string; incident_id?: string };
 export type PostmortemSummary = {
   kpis: Kpi[];
   items: Postmortem[];

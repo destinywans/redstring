@@ -288,6 +288,54 @@ func TestRoleMatrixRouteModulesReadAndWritePostgres(t *testing.T) {
 		}
 	}
 
+	// PA-232: 对话 and 画布 are separate rows. A role holding conversation only
+	// shows 对话 granted and 画布 empty; 画布 grants canvas and nothing else.
+	{
+		for _, statement := range []string{
+			`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES('custom-observer','conversation','view','global','*')`,
+		} {
+			if _, err := db.Exec(ctx, statement); err != nil {
+				t.Fatal(err)
+			}
+		}
+		matrix := read("custom-observer")
+		for _, row := range matrix {
+			if row.Resource == "对话与画布" {
+				t.Fatalf("matrix still has the combined row: %+v", matrix)
+			}
+		}
+		if got := cells(matrix, "对话"); !slices.Equal(got, []int{1, 0, 0, 0, 0}) {
+			t.Fatalf("对话 row=%v", got)
+		}
+		if got := cells(matrix, "画布"); !slices.Equal(got, []int{0, 0, 0, 0, 0}) || allows("canvas", "view") {
+			t.Fatalf("画布 row=%v shows a grant the role doesn't hold", got)
+		}
+		set(matrix, "画布", 0, 1)
+		set(matrix, "画布", 1, 1)
+		write("custom-observer", matrix)
+		if got := grantsOf("custom-observer", "canvas"); !slices.Equal(got, []string{"canvas.change.global.*.standard", "canvas.view.global.*.standard"}) {
+			t.Fatalf("canvas grants=%v", got)
+		}
+		if got := grantsOf("custom-observer", "conversation"); !slices.Equal(got, []string{"conversation.view.global.*.standard"}) {
+			t.Fatalf("writing 画布 changed conversation grants: %v", got)
+		}
+		if !allows("canvas", "change") || allows("conversation", "change") {
+			t.Fatal("画布 cells don't authorize canvas alone")
+		}
+		// Built-in roles show their stored canvas grants in the 画布 row.
+		for _, roleID := range []string{"viewer", "operator", "admin"} {
+			want := make([]int, len(matrixActions))
+			for col, action := range matrixActions {
+				if slices.Contains(grantsOf(roleID, "canvas"), "canvas."+action+".global.*.standard") {
+					want[col] = 1
+				}
+			}
+			if got := cells(read(roleID), "画布"); !slices.Equal(got, want) {
+				t.Fatalf("%s 画布 row=%v; stored grants say %v", roleID, got, want)
+			}
+		}
+	}
+
 	// A matrix without the route-module rows is refused and changes nothing.
 	{
 		before := grantsOf("operator")

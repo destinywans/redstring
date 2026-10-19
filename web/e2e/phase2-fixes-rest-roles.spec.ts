@@ -71,7 +71,7 @@ test.describe("route modules in the role matrix (PA-231)", () => {
   // Control: the page sends the new rows back with the rest, so a custom role can be given them.
   test("a custom role's route-module cell is saved with every other row unchanged", async ({ page }) => {
     await page.addInitScript(zh);
-    const resources = ["对话与画布", "事件与告警", "告警规则与路由", "静默", "写操作提案", "Runbook", "知识来源与检索", "服务目录", "连接器与映射", "Agent 配置与发布", "成员与角色", "审计日志", "资源目录与关系", ...ROUTE_ROWS];
+    const resources = ["对话", "事件与告警", "告警规则与路由", "静默", "写操作提案", "Runbook", "知识来源与检索", "服务目录", "连接器与映射", "Agent 配置与发布", "成员与角色", "审计日志", "资源目录与关系", ...ROUTE_ROWS, "画布"];
     const matrix = resources.map((resource) => ({ resource, grants: [resource === "事件与告警" ? 1 : 0, 0, 0, 0, 0] }));
     const detail = { id: "custom-pa231", name: "Check role", members: 1, kind: "business", desc: "", member_names: ["Check Member"], scope: ["global"], actions: ACTIONS, matrix, environment_access: ["global"], notes: "" };
     await page.route(at("/roles"), (r) => json(r, 200, { items: [{ id: detail.id, name: detail.name, members: 1, kind: "business" }] }));
@@ -127,5 +127,21 @@ test.describe("permission gates name the matrix row (PA-231)", () => {
     await page.goto(origin + "/settings/workspace");
     await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled({ timeout: 20_000 });
     await expect(gateReason(page, "Save")).toHaveText("Needs Workspace settings · Manage permission");
+  });
+});
+
+/**
+ * PA-232 (WAN-591): the 对话与画布 row mapped conversation only, so a role holding conversation showed the combined row
+ * granted while canvas routes refused it. The row is split into 对话 and 画布; the real custom role on prod holds
+ * conversation.view and no canvas grant (GET only).
+ */
+test.describe("conversation and canvas are separate matrix rows (PA-232)", () => {
+  test("a custom role with conversation only shows 对话 granted and 画布 empty", async ({ page }) => {
+    const { writes, m } = await openBuiltInRole(page, "custom-knowledge-reviewer");
+    await expect(page.getByRole("button", { name: /^对话与画布 · / })).toHaveCount(0);
+    await expect(cell(page, "对话", "查看")).toHaveAttribute("aria-pressed", "true");
+    for (const action of ACTIONS) await expect(cell(page, "画布", action)).toHaveAttribute("aria-pressed", "false");
+    expect(writes).toEqual([]);
+    expect(m.pageErrors).toEqual([]);
   });
 });

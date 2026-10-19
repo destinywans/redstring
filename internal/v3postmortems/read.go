@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/wans/aiops-canvas/internal/httpapi"
@@ -17,6 +18,7 @@ type Record struct {
 	IncidentID     string   `json:"incident_id"`
 	Title          string   `json:"title"`
 	Severity       string   `json:"severity"`
+	SeverityReason string   `json:"severity_reason,omitempty"`
 	Resolved       string   `json:"resolved"`
 	Duration       string   `json:"duration"`
 	SourceRevision string   `json:"source_revision"`
@@ -27,7 +29,7 @@ type Record struct {
 }
 
 const recordsSQL = postmortemSources + ` SELECT pm.id,pm.incident_id,pm.status,pm.created_at,pm.created_by,
- s.application_id,s.team_id,s.environment_id,s.title,s.severity,s.started_at,
+ s.application_id,s.team_id,s.environment_id,s.title,s.severity,s.severity_labels,s.started_at,
  CASE WHEN pm.source_kind='ops' THEN saved_close.created_at ELSE saved_case.created_at END,
  pm.source_kind,pm.close_event_seq,pm.source_case_status_event_id,jsonb_array_length(pm.actions)
  ` + recordSourceFrom + `
@@ -41,7 +43,8 @@ func (v Record) MarshalJSON() ([]byte, error) {
 		ID             string   `json:"id"`
 		IncidentID     string   `json:"incident_id"`
 		Title          string   `json:"title"`
-		Severity       string   `json:"severity"`
+		Severity       any      `json:"severity"`
+		SeverityReason string   `json:"severity_reason,omitempty"`
 		Resolved       string   `json:"resolved"`
 		Duration       any      `json:"duration"`
 		Status         string   `json:"status"`
@@ -50,10 +53,10 @@ func (v Record) MarshalJSON() ([]byte, error) {
 		SourceRevision string   `json:"source_revision"`
 		UnknownFields  []string `json:"unknown_fields,omitempty"`
 	}
-	out := recordJSON{ID: v.ID, IncidentID: v.IncidentID, Title: v.Title, Severity: v.Severity,
-		Resolved: v.Resolved, Duration: v.Duration, Status: v.Status, CreatedAt: v.CreatedAt,
+	out := recordJSON{ID: v.ID, IncidentID: v.IncidentID, Title: v.Title, Severity: nullable(v.Severity),
+		SeverityReason: v.SeverityReason, Resolved: v.Resolved, Duration: v.Duration, Status: v.Status, CreatedAt: v.CreatedAt,
 		ActionCount: v.ActionCount, SourceRevision: v.SourceRevision, UnknownFields: v.UnknownFields}
-	if len(v.UnknownFields) > 0 {
+	if slices.Contains(v.UnknownFields, "duration") {
 		out.Duration = nil
 	}
 	return json.Marshal(out)
@@ -76,6 +79,7 @@ func (s *Service) Records(w http.ResponseWriter, r *http.Request) {
 	}
 	type row struct {
 		record                  Record
+		labels                  map[string]string
 		app, team, env, author  string
 		start                   *time.Time
 		closed                  time.Time
@@ -98,7 +102,7 @@ func (s *Service) Records(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var v row
 			if err = rows.Scan(&v.record.ID, &v.record.IncidentID, &v.record.Status, &v.created, &v.author,
-				&v.app, &v.team, &v.env, &v.record.Title, &v.record.Severity, &v.start, &v.closed,
+				&v.app, &v.team, &v.env, &v.record.Title, &v.record.Severity, &v.labels, &v.start, &v.closed,
 				&v.kind, &v.closeSeq, &v.statusEventID, &v.record.ActionCount); err != nil {
 				break
 			}
@@ -129,18 +133,17 @@ func (s *Service) Records(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
-			parsed, valid := severity(v.record.Severity)
-			if !valid {
-				httpapi.Error(w, 503, "source_unavailable", "Incident severity cannot be represented by the V3 contract")
-				return
-			}
-			v.record.Severity = parsed
+			// An unknown severity is listed as unknown (PA-247).
+			v.record.Severity, v.record.SeverityReason = severity(v.record.Severity, v.labels)
 			v.record.Resolved = v.closed.UTC().Format(time.RFC3339)
 			v.record.SourceRevision = sourceRevision(v.kind, v.closeSeq, v.statusEventID)
+			if v.record.Severity == "" {
+				v.record.UnknownFields = append(v.record.UnknownFields, "severity")
+			}
 			if v.start != nil {
 				v.record.Duration = duration(*v.start, v.closed)
 			} else {
-				v.record.UnknownFields = []string{"duration"}
+				v.record.UnknownFields = append(v.record.UnknownFields, "duration")
 			}
 			v.record.CreatedAt = v.created.UTC().Format(time.RFC3339)
 			items = append(items, v.record)

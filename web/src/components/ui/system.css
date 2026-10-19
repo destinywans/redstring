@@ -1,4 +1,4 @@
-/* Local, composable primitives. Existing product colors and MiSans remain the
+/* Local, composable primitives. Existing product colors and the shared type roles remain the
    source of truth, including portals rendered outside the application shell. */
 .ui-button,
 .btn,

@@ -123,7 +123,7 @@ P['/runbooks/{id}/history']['get']['responses']['413'] = {
 S['V3PostmortemDashboardKPI'] = obj({'id':string(),'label':string(),'value':string(),
     'unit':string(),'series':{'oneOf':[arr(v3_num()),{'type':'null'}]}},['id','label','value','series'])
 S['V3PostmortemDashboardItem'] = obj({**fieldnames('id title date duration cause root_cause actions incident_id application_id'),
-    'severity':{'oneOf':[string(enum=['P1','P2','P3','P4']),{'type':'null'}]},
+    'severity':{'oneOf':[string(enum=['P1','P2','P3','P4']),{'type':'null'}]},'severity_reason':string(enum=['unclassified','not_filled']),
     'duration':{'type':['string','null']},'root_cause':{'type':['string','null']},
     'status':string(enum=['draft','published']),
     'workflow_status':string(enum=['draft','review','published'])},
@@ -141,27 +141,27 @@ v3_route('get','/postmortems','Read scoped persisted postmortem dashboard eviden
         'page':integer(minimum=1),'page_size':integer(minimum=1),'total':integer(minimum=0)},
         ['kpis','items','causes','impact_by_service','followups','complete_v3_dto','partial',
          'unknown_fields','page','page_size','total']),
-    desc='Reads persisted reports and their exact legacy investigation close or manual case resolved status event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, real source event date, recorded workflow status, action total and the application_id of each record (its service, PA-218). A manual case has no proven outage duration, so duration stays null and dashboard duration coverage is unknown. Invalid severity or absent root text are nullable rather than blocking other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid legacy durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413.')
+    desc='Reads persisted reports and their exact legacy investigation close or manual case resolved status event in one repeatable snapshot with current session and role grant locks, then checks events:view and knowledge:view on each object; unpublished reports additionally require the author or knowledge:manage. Visible records supply title, real source event date, recorded workflow status, action total and the application_id of each record (its service, PA-218). A manual case has no proven outage duration, so duration stays null and dashboard duration coverage is unknown. Unknown severity is null with severity_reason, including the warning default stored before PA-240 for alerts without a severity label (PA-247); absent root text is null; neither blocks other valid reports. The unknown cause category is labeled Unknown, never inferred from prose. KPI values count visible reports and mean resolution time only for valid legacy durations; time series have no producer and remain null. Cause categories, action completion, impact minutes, MTTA and recurrence lack producers, so those collections are null and complete_v3_dto=false. This partial main-route response does not meet the frozen dashboard DTO. More than 1000 visible records returns 413.')
 P['/postmortems']['get']['responses']['413'] = {
     'description':'More than 1000 visible reports exceed the bounded dashboard view',
     'content':{'application/json':{'schema':ref('Error')}}}
 S['V3PostmortemCandidate'] = obj({**fieldnames('id title resolved source_revision'),
-    'duration':{'type':['string','null']},
-    'severity':string(enum=['P1','P2','P3','P4']),
-    'evidence':{'type':['integer','null'],'minimum':0},
+    'duration':{'type':['string','null'],'description':'Null only when unknown_fields lists duration'},
+    'severity':{**v3_nullable(string(enum=['P1','P2','P3','P4'])),'description':'Null when the incident severity is unknown; severity_reason says why and unknown_fields lists severity (PA-247)'},'severity_reason':string(enum=['unclassified','not_filled']),
+    'evidence':{'type':['integer','null'],'minimum':0,'description':'Null only when unknown_fields lists evidence'},
     'unknown_fields':arr(string())},
     ['id','title','severity','resolved','duration','source_revision'])
 S['V3PostmortemSectionInput'] = obj(fieldnames('key title text'),['key','title','text'])
 S['V3PostmortemActionInput'] = obj(fieldnames('text owner due'),['text','owner','due'])
 S['V3PersistedPostmortemRecord'] = obj({**fieldnames('id incident_id title resolved created_at source_revision'),
     'duration':{'type':['string','null']},
-    'severity':string(enum=['P1','P2','P3','P4']),
+    'severity':{**v3_nullable(string(enum=['P1','P2','P3','P4'])),'description':'Null when the incident severity is unknown; severity_reason says why and unknown_fields lists severity (PA-247)'},'severity_reason':string(enum=['unclassified','not_filled']),
     'status':string(enum=['draft','review','published']),
     'action_count':integer(minimum=0),'unknown_fields':arr(string())},
     ['id','incident_id','title','severity','resolved','duration','status','created_at','action_count','source_revision'])
 v3_route('get','/postmortems/candidates','List resolved incidents eligible for a postmortem',
     response=obj({'items':arr(ref('V3PostmortemCandidate'))},['items']),
-    desc='Legacy ops incidents require a real investigation.closed event and retained report; human-confirmed cases require a real resolved status event and may have no Canvas. Both require no existing postmortem and current events:view plus knowledge:view on their registered application or owner team. source_revision binds the observed close event or case status event. Case outage duration and investigation evidence remain null/unknown unless independently proven. More than 1000 visible candidates returns 413; unknown severity returns 503 rather than an invented classification.')
+    desc='Legacy ops incidents require a real investigation.closed event and retained report; human-confirmed cases require a real resolved status event and may have no Canvas. Both require no existing postmortem and current events:view plus knowledge:view on their registered application or owner team. source_revision binds the observed close event or case status event. Case outage duration and investigation evidence remain null/unknown unless independently proven. More than 1000 visible candidates returns 413. An unknown severity is null with severity_reason and listed in unknown_fields rather than an invented classification, and does not fail the list (PA-247).')
 P['/postmortems/candidates']['get']['responses']['413'] = {
     'description':'More than 1000 visible eligible incidents exceed the unpaged response limit',
     'content':{'application/json':{'schema':ref('Error')}}}
@@ -183,7 +183,8 @@ v3_route('post','/postmortems','Create a governed incident postmortem',
     desc='Requires a single selected environment and current events:view plus knowledge:manage on the source application or its persisted owner team. GET /postmortems/draft returns source_revision: ops:<close event seq> or case:<resolved status event id>. A case create must submit that exact source_revision; legacy ops create also accepts the existing source_close_event_seq for compatibility. Missing or invalid source identity returns 422; a changed lifecycle revision or closing source returns 409 and requires re-preview. The write locks session, grants, scope and current source, then stores sections, actions, exact source reference and audit together without executing or notifying. A separate human reviewer publishes.')
 v3_route('get','/postmortems/draft','Read an evidence-only postmortem starting point',
     query=[v3_query('incident')],
-    response=obj({'incident':obj({**fieldnames('id title severity'),
+    response=obj({'incident':obj({**fieldnames('id title'),
+            'severity':{**v3_nullable(string(enum=['P1','P2','P3','P4'])),'description':'Null when the incident severity is unknown; severity_reason says why and missing lists incident.severity (PA-247)'},'severity_reason':string(enum=['unclassified','not_filled']),
             'duration':{'type':['string','null']},
             'started_at':{'type':['string','null'],'format':'date-time','description':'PA-83: incident start in RFC 3339, null with closed_at when unknown'},
             'closed_at':{'type':['string','null'],'format':'date-time','description':'PA-83: incident close in RFC 3339, null with started_at when unknown'}},

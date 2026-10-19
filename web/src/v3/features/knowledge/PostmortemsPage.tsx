@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, useGet } from "../../api/client";
 import type { Postmortem, PostmortemSummary } from "../../api/types";
-import { Badge, Btn, Card, Chip, Col, Icon, Muted, Num, Panel, Pills, Row, SearchBox, Section, Sev, State, TextLink, Spacer } from "../../ui/core";
+import { Badge, Btn, Card, Chip, Col, Icon, Muted, Num, Panel, Pills, Row, SearchBox, Section, State, TextLink, Spacer } from "../../ui/core";
 import { DataTable, Kpi, KpiRow } from "../../ui/data";
 import { Donut, Treemap } from "../../charts";
 import { useI18n } from "../../i18n";
@@ -13,6 +13,7 @@ import { ChipSelect, useFacet } from "../../ui/demo";
 import { Unavailable, UnknownValue } from "../../ui/unknown";
 import { useWhen } from "../../ui/when";
 import { useNames } from "../../ui/names";
+import { SeverityBadge } from "../events/peeks";
 
 /** A real row also carries its stored workflow state and application (the server folds review into draft, PA-218). */
 type Row = Postmortem & { workflow_status?: string; application_id?: string };
@@ -59,7 +60,8 @@ export default function PostmortemsPage() {
               rowHeight={44}
               columns={[
                 { key: "t", header: tx("标题", "Title"), width: "34%", render: (r) => <Row gap={10}><Icon name="file" size={15} color="var(--muted)" /><span className="ellipsis" style={{ fontWeight: 500 }}>{r.title}</span></Row> },
-                { key: "s", header: tx("等级", "Sev"), render: (r) => (r.severity ? <Sev p={r.severity} /> : <UnknownValue />) },
+                // An incident whose recorded severity is unknown says 级别未知 (PA-247).
+                { key: "s", header: tx("等级", "Sev"), render: (r) => <SeverityBadge p={r.severity} reason={r.severity_reason} /> },
                 { key: "d", header: tx("日期", "Date"), render: (r) => <Muted>{when.date(r.date)}</Muted> },
                 { key: "du", header: tx("持续", "Duration"), render: (r) => (r.duration ? <Muted>{r.duration}</Muted> : <UnknownValue />) },
                 { key: "c", header: tx("根因类别", "Cause"), render: (r) => <Badge>{r.cause}</Badge> },

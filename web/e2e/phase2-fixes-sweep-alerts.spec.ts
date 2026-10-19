@@ -713,7 +713,7 @@ test.describe("pipeline drawer actions name the permission they need (PA-228)", 
     await page.addInitScript(zh);
     await meWithout(page, ["conversation.change"]);
     await openPipeline(page);
-    await expect(gateReason(page, "带入调查")).toHaveText("需要 对话与画布·修改 权限");
+    await expect(gateReason(page, "带入调查")).toHaveText("需要 对话·修改 权限");
     await expect(page.locator(".v3-drawer .perm-gate", { hasText: "提议回滚" })).toHaveCount(0);
   });
 

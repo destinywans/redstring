@@ -1,5 +1,7 @@
 # 项目文档
 
+> 文中的 `WAN-xxx` 是作者私有 Linear 里的 issue 编号，外部无法访问。[`plans/`](plans/README.md) 和 [`releases/`](releases/README.md) 是作者在实验环境里的计划与验收记录，包含实验集群、授权与过程细节，不是用户文档。
+
 - [V3 v1.1 页面交互后端交付](releases/2026-10-07-v3-page-interactions.md)、[范围与取舍](plans/2026-10-07-v3-page-interactions.md)：WAN-245～248，新增路由、持久化、服务端筛选及可信来源 503 边界。
 
 - [本地 Docker 清理记录](releases/2026-10-07-docker-cleanup.md)：CP-316，旧容器/镜像精确清理、保留环境及数据恢复边界。
@@ -33,7 +35,7 @@
 
 - [全站38张设计图与离线图库](design/platform-2026-09-21/README.md)：WAN-100，全部子菜单、工作台、交付暂停入口与审计；待用户设计评审，非已实现能力。
 
-需求、取舍和任务状态以 [Linear 项目](https://linear.app/wansss/project/redstring-3c9fce50a53b) 为主。这里维护随代码版本变化的契约与运行说明。
+需求、取舍和任务状态记在作者私有的 Linear 项目里。这里维护随代码版本变化的契约与运行说明。
 
 - [全站搜索与排版规范](design/search-filters.md)、[本轮 UI 反馈交付](releases/2026-09-20-platform-ui-feedback.md)。
 - [通用 Skills / Prompt 范围与权限](ai-extension-scopes.md)。

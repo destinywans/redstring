@@ -760,7 +760,8 @@ export default function CanvasPage() {
   const forkBusy = useRef(false);
   const fork = async () => {
     if (forkBusy.current) return;
-    const parent = selected && selected.kind !== "evidence" ? selected : byId.root;
+    // With nothing selected the branch forks from the root, found by its kind: real roots don't have the ID "root" (PA-245).
+    const parent = selected && selected.kind !== "evidence" ? selected : nodes.find((n) => n.kind === "root");
     if (!parent) return;
     const siblings = nodes.filter((n) => n.parent === parent.id).length;
     const title = tx("新分支 {n}", "New branch {n}", { n: siblings + 1 });

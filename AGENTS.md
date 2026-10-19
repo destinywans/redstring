@@ -1,29 +1,65 @@
-# AIOps Canvas 项目约定
+# Redstring 贡献约定
 
-- 2026-09-20 用户批准前后端并行；前端按 Linear 八张正式概念图实现，第三张用修正版，尽量还原布局与交互。示意数据不能冒充真实业务状态。
-- 2026-09-20 WAN-86：用户明确授权运行 AIOps 产品测试并接通 aiops-test 实验数据后交给本人页面体验。恢复受影响构建、契约、隔离 PG 测试、必要迁移、真实只读数据/模型与浏览器验证；此前暂停已被本次授权取代。保持 CI/CD/外部通知/非实验集群写操作在范围外。
-- MVP 初衷是尽快交付可复现、可用于博客和简历的 SRE 作品。范围变化先回顾原决定与理由，评估展示收益、实现及验收成本并给出建议；新想法不自动成为确认需求。首版聚焦调查、分支上下文、人工批准恢复、Runbook，复用已有连接器做日常只读查询；2026-09-20 用户已明确批准 WAN-87～92：先博客风格/范围/审计，再关联 GitLab、原生 Argo Workflows DAG 和 GitOps/VM 发布；新基线见 docs/plans/2026-09-20-delivery-workspace.md。完整运维平台继续后续再做。
-- 恢复任务先读 `PLAN.md`、`CHECKPOINT.md` 和对应 Linear issue，核对 Git 状态；旧验证仅对应当时源码。
-- 入口：`cmd/aiops`。产品历史在 PG；ADK Session 为单次 Attempt 的执行状态。业务仓储、向量、Embedding、模型和连接器分别适配。
-- API 语义在 `docs/api-contract.md`，机器契约在 `internal/apicontract/openapi.json`。路由变更同时维护 `scripts/build-openapi.py`；生成契约不等于校验通过。
-- 数据结构变更维护 `migrations/` 或模块 Repository.Migrate，明确迁移是否执行。模型只读取证；写动作必须经过明确提案、人工批准和独立执行器。
-- 专用演示集群为 `aiops-canvas-demo`，2026-09-20 新增独立实验集群 `aiops-test` 与 Lima `aiops-test-vm`。必须显式指定实验 kubeconfig；不得修改其他练习集群或切换默认上下文。
-- `.env`、`.local/`、IDE 配置、运行会话和集群凭据不提交；配置示例只放占位符。
-- Web 代码在 `web/`；后续恢复验证时使用 `pnpm --dir web build` 检查受影响前端，Go 只运行受影响模块检查。本轮只做受影响定向验证，不默认运行全量 `make test` / `make verify` 或故障注入。
-- 首次导入为现有后端源码基线；之后独立需求优先使用 `codex/<issue-id>-<topic>`。源码未验证、已提交、已推送和已发布分别记录。
+写给在本仓库里改代码的人和 AI 编码代理。产品介绍和快速开始见 [README](README.md)，领域用语见 [CONTEXT.md](CONTEXT.md)。
 
-- 2026-09-20 批准多应用 SRE 工作区扩展（WAN-74～79）：应用/环境/团队 ACL、告警首页、默认关闭的有界自动初查/巡查、Runbook 治理与上下文预算；见 `docs/plans/2026-09-20-sre-workspace.md`。CI/CD、完整观测平台与多租户仍不在首版范围。具体配置契约见 `docs/README.md`。
+## 项目结构
 
-- 2026-09-20 WAN-82～84：基础设施/可观测性/告警事件/平台设置先接现有真实能力。日常只读查询无需AI；快照可进入调查，不能绕过审批执行。博客mock不迁入真实模式，缺失适配明确待接入。CI/CD继续排除；此处历史暂停约束已由 WAN-86 的明确产品联调授权取代。
+- `cmd/aiops`：产品入口，服务端和命令行子命令都在这里。仓库只有一个 Go 模块。
+- `internal/`：后端模块。PostgreSQL 里的消息、证据、版本和事件是唯一的权威历史；ADK Session 只保存单次 Attempt 的执行状态。业务仓储、向量、Embedding、模型和连接器分别适配，换实现不改写历史。
+- `internal/apicontract/openapi.json`：机器可读的 API 契约（生成产物，见下文）。
+- `migrations/`：按序号命名的 SQL 迁移，嵌入二进制，服务启动时执行。
+- `web/`：前端（React、TypeScript、Vite）。默认界面在 `web/src/v3`，旧界面保留在 `/legacy`。
+- `scripts/`：本地启动、契约生成与检查脚本。
+- `demo/`：故障演示用的示例服务、遥测和实验命令行，见 `docs/demo.md`。
+- `tools/testlab`、`tools/acceptance`：作者实验环境里用的测试与验收工具，依赖作者本机的集群和服务，普通贡献不需要运行。
+- `docs/`：契约与运行说明。`docs/plans/`、`docs/releases/` 是作者的计划与验收记录，不是用户文档。
 
-- 2026-09-23 AI-first 纠偏：平台定位为整合现有能力、由 AI 串联的企业 SaaS（SRE + DevOps）；Canvas 是复杂运维核心（节点上下文隔离、父子孙派生、后代结论回写祖先），对话模式并存；两种模式共用富消息渲染；首页为关注总览 + AI 入口；集成中心为核心模块；交付冻结保留、RBAC/团队保留；UI 走 Linear 式简洁风格。基线见 `docs/plans/2026-09-23-ai-first-realignment.md`，取代 `2026-09-23-frontend-ui-refactor.md` 的 P2/P3。
+## 构建与校验
 
-- 2026-09-24 用户确认设计稿 v3 并恢复前端开发：按稿实施全部页面与 UI（Mock 数据、深浅色、中英文），只做前端并约定 API 契约；旧前端保留在 `/legacy`。见 `docs/plans/2026-09-24-v3-frontend.md`。后端与 CI/CD 仍不在本轮范围。
+需要 Go 1.27.1、Node 与 pnpm、Docker Compose（本地 PostgreSQL + pgvector）。
 
-- 2026-10-09 用户要求以生产验收为目标做完整前后端联调与全量回归（计划见 `docs/plans/2026-10-09-production-acceptance.md`）：功能、权限、故障本轮做，性能与 24 小时后置；边测边修，界面改动先出设计图；AI 流程用 DeepSeek；允许在 aiops-test 三台 Lima 虚拟机 Kubernetes（显式 `.local/vm-cluster/kubeconfig`）上做写操作和受控故障注入，不碰其他集群和默认上下文。验收实例与数据只在 `.local/acceptance/` 和独立 PG `aiops-acceptance-pg`，不改现有业务库或 testlab 数据。无关联的测试并行执行。
+```sh
+go build ./...
+go vet ./...
+go test -race ./internal/<受影响的包>/...
+pnpm --dir web install --frozen-lockfile
+pnpm --dir web build            # tsc -b + vite build
+```
 
-- 2026-10-16 用户批准缺陷收敛计划（WAN-434，`docs/plans/2026-10-16-defect-convergence.md`）：先过覆盖门槛，再连续 5 轮无新的 P0/P1；授权沿用 2026-10-09 的范围；收敛期间冻结新功能，缺陷修复不改外观，新界面元素先出设计图。性能/24 小时、环境广度、安全审查、运维能力不在本轮。
+- 只跑受影响的包和检查即可，提交说明里写清跑了哪些。
+- 需要数据库的测试读 `TEST_DATABASE_URL`，每个测试套件只建、删自己随机命名的 schema。全量校验：先 `make init db`（生成 `.env` 并启动本地数据库），再 `./scripts/verify.sh --postgres`（`go test -race ./...`、`go vet ./...` 和契约检查）。
+- 真实模型、真实 Kubernetes 的冒烟测试是单独的证据，不在默认测试里。
 
-- 2026-10-17 缺陷收敛阶段 2：每轮值班按 `docs/plans/2026-10-17-convergence-round.md` 执行，轮内由该会话独占检出目录与两个验收实例（D49 沿用）。任何会话在验收实例上部署或跑测试前先拿实例锁 `.local/acceptance/instance.lock`（JSON：owner、purpose、since），用完删掉；锁在别的会话手里且不到 12 小时就不动实例。
+## API 契约
 
-- 2026-10-19 用户批准收尾与公开发布方案（`docs/plans/2026-10-18-release-wrap-up.md`）：目标改为 v0.1.0 公开发布（beta，不建议生产使用），用发布门槛 G1～G6 替代“连续 5 轮无新 P0/P1”；第 3 轮为发布验收轮（加时间注入演练），之后发布前不再自动开轮。冻结新功能持续到 v0.1.0 发布；仓库可见性、GitHub Release、已知问题建 issue 等对外动作由用户执行或逐次确认。
+- 语义说明在 `docs/api-contract.md`，V3 接口在 `docs/api/`。`internal/apicontract/openapi.json` 由 `scripts/build-openapi.py` 及其引入的 `scripts/*-openapi.py` 生成，不要手改 JSON。
+- 新增、删除或修改路由时，在同一个提交里更新生成脚本、重新生成契约，并跑下面的检查。生成成功不等于校验通过。
+
+```sh
+python3 scripts/build-openapi.py
+git diff --exit-code internal/apicontract/openapi.json   # 提交的契约是最新的
+python3 scripts/check-contract.py                        # 引用有效，与源码声明的路由一致
+python3 scripts/check-v3-contract.py                     # docs/api/v3-contract.md 与前端 mock 路由一致
+```
+
+## 数据库迁移
+
+- 数据结构变化写成 `migrations/` 里的新迁移（用下一个序号），或者放进对应模块的 `Migrate`。
+- 迁移按文件名记录在 `schema_migrations` 表里：已经在某个库上执行过的文件，改内容不会再执行，所以结构变化要用新文件表达。
+- 提交或 PR 说明里写明迁移有没有在本地数据库上实际执行过。
+
+## 产品原则
+
+改动涉及模型、工具或执行路径时，先确认没有违反这几条：
+
+- **模型只读取证。** 给模型用的工具只能读取；模型的猜测不是证据，结论要能追到具体的工具调用、检索结果或 Trace。
+- **写动作必须经过明确提案、人工批准和独立执行器。** 任何会改变外部系统的操作（Kubernetes、GitLab、告警规则、配置等）先形成一份冻结的具体提案，由有权限的人批准，再交给与 Agent 隔离的执行器执行并记录结果。结果不明时先核对实际状态，不盲目重试。上下文继承和分支合并不继承授权。
+- **授权在服务端。** 权限和同源校验都在服务端完成，前端隐藏按钮不算权限控制。
+- **不冒充真实数据。** 示例和演示数据要标明；缺少真实适配时显示“待接入”或“未知”，不要编造状态。
+- 界面支持中英文和深浅色，改界面文案时两种语言都要更新。
+
+## 凭据与本地文件
+
+- 不提交 `.env`、`.local/`、IDE 配置、运行会话、kubeconfig 或任何凭据。配置示例只放占位符（见 `.env.example`）。
+- 测试里的假凭据用一眼能看出是假的值，例如 `example.invalid` 域名、`synthetic-*`、`test-*`。
+- 个人或本机的代理指令放在不进仓库的文件里，`.gitignore` 已经列出 `CLAUDE.local.md`、`AGENTS.override.md`。注意：Claude Code 发现 `CLAUDE.local.md` 后默认不再读取本文件，需要在里面写一行 `@AGENTS.md` 导入；Codex 的 `AGENTS.override.md` 会代替本文件，需要把本文件的内容一并放进去。

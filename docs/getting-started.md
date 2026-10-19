@@ -24,7 +24,7 @@ Vite 开了 `strictPort`，5173 被占用时直接报 `Port 5173 is already in u
 
 `compose.yaml` 固定了项目名 `aiops-canvas`，数据库卷叫 `aiops-canvas_database`。如果这台机器上已经有同名项目（例如旧 checkout 跑过 `make db`），新的 `make db` 会接着用旧卷：PostgreSQL 只在空卷上初始化，旧数据和旧密码都保留，新 `.env` 的密码连不上。这时在 `.env` 里加一行 `COMPOSE_PROJECT_NAME=<新名字>`，`make db` 和之后的 `docker compose` 命令就会用新的项目和卷。
 
-2026-10-19 在 main `9d19f21e` 的干净 clone 上验证过：示例数据模式、最小实例（Vite 和 Go 托管两种方式）、`go build` 与 `pnpm --dir web build`。环境为 macOS arm64、Go 1.27.1、Node 26.11.0、pnpm 12.4.1、Docker Compose 5.6.0。Docker Compose 的 `app` profile 没有实跑。
+2026-10-19 在 main `9d19f21e` 的干净 clone 上验证过：示例数据模式、最小实例（Vite 和 Go 托管两种方式）、`go build` 与 `pnpm --dir web build`。环境为 macOS arm64、Go 1.27.1、Node 26.11.0、pnpm 12.4.1、Docker Compose 5.6.0。Docker Compose 的 `app` profile 没有实跑。打 tag 前又在 `94f8933d` 的干净 clone 上重验：`go build`（`vcs.modified=false`）与 `pnpm --dir web build` 通过；按 README 的快速开始起最小实例，Vite 开发方式（`make web-api`）和 Go 托管（`make run`）都能登录，实例描述、工作区品牌（Redstring）、服务、首页接口正常；`OLLAMA_MODEL=` 时模型列表为空，`make init` 默认值时模型目录列出 `qwen3.6:latest`。这次没有逐页浏览界面。
 
 ## 两种前端模式
 

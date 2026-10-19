@@ -165,4 +165,4 @@ React · TypeScript · Vite · React Flow · assistant-ui · Go 1.27.1 · Google
 
 ## 许可证
 
-[Apache-2.0](LICENSE)。随仓库分发的第三方内容（MiSans 字体、拼音词典、集成图标等）各有自己的许可，不受 Apache-2.0 覆盖，见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+[Apache-2.0](LICENSE)。随仓库分发的第三方内容（拼音词典、集成图标、界面图标等）各有自己的许可，不受 Apache-2.0 覆盖；产品名称和标志是各自所有者的商标，只用来标识对应的集成。v0.1.0 之前的提交里有 MiSans 字体文件，受小米的字体许可约束。详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

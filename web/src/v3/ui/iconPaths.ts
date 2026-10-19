@@ -1,4 +1,5 @@
-/* Stroke icon set used by the v3 design (Lucide-derived paths, ISC licence). */
+/* Stroke icon set used by the v3 design. Paths derived from Lucide (https://github.com/lucide-icons/lucide), ISC License;
+   copyright and license text in LICENSE.lucide next to this file. */
 export const ICONS = {
   home: `<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline>`,
   message: `<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>`,

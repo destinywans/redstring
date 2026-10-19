@@ -167,6 +167,24 @@ test.describe("coverage shares the server can't give (PA-181)", () => {
   });
 });
 
+test.describe("coverage filter counts come from the rows (PA-255)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("All, T0 and With gaps count the server's rows, not the sample's 42 / 8 / 24", async ({ page }) => {
+    await page.addInitScript(zh);
+    const row = (service: string, tier: string, score: number | null) => ({ service, tier, cells: {}, score });
+    await page.route(at("/coverage"), (r) =>
+      json(r, 200, { kpis: [], types: [], columns: [], rows: [row("检查用甲", "T0", 100), row("检查用乙", "T1", null), row("检查用丙", "T2", 50)], impact: { answers: "", flagged: "", delta: "", lowered: "", by_type: [], eval_failures: 0 }, fixes: [] }),
+    );
+    await page.goto(origin + "/integrations/coverage");
+    await expect(page.getByText("检查用乙")).toBeVisible({ timeout: 20_000 });
+    const pill = (name: string) => page.getByRole("button", { name: new RegExp(`^${name}\\s*\\d*$`) }).first();
+    await expect(pill("全部")).toHaveText(/全部\s*3$/);
+    await expect(pill("T0")).toHaveText(/T0\s*1$/);
+    await expect(pill("有缺失")).toHaveText(/有缺失\s*2$/);
+  });
+});
+
 test.describe("unknown revision time across days (PA-180)", () => {
   test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
 

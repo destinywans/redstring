@@ -49,3 +49,72 @@ test("the new template dialog offers general canvases even when the first page i
   await expect.poll(() => posted.length).toBe(1);
   expect(posted[0].from_canvas).toBe("cv-check-plan-1");
 });
+
+/* ---------------- rollback review says the revision is the one read when proposed (PA-257) ---------------- */
+// A pending rollback proposal is a frozen document: from_revision is what the proposer read. Calling it "current" was
+// a claim about the cluster the page never checks (two nonprod proposals said "current 80" while checkout-api was 91).
+const at0 = "2026-10-19T09:00:00Z";
+const rollbackProposal = (changes: object[]) => ({
+  id: "pa257-check", title: "检查用回滚提案", status: "pending", risk: "medium", impact: "checkout-api in nonprod", reversible: true,
+  proposed_by: "check-proposer", proposed_by_name: "Check Proposer", proposed_at: at0, investigation_id: "inv-pa257-check",
+  target: "Deployment checkout/checkout-api", diff: null, method: "Kubernetes rollback", evidence: [], verification: [], verification_note: "",
+  checklist: [], requirement: "Two approvers with passkeys", discussion: [], action_kind: "kubernetes.deployment.rollback",
+  rollback: {
+    service_id: "svc-check", application_id: "app-check", environment_id: "prod", namespace: "checkout", deployment: "checkout-api",
+    from_revision: "80", target_revision: "79", containers: [{ name: "app", image: "registry.example.invalid/checkout:1.2.3" }], changes,
+    verification: { observation_seconds: 360, request_rate_query_id: "q-rate", error_ratio_query_id: "q-err", sample_age_query_id: "q-age", max_error_ratio: 0.05, min_request_rate: 0.1 },
+    reason: "检查用",
+  },
+  alert_rule: null, execution: null, decision: null, my_vote: null,
+});
+
+test.describe("rollback review revision wording (PA-257)", () => {
+  test.use({ storageState: statePath("prod", "admin") });
+  for (const [label, changes] of [
+    ["with template differences", [{ container: "app", field: "image", name: null, from: "registry.example.invalid/checkout:1.2.4", to: "registry.example.invalid/checkout:1.2.3", value_hidden: false }]],
+    ["without template differences", []],
+  ] as const) {
+    test(`a pending rollback names the revision read when proposed, not the current one (${label})`, async ({ page }) => {
+      await page.addInitScript(zh);
+      await page.route(at("/proposals/pa257-check"), (r) => json(r, 200, rollbackProposal([...changes])));
+      await page.goto(origin + "/review/pa257-check");
+      await expect(page.getByText("提案时 80 → 回滚到 79")).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText(/当前 80/)).toHaveCount(0);
+      await expect(page.getByText("与当前相同")).toHaveCount(0);
+      await expect(page.getByText(/提案时读取的 Deployment/).first()).toBeVisible();
+    });
+  }
+});
+
+/* ---------------- a tool step with a failed call isn't summed up as a green check (PA-266) ---------------- */
+const conversation = (calls: object[]) => ({
+  id: "conv-pa266-check", title: "检查用对话", mode: "chat", status: "active", scope: { inferred: true },
+  messages: [
+    { id: "m1", role: "user", author: "Check", created_at: at0, parts: [{ type: "text", markdown: "checkout-api 怎么了" }] },
+    { id: "m2", role: "assistant", author: "Redstring", created_at: at0, parts: [
+      { type: "tool_calls", summary: `${calls.length} tool calls`, calls, tokens: 1200, duration_s: 2 },
+      { type: "text", markdown: "检查用回答" },
+    ] },
+  ],
+  artifacts: [], side: { connectors: [], context: { used: null, budget: null, parts: [] }, recalled: [] },
+});
+const call = (id: string, status: "ok" | "error") => ({ id, connector: "kubernetes", tool: id === "c1" ? "list_services" : "read_service_metrics", args: "{}", duration_ms: 120, status });
+
+test.describe("tool step summary (PA-266)", () => {
+  test.use({ storageState: statePath("prod", "admin") });
+  test("a failed call marks the folded tool step as failed; all ok keeps the check", async ({ page }) => {
+    await page.addInitScript(zh);
+    let calls = [call("c1", "error"), call("c2", "ok")];
+    await page.route(at("/conversations/conv-pa266-check"), (r) => json(r, 200, conversation(calls)));
+    await page.goto(origin + "/conversations/conv-pa266-check");
+    const head = page.locator(".part-tools .head").first();
+    await expect(head).toContainText("调用了 2 个工具", { timeout: 20_000 });
+    await expect(head.locator('svg.v3-i[style*="var(--danger)"]')).toHaveCount(1);
+    await expect(head.locator('svg.v3-i[style*="var(--ok)"]')).toHaveCount(0);
+    calls = [call("c1", "ok"), call("c2", "ok")];
+    await page.reload();
+    await expect(head).toContainText("调用了 2 个工具", { timeout: 20_000 });
+    await expect(head.locator('svg.v3-i[style*="var(--ok)"]')).toHaveCount(1);
+    await expect(head.locator('svg.v3-i[style*="var(--danger)"]')).toHaveCount(0);
+  });
+});

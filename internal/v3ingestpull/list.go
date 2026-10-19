@@ -20,8 +20,10 @@ type pullListItem struct {
 	ConnectorID   string  `json:"connector_id"`
 	ConnectorName *string `json:"connector_name"`
 	QueryID       string  `json:"query_id"`
-	// State is ready when the bound connector and metric target can serve a
-	// preview now, source_unavailable when they are disabled or unbound.
+	// State is ready when the connector is enabled and the metric target is
+	// bound, source_unavailable when they are disabled or unbound. The list
+	// never reads the upstream, so ready says the source is configured, not
+	// that the upstream answers (PA-248); POST /ingest/pull/{id}/test does.
 	State string `json:"state"`
 	Href  string `json:"href"`
 }

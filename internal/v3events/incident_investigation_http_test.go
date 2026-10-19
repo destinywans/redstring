@@ -83,13 +83,15 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 		}
 	}
 	exec(`DELETE FROM v3_role_grants WHERE role_id='viewer'`)
-	exec(`INSERT INTO rbac_roles(id,name) VALUES('event-viewer','Event Viewer')`)
+	exec(`INSERT INTO rbac_roles(id,name) VALUES('event-viewer','Event Viewer'),('event-operator','Event Operator')`)
 	exec(`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('viewer','environment','view','environment','dev'),('viewer','environment','view','environment','test'),
- ('event-viewer','events','view','application','app')`)
+ ('event-viewer','events','view','application','app'),
+ ('event-operator','events','view','application','app'),('event-operator','events','change','application','app')`)
 	operator, token := login("operator@example.invalid")
+	reader, readOnly := login("reader@example.invalid")
 	_, outsider := login("outsider@example.invalid")
-	exec(`INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'event-viewer')`, operator.ID)
+	exec(`INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'event-operator'),($2,'event-viewer')`, operator.ID, reader.ID)
 	exec(`INSERT INTO applications(id,name,key,environment) VALUES('app','App','app','dev')`)
 	exec(`INSERT INTO application_environments(id,application_id,key,name) VALUES('app-dev','app','dev','Dev')`)
 	exec(`INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app','dev')`)
@@ -141,6 +143,20 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 		return n
 	}
 
+	// PA-252: opening one writes (an investigation, the incident's status), so
+	// events.view alone is refused with 403 and nothing is created; the V3
+	// route skips the legacy "operator" minimum role, so the handler checks.
+	for _, id := range []string{"incident", "INC-1"} {
+		if status, body := open(id, "dev", readOnly, `{}`); status != 403 {
+			t.Fatalf("read-only %s: %d %v", id, status, body)
+		}
+	}
+	if count(`SELECT count(*) FROM investigations`) != 0 ||
+		count(`SELECT count(*) FROM ops_incidents WHERE id='incident' AND status='open' AND investigation_id=''`) != 1 ||
+		count(`SELECT count(*) FROM v3_incident_cases WHERE id='INC-1' AND investigation_id IS NULL`) != 1 {
+		t.Fatal("a read-only request opened an investigation")
+	}
+
 	// An alert incident: a new investigation for its service and environment.
 	status, body := open("incident", "dev", token, `{}`)
 	investigation, _ := body["investigation_id"].(string)
@@ -181,6 +197,10 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 	if status, again := open("incident", "dev", token, `{}`); status != 200 || again["investigation_id"] != investigation ||
 		count(`SELECT count(*) FROM investigations`) != 1 {
 		t.Fatalf("reuse: %d %v", status, again)
+	}
+	// A linked investigation is opened through its link; the POST still needs events.change.
+	if status, again := open("incident", "dev", readOnly, `{}`); status != 403 {
+		t.Fatalf("read-only reuse: %d %v", status, again)
 	}
 	// A manual incident: titled after it, with its impact as the goal.
 	status, body = open("INC-1", "dev", token, `{}`)

@@ -212,3 +212,39 @@ test.describe("server English in the incident flow (PA-166)", () => {
     test.skip(fixed === 0, "no investigation whose root keeps its fixed title");
   });
 });
+
+test.describe("starting an investigation needs events.change (PA-252)", () => {
+  test.use({ storageState: statePath("prod", "viewer") });
+
+  test("a read-only member sees Investigate gated with the grant it needs and sends nothing", async ({ page }) => {
+    await page.addInitScript(zh);
+    const opened: string[] = [];
+    await page.route(at(`/incidents/${ID}/investigation`), (r) => {
+      opened.push(r.request().method());
+      return json(r, 403, { error: { code: "forbidden", message: "Check: must not be sent" } });
+    });
+    await openIncident(page, incident({ investigation_id: null, links: [{ kind: "alert", label: "LabHigh5xxRate", href: "/incidents/alert-check" }] }));
+    const start = page.getByRole("button", { name: "发起调查", exact: true });
+    await expect(start).toBeVisible({ timeout: 20_000 });
+    await expect(start).toBeDisabled();
+    await expect(page.locator(".perm-gate", { has: start })).toContainText("需要 事件与告警·修改 权限");
+    await start.click({ force: true });
+    await page.waitForTimeout(500);
+    expect(opened).toEqual([]);
+  });
+
+  test("a linked investigation still opens for a read-only member, without the POST", async ({ page }) => {
+    await page.addInitScript(zh);
+    const opened: string[] = [];
+    await page.route(at(`/incidents/${ID}/investigation`), (r) => {
+      opened.push(r.request().method());
+      return r.fallback();
+    });
+    await openIncident(page, incident({}));
+    const open = page.getByRole("button", { name: "打开调查画布", exact: true });
+    await expect(open).toBeEnabled({ timeout: 20_000 });
+    await open.click();
+    await page.waitForURL(/\/canvas\/INV-check$/);
+    expect(opened).toEqual([]);
+  });
+});

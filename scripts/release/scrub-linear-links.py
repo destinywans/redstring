@@ -22,6 +22,7 @@ fit none of the rules; such links are listed and left unchanged.
 """
 import argparse
 import collections
+import os
 import re
 import subprocess
 import sys
@@ -55,11 +56,13 @@ class Scrubber:
             r"<a\s[^>\n]*?href=\"(?P<url>" + base + r"[^\"]*)\"[^>\n]*>(?P<text>[^<\n]*)</a>"
         )
         self.autolink = re.compile(r"<(?P<url>" + base + r"[^\s<>]*)>")
-        # Not right after "](" or href=": those are links the rules above could
-        # not parse (brackets in the text, say); they are reported, not mangled.
-        bare = r"(?<!\]\()(?<!href=\")" + base
-        self.bare_issue = re.compile(bare + r"issue/(?P<id>" + ISSUE_ID + r")(?:/" + BARE_SLUG + r")*/?")
-        self.bare_other = re.compile(bare + r"(?P<kind>project|document)/(?P<slug>" + BARE_SLUG + r")(?:/" + BARE_SLUG + r")*/?")
+        # Not right after "](" or an href: those are links the rules above could
+        # not parse (brackets in the text, single quotes); and not followed by a
+        # "#fragment" or "?query". Such links are reported, not mangled.
+        bare = r"(?<!\]\()(?<!href=\")(?<!href=')" + base
+        end = r"/?(?![\w%~/#?-])"
+        self.bare_issue = re.compile(bare + r"issue/(?P<id>" + ISSUE_ID + r")(?:/" + BARE_SLUG + r")*" + end)
+        self.bare_other = re.compile(bare + r"(?P<kind>project|document)/(?P<slug>" + BARE_SLUG + r")(?:/" + BARE_SLUG + r")*" + end)
 
     def classify(self, url):
         """Return (kind, issue_id_or_slug) for a full link URL, or None."""
@@ -78,7 +81,7 @@ class Scrubber:
             return text or name_from_slug(ref)
         if not text or text == ref:
             return ref
-        if ref in text:
+        if re.search(r"(?<![A-Za-z0-9-])" + re.escape(ref) + r"(?!\d)", text):
             return text
         return f"{text}（{ref}）" if has_cjk(text) else f"{text} ({ref})"
 
@@ -149,6 +152,14 @@ def main():
     root = Path(
         subprocess.run(["git", "rev-parse", "--show-toplevel"], check=True, capture_output=True, text=True).stdout.strip()
     )
+    excludes = []
+    for raw in args.exclude:
+        rel = os.path.normpath(raw)
+        if os.path.isabs(rel) or rel.startswith(".."):
+            parser.error(f"--exclude {raw}: give a path inside the repository, relative to its root")
+        if not (root / rel).exists():
+            parser.error(f"--exclude {raw}: no such file or directory under {root}")
+        excludes.append(rel)
     scrubber = Scrubber(args.workspace)
     needle = ("linear.app/" + args.workspace + "/").encode()
     totals = collections.Counter()
@@ -156,7 +167,7 @@ def main():
     problems = []
 
     for rel in tracked_files(root):
-        if excluded(rel, args.exclude):
+        if excluded(rel, excludes):
             continue
         path = root / rel
         if path.is_symlink() or not path.is_file():

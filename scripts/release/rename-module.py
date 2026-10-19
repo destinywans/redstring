@@ -32,10 +32,16 @@ def run(cmd, root, **kw):
     return subprocess.run(cmd, cwd=root, text=True, **kw)
 
 
-def gofmt_unformatted(root, files):
+def gofmt_path(root):
+    """The gofmt of the toolchain `go` selects (GOTOOLCHAIN may switch it), not whatever is on PATH."""
+    goroot = run(["go", "env", "GOROOT"], root, check=True, capture_output=True).stdout.strip()
+    return str(Path(goroot) / "bin" / "gofmt")
+
+
+def gofmt_unformatted(gofmt, root, files):
     if not files:
         return set()
-    out = run(["gofmt", "-l", *files], root, check=True, capture_output=True).stdout
+    out = run([gofmt, "-l", *files], root, check=True, capture_output=True).stdout
     return set(out.split())
 
 
@@ -103,12 +109,13 @@ def main():
         return 0
 
     go_files = [rel for rel, _, _ in plan if rel.endswith(".go")]
-    unformatted_before = gofmt_unformatted(root, go_files)
+    gofmt = gofmt_path(root)
+    unformatted_before = gofmt_unformatted(gofmt, root, go_files)
     for rel, _, new_text in plan:
         (root / rel).write_text(new_text, encoding="utf-8")
-    reformat = sorted(gofmt_unformatted(root, go_files) - unformatted_before)
+    reformat = sorted(gofmt_unformatted(gofmt, root, go_files) - unformatted_before)
     if reformat:
-        run(["gofmt", "-w", *reformat], root, check=True)
+        run([gofmt, "-w", *reformat], root, check=True)
     print(f"gofmt: rewrote {len(reformat)} files whose import order changed"
           + (f"; left {len(unformatted_before)} already-unformatted files as they were" if unformatted_before else ""))
 

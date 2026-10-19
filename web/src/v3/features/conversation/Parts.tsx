@@ -41,12 +41,14 @@ function ToolCalls({ p }: { p: Extract<Part, { type: "tool_calls" }> }) {
   const { tx } = useI18n();
   const [open, setOpen] = useState(false);
   const running = p.calls.some((c) => c.status === "running");
+  // The folded head sums up the calls: one failed call must not read as a green check (PA-266).
+  const failed = p.calls.some((c) => c.status === "error");
   const kinds = [...new Set(p.calls.map((c) => c.connector))];
   return (
     <div className="part-tools">
       <button type="button" className="head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
         <Icon name="right" size={12} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 150ms" }} />
-        {running ? <span className="v3-spinner spin" style={{ color: "var(--accent)" }} /> : <Icon name="check" size={13} color="var(--ok)" />}
+        {running ? <span className="v3-spinner spin" style={{ color: "var(--accent)" }} /> : failed ? <Icon name="x" size={13} color="var(--danger)" /> : <Icon name="check" size={13} color="var(--ok)" />}
         {/* The server's summary is "N tool calls" in English; say it in the reader's language. */}
         <b>{/^\d+ tool calls?$/.test(p.summary) ? tx("调用了 {n} 个工具", "Called {n} tools", { n: p.calls.length }) : p.summary}</b>
         {kinds.map((k) => (

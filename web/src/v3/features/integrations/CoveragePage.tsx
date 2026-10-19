@@ -93,9 +93,10 @@ export default function CoveragePage() {
             value={filter}
             onChange={setFilter}
             options={[
-              { value: "all", label: tx("全部", "All"), count: 42 },
-              { value: "t0", label: "T0", count: 8 },
-              { value: "gaps", label: tx("有缺失", "With gaps"), count: 24 },
+              // Counted from the server's rows like the filter itself; the fixed numbers belong to the sample (PA-255).
+              { value: "all", label: tx("全部", "All"), count: API_MODE === "mock" ? 42 : data?.rows.length },
+              { value: "t0", label: "T0", count: API_MODE === "mock" ? 8 : data?.rows.filter((r) => r.tier === "T0").length },
+              { value: "gaps", label: tx("有缺失", "With gaps"), count: API_MODE === "mock" ? 24 : data?.rows.filter((r) => r.score == null || r.score < 100).length },
             ]}
           />
           <SearchBox placeholder={tx("搜索服务", "Search services")} value={q} onChange={setQ} width={180} />

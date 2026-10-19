@@ -1,7 +1,5 @@
 # 安全策略 / Security policy
 
-> **草稿。** 私密漏洞报告要在仓库公开后由维护者在 GitHub 仓库设置里开启（Settings → Code security → Private vulnerability reporting）；开启后删掉本行。
-
 Redstring 目前是 **v0.1.0 beta**，不建议用于生产环境，也没有做过独立安全审查。请只在测试环境里运行，不要暴露到公网（见 README 的[「安全须知」](README.md#安全须知)）。
 
 ## 支持的版本

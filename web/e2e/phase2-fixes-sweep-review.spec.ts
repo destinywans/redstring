@@ -177,6 +177,30 @@ test.describe("review page states (PA-205)", () => {
   });
 });
 
+// PA-263 (WAN-617): the review page decided "already voted" once, at render; with the page left open past the vote's
+// expiry it still said 待审批 instead of asking this approver again.
+test.describe("a lapsed first vote while the page is open (PA-263)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("once my_vote.expires_at passes the header asks you to review again", async ({ page }) => {
+    await page.addInitScript(zh);
+    const now = Date.now();
+    await page.clock.install({ time: now });
+    const body = proposal({ action_kind: "alertmanager.silence.create", my_vote: { verified_at: new Date(now - 60_000).toISOString(), expires_at: new Date(now + 2 * 60_000).toISOString() } });
+    await page.route(at(`/proposals/${reviewId}`), (r) => json(r, 200, body));
+    await page.goto(origin + "/healthz");
+    await patchRead(page, "/me", (me) => ({
+      ...me,
+      permissions: Object.fromEntries(Object.entries((me?.permissions ?? {}) as Record<string, Record<string, Record<string, string>>>).map(([env, mods]) => [env, { ...mods, proposals: { ...(mods?.proposals ?? {}), approve: "conditional" } }])),
+    }));
+    await page.goto(origin + `/review/${reviewId}`);
+    const top = page.locator(".v3-topbar");
+    await expect(top).toContainText("待审批", { timeout: 20_000 });
+    await page.clock.fastForward("05:00");
+    await expect(top).toContainText("待你复核", { timeout: 10_000 });
+  });
+});
+
 // PA-219 (WAN-578): a proposal the page couldn't read (another environment's, removed, no grant, server down) left the
 // review page on its skeleton for ever.
 test.describe("review page read failures (PA-219)", () => {

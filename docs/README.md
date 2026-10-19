@@ -1,6 +1,8 @@
 # 项目文档
 
-> 文中的 `WAN-xxx` 是作者私有 Linear 里的 issue 编号，`CP-xxx` 是作者私有检查点记录的编号，外部都无法访问。[`plans/`](plans/README.md) 和 [`releases/`](releases/README.md) 是作者在实验环境里的计划与验收记录，包含实验集群、授权与过程细节，不是用户文档。
+**从这里开始**：[运行与部署](getting-started.md) · [已知问题](KNOWN_ISSUES.md) · [v0.1.0 发布说明](releases/v0.1.0.md) · [安全报告](../SECURITY.md)
+
+> 文中的 `WAN-xxx` 是作者私有 Linear 里的 issue 编号，外部无法访问；`CP-xxx` 是作者检查点记录的编号，检查点文件已移出当前文件树，旧提交里仍可见。[`plans/`](plans/README.md) 和 [`releases/`](releases/README.md) 是作者在实验环境里的计划与验收记录，包含实验集群、授权与过程细节，不是用户文档。
 
 - [V3 v1.1 页面交互后端交付](releases/2026-10-07-v3-page-interactions.md)、[范围与取舍](plans/2026-10-07-v3-page-interactions.md)：WAN-245～248，新增路由、持久化、服务端筛选及可信来源 503 边界。
 

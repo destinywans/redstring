@@ -96,7 +96,7 @@ VITE_API_MODE=http make web-dev
 | 想要 | `.env` 怎么写 | 界面表现 |
 | --- | --- | --- |
 | 先不接模型 | `OLLAMA_MODEL=` | 模型列表为空，选择器提示“没有匹配的模型”；发送时提示没有可用模型 |
-| 本机 Ollama | `make init` 的默认值，不用改；先 `ollama pull qwen3.6:latest`，换模型只改 `OLLAMA_MODEL` | 走 Ollama 的 OpenAI 兼容接口，模型显示“已配置；连接状态未验证” |
+| 本机 Ollama | `make init` 的默认值，不用改；先 `ollama pull qwen3.6:latest` 和 `ollama pull bge-m3`（Embedding，缺了向量索引会失败、关键词检索照常），换模型只改 `OLLAMA_MODEL` | 走 Ollama 的 OpenAI 兼容接口，模型显示“已配置；连接状态未验证” |
 | DeepSeek 等 OpenAI 兼容接口 | 按 `.env.example` 的 `OPENAI_*` 注释配置 | 同上 |
 
 2026-10-19 只验证了前两行的模型目录和空模型时的提示（第二行当时是手工加的同一组配置，`make init` 默认值后来改成了它），没有用真实模型生成过回复。
@@ -119,15 +119,17 @@ go build -o bin/aiops ./cmd/aiops
 pnpm --dir web build
 ```
 
-不加 `-o` 时 `go build ./cmd/aiops` 会在仓库根目录留下约 60 MB 的 `aiops`，它不在 `.gitignore` 里（`bin/` 已忽略）。前端构建会提示个别 chunk 超过 500 kB，这是已知警告，不影响产物。
+不加 `-o` 时 `go build ./cmd/aiops` 会在仓库根目录留下约 60 MB 的 `aiops`（已在 `.gitignore` 里），建议用上面的 `-o bin/aiops`。前端构建会提示个别 chunk 超过 500 kB，这是已知警告，不影响产物。
 
 ## Docker Compose
+
+**用 Docker Compose 运行整个应用目前不可用**（原因见本节末尾），请用前两节的宿主机方式；数据库照常由 `make db` 起。下面的命令只作参考：
 
 ```sh
 docker compose --profile app up -d --build
 ```
 
-数据保存在独立 volume，`docker compose down` 默认保留；不要随意加 `-v`。服务器部署需配置 HTTPS 反向代理、实际 `AIOPS_PUBLIC_ORIGIN` 与 `AIOPS_SECURE_COOKIES=true`。模型和集群凭据保留在服务端；本地默认端口仅映射回环。
+数据保存在独立 volume，`docker compose down` 默认保留；不要随意加 `-v`。服务器部署需配置 HTTPS 反向代理、实际 `AIOPS_PUBLIC_ORIGIN` 与 `AIOPS_SECURE_COOKIES=true`，并把代理地址写进 `AIOPS_TRUSTED_PROXY_CIDRS`（否则登录限流按代理 IP 共用）。模型和集群凭据保留在服务端；本地默认端口仅映射回环。
 
 容器方式没有做过端到端验收。按 `compose.yaml` 现状，`api` 服务没有传 `AIOPS_V3_INSTANCE_CONFIG`，也没有挂载实例描述，会以旧版模式启动，当前界面的页面会停在加载骨架（同上）；它还总是带原生 Ollama 模型（`.env` 里留空也会回落到 `qwen3.6:latest`）。要跑当前界面，请用前两节的宿主机方式。2026-10 的验收实例是宿主机上的 Go 服务托管真实 API 模式的 Web 产物，前面加 TLS 代理，见 [验收计划](plans/2026-10-09-production-acceptance.md)。
 

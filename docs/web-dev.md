@@ -29,11 +29,10 @@ pnpm --dir web install
 | 集成中心 | http://127.0.0.1:5173/integrations |
 | Agent 运行台 | http://127.0.0.1:5173/agents/lifecycle |
 | 偏好设置（主题、语言） | http://127.0.0.1:5173/settings/preferences |
-| 旧版界面 | http://127.0.0.1:5173/legacy |
 
 页面顶栏的“示意数据”标记表示当前是 Mock 数据，不代表真实业务状态。
 
-## 连接真实后端（后端按契约实现后）
+## 连接真实后端
 
 ```sh
 # 终端 1：API

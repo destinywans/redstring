@@ -7,7 +7,7 @@
 
 **让 AI 分头调查，由人来批准。** 可自托管的 AI 运维工作区：故障调查在画布上分支进行，证据都有出处，线上变更要人批准一份具体的提案，再交给独立执行器执行并验证恢复。
 
-[在线演示](https://redstring.wans.run/)（示例数据） · [产品页](https://wans.run/redstring/) · Linear 项目
+[在线演示](https://redstring.wans.run/)（示例数据） · [产品页](https://wans.run/redstring/)
 
 > **状态：v0.1.0 beta，不建议用于生产环境。** 作为 MVP 和实验环境演示可用，尚未达到生产可用，差距见下方[「还没做」](#还没做)；已知问题见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)。执行器会对接入的系统做写操作，只接测试环境，先读[「安全须知」](#安全须知)。
 
@@ -38,32 +38,32 @@
 | 集成中心 | Kubernetes、Prometheus、Loki、Alertmanager、GitLab、Elasticsearch、Tempo 等连接器 |
 | 平台设置 | 成员、角色权限、模型与 Embedding、生产与非生产实例隔离 |
 
-界面支持中英文和深浅色。
+界面支持中英文和深浅色。记忆、评测案例、Agent 新版本、新建角色、编辑连接器等几项管理操作目前只有接口、没有界面入口，见 [已知问题](docs/KNOWN_ISSUES.md)。
 
 ## 当前状态
 
 测试环境是三台 Lima 虚拟机上的 Kubernetes 实验集群，配合实验 GitLab、Prometheus、Loki、Alertmanager、Elasticsearch、Tempo、Vault，以及一生产一非生产两个独立实例。做过两轮：
 
 1. **生产验收**（2026-10-09～10-12）：按页面、角色、演练逐项验收，登记缺陷 PA-01～PA-104。
-2. **缺陷收敛**（2026-10-16～10-19）：每天一轮值班，轮流做故障演练、角色任务卡、数据状态和自由探索，并按类清扫同类问题。登记 PA-105～PA-266 共 162 条（按登记册里不重复的编号计）：P0 38、P1 19、P2 57、P3 40、缺能力 8；P0/P1 全部修复，修复部署后在真实数据上核对（发布前最后一次部署 2488bf3c）。未修的 P2、P3 和缺能力项见 [已知问题](docs/KNOWN_ISSUES.md)。
+2. **缺陷收敛**（2026-10-16～10-19）：每天一轮值班，轮流做故障演练、角色任务卡、数据状态和自由探索，并按类清扫同类问题。登记 PA-105～PA-266 共 162 条（按登记册里不重复的编号计）：P0 38、P1 19、P2 57、P3 40、缺能力 8；P0/P1 全部修复并部署；能在实验数据上复现的在真实数据上核对，当前数据触发不了的用固定接口的检查覆盖（发布前最后一次部署 2488bf3c）。未修的 P2、P3 和缺能力项见 [已知问题](docs/KNOWN_ISSUES.md)。
 
-发布验收轮（第 3 轮，含会话到期、写凭据失效、告警时间、浏览器时钟四项时间注入演练）的结论：满足发布门槛。必做内容全部完成，新登记 14 条，其中 4 条 P0 当场修复并复核：只读成员能从事件页发起调查（越权）、覆盖度页筛选写死示例计数、页面开着跨过时间边界不更新、指标区间里一个 NaN 点让看板失败；另有 P2 7 条、P3 2 条、缺能力 1 条。收工后的定级复核把 PA-257 升为 P0、新登记 PA-266（P0），连同 PA-253、PA-259 都在发布前修好。时间注入里，会话到期在列表页和表单中处理正确，流式回复中只提示“回复中断”（PA-254，P2）；写凭据失效时如实说明集群拒绝写入、不盲目重试；告警起始时间跨 24 小时边界的归属正确。
+发布验收轮（第 3 轮，含会话到期、写凭据失效、告警时间、浏览器时钟四项时间注入演练）的结论：通过（发布门槛 G2；全部门槛 G1～G6 见 [发布说明](docs/releases/v0.1.0.md)）。必做内容都已完成，新登记 14 条，其中 4 条 P0 当场修复并复核：只读成员能从事件页发起调查（越权）、覆盖度页筛选写死示例计数、页面开着跨过时间边界不更新、指标区间里一个 NaN 点让看板失败；另有 P2 7 条、P3 2 条、缺能力 1 条。收工后的定级复核把 PA-257 升为 P0、新登记 PA-266（P0），连同 PA-253、PA-259 都在发布前修好。时间注入里，会话到期在列表页和表单中处理正确，流式回复中只提示“回复中断”（PA-254，P2）；写凭据失效时如实说明集群拒绝写入、不盲目重试；告警起始时间跨 24 小时边界的归属正确。
 
 ### 已验证
 
-- **发布演练**：在生产实例上从坏版本上线到回滚、修复全程走通（2026-10-12，生产验收期间第二次完整运行，24/24）。
+- **发布演练**：在实验环境的生产（prod）实例上从坏版本上线到回滚、修复全程走通（2026-10-12，生产验收期间第二次完整运行，24/24）。
 - **告警规则闭环**：经人工审批合并到配置仓库，执行器加载并读回，启用与停用都验证过（2026-10-12）。
 - **配置提升**：四类配置从非生产导出，经审批合并后在生产导入（2026-10-12）。
 - **生产验收最终回归 19/19（2026-10-12）**：全页面对拍 216 次加载，0 未捕获异常，0 空白页；两个实例的权限矩阵 138 条路由无不一致；登录、凭据、环境隔离等专项全部通过。
-- 生产验收登记的 104 项缺陷（PA-01～PA-104）全部验证：绝大多数已修复，少数转入后续或经决定保留现状（仍有影响的列在已知问题里）。
-- **缺陷收敛**：每条修复先写检查、在旧部署上确认失败，修复部署后通过，并在真实数据上核对；f91966ed 部署后的完整回归 47/49，两项未过分别是回滚写令牌按设计 24 小时到期、`phase1-fixes` 一项里两条检查的按钮定位写法过时（修正后通过）。
+- 生产验收登记的 104 项缺陷（PA-01～PA-104）都已处理：大多数修复并在回归中验证，少数转入后续或经决定保留现状（仍有影响的列在已知问题里）。
+- **缺陷收敛**：第 2 轮起每条修复先写检查、在旧部署上确认失败，修复部署后通过；能在实验数据上复现的再在真实数据上核对，其余用固定接口的检查覆盖；f91966ed 部署后的完整回归 47/49，两项未过分别是回滚写令牌按设计 24 小时到期、`phase1-fixes` 一项里两条检查的按钮定位写法过时（修正后通过）。
 - **v0.1.0 最终回归 53/54（2026-10-19，部署 2488bf3c，`vcs.modified=false`）**：管理员全页面对拍 220 次加载，只读成员与运维人员各 110 次，详情页与标签 104 次，全部 0 未捕获异常、0 空白页、0 示意标记；两个实例的权限矩阵、凭据 9/9、环境隔离 25/25、输入校验 12/12、登录 10/10、链路视图 16/16、非生产告警规则闭环 21/21、GitLab 变更比对 6/6 和真实模型的画布、对话、设置、Agent 黄金路径全部通过。唯一未过的一项是一条检查只读画布列表第一页、找不到通用画布而跳过（检查本身的问题，修正后该文件单项重跑 48/48）。
 
 详见 [验收登记](docs/releases/2026-10-09-production-acceptance.md)、[缺陷收敛登记](docs/releases/2026-10-16-defect-convergence.md) 和 [v0.1.0 发布说明](docs/releases/v0.1.0.md)。
 
 ### 还没做
 
-- **生产可用性认证暂缓**：原计划以连续多日无新 P0/P1 作为生产可用的标准，v0.1 改为发布门槛，这项认证以后再做。
+- **生产可用性认证暂缓**：原计划以连续多日无新 P0/P1 作为生产可用的标准，v0.1 改为一组可核对的发布门槛（G1～G6，见发布说明），这项认证以后再做。
 - **性能与 24 小时稳定性**。
 - **环境广度**：只验过一个实验集群、三个服务、单机单进程；大数据量、多副本部署、其他版本的 GitLab/Prometheus 未验证；模型只验过 DeepSeek。
 - **安全**：没有独立安全审查；登录不校验二次验证（身份验证器 TOTP 可以登记，但只用于账号安全设置，登录时不要求）；OIDC 单点登录有实现（`AIOPS_V3_OIDC_*`），没有验收。
@@ -74,13 +74,15 @@
 ## 安全须知
 
 - **只给测试环境的凭据。** 默认配置不启用任何写入；凡是配置了写凭据的模块，都可能写外部系统：
-  - 执行器（提案经两人批准后执行）：Kubernetes 回滚改 Deployment（`AIOPS_V3_KUBERNETES_WRITE_BINDINGS` 加 Vault）、Alertmanager 静默（`AIOPS_V3_SILENCE_EXECUTION_ENABLED`）、告警规则启停（`AIOPS_V3_ALERT_RULE_ENABLE_CONFIG`）、跨环境配置提升向配置仓库提交合并请求（`AIOPS_V3_CONFIG_SYNC_CONFIG`）；
+  - 执行器（提案经两人批准后执行）：Kubernetes 回滚改 Deployment（`AIOPS_V3_KUBERNETES_WRITE_BINDINGS` 加 Vault）、Alertmanager 静默（`AIOPS_V3_SILENCE_EXECUTION_ENABLED`）、告警规则启停（`AIOPS_V3_ALERT_RULE_ENABLE_CONFIG`）；
+  - 配置提升与配置草稿（`AIOPS_V3_CONFIG_SYNC_CONFIG`）：有权限的成员导出时，直接在配置仓库开分支和合并请求，不经过产品里的两人批准；合并靠 GitLab 里的人工审批，生产端由平台管理员导入。通知路由、抑制规则和告警规则草稿也用同一个仓库客户端写 GitLab；
   - 交付模块：配了 `AIOPS_DELIVERY_CONFIG` 或 `AIOPS_DEPLOYMENT_CONFIG` 后，可以触发、取消、重试 GitLab 作业，提交 Argo Workflows，做 GitOps 或经 SSH 的发布；
-  - MCP 工具：是否只读取决于管理员登记的工具白名单和凭据本身，产品只能额外校验工具声明的只读提示，见 [AI 扩展说明](internal/aiextensions/README.md)。
+  - MCP 工具：是否只读取决于管理员登记的工具白名单和凭据本身，产品只能额外校验工具声明的只读提示，见 [AI 扩展说明](internal/aiextensions/README.md)；
+  - 对外发消息：配了 SMTP 后成员邀请会发邮件，配了飞书等通知渠道后会向这些渠道发消息。
 
   不要把生产集群、生产 Alertmanager、生产 GitLab 或生产配置仓库的写凭据交给它。
 - **不要暴露到公网。** 没有做过独立安全审查，登录不校验二次验证。默认只监听本机（`.env` 的 `AIOPS_ADDR=127.0.0.1:8080`，Docker Compose 也只映射回环地址）；改监听地址前先想清楚谁能访问。
-- **默认开发配置不是 HTTPS。** `AIOPS_SECURE_COOKIES` 默认未开启，会话 Cookie 在 HTTP 下也会发送。放到服务器上要加 HTTPS 反向代理，并设置 `AIOPS_PUBLIC_ORIGIN` 与 `AIOPS_SECURE_COOKIES=true`，见 [运行与部署](docs/getting-started.md)。
+- **默认开发配置不是 HTTPS。** `AIOPS_SECURE_COOKIES` 默认未开启，会话 Cookie 在 HTTP 下也会发送。放到服务器上要加 HTTPS 反向代理，并设置 `AIOPS_PUBLIC_ORIGIN` 与 `AIOPS_SECURE_COOKIES=true`；在代理后面还要把代理地址写进 `AIOPS_TRUSTED_PROXY_CIDRS`，否则所有登录共用代理 IP 的限流额度。见 [运行与部署](docs/getting-started.md)。
 - **证据会发给模型。** AI 取证会把指标、脱敏后的日志正文等发给你配置的模型；用外部模型服务（如 DeepSeek）前，确认这些数据可以发出去。
 - 凭据只放在服务端；`.env`、kubeconfig、令牌文件不要提交。安全问题请按 [SECURITY.md](SECURITY.md) 私密报告，不要公开提 issue。
 
@@ -112,7 +114,7 @@ VITE_API_MODE=http make web-dev   # 终端 2
 浏览器打开 http://127.0.0.1:5173，用 `admin@localhost` 和 `.env` 里的 `AIOPS_ADMIN_PASSWORD` 登录。
 
 - `AIOPS_V3_INSTANCE_CONFIG` 必须设，不设会以旧版模式启动，当前界面停在加载骨架。
-- `OLLAMA_MODEL=` 表示先不接模型。`make init` 默认配的是本机 Ollama 的 `qwen3.6:latest`（经 OpenAI 兼容接口，`OLLAMA_API=chat_completions`）；本机装了 Ollama 的话先 `ollama pull qwen3.6:latest`，再去掉这一行。
+- `OLLAMA_MODEL=` 表示先不接模型。`make init` 默认配的是本机 Ollama 的 `qwen3.6:latest`（经 OpenAI 兼容接口，`OLLAMA_API=chat_completions`）和 Embedding 模型 `bge-m3`；本机装了 Ollama 的话先 `ollama pull qwen3.6:latest` 和 `ollama pull bge-m3`，再去掉这一行。没有 Embedding 模型时向量索引会失败，关键词检索照常可用。
 
 构建后由 Go 托管（同样读 `.env`，访问 http://127.0.0.1:8080）：
 
@@ -129,15 +131,15 @@ AIOPS_WEB_DIR="$PWD/web/dist" make run
 
 | 想要 | 需要配置 |
 | --- | --- |
-| 看到服务、告警和观测数据 | 在集成中心接入 Kubernetes、Prometheus、Loki、Alertmanager 等连接器并登记服务；Alertmanager 把告警推到本实例 |
+| 看到服务、告警和观测数据 | 在集成中心接入 Kubernetes、Prometheus、Loki、Alertmanager 等连接器并登记服务；需要凭据的连接器另配 `AIOPS_V3_CONNECTOR_CREDENTIAL_BINDINGS`（凭据从 Vault 读）。告警入站要配 `AIOPS_OPERATIONS_CONFIG`（来源、令牌文件和标签映射，见 [运维入站契约](docs/operations-contract.md)），再让 Alertmanager 把告警推到本实例。指标、日志、链路要配经审查的查询目录 `AIOPS_V3_SOURCE_CATALOG`（见 [遥测来源登记](docs/api/v3-telemetry-registry.md)） |
 | AI 用取证工具查数据 | 配一个支持工具调用的模型，并把它的 ID 写进 `AIOPS_V3_TOOL_MODELS`；不写时对话可用，但没有取证工具 |
 | 集成中心的模型管理页 | 环境模型绑定 `AIOPS_V3_MODEL_BINDINGS_FILE`，格式见 [模型绑定示例](docs/examples/v3-model-bindings.md) |
 | 两人批准提案 | 通行密钥 `AIOPS_V3_PASSKEY_ENABLED=true`，要求 `AIOPS_SECURE_COOKIES=true`、HTTPS，并用实例描述里的域名访问；批准要两位不是发起人的审批人，所以至少 3 个账号 |
-| 执行静默 | `AIOPS_V3_SILENCE_EXECUTION_ENABLED=true`（依赖通行密钥）和已接入的 Alertmanager |
+| 读取与执行静默 | 读取要配 `AIOPS_V3_ALERTMANAGER_CONFIG`（格式见 [示例](docs/examples/v3-alertmanager.json)）；执行还要 `AIOPS_V3_SILENCE_EXECUTION_ENABLED=true`（依赖通行密钥） |
 | 执行 Kubernetes 回滚 | `AIOPS_V3_KUBERNETES_WRITE_BINDINGS`，写凭据从 Vault 读（`AIOPS_VAULT_URL`、`AIOPS_VAULT_TOKEN`） |
 | 告警规则启停、跨环境配置提升 | `AIOPS_V3_ALERT_RULE_ENABLE_CONFIG`、`AIOPS_V3_CONFIG_SYNC_CONFIG` 与对应的配置仓库 |
 
-这些变量的说明在 `.env.example`；写操作的风险见上面的[「安全须知」](#安全须知)。
+这些变量在 `.env.example` 里都有注释，格式见各自链接的文档和 `docs/examples/`；写操作的风险见上面的[「安全须知」](#安全须知)。
 
 ## 架构
 
@@ -149,11 +151,11 @@ React · TypeScript · Vite · React Flow · assistant-ui · Go 1.27.1 · Google
 
 [架构](docs/architecture.md) · [Web 工作区](docs/web-workspace.md) · [API 语义](docs/api-contract.md) · [OpenAPI 3.1](internal/apicontract/openapi.json) · [领域语言](CONTEXT.md) · [故障演示环境](docs/demo.md)
 
-原名 AIOps Canvas，2026-10-09 起更名为 Redstring；代码中的模块名、命令和接口路径保持不变。标志与使用规范见 [docs/brand](docs/brand/README.md)。
+原名 AIOps Canvas，2026-10-09 起更名为 Redstring；命令 `aiops`、环境变量前缀 `AIOPS_` 和接口路径保持不变，Go 模块已改为 `github.com/destinywans/redstring`。标志与使用规范见 [docs/brand](docs/brand/README.md)。
 
 ## 反馈
 
-欢迎试用后提 [GitHub issue](../../issues)。先看一眼 [已知问题](docs/KNOWN_ISSUES.md)，已列出的不用重复提。提 issue 时请写明：
+欢迎试用后提 [GitHub issue](https://github.com/destinywans/redstring/issues)。先看一眼 [已知问题](docs/KNOWN_ISSUES.md)，已列出的不用重复提。提 issue 时请写明：
 
 - 复现步骤，以及期望看到什么、实际看到什么；
 - 实例模式：示例数据（在线演示、`make web-dev`）、最小实例（按上面的快速开始）、自己配置的非生产实例、自己配置的生产实例，还是旧版界面 `/legacy`；

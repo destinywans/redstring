@@ -9,9 +9,9 @@
 - `internal/apicontract/openapi.json`：机器可读的 API 契约（生成产物，见下文）。
 - `migrations/`：按序号命名的 SQL 迁移，嵌入二进制，服务启动时执行。
 - `web/`：前端（React、TypeScript、Vite）。默认界面在 `web/src/v3`，旧界面保留在 `/legacy`。
-- `scripts/`：本地启动、契约生成与检查脚本。
+- `scripts/`：本地启动、契约生成与检查脚本。其中有几类是作者实验环境专用、会写数据库或集群的，**不要运行**：`reset-review-rbac.py`（`--apply` 会删本地库里的 RBAC 数据）、`lab-*.sh`（创建、注入故障、删除 kind 集群）、`install-observability-exporters.py`（改相邻的实验仓库）、`extend-observability.py`（改本地库里的遥测登记）、`connect-*.py`、`seed-*.py`、`run-review-workspace.py`。
 - `demo/`：故障演示用的示例服务、遥测和实验命令行，见 `docs/demo.md`。
-- `tools/testlab`、`tools/acceptance`：作者实验环境里用的测试与验收工具，依赖作者本机的集群和服务，普通贡献不需要运行。
+- `tools/testlab`、`tools/acceptance`：作者实验环境里用的测试与验收工具，依赖作者本机的集群和服务，其中不少会写实验集群、GitLab 或验收库，**不要运行**。
 - `docs/`：契约与运行说明。`docs/plans/`、`docs/releases/` 是作者的计划与验收记录，不是用户文档。
 
 ## 构建与校验
@@ -54,7 +54,7 @@ python3 scripts/check-v3-contract.py                     # docs/api/v3-contract.
 改动涉及模型、工具或执行路径时，先确认没有违反这几条：
 
 - **模型只读取证。** 给模型用的工具只能读取；模型的猜测不是证据，结论要能追到具体的工具调用、检索结果或 Trace。
-- **写动作必须经过明确提案、人工批准和独立执行器。** 任何会改变外部系统的操作（Kubernetes、GitLab、告警规则、配置等）先形成一份冻结的具体提案，由有权限的人批准，再交给与 Agent 隔离的执行器执行并记录结果。结果不明时先核对实际状态，不盲目重试。上下文继承和分支合并不继承授权。
+- **写动作必须经过明确提案、人工批准和独立执行器。** 任何会改变外部系统的操作（Kubernetes、GitLab、告警规则、配置等）先形成一份冻结的具体提案，由有权限的人批准，再交给与 Agent 隔离的执行器执行并记录结果。结果不明时先核对实际状态，不盲目重试。上下文继承和分支合并不继承授权。现有的例外：配置提升和配置草稿由有权限的成员直接在配置仓库开分支和合并请求，合并靠 GitLab 的人工审批；旧版交付模块直接触发、取消、重试 GitLab 作业。新增写路径不要再扩大这些例外。
 - **授权在服务端。** 权限和同源校验都在服务端完成，前端隐藏按钮不算权限控制。
 - **不冒充真实数据。** 示例和演示数据要标明；缺少真实适配时显示“待接入”或“未知”，不要编造状态。
 - 界面支持中英文和深浅色，改界面文案时两种语言都要更新。
@@ -63,4 +63,4 @@ python3 scripts/check-v3-contract.py                     # docs/api/v3-contract.
 
 - 不提交 `.env`、`.local/`、IDE 配置、运行会话、kubeconfig 或任何凭据。配置示例只放占位符（见 `.env.example`）。
 - 测试里的假凭据用一眼能看出是假的值，例如 `example.invalid` 域名、`synthetic-*`、`test-*`。
-- 个人或本机的代理指令放在不进仓库的文件里，`.gitignore` 已经列出 `CLAUDE.local.md`、`AGENTS.override.md`。注意：Claude Code（2.1.277 起直接读取本文件）发现 `CLAUDE.local.md` 后默认不再读取本文件，需要在里面写一行 `@AGENTS.md` 导入；Codex 的 `AGENTS.override.md` 会代替本文件，需要把本文件的内容一并放进去，本文件更新后要重新同步。
+- 个人或本机的代理指令放在不进仓库的文件里（`.gitignore` 已经列出 `CLAUDE.local.md`、`AGENTS.override.md`），具体怎么让你用的编码代理同时读取本文件，以它自己的文档为准。

@@ -148,7 +148,7 @@ for (const [role, gated] of [["approver2", true], ["admin", false]] as const) {
       const gate = page.locator(".perm-gate", { has: entry });
       if (gated) {
         await expect(entry).toBeDisabled();
-        await expect(gate.locator(".sr-only")).toHaveText("需要 对话与画布·修改 权限");
+        await expect(gate.locator(".sr-only")).toHaveText("需要 对话·修改 权限");
         await entry.click({ force: true });
         await page.waitForTimeout(500);
         expect(new URL(page.url()).pathname).toBe(`/incidents/${id}`);

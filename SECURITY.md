@@ -8,10 +8,10 @@ Redstring 目前是 **v0.1.0 beta**，不建议用于生产环境，也没有做
 
 | 版本 | 是否接收安全修复 |
 | --- | --- |
-| 最新的 v0.1.x 发布与 `main` 分支 | 是 |
+| v0.1.x（`main` 分支与最新的 v0.1.x 发布） | 是，修复进入下一个 v0.1.x 版本 |
 | 更早的提交 | 否 |
 
-修复只做在 `main` 上，随下一个版本发布，不向旧版本回移。
+修复做在 `main` 上，随下一个 v0.1.x 版本发布；已经发布的版本不单独打补丁，请升级到包含修复的版本。
 
 ## 报告漏洞
 
@@ -27,7 +27,7 @@ Redstring 目前是 **v0.1.0 beta**，不建议用于生产环境，也没有做
 
 ## 响应预期
 
-这是个人维护的项目，没有专职安全团队。收到报告后**一周内确认收到**并给出初步判断；修复**不承诺时限**，会尽力评估影响、在 `main` 上修复，并在修复发布后通过 GitHub Security Advisory 公开说明（报告人愿意的话会致谢）。修复发布前请不要公开细节。
+这是个人维护的项目，没有专职安全团队。收到报告后**一周内确认收到**；修复**不承诺时限**，会尽力评估影响、在 `main` 上修复，并在修复发布后通过 GitHub Security Advisory 公开说明（报告人愿意的话会致谢）。修复发布前请不要公开细节。
 
 ## 范围
 
@@ -35,7 +35,7 @@ Redstring 目前是 **v0.1.0 beta**，不建议用于生产环境，也没有做
 
 不在范围内：
 
-- 已在文档里说明的限制：登录没有二次验证、默认开发配置不是 HTTPS 且 `AIOPS_SECURE_COOKIES` 未开启、执行器会对接入的系统做写操作；
+- 已在文档里说明的限制：登录不校验二次验证、默认开发配置不是 HTTPS 且 `AIOPS_SECURE_COOKIES` 未开启、配了写凭据的模块（执行器、交付、MCP 工具）会写外部系统；
 - 违反“安全须知”把实例暴露到公网造成的问题；
 - 第三方依赖自身的漏洞（请报告给上游；如果 Redstring 的用法让它可被利用，在范围内）；
 - 在线演示站的托管配置（演示站是不连后端的示例数据模式；前端代码本身的问题在范围内）；
@@ -49,7 +49,7 @@ Redstring 目前是 **v0.1.0 beta**，不建议用于生产环境，也没有做
 
 Redstring is **v0.1.0 beta**, not recommended for production and not independently security-reviewed. Run it only against test environments and never expose it to the internet.
 
-- **Supported:** the latest v0.1.x release and `main`. Fixes land on `main` and ship in the next release; older commits are not patched.
+- **Supported:** v0.1.x (`main` and the latest v0.1.x release). Fixes land on `main` and ship in the next v0.1.x release; released versions are not patched separately, so upgrade to the release that contains the fix.
 - **Reporting:** do not open public issues, discussions or PRs. Use GitHub private vulnerability reporting (**Security** tab → **Report a vulnerability**). If that is unavailable, open an issue with no details asking for a private contact.
-- **Response:** this is a personally maintained project with no dedicated security team. Reports are **acknowledged within one week** with an initial assessment; there is **no committed fix time**. Fixes are made on a best-effort basis on `main`, then disclosed through a GitHub Security Advisory after the fix ships. Please keep details private until then.
-- **Scope:** Redstring's own code (authentication and sessions, permissions and environment isolation, proposal approval and the executor, connector credentials, AI evidence tools including prompt injection that bypasses read-only limits or human approval). Out of scope: documented limitations (no login MFA, non-HTTPS default dev config with `AIOPS_SECURE_COOKIES` off, executor writes to connected systems), instances exposed to the internet against the guidance, upstream dependency bugs, the demo site's hosting, and lab-only scripts under `tools/` and `demo/`. Test only on your own deployment and never run denial-of-service tests.
+- **Response:** this is a personally maintained project with no dedicated security team. Reports are **acknowledged within one week**; there is **no committed fix time**. Fixes are made on a best-effort basis on `main`, then disclosed through a GitHub Security Advisory after the fix ships. Please keep details private until then.
+- **Scope:** Redstring's own code (authentication and sessions, permissions and environment isolation, proposal approval and the executor, connector credentials, AI evidence tools including prompt injection that bypasses read-only limits or human approval). Out of scope: documented limitations (login does not check a second factor, non-HTTPS default dev config with `AIOPS_SECURE_COOKIES` off, writes by any module given write credentials: the executor, delivery and MCP tools), instances exposed to the internet against the guidance, upstream dependency bugs, the demo site's hosting, and lab-only scripts under `tools/` and `demo/`. Test only on your own deployment and never run denial-of-service tests.

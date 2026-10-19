@@ -7,7 +7,7 @@ import { Tooltip } from "./overlays";
 
 /** Module and action names as the roles matrix shows them (same wording as the server's role catalogue). */
 const MODULES: Record<string, [string, string]> = {
-  conversation: ["对话与画布", "Conversations & canvases"],
+  conversation: ["对话", "Conversations"],
   canvas: ["画布", "Canvases"],
   events: ["事件与告警", "Incidents & alerts"],
   alert_rules: ["告警规则与路由", "Alert rules & routing"],

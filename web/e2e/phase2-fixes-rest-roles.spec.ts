@@ -71,7 +71,7 @@ test.describe("route modules in the role matrix (PA-231)", () => {
   // Control: the page sends the new rows back with the rest, so a custom role can be given them.
   test("a custom role's route-module cell is saved with every other row unchanged", async ({ page }) => {
     await page.addInitScript(zh);
-    const resources = ["对话", "画布", "事件与告警", "告警规则与路由", "静默", "写操作提案", "Runbook", "知识来源与检索", "服务目录", "连接器与映射", "Agent 配置与发布", "成员与角色", "审计日志", "资源目录与关系", ...ROUTE_ROWS];
+    const resources = ["对话", "事件与告警", "告警规则与路由", "静默", "写操作提案", "Runbook", "知识来源与检索", "服务目录", "连接器与映射", "Agent 配置与发布", "成员与角色", "审计日志", "资源目录与关系", ...ROUTE_ROWS, "画布"];
     const matrix = resources.map((resource) => ({ resource, grants: [resource === "事件与告警" ? 1 : 0, 0, 0, 0, 0] }));
     const detail = { id: "custom-pa231", name: "Check role", members: 1, kind: "business", desc: "", member_names: ["Check Member"], scope: ["global"], actions: ACTIONS, matrix, environment_access: ["global"], notes: "" };
     await page.route(at("/roles"), (r) => json(r, 200, { items: [{ id: detail.id, name: detail.name, members: 1, kind: "business" }] }));

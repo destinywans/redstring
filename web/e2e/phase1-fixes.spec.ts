@@ -610,11 +610,15 @@ test.describe("canvas node selection and node turns (PA-153, PA-154)", () => {
   test.use({ storageState: statePath("prod", "operator"), viewport: { width: 1440, height: 1000 } });
   const canvases = async (page: Page) => {
     await page.goto(origin + "/healthz");
+    // The list is paged and investigations far outnumber general canvases, so ask for each kind (as PA-253).
     return page.evaluate(async () => {
-      const b = (await (await fetch("/api/v1/canvases", { headers: { "X-AIOps-Environment": "prod" } })).json()) as { items?: { id: string; kind?: string; type?: string }[] };
-      const items = b.items ?? [];
-      const kind = (i: { kind?: string; type?: string }) => i.kind ?? i.type;
-      return { doc: items.find((i) => kind(i) !== "investigation")?.id ?? null, inv: items.find((i) => kind(i) === "investigation")?.id ?? null };
+      const first = async (kind: string) => {
+        const b = (await (await fetch(`/api/v1/canvases?kind=${kind}&page_size=1`, { headers: { "X-AIOps-Environment": "prod" } })).json()) as { items?: { id: string }[] };
+        return b.items?.[0]?.id ?? null;
+      };
+      let doc: string | null = null;
+      for (const kind of ["plan", "review", "analysis", "custom"]) if (!doc) doc = await first(kind);
+      return { doc, inv: await first("investigation") };
     });
   };
   test("clicking a node keeps it selected on both canvases", async ({ page }) => {

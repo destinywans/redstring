@@ -8,7 +8,7 @@
 
 保持快速交付可用于博客和简历的 SRE 作品这一初衷：平台提供日常查看与调查入口，Prometheus/Loki/现有 Kubernetes 和告警系统继续提供数据，不自建采集器、时序存储、日志索引或全套告警规则引擎。AI 是分析与调查能力，用户查询数据、筛选、查看详情不需要启动模型。
 
-参考 `/Users/wans/Home/code/codex/blog/src/components/ops/` 中的 `navigation.ts`、`Observability.tsx`、`Infrastructure.tsx`、`Incidents.tsx`、`Workspace.tsx`。这些页面的数据来自浏览器本地演示状态；只借鉴分类、列表、详情和上下文衔接，示例 Trace、固定资源数量、模拟通知送达与规则开关不迁入真实产品。
+参考作者博客项目 `src/components/ops/` 中的 `navigation.ts`、`Observability.tsx`、`Infrastructure.tsx`、`Incidents.tsx`、`Workspace.tsx`。这些页面的数据来自浏览器本地演示状态；只借鉴分类、列表、详情和上下文衔接，示例 Trace、固定资源数量、模拟通知送达与规则开关不迁入真实产品。
 
 ### 当前能力映射
 

@@ -2,6 +2,10 @@
 .env.*
 !.env.example
 .local/
+# Personal agent instructions that stay on one machine (see AGENTS.md).
+CLAUDE.local.md
+AGENTS.override.md
+.claude/rules/author-local.md
 bin/
 coverage.out
 *.test

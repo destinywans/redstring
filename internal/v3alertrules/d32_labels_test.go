@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/operations"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3webhook"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/operations"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3webhook"
 )
 
 // D32: rules carry the application key the alert source mappings use. A

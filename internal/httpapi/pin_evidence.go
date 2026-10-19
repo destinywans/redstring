@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 func (s *Server) RegisterPinnedEvidence(db *store.Store) {

@@ -5,9 +5,9 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/v3admin"
-	"github.com/wans/aiops-canvas/internal/v3settings"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/v3admin"
+	"github.com/destinywans/redstring/internal/v3settings"
 )
 
 // Invitation delivery is an explicit deployment opt-in. A half-configured

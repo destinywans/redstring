@@ -9,9 +9,9 @@ import (
 	"sort"
 	"time"
 
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3alertmanager"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3alertmanager"
 )
 
 // SilenceApprovalAuthority verifies the persisted approval generation inside

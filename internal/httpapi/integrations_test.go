@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 // Give both visible and hidden applications a concrete infrastructure target,

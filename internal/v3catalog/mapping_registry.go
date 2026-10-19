@@ -5,8 +5,8 @@ import (
 	"errors"
 	"sort"
 
+	"github.com/destinywans/redstring/internal/core"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
 )
 
 // PA-19 P3 stage 2 step 2: the metrics, logs, traces and workload systems of

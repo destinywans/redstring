@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/destinywans/redstring/internal/core"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/wans/aiops-canvas/internal/core"
 )
 
 // ClassifyError translates adapter errors to backend-independent repository errors.

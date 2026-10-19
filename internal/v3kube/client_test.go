@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/v3kube/kubetest"
+	"github.com/destinywans/redstring/internal/v3kube/kubetest"
 )
 
 func fakeCluster(t *testing.T) (*kubetest.Server, *Client) {

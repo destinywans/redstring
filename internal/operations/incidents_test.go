@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/core"
 )
 
 func TestIncidentDedupOrderIsolationAndAtomicInvestigation(t *testing.T) {

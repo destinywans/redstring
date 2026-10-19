@@ -2,7 +2,7 @@ package operations
 
 import (
 	"context"
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/core"
 )
 
 // Empty arrays, not SQL NULL, preserve the legacy all-visible query behavior.

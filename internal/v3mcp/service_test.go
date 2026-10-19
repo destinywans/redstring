@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/aiextensions"
+	"github.com/destinywans/redstring/internal/aiextensions"
 )
 
 func TestSummaryNeverExposesEndpointOrCredential(t *testing.T) {

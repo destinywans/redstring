@@ -9,16 +9,16 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/rbac"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/v3kube"
+	"github.com/destinywans/redstring/internal/v3proposals"
+	"github.com/destinywans/redstring/internal/v3telemetry"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/rbac"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
-	"github.com/wans/aiops-canvas/internal/v3kube"
-	"github.com/wans/aiops-canvas/internal/v3proposals"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 // Access is the transactional V3 policy.

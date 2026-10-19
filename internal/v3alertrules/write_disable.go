@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/v3proposals"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/v3proposals"
 )
 
 type disableRequest struct {

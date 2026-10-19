@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
+	"github.com/destinywans/redstring/internal/v3sourceregistry"
 )
 
 const maxWebMarkdownBytes = 128 << 10

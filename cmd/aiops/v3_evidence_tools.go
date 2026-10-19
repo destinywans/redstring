@@ -9,15 +9,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3catalog"
+	"github.com/destinywans/redstring/internal/v3changes"
+	"github.com/destinywans/redstring/internal/v3conversation"
+	"github.com/destinywans/redstring/internal/v3rollouts"
+	"github.com/destinywans/redstring/internal/v3telemetry"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3catalog"
-	"github.com/wans/aiops-canvas/internal/v3changes"
-	"github.com/wans/aiops-canvas/internal/v3conversation"
-	"github.com/wans/aiops-canvas/internal/v3rollouts"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 // v3ReadTools is shared by ordinary chat and application-bound investigations.

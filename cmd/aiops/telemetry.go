@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/logredact"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/logredact"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 // Telemetry registration is operator configuration, never model-supplied URLs

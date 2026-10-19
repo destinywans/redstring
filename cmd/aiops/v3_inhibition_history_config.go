@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wans/aiops-canvas/internal/v3alertmanager"
-	"github.com/wans/aiops-canvas/internal/v3events"
+	"github.com/destinywans/redstring/internal/v3alertmanager"
+	"github.com/destinywans/redstring/internal/v3events"
 )
 
 const maxV3InhibitionHistoryConfigSize = 64 << 10

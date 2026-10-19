@@ -10,9 +10,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/destinywans/redstring/internal/knowledge"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/knowledge"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // Drafts are deterministic outlines of bounded, current source data. The

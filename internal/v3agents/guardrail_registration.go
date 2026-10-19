@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/destinywans/redstring/internal/httpapi"
 )
 
 // governedRuleChinese is the zh-CN text of each built-in rule description.

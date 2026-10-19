@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/v3integrations"
 )
 
 // recordingResolver counts reads and records the credential use each read

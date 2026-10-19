@@ -7,7 +7,7 @@ import (
 	"slices"
 	"sort"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
+	"github.com/destinywans/redstring/internal/connectors"
 )
 
 // Legacy is one file-configured source: a persisted binding resolved through

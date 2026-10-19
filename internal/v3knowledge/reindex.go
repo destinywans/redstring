@@ -4,10 +4,10 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/knowledge"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/knowledge"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // reindexHandler retries a published Runbook's semantic generation under the

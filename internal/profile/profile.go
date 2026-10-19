@@ -11,7 +11,7 @@ import (
 	"image/png"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 var ErrInvalid = errors.New("invalid personal profile")

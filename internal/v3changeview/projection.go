@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/delivery"
+	"github.com/destinywans/redstring/internal/delivery"
 )
 
 func projectRun(run delivery.Run, serviceName, actorName string) (pipeline, error) {

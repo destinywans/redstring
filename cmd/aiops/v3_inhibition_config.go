@@ -4,8 +4,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/v3alertmanager"
-	"github.com/wans/aiops-canvas/internal/v3configsync"
+	"github.com/destinywans/redstring/internal/v3alertmanager"
+	"github.com/destinywans/redstring/internal/v3configsync"
 )
 
 // Inhibition MRs must be review-only in a separate target, source namespace

@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/v3alertmanager"
-	"github.com/wans/aiops-canvas/internal/v3configsync"
+	"github.com/destinywans/redstring/internal/v3alertmanager"
+	"github.com/destinywans/redstring/internal/v3configsync"
 )
 
 func draftLoaderPromotion(t *testing.T) (*v3configsync.Service, *v3configsync.GitLabClient) {

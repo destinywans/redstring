@@ -12,8 +12,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3admin"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3admin"
 )
 
 const maxV3MemberSourcesConfigSize = 32 << 10

@@ -6,11 +6,11 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/rbac"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/rbac"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 type investigationReadTarget struct {

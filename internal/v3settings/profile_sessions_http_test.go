@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 func TestProfileSessionRevocationRegisteredHTTP(t *testing.T) {

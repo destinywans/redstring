@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/v3integrations"
 )
 
 func topologyMetricFixture() (v3integrations.PrometheusMetricEvidence, connectors.TimeWindow, map[string]node, []edge) {

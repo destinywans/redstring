@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3changes"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3changes"
 )
 
 // GitLabChanges reads a service's GitLab changes and Kubernetes revisions

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/destinywans/redstring/internal/inference"
 )
 
 func TestV3DocumentScopeKeywordVectorAndRevocation(t *testing.T) {

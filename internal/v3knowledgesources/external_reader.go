@@ -18,9 +18,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/destinywans/redstring/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/v3sourceregistry"
 	"github.com/google/uuid"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
-	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
 	"golang.org/x/net/html"
 )
 

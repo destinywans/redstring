@@ -9,9 +9,9 @@ import (
 	"sort"
 	"time"
 
+	"github.com/destinywans/redstring/internal/v3alertmanager"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/v3alertmanager"
 )
 
 // UpstreamAlertSource reads the current alerts of one environment's

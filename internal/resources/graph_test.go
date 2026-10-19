@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 func exploreMemory(t *testing.T, rows []Resource, edges []Relation, q url.Values) GraphExploration {

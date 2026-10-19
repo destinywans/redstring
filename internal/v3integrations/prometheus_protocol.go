@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
+	"github.com/destinywans/redstring/internal/connectors"
 )
 
 // PrometheusQueryError deliberately carries no endpoint, expression, credential,

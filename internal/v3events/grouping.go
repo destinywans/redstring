@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 var errGroupingLabelUnavailable = errors.New("a selected grouping label is absent from persisted evidence")

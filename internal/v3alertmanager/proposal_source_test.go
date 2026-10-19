@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/core"
 )
 
 func TestSilenceProposalBindingFingerprint(t *testing.T) {

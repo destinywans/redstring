@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 
+	"github.com/destinywans/redstring/internal/v3configsync"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/v3configsync"
 )
 
 const maxV3ConfigSyncConfigSize = 16 << 10

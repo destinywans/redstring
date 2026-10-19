@@ -16,8 +16,8 @@ import (
 	"reflect"
 	"sort"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/v3integrations"
 )
 
 // ScopeKey identifies one reviewed scope: the same key as a Prometheus query

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/migrations"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/migrations"
 )
 
 func TestMemoryProductionValidation(t *testing.T) {

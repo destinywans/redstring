@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // Mark covers authenticated failures from all gates as well as the handler.

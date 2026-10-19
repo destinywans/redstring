@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/core"
 )
 
 // PA-210: a rule is "ok" only when Prometheus evaluated it without error. A

@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/v3integrations"
 )
 
 // Clients builds the telemetry client of one registered source (PA-19 P3,

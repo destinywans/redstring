@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3events/alertseverity"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3events/alertseverity"
 )
 
 // AlertDetailResponse is the evidence-backed portion of the frozen alert page.

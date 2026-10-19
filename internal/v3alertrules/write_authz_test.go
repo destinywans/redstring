@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/rbac"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/rbac"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 // PA-108: a member who may only view alert rules is refused before any write

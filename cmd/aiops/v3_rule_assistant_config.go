@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/v3ruleassistant"
+	"github.com/destinywans/redstring/internal/v3ruleassistant"
 )
 
 const (

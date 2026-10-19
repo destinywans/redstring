@@ -11,11 +11,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/knowledge"
-	"github.com/wans/aiops-canvas/internal/rbac"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/knowledge"
+	"github.com/destinywans/redstring/internal/rbac"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 type searchInput struct {

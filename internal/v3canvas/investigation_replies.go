@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/destinywans/redstring/internal/httpapi"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
 )
 
 // PA-75: the replies of one investigation branch, newest first, so the

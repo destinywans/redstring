@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/rbac"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3interactionaudit"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/rbac"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3interactionaudit"
 )
 
 func (s *Service) RegisterPageInteractions(api *httpapi.Server) {

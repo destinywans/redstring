@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/core"
 )
 
 func TestPreferencesRejectUnsupportedValuesBeforeStorage(t *testing.T) {

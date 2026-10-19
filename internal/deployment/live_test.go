@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/delivery"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/delivery"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 // Discard a successful provider response to exercise the real remote operation

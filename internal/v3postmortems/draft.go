@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // Draft uses only observed lifecycle evidence. A case without Canvas has no

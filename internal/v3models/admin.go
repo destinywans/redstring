@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/rbac"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/rbac"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // These DTOs mirror the existing V3 ModelAdminView. Their status fields remain

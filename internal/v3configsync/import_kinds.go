@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // readAnyImport accepts only the exact reviewed single-file merge at its

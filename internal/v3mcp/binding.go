@@ -8,9 +8,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/destinywans/redstring/internal/aiextensions"
+	"github.com/destinywans/redstring/internal/httpapi"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/aiextensions"
-	"github.com/wans/aiops-canvas/internal/httpapi"
 )
 
 var mcpIdentifier = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,100}$`)

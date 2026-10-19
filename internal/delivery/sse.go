@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/destinywans/redstring/internal/httpapi"
 )
 
 func (s *Service) registerEvents(api *httpapi.Server) {

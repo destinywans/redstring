@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 // The legacy operator endpoints still use AuthorizeApplication. Their role

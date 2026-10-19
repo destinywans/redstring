@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/v3integrations"
 )
 
 // LegacyBinding is one entry of application_environments.bindings for a V3

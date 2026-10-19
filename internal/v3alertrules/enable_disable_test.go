@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 var existingObserved = ObservedRule{GroupIdentity: testRuleFile + "\x00g", Group: "g", Name: "ExistingRule", Expression: `up{job="x"} == 0`,

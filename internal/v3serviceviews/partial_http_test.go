@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/rbac"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/rbac"
 )
 
 // A newly registered service has no profile, owner, metric binding, alert

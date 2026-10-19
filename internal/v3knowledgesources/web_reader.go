@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
+	"github.com/destinywans/redstring/internal/v3sourceregistry"
 )
 
 var ErrUnsupportedWebScope = errors.New("public Web Markdown reader requires one page, no credential or spaces")

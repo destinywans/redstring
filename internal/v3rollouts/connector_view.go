@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/wans/aiops-canvas/internal/v3integrations"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
+	"github.com/destinywans/redstring/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/v3telemetry"
 )
 
 const maxConnectorWorkloads = 200

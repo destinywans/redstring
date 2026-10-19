@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
 )
 
 // Recheck reads an alert rule execution back now (D11 §5.4): the same

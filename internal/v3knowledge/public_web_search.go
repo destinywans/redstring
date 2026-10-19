@@ -7,8 +7,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/wans/aiops-canvas/internal/knowledge"
-	"github.com/wans/aiops-canvas/internal/searchtext"
+	"github.com/destinywans/redstring/internal/knowledge"
+	"github.com/destinywans/redstring/internal/searchtext"
 )
 
 // Source bodies live outside knowledge_documents so the legacy document and

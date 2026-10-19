@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/v3alertmanager"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/v3alertmanager"
 )
 
 // staleSilenceWording is the review text written before PA-121. It said no

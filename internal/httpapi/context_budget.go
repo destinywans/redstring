@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 // ConfigureContextBudget freezes the actually assembled model input per Attempt.

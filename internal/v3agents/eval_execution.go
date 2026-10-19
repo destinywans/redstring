@@ -10,10 +10,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 var errEvalConflict = errors.New("evaluation execution conflict")

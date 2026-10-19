@@ -2,8 +2,8 @@ package store
 
 import (
 	"context"
+	"github.com/destinywans/redstring/internal/core"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
 )
 
 func referencedEvidence(ctx context.Context, tx pgx.Tx, inv string, messages []core.Message) ([]core.Evidence, error) {

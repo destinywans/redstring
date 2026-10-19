@@ -2,7 +2,7 @@ package delivery
 
 import (
 	"context"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 	"testing"
 	"time"
 )

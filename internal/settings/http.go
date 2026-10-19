@@ -3,8 +3,8 @@ package settings
 import (
 	"context"
 	"errors"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
 	"net/http"
 )
 

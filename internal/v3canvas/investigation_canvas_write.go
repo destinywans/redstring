@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 type investigationBranchRequest struct {

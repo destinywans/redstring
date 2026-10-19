@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 var ErrForbidden = errors.New("knowledge access denied")

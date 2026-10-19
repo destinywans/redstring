@@ -3,8 +3,8 @@ package operations
 import (
 	"context"
 	"fmt"
-	"github.com/wans/aiops-canvas/internal/actions"
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/actions"
+	"github.com/destinywans/redstring/internal/core"
 	"testing"
 )
 

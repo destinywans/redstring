@@ -6,9 +6,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // A profile title is user-maintained directory data, not an RBAC role.

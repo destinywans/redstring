@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 var ErrInvalid = errors.New("invalid extension configuration")

@@ -7,13 +7,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/actions"
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/delivery"
-	"github.com/wans/aiops-canvas/internal/deployment"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/actions"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/delivery"
+	"github.com/destinywans/redstring/internal/deployment"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 func loadDeliveryConfig(path string) (delivery.Config, error) {

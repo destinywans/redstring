@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/operations"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/operations"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // PA-48: an investigation opened from an alert group carries the INV- prefix

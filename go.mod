@@ -1,4 +1,4 @@
-module github.com/wans/aiops-canvas
+module github.com/destinywans/redstring
 
 go 1.27.1
 

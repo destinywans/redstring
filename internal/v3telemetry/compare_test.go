@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
+	"github.com/destinywans/redstring/internal/connectors"
 )
 
 func TestLegacySourceReadsTheFileRegistration(t *testing.T) {

@@ -152,7 +152,7 @@ class ManagementProtectionTests(unittest.TestCase):
             self.chain.frozen()
 
     def test_formal_nonrace_build_metadata_required(self):
-        correct = 'aiops: go1.26\n\tpath\tgithub.com/wans/aiops-canvas/cmd/aiops\n'
+        correct = 'aiops: go1.26\n\tpath\tgithub.com/destinywans/redstring/cmd/aiops\n'
         with patch.object(management.subprocess, 'run', return_value=Mock(returncode=0, stdout=correct)):
             self.assertFalse(management.binary_build_info(self.binary)['race_enabled'])
         for output in ('', correct.replace('/cmd/aiops', '/cmd/foreign'), correct + '\tbuild\t-race=true\n'):

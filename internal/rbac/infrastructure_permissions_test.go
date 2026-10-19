@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/resources"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/resources"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 func TestInfrastructurePermissionsPostgres(t *testing.T) {

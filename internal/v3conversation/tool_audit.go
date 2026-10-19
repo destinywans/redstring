@@ -7,7 +7,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/destinywans/redstring/internal/inference"
 )
 
 var errToolInvocation = errors.New("invalid tool invocation event")

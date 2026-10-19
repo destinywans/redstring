@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/v3catalog"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/v3catalog"
+	"github.com/destinywans/redstring/internal/v3telemetry"
 )
 
 type metricToolTelemetry struct {

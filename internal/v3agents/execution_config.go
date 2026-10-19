@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/destinywans/redstring/internal/httpapi"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
 )
 
 // ExecutionConfig is immutable per catalog version. Prompt text and artifact

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 // These opt-in checks only target the explicitly named isolated aiops-test lab.

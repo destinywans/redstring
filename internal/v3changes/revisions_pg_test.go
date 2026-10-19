@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/core"
 )
 
 // PA-94 through the real reads: a reused ReplicaSet's time comes from the

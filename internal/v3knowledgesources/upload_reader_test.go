@@ -6,10 +6,10 @@ import (
 	"os"
 	"testing"
 
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3sourceregistry"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
 )
 
 const uploadReaderTestID = "cccccccccccccccccccccccccccccccc"

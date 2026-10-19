@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/v3configsync"
+	"github.com/destinywans/redstring/internal/v3configsync"
 )
 
 type fakeDraftRepository struct {

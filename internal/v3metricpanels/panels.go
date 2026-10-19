@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
+	"github.com/destinywans/redstring/internal/connectors"
 )
 
 // Points is the number of visible 100-second bins in the one-hour window; a

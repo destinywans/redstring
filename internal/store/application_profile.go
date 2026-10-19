@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/core"
 )
 
 var catalogKey = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,120}$`)

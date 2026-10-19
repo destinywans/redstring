@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 // Migration 173 runs before this module creates its tables, so the tests

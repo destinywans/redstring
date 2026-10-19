@@ -9,8 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/destinywans/redstring/internal/connectors"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/connectors"
 )
 
 // Querier is satisfied by a pool, a connection and a transaction, so callers

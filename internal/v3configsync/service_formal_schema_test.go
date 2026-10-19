@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3canvas"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3canvas"
 )
 
 // This opt-in test uses only the disposable WAN-124 PostgreSQL container. Each

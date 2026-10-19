@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/v3alertrules"
+	"github.com/destinywans/redstring/internal/v3alertrules"
 )
 
 // v3AlertRuleEnableWorker is the readiness boundary for new human approvals.

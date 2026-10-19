@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/destinywans/redstring/internal/httpapi"
 )
 
 // Overview contains only the caller's visible, filtered resources. Counts are

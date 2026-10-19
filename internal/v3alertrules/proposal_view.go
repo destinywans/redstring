@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/destinywans/redstring/internal/v3proposals"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/v3proposals"
 )
 
 // alertRulePreviewer renders the bound file before and after an intent, so

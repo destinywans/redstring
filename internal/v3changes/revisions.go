@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/core"
 )
 
 // KubernetesRevision is one ReplicaSet revision of the service's Deployment:

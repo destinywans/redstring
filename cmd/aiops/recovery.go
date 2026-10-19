@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"errors"
-	"github.com/wans/aiops-canvas/internal/connectors"
+	"github.com/destinywans/redstring/internal/connectors"
 	"io"
 	"math"
 	"net/http"

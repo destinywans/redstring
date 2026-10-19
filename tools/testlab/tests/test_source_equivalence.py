@@ -40,7 +40,7 @@ class EquivalenceTests(unittest.TestCase):
                       'evidence_ids': ['2dd19d1b-83b5-44c5-8bd2-08efcda0a229']}
         self.activation = {'proof_sha': self.digest, 'canonical_source_sha': eq.NEW_SOURCE,
                            'canonical_patch_sha': eq.PATCH_SHA, 'original_case': dict(regression, test_names=['TestListAuthorityGuardHeldLocksSerializeRevocation//api/v1/inbox/grant_revoke', 'TestListAuthorityGuardHeldLocksSerializeRevocation//api/v1/alert-groups/grant_revoke']),
-                           'affected_regression': dict(regression, run_id='3241e212-ac16-4fb7-9395-d2766cffaa52', package='github.com/wans/aiops-canvas/internal/v3events', scope='full_package')}
+                           'affected_regression': dict(regression, run_id='3241e212-ac16-4fb7-9395-d2766cffaa52', package='github.com/destinywans/redstring/internal/v3events', scope='full_package')}
         self.registry = {self.digest: {'proof': self.proof, 'activation': self.activation}}
 
     def qualify(self, evidence=None, registry=None, inputs=None, embedded=None):
@@ -208,7 +208,7 @@ class StoreResolutionTests(unittest.TestCase):
             pairs = []
             output = []
             for name in names:
-                case = self.store.add_case(run['id'], suite['id'], name=name, module='github.com/wans/aiops-canvas/internal/v3events')
+                case = self.store.add_case(run['id'], suite['id'], name=name, module='github.com/destinywans/redstring/internal/v3events')
                 attempt = self.store.start_attempt(case)
                 self.store.finish_attempt(case, attempt, 'passed')
                 pairs.append({'case_id': case['id'], 'attempt_id': attempt['id']})
@@ -342,7 +342,7 @@ class StoreResolutionTests(unittest.TestCase):
         import json
         group = self.groups['affected_regression']
         path = self.store.evidence_dir / (group['output_id'] + '.txt')
-        for output in [group['output'][:-1], group['output'] + [{'Action': 'fail', 'Package': 'github.com/wans/aiops-canvas/internal/v3events'}]]:
+        for output in [group['output'][:-1], group['output'] + [{'Action': 'fail', 'Package': 'github.com/destinywans/redstring/internal/v3events'}]]:
             raw = '命令：' + json.dumps(group['completion']['argv']) + '\n' + ''.join(json.dumps(row) + '\n' for row in output)
             path.write_text(raw)
             with self.store.connect() as conn:

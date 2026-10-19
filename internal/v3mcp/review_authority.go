@@ -6,8 +6,8 @@ import (
 	"slices"
 	"sort"
 
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // lockReviewerGrantSources pins the current actor and the existing rows from

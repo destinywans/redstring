@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/core"
 )
 
 func (s *Store) PinEvidence(ctx context.Context, inv, env, bid string, v core.Evidence) (core.Evidence, error) {

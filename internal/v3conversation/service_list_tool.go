@@ -6,11 +6,11 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/v3catalog"
+	"github.com/destinywans/redstring/internal/v3telemetry"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/v3catalog"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 // ServiceListToolOptions lists the services the conversation owner may read

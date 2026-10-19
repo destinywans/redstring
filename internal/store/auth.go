@@ -7,8 +7,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/destinywans/redstring/internal/core"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
 	"golang.org/x/crypto/argon2"
 	"strings"
 )

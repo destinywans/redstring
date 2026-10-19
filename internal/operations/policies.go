@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 func (s *Service) Policy(ctx context.Context, env string) (Policy, error) {

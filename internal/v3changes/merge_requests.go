@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/destinywans/redstring/internal/httpapi"
 )
 
 const mergeRequestsPerPage = 20

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/operations"
-	"github.com/wans/aiops-canvas/internal/v3alertmanager"
-	"github.com/wans/aiops-canvas/internal/v3events"
+	"github.com/destinywans/redstring/internal/operations"
+	"github.com/destinywans/redstring/internal/v3alertmanager"
+	"github.com/destinywans/redstring/internal/v3events"
 )
 
 const maxV3BulkGroupSilenceConfigSize = 64 << 10

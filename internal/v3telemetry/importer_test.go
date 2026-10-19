@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/v3integrations"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")

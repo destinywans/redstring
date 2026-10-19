@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/destinywans/redstring/internal/inference"
 )
 
 // PA-75: an investigation branch's replies can be read back after a reload,

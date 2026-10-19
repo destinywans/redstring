@@ -6,8 +6,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/core"
 )
 
 type sharedTraceReader interface {

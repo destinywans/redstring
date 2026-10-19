@@ -6,9 +6,9 @@ import (
 	"errors"
 	"sort"
 
+	"github.com/destinywans/redstring/internal/connectors"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/connectors"
 )
 
 var (

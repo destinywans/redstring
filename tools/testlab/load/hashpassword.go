@@ -4,7 +4,7 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 	"io"
 	"os"
 	"strings"

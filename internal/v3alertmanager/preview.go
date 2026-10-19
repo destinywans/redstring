@@ -7,9 +7,9 @@ import (
 	"regexp"
 	"sort"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/rbac"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/rbac"
 )
 
 // The preview counts a fresh Alertmanager snapshot in the selected environment.

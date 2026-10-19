@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/destinywans/redstring/internal/core"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
 )
 
 func (s *Store) CreateInvestigation(ctx context.Context, app, title string) (core.Investigation, error) {

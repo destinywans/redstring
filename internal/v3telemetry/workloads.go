@@ -7,7 +7,7 @@ import (
 	"math"
 	"regexp"
 
-	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/v3integrations"
 )
 
 // Kubernetes workloads (PA-08, PA-19 P3). A workload target binds a service to

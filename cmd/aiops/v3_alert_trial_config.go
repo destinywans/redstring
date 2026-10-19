@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/v3alertrules"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/v3alertrules"
 )
 
 // An unset private file leaves dry_run disabled. A configured trial must have

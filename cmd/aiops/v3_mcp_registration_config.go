@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/aiextensions"
+	"github.com/destinywans/redstring/internal/aiextensions"
 )
 
 type v3MCPRegistrationBinding struct {

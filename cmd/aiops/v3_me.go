@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/wans/aiops-canvas/internal/v3settings"
+	"github.com/destinywans/redstring/internal/v3settings"
 )
 
 // configureV3MeEvidence binds account registration queries to this instance.

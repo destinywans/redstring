@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3kube"
+	"github.com/destinywans/redstring/internal/v3proposals"
+	"github.com/destinywans/redstring/internal/v3telemetry"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3kube"
-	"github.com/wans/aiops-canvas/internal/v3proposals"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 // Register adds the rollback routes. Both are object routes: the service's

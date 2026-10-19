@@ -7,7 +7,7 @@ import (
 	"strings"
 	"unicode"
 
-	searchdata "github.com/wans/aiops-canvas/shared/search"
+	searchdata "github.com/destinywans/redstring/shared/search"
 )
 
 // Match accepts plain text, not LIKE patterns. Pure Chinese queries are literal

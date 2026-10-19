@@ -2,7 +2,7 @@ package v3audit
 
 import (
 	"fmt"
-	"github.com/wans/aiops-canvas/internal/v3pagequery"
+	"github.com/destinywans/redstring/internal/v3pagequery"
 	"net/http"
 	"time"
 )

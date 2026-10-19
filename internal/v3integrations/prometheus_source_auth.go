@@ -6,9 +6,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // AuthorizeMetricSource checks that a previously captured metric still belongs

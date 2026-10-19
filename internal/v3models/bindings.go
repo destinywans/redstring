@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/destinywans/redstring/internal/inference"
 )
 
 const maxModelBindingsFileBytes = 1 << 20

@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/destinywans/redstring/internal/delivery"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/operations"
+	"github.com/destinywans/redstring/internal/rbac"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/delivery"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/operations"
-	"github.com/wans/aiops-canvas/internal/rbac"
 )
 
 var ErrInvalidConfiguration = errors.New("invalid V3 Push configuration")

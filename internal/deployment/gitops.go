@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/wans/aiops-canvas/internal/delivery"
+	"github.com/destinywans/redstring/internal/delivery"
 	"io"
 	"net/http"
 	"net/url"

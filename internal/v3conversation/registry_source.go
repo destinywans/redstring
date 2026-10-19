@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/destinywans/redstring/internal/v3telemetry"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 // registeredSource resolves the one registry source serving surface for a

@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/destinywans/redstring/internal/v3telemetry"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 // logRegistrySummary logs what the registry holds at startup (PA-19 P3

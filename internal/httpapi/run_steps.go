@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 // ConfigureRunSteps exposes the visible agent steps of a run. traceURL is an

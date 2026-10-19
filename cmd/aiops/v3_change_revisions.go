@@ -5,10 +5,10 @@ import (
 	"errors"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3changes"
-	"github.com/wans/aiops-canvas/internal/v3rollouts"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3changes"
+	"github.com/destinywans/redstring/internal/v3rollouts"
 )
 
 // changeRevisions reads a service's Deployment revisions for the change

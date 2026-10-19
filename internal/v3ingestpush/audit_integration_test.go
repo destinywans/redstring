@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/v3audit"
+	"github.com/destinywans/redstring/internal/v3audit"
 )
 
 func TestPushAuditVisibleWithExactEnvironmentAndOutcome(t *testing.T) {

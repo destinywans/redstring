@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 func (s *Server) memberRepository(w http.ResponseWriter) (store.MemberRepository, bool) {

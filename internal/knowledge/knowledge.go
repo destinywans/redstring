@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 var ErrInvalid = errors.New("invalid knowledge input")

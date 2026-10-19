@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/v3alertrules"
+	"github.com/destinywans/redstring/internal/v3alertrules"
 )
 
 // Rule endpoints and exact rule groups are bound by trusted server

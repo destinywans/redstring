@@ -9,11 +9,11 @@ import (
 	"io"
 	"os"
 
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/v3telemetry"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 // loadSourceCatalog reads the reviewed catalog. AIOPS_V3_SOURCE_CATALOG is the

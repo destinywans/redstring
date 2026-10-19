@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/destinywans/redstring/internal/core"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
 )
 
 type gitMarkdownEvidenceState struct {

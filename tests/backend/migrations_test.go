@@ -10,9 +10,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/migrations"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/migrations"
 )
 
 func migrationNames(t *testing.T) []string {

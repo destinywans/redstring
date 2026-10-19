@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/core"
 )
 
 func TestNewMembersInheritSavedWorkspaceLocaleAndTimezone(t *testing.T) {

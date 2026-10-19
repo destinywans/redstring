@@ -5,9 +5,9 @@ import (
 	"errors"
 	"regexp"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // V3Policy evaluates only the V3 matrix. Legacy role rank and old permission

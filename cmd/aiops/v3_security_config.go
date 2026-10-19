@@ -3,8 +3,8 @@ package main
 import (
 	"errors"
 
-	"github.com/wans/aiops-canvas/internal/v3security"
-	"github.com/wans/aiops-canvas/internal/v3settings"
+	"github.com/destinywans/redstring/internal/v3security"
+	"github.com/destinywans/redstring/internal/v3settings"
 )
 
 // The runtime controller is an explicit deployment-owned authority. Without

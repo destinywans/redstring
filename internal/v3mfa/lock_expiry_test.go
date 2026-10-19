@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // A real database lock makes the request wait while the injected clock crosses

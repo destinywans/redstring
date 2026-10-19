@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
+	"github.com/destinywans/redstring/internal/v3sourceregistry"
 )
 
 func TestPublicWebReaderObservesOnlyAnActuallyReadablePage(t *testing.T) {

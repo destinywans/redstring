@@ -8,13 +8,13 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/rbac"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3sourceregistry"
+	"github.com/destinywans/redstring/internal/v3uploads"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/rbac"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
-	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
 // The main route accepts only a public Markdown page or an exact configured

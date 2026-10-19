@@ -3,10 +3,10 @@ package store
 import (
 	"context"
 	"errors"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/migrations"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/migrations"
 	"os"
 	"strings"
 	"testing"

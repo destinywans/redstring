@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/v3kube"
+	"github.com/destinywans/redstring/internal/v3kube"
 )
 
 // PA-172: a candidate says when its revision took effect. A reused

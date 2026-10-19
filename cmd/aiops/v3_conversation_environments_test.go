@@ -6,9 +6,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/rbac"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/rbac"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 type conversationEnvironmentAuthorizerFunc func(context.Context, core.User, rbac.V3Decision) error

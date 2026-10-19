@@ -8,12 +8,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/knowledge"
-	"github.com/wans/aiops-canvas/internal/operations"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3webhook"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/knowledge"
+	"github.com/destinywans/redstring/internal/operations"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3webhook"
 )
 
 func configureOperations(ctx context.Context, db *store.Store, api *httpapi.Server, worker *httpapi.Worker, know *knowledge.Service, v3Scope *httpapi.V3InstanceConfig, config operations.Config) (*operations.Service, error) {

@@ -1,9 +1,9 @@
 package resources
 
 import (
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/searchtext"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/searchtext"
+	"github.com/destinywans/redstring/internal/store"
 	"net/http"
 	"net/url"
 	"sort"

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/v3agents"
+	"github.com/destinywans/redstring/internal/v3agents"
 )
 
 const maxV3PromptTrialConfigSize = 64 << 10

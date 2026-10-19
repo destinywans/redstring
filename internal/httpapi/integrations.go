@@ -3,8 +3,8 @@ package httpapi
 import (
 	"context"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 // Integration is a safe configuration inventory, not a connection health check.

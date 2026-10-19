@@ -2,10 +2,10 @@ package rbac
 
 import (
 	"context"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/migrations"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/migrations"
 	"os"
 	"strings"
 	"testing"

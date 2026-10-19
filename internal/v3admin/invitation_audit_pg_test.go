@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/destinywans/redstring/internal/core"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/wans/aiops-canvas/internal/core"
 )
 
 type invitationAuditSender struct{}

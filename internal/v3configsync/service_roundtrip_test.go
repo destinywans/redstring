@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3canvas"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3canvas"
 )
 
 // The two stores have independent schemas and pools. Only the repository

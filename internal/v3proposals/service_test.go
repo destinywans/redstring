@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 func completeContent() Content {

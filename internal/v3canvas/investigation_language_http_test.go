@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/destinywans/redstring/internal/inference"
 )
 
 // PA-77 through the real inference runtime: the model says something in

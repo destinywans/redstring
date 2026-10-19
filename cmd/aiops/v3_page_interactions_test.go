@@ -15,16 +15,16 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/destinywans/redstring/internal/actions"
+	"github.com/destinywans/redstring/internal/aiextensions"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/knowledge"
+	"github.com/destinywans/redstring/internal/operations"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/actions"
-	"github.com/wans/aiops-canvas/internal/aiextensions"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/knowledge"
-	"github.com/wans/aiops-canvas/internal/operations"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // Exercise the actual composition root, middleware, domain readers and audit

@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/destinywans/redstring/internal/httpapi"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
 )
 
 func (s *Service) disable(w http.ResponseWriter, r *http.Request) {

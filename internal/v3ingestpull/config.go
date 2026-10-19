@@ -15,8 +15,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/destinywans/redstring/internal/v3integrations"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
 )
 
 const maxSources = 100

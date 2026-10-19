@@ -3,9 +3,9 @@ package resources
 import (
 	"context"
 	"encoding/json"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
 	"net/http"
 	"net/http/httptest"
 	"net/url"

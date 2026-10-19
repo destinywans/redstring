@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
+	"github.com/destinywans/redstring/internal/connectors"
 )
 
 func panelSeries(window connectors.TimeWindow, panel string, value float64, extra ...string) connectors.MetricSeries {

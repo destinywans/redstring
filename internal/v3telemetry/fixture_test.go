@@ -3,8 +3,8 @@ package v3telemetry
 import (
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/v3integrations"
 )
 
 // The fixture mirrors the production acceptance lab (2026-10-09): Prometheus,

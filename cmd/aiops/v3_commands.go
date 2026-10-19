@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/wans/aiops-canvas/internal/v3discovery"
+	"github.com/destinywans/redstring/internal/v3discovery"
 )
 
 // A missing path means the suggestions are unavailable, while an explicit []

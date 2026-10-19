@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 type ToolInfo struct {

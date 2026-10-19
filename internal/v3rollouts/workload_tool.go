@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3catalog"
-	"github.com/wans/aiops-canvas/internal/v3kube"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3catalog"
+	"github.com/destinywans/redstring/internal/v3kube"
 )
 
 // WorkloadToolName is the investigation tool that reads a service's

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/searchtext"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/searchtext"
 )
 
 type SearchResult struct {

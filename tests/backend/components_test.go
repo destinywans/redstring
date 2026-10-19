@@ -22,10 +22,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3integrations"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
 )
 
 type componentFixture struct {

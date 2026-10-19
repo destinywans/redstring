@@ -492,7 +492,7 @@ func (r *Runtime) Models() []Model {
 	return ms
 }
 
-var tracer = otel.Tracer("github.com/wans/aiops-canvas/internal/inference")
+var tracer = otel.Tracer("github.com/destinywans/redstring/internal/inference")
 
 // Run wraps one Attempt in a parent span; ADK nests its GenAI agent, model and
 // tool spans under it, so every step carries the same exportable trace ID.

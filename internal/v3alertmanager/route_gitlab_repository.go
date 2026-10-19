@@ -3,7 +3,7 @@ package v3alertmanager
 import (
 	"context"
 
-	"github.com/wans/aiops-canvas/internal/v3configsync"
+	"github.com/destinywans/redstring/internal/v3configsync"
 )
 
 // RouteGitLabRepository keeps the configured target branch attached to the

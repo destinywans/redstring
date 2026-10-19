@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // BeginProposalAssertion intentionally cannot issue even a challenge. The V3

@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/v3conversation"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/v3conversation"
 )
 
 var metricAskRequestID = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)

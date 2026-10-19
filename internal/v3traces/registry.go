@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/v3telemetry"
 )
 
 // PA-19 P3 stage 2 step 4: the trace list and detail read registered

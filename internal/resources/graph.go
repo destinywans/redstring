@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 const graphNodeLimit = 300

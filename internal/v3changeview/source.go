@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/destinywans/redstring/internal/delivery"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/delivery"
 )
 
 const maxRuns = 500

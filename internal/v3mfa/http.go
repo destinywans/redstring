@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/destinywans/redstring/internal/httpapi"
 )
 
 // Register exposes only account-owned auxiliary routes. The integration

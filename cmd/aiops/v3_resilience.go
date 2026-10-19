@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/wans/aiops-canvas/internal/v3resilience"
-	"github.com/wans/aiops-canvas/internal/v3settings"
+	"github.com/destinywans/redstring/internal/v3resilience"
+	"github.com/destinywans/redstring/internal/v3settings"
 )
 
 // The source is optional at startup. A configured endpoint is fixed by the

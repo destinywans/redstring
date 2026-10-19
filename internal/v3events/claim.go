@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // A claim revision is the incident row's xmin, not a representation-wide

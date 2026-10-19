@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/migrations"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/migrations"
 )
 
 const oldProposalActionKinds = "CHECK (action_kind IN ('alertmanager.silence.create','prometheus.alert_rule.enable'));"

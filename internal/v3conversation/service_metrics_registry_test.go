@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/inference"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3catalog"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/inference"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3catalog"
+	"github.com/destinywans/redstring/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/v3telemetry"
 )
 
 type metricsVault struct{ empty atomic.Bool }

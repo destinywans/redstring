@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/destinywans/redstring/internal/httpapi"
 )
 
 type Localized struct {

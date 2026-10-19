@@ -174,7 +174,7 @@ def _valid_activation(activation, digest):
                       'TestListAuthorityGuardHeldLocksSerializeRevocation//api/v1/alert-groups/grant_revoke'}
     if set(original.get('test_names', [])) != expected_cases:
         return False
-    if regression.get('package') != 'github.com/wans/aiops-canvas/internal/v3events' or regression.get('scope') != 'full_package':
+    if regression.get('package') != 'github.com/destinywans/redstring/internal/v3events' or regression.get('scope') != 'full_package':
         return False
     for key in ('original_case', 'affected_regression'):
         record = activation.get(key, {})
@@ -230,7 +230,7 @@ def qualify_http_evidence(snapshot, evidence, registered_proofs):
     return 'ineligible'
 
 
-GO_PACKAGE = 'github.com/wans/aiops-canvas/internal/v3events'
+GO_PACKAGE = 'github.com/destinywans/redstring/internal/v3events'
 ORIGINAL_TESTS = frozenset({
     'TestListAuthorityGuardHeldLocksSerializeRevocation//api/v1/inbox/grant_revoke',
     'TestListAuthorityGuardHeldLocksSerializeRevocation//api/v1/alert-groups/grant_revoke'})

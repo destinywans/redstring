@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/destinywans/redstring/internal/httpapi"
 )
 
 type ruleLabel struct {

@@ -8,9 +8,9 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/destinywans/redstring/internal/v3sourceregistry"
+	"github.com/destinywans/redstring/internal/v3uploads"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
-	"github.com/wans/aiops-canvas/internal/v3uploads"
 )
 
 var ErrUploadSourceScope = errors.New("upload source is not bound to this scope")

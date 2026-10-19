@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 // PA-69: the session list marks the current session on every item, puts it

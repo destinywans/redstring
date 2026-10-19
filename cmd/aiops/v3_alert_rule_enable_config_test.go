@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/v3alertrules"
+	"github.com/destinywans/redstring/internal/v3alertrules"
 )
 
 // D11: a file_pull binding reads its write token and private CA from Vault on

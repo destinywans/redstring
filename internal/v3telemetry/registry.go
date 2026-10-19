@@ -3,7 +3,7 @@ package v3telemetry
 import (
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/v3integrations"
 )
 
 // Surface is one data plane of a service.

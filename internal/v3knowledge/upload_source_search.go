@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/knowledge"
+	"github.com/destinywans/redstring/internal/knowledge"
 )
 
 // Synced upload sources are keyword-searchable from their latest read (PA-66).

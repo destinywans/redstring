@@ -119,11 +119,11 @@ def inspect_pg(container, timeout=5):
 def binary_build_info(binary):
     result = subprocess.run(['go', 'version', '-m', str(binary)], capture_output=True,
                             text=True, timeout=8, env=command_env({}, {}))
-    if result.returncode or not re.search(r'(?m)^\s*path\s+github\.com/wans/aiops-canvas/cmd/aiops\s*$', result.stdout):
+    if result.returncode or not re.search(r'(?m)^\s*path\s+github\.com/destinywans/redstring/cmd/aiops\s*$', result.stdout):
         raise Blocked('formal binary Go build metadata is unavailable or has a different entry point')
     if re.search(r'(?m)^\s*build\s+-race=true\s*$', result.stdout):
         raise Blocked('projection acceptance requires the formal nonrace binary')
-    return {'entry': 'github.com/wans/aiops-canvas/cmd/aiops', 'race_enabled': False}
+    return {'entry': 'github.com/destinywans/redstring/cmd/aiops', 'race_enabled': False}
 
 def guard_pg(info, owner, image_id=None):
     if owner != OWNER or not isinstance(info, dict):

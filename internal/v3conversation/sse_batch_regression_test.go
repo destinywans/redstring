@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/core"
+	"github.com/destinywans/redstring/internal/core"
 )
 
 // sseFlushRecorder runs a database change at the precise boundary after a

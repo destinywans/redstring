@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/v3pagequery"
+	"github.com/destinywans/redstring/internal/v3pagequery"
 )
 
 func interactionFacets(q url.Values, keys ...string) (map[string][]string, bool) {

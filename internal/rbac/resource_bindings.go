@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 func availableActions(scope string) []string {

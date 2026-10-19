@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 
-	"github.com/wans/aiops-canvas/internal/v3settings"
+	"github.com/destinywans/redstring/internal/v3settings"
 )
 
 // Profile evidence is an explicit deployment-owned authority. A partial pair

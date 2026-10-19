@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/v3lowersources"
+	"github.com/destinywans/redstring/internal/v3lowersources"
 )
 
 // Lower-environment source metadata is a trusted production-instance config.

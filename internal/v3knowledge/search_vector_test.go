@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/knowledge"
+	"github.com/destinywans/redstring/internal/knowledge"
 )
 
 // PA-222: a hit whose corpus has no vector index, or a search that read no

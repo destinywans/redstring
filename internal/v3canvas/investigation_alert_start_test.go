@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/operations"
+	"github.com/destinywans/redstring/internal/operations"
 )
 
 // D11 §4.4: an investigation opened from incidents reads changes from before

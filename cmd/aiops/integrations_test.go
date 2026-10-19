@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/httpapi"
 )
 
 func TestLogEvidenceToolLimitIsIndependentFromBrowsing(t *testing.T) {

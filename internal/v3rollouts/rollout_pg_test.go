@@ -18,18 +18,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/rbac"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3executions"
+	"github.com/destinywans/redstring/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/v3kube/kubetest"
+	"github.com/destinywans/redstring/internal/v3passkey"
+	"github.com/destinywans/redstring/internal/v3proposals"
+	"github.com/destinywans/redstring/internal/v3telemetry"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/rbac"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3executions"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
-	"github.com/wans/aiops-canvas/internal/v3kube/kubetest"
-	"github.com/wans/aiops-canvas/internal/v3passkey"
-	"github.com/wans/aiops-canvas/internal/v3proposals"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
 )
 
 // fakePasskeys stands in for WebAuthn: it records the challenge and the

@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 func (s *Service) Status(ctx context.Context, a Actor) (Status, error) {

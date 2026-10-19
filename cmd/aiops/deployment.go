@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/destinywans/redstring/internal/httpapi"
 )
 
 type containerImage struct {

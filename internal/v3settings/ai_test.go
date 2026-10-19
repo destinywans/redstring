@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/inference"
+	"github.com/destinywans/redstring/internal/inference"
 )
 
 func TestModelsRejectsNativeOllamaUntilCatalogSupportsIt(t *testing.T) {

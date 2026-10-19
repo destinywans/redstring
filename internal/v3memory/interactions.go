@@ -5,11 +5,11 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3pagequery"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3pagequery"
 )
 
 func memorySingleEnvironment(w http.ResponseWriter, r *http.Request) (string, bool) {

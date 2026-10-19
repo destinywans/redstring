@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/aiextensions"
+	"github.com/destinywans/redstring/internal/aiextensions"
 )
 
 func TestRegistrationConfigurationRejectsUnsafeOrInlineCredentials(t *testing.T) {

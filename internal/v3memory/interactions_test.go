@@ -1,7 +1,7 @@
 package v3memory
 
 import (
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/store"
 	"net/http/httptest"
 	"strings"
 	"testing"

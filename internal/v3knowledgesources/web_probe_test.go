@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/v3sourceregistry"
+	"github.com/destinywans/redstring/internal/v3sourceregistry"
 )
 
 func TestPublicWebObservationProbeReadsOnePublicMarkdownPage(t *testing.T) {

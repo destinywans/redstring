@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/knowledge"
+	"github.com/destinywans/redstring/internal/knowledge"
 )
 
 func TestRunbookReadUnavailableDoesNotClaimMeasuredValues(t *testing.T) {

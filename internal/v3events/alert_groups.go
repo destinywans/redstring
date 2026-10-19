@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/searchtext"
+	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3alertmanager"
+	"github.com/destinywans/redstring/internal/v3events/alertseverity"
+	"github.com/destinywans/redstring/internal/v3pagequery"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/searchtext"
-	"github.com/wans/aiops-canvas/internal/store"
-	"github.com/wans/aiops-canvas/internal/v3alertmanager"
-	"github.com/wans/aiops-canvas/internal/v3events/alertseverity"
-	"github.com/wans/aiops-canvas/internal/v3pagequery"
 )
 
 // A binding is an operator assertion that these webhook source IDs feed the

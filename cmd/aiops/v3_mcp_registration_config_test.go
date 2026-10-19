@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wans/aiops-canvas/internal/aiextensions"
+	"github.com/destinywans/redstring/internal/aiextensions"
 )
 
 func TestV3MCPRegistrationBindingsRequireExactDeploymentAdmission(t *testing.T) {

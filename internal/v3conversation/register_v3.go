@@ -1,6 +1,6 @@
 package v3conversation
 
-import "github.com/wans/aiops-canvas/internal/httpapi"
+import "github.com/destinywans/redstring/internal/httpapi"
 
 // RegisterV3 keeps route registration and its V3 permissions together. SSE
 // authorizes against the persisted conversation because EventSource cannot

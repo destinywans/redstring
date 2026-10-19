@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/inference"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/inference"
 )
 
 type truncatedRuntime struct{}

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 // PromptTrialModelAdapter is deliberately narrower than the incident runner:

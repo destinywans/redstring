@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/operations"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/operations"
 )
 
 func testWebhook(t *testing.T) (*Service, string) {

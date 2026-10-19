@@ -13,8 +13,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/wans/aiops-canvas/internal/v3alertrules"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/v3alertrules"
+	"github.com/destinywans/redstring/internal/v3integrations"
 )
 
 // The deployment adapter is opt-in. The private file selects exact, reviewed

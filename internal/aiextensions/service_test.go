@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 type memoryRepository struct{ records map[string][]Record }

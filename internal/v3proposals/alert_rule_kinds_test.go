@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/destinywans/redstring/internal/v3alertmanager"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/v3alertmanager"
 )
 
 // D11 decision 7: a disable uses the alert rule domain verifier, quorum and

@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/wans/aiops-canvas/internal/delivery"
+	"github.com/destinywans/redstring/internal/delivery"
 	"net/url"
 	"os"
 	"path/filepath"

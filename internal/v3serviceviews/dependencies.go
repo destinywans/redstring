@@ -2,8 +2,8 @@ package v3serviceviews
 
 import (
 	"context"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/httpapi"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/httpapi"
 )
 
 type relationRow struct{ id, kind, mineResource, otherResource, direction string }

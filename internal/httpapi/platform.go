@@ -3,8 +3,8 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"github.com/wans/aiops-canvas/internal/core"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/core"
+	"github.com/destinywans/redstring/internal/store"
 	"net/http"
 	"strings"
 )

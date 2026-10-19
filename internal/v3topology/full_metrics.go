@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
-	"github.com/wans/aiops-canvas/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/connectors"
+	"github.com/destinywans/redstring/internal/v3integrations"
 )
 
 // errTopologyIncomplete intentionally carries no upstream labels or identifiers.

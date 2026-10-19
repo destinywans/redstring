@@ -133,7 +133,7 @@ class ReadonlyProtectionTests(unittest.TestCase):
             self.chain.frozen()
 
     def test_binary_build_metadata_rejects_unknown_entry_and_race_build(self):
-        metadata = 'binary: go1.26\n\tpath\tgithub.com/wans/aiops-canvas/cmd/aiops\n\tbuild\tCGO_ENABLED=1\n'
+        metadata = 'binary: go1.26\n\tpath\tgithub.com/destinywans/redstring/cmd/aiops\n\tbuild\tCGO_ENABLED=1\n'
         result = Mock(returncode=0, stdout=metadata)
         with patch.object(readonly.subprocess, 'run', return_value=result):
             self.assertFalse(readonly.binary_build_info(Path(self.data['binary']))['race_enabled'])

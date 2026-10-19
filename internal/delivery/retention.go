@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/httpapi"
-	"github.com/wans/aiops-canvas/internal/store"
+	"github.com/destinywans/redstring/internal/httpapi"
+	"github.com/destinywans/redstring/internal/store"
 )
 
 // Retention persists policy and reclamation eligibility. Automatic destruction

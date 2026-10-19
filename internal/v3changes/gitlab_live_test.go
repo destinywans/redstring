@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/v3integrations"
-	"github.com/wans/aiops-canvas/internal/v3telemetry"
+	"github.com/destinywans/redstring/internal/v3integrations"
+	"github.com/destinywans/redstring/internal/v3telemetry"
 )
 
 // TestReadServiceChangesLiveLab reads a real GitLab, read-only, when

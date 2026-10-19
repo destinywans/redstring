@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/connectors"
+	"github.com/destinywans/redstring/internal/connectors"
 )
 
 // timedTempo stores one single-span trace per second of [from, to) for one

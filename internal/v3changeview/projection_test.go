@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wans/aiops-canvas/internal/delivery"
+	"github.com/destinywans/redstring/internal/delivery"
 )
 
 func nativeRun() delivery.Run {

@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
-	"github.com/wans/aiops-canvas/internal/store"
 )
 
 const selectDraft = `SELECT d.id,d.investigation_id,d.application_id,d.title,d.body,d.evidence_ids,d.created_by,d.created_at,COALESCE(d.confirmed_by,''),d.confirmed_at,COALESCE(d.document_id,''),d.origin,d.generation_run_id,d.generation_model FROM knowledge_drafts d `

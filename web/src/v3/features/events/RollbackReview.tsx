@@ -21,7 +21,8 @@ export function RollbackReviewCards({ p, rb }: { p: Proposal; rb: ProposalRollba
             </span>
           </KV>
           <KV k={tx("修订", "Revision")} kw={76}>
-            {tx("当前 {f} → 回滚到 {t}", "Current {f} → back to {t}", { f: rb.from_revision, t: rb.target_revision })}
+            {/* from_revision is what the proposer read; the page never rechecks the cluster, so it isn't "current" (PA-257). */}
+            {tx("提案时 {f} → 回滚到 {t}", "{f} when proposed → back to {t}", { f: rb.from_revision, t: rb.target_revision })}
           </KV>
           <KV k={tx("执行方式", "Method")} kw={76}>
             {p.method}
@@ -37,9 +38,14 @@ export function RollbackReviewCards({ p, rb }: { p: Proposal; rb: ProposalRollba
           {rb.changes.length ? (
             <ChangeLines changes={rb.changes} images={rb.containers} />
           ) : (
-            <Muted>{tx("回滚后 Pod template 与当前相同。", "The Pod template is the same as now after rolling back.")}</Muted>
+            <Muted>{tx("回滚后 Pod template 与提案时相同。", "After rolling back, the Pod template is the same as when proposed.")}</Muted>
           )}
-          <Muted size={11.5}>{tx("来自 Secret 或 ConfigMap 的值只显示名称。", "Values from a Secret or ConfigMap show by name only.")}</Muted>
+          <Muted size={11.5}>
+            {tx(
+              "差异按提案时读取的 Deployment 计算；执行时 Deployment 已被修改则不会写入。来自 Secret 或 ConfigMap 的值只显示名称。",
+              "Differences are from the Deployment as read when proposed; if it has changed by execution, nothing is written. Values from a Secret or ConfigMap show by name only.",
+            )}
+          </Muted>
         </Col>
       </Card>
       <Card>

@@ -175,12 +175,22 @@ export default function TemplatesPage() {
 /** New template = save an existing canvas's structure (nodes, read-only steps, runbooks) as a template. */
 function SaveAsTemplateDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { tx } = useI18n();
-  const { data } = useGet<{ items: CanvasSummary[] }>(open ? "/canvases" : null);
+  // Only general canvases can become canvas templates; investigations have their own (PA-114). The list is paged
+  // and investigations far outnumber the rest, so real mode asks for each general kind instead of filtering the
+  // first page, which can hold nothing but investigations (PA-253).
+  const real = API_MODE !== "mock";
+  const general = (kind: string) => (open && real ? { path: "/canvases", query: { kind, page_size: 100 } } : { path: null, query: undefined });
+  const all = useGet<{ items: CanvasSummary[] }>(open && !real ? "/canvases" : null);
+  const plan = useGet<{ items: CanvasSummary[] }>(general("plan").path, general("plan").query);
+  const review = useGet<{ items: CanvasSummary[] }>(general("review").path, general("review").query);
+  const analysis = useGet<{ items: CanvasSummary[] }>(general("analysis").path, general("analysis").query);
+  const custom = useGet<{ items: CanvasSummary[] }>(general("custom").path, general("custom").query);
   const [pick, setPick] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [keep, setKeep] = useState({ nodes: true, steps: true, runbooks: true, content: false });
-  // Only general canvases can become canvas templates; investigations have their own (PA-114).
-  const items = (data?.items ?? []).filter((c) => API_MODE === "mock" || c.kind !== "investigation");
+  const items = real
+    ? [plan, review, analysis, custom].flatMap((q) => q.data?.items ?? []).sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at) || a.id.localeCompare(b.id))
+    : all.data?.items ?? [];
   const cur = items.find((c) => c.id === pick) ?? items[0];
   const save = async () => {
     try {

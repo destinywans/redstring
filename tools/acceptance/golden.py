@@ -462,7 +462,9 @@ def settings(run):
     run.step('restore the digest', 'PUT', '/me/notification-settings', {'digest': before.get('digest') or 'off'})
     ai = run.step('AI preferences', 'GET', '/me/ai-preferences')
     run.step('save AI preferences unchanged', 'PUT', '/me/ai-preferences', ai)
-    exported = run.step('audit export', 'POST', '/audit/export', {'filter': 'all'})
+    # Bounded like the page's own export (it always sends the list's range): an unbounded export passes the
+    # 10000-record cap once the acceptance audit log grows past it (prod reached 10217 on 2026-10-19).
+    exported = run.step('audit export', 'POST', '/audit/export', {'filter': 'all', 'range': '24h'})
     run.note(url=exported.get('url'))
     audit = run.step('audit list', 'GET', '/audit?filter=user')
     first = (audit.get('items') or [{}])[0]

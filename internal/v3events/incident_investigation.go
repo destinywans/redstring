@@ -18,8 +18,11 @@ import (
 // reuses the investigation already linked to the incident, or creates one
 // for the incident's service and environment, titled after the incident and
 // with the same structure as an investigation created on the canvas, and
-// links it back. It needs the incident's events.view and the operator
-// route. Without a model_id no model is called; starting the AI with one is
+// links it back. Seeing the incident needs its events.view (404 otherwise);
+// opening writes (the investigation, the alert's status), so it also needs
+// events.change, like starting one from an alert group, and is refused with
+// 403 before anything is written (PA-252: the V3 route skips the legacy
+// "operator" role, so this handler is the only check). Without a model_id no model is called; starting the AI with one is
 // the canvas's job, so a model_id is refused rather than ignored. The
 // response is the incident as GET /incidents/{id} returns it.
 func (s *Service) OpenInvestigation(w http.ResponseWriter, r *http.Request) {
@@ -50,6 +53,10 @@ func (s *Service) OpenInvestigation(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	if err = s.openInvestigationTx(r, tx, id); err != nil {
+		if errors.Is(err, errInvestigationForbidden) {
+			httpapi.Error(w, http.StatusForbidden, "forbidden", "Insufficient permission")
+			return
+		}
 		respondIncidentDetailError(w, err)
 		return
 	}
@@ -65,8 +72,11 @@ func (s *Service) openInvestigationTx(r *http.Request, tx pgx.Tx, id string) err
 	user := httpapi.CurrentUser(r)
 	caseValue, err := scanCase(tx.QueryRow(ctx, caseSelect+` WHERE c.id=$1 FOR UPDATE OF c`, id))
 	if err == nil {
-		if err = s.authorizeAlertTx(r, tx, incidentRecord{ApplicationID: caseValue.ApplicationID,
-			EnvironmentID: caseValue.EnvironmentID, EnvironmentKey: caseValue.EnvironmentKey}, "view"); err != nil {
+		record := incidentRecord{ApplicationID: caseValue.ApplicationID, EnvironmentID: caseValue.EnvironmentID, EnvironmentKey: caseValue.EnvironmentKey}
+		if err = s.authorizeAlertTx(r, tx, record, "view"); err != nil {
+			return err
+		}
+		if err = s.authorizeInvestigationStart(r, tx, record); err != nil {
 			return err
 		}
 		if !validCase(caseValue) {
@@ -97,6 +107,9 @@ func (s *Service) openInvestigationTx(r *http.Request, tx pgx.Tx, id string) err
 	if err = s.authorizeAlertTx(r, tx, v, "view"); err != nil {
 		return err
 	}
+	if err = s.authorizeInvestigationStart(r, tx, v); err != nil {
+		return err
+	}
 	if v.ApplicationID == "" || v.EnvironmentID == "" || v.EnvironmentKey == "" || strings.TrimSpace(v.Title) == "" || v.StartsAt.IsZero() {
 		return store.ErrInvalidReference
 	}
@@ -115,6 +128,19 @@ func (s *Service) openInvestigationTx(r *http.Request, tx pgx.Tx, id string) err
 	// A resolved alert keeps its status; an open one is now investigated.
 	_, err = tx.Exec(ctx, `UPDATE ops_incidents SET investigation_id=$2,
  status=CASE WHEN status='open' THEN 'investigating' ELSE status END,updated_at=now() WHERE id=$1`, id, investigation)
+	return err
+}
+
+// errInvestigationForbidden: the viewer may see the incident but not change it.
+var errInvestigationForbidden = errors.New("opening an investigation needs events.change")
+
+// authorizeInvestigationStart requires events.change on the incident's
+// application and environment, after its events.view has been checked.
+func (s *Service) authorizeInvestigationStart(r *http.Request, tx pgx.Tx, v incidentRecord) error {
+	err := s.authorizeAlertTx(r, tx, v, "change")
+	if errors.Is(err, store.ErrForbidden) {
+		return errInvestigationForbidden
+	}
 	return err
 }
 

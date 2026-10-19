@@ -606,6 +606,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-10-19 | PA-252（第 3 轮，越权）：`POST /incidents/{id}/investigation` 除事件的 `events.view`（否则 404）外还需要 `events.change`，否则 403 `forbidden`、不新建调查也不改事件状态；与告警组发起调查一致。V3 路由不再依赖登记时的 operator 角色；见 [后端辅助接口](v3-backend-aux.md) |
 | 2026-10-18 | 缺陷收敛后端与写路径清扫批：告警级别统一归一化（`internal/v3events/alertseverity`），`GET /alert-groups`、`/alerts/{id}`、`/incidents`、`/incidents/{id}` 与 `GET /home` 的需要关注项在原始级别不认识或没有时 `severity` 为 `null` 并带 `severity_reason`（`unclassified`/`not_filled`），`GET /inbox` 不再因未知级别整页 503，首页告警趋势新增 `unknown_severity`；没有级别标签的告警入库存空串、不再写 `warning`；服务健康按归一化后的 P1 判定严重告警（PA-238～240）。`GET /agents/{id}` 的 `release` 新增 `rollback_to`，与回滚实际目标同一规则（PA-236）。`POST /knowledge/search` 文档命中没进入向量候选时 `vector` 为 `null`（PA-222）。 |
 | 2026-10-18 | 缺陷收敛剩余项批：`GET /audit` 的 `result` 新增 `needs_attention`，生命周期 outcome 归类，无法归类时 `unavailable.result=unclassified`，未知筛选值 422（PA-230）；角色矩阵 13 行改为 18 行（PA-231）；`POST /knowledge/search` 的命中新增 `corpus`，`vector` 可为 `null`（PA-222）。 |
 | 2026-10-18 | 缺陷收敛按类清扫批（PA-205～229）：`GET /proposals/{id}` 的 `execution` 新增 `failure_code`，顶层新增 `my_vote`（PA-205）；`GET /audit` 的 `result` 新增 `unconfirmed`、`expired`，outcome `unknown` 不再算 `failed`（PA-206）；告警规则 `state` 新增 `error`、`unknown`，详情新增 `last_error`（PA-210），`pending[].state` 新增 `expired`（PA-217）；`GET /postmortems` 的 `items[]` 新增 `application_id`（PA-218）；`GET /webhooks` 的 `deliveries[]` 新增 `source_id`、`event_type`，改为每个入站条目各最近 30 条（PA-227）。 |

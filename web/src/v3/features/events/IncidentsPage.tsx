@@ -177,9 +177,12 @@ export default function IncidentsPage() {
                     {tx("打开调查画布", "Open canvas")}
                   </Btn>
                 ) : (
-                  <Btn kind="primary" icon="branch" onClick={() => void openInvestigation()}>
-                    {inc.investigation_id ? tx("打开调查画布", "Open canvas") : tx("发起调查", "Investigate")}
-                  </Btn>
+                  // Opening a linked investigation only navigates; starting one writes and needs events.change (PA-252).
+                  <Gated reason={inc.investigation_id ? null : needEvents}>
+                    <Btn kind="primary" icon="branch" onClick={() => void openInvestigation()}>
+                      {inc.investigation_id ? tx("打开调查画布", "Open canvas") : tx("发起调查", "Investigate")}
+                    </Btn>
+                  </Gated>
                 )}
               </Row>
               <Card style={{ padding: "12px 16px" }}>

@@ -90,7 +90,8 @@ P['/alert-rules']['get']['description'] += (' D11 §11.6: with the executor wire
 # PA-88: V3 opens an incident's investigation itself (the historical route is
 # no longer registered on a V3 instance).
 P['/incidents/{id}/investigation']['post']['description'] += (' V3 (PA-88): id is an alert incident or a manual '
-    'incident. Needs one selected environment and events.view on the incident (with the operator route). The investigation '
+    'incident. Needs one selected environment, events.view on the incident (404 otherwise) and events.change on it (403 '
+    'forbidden otherwise, nothing written; PA-252), like starting one from an alert group. The investigation '
     'already linked to the incident is reused; otherwise one is created for its service and environment (an INV- ID like the '
     'canvas, titled after the incident, the alert summary or the manual impact as its goal, a main branch with an empty '
     'context) and linked back; an open alert incident becomes investigating. No model is called: a model_id is refused '

@@ -94,10 +94,13 @@ func TestDevInitDefaultModelServesV3Catalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service := New(nil, runner)
-	w := httptest.NewRecorder()
-	service.ModelsHandler(w, httptest.NewRequest(http.MethodGet, "/api/v1/models", nil))
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"api":"chat_completions"`) {
-		t.Fatalf("the make init default model is not listed by the V3 catalog: %d %s", w.Code, w.Body.String())
+	// The catalog itself, as in TestModelCatalogToolsFollowV3Allowlist: the
+	// handler goes on to read the user's preferences, which need a store.
+	items, err := New(nil, runner).modelCatalogItems(httptest.NewRequest(http.MethodGet, "/api/v1/models", nil), "")
+	if err != nil {
+		t.Fatalf("the make init default model is refused by the V3 catalog: %v", err)
+	}
+	if len(items) != 1 || items[0]["api"] != "chat_completions" || items[0]["available"] != true {
+		t.Fatalf("the make init default model is not listed as an available chat_completions model: %v", items)
 	}
 }

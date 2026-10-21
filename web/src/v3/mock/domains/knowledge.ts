@@ -1,4 +1,6 @@
-import { mock } from "../router";
+import { mock, MockError } from "../router";
+import { at } from "../time";
+import { SAMPLE_ME, nowIso, rememberPostmortem, samplePostmortems, type SamplePostmortem } from "../postmortemStore";
 import { l } from "../../i18n";
 
 const P = (zh: string, en: string) => l(zh, en);
@@ -66,16 +68,63 @@ mock("GET", "/runbooks/:id", ({ params }) => {
 mock("POST", "/runbooks/:id/dry-run", () => ({ steps: 3, ok: true }));
 mock("POST", "/runbooks/:id/submit", () => ({ ok: true }));
 
+/* PA-128: list rows open their postmortem; the detail keeps the demo's edits in memory (mock/postmortemStore). */
+const PM_ROWS = [
+  { id: "PM-57", title: P("checkout-api 5xx 上升", "checkout-api 5xx spike"), severity: "P1", date: "9/20", duration: P("18 分钟", "18 min"), cause: P("依赖", "Dependency"), actions: "0 / 3", status: "draft" },
+  { id: "PM-56", title: P("payment-gateway 延迟升高", "payment-gateway latency"), severity: "P2", date: "9/20", duration: P("1 时 12 分", "1 h 12 m"), cause: P("依赖", "Dependency"), actions: "1 / 2", status: "draft" },
+  { id: "PM-55", title: P("order-service 慢查询导致超时", "order-service slow-query timeouts"), severity: "P2", date: "9/19", duration: P("48 分钟", "48 min"), cause: P("代码缺陷", "Code defect"), actions: "2 / 2", status: "published" },
+  { id: "PM-54", title: P("search-api 发布后可用性下降", "search-api availability after release"), severity: "P1", date: "9/18", duration: P("35 分钟", "35 min"), cause: P("发布", "Release"), actions: "3 / 4", status: "published" },
+  { id: "PM-53", title: P("notification-svc 短信通道失败", "notification-svc SMS failures"), severity: "P3", date: "9/16", duration: P("2 小时", "2 h"), cause: P("第三方", "Third party"), actions: "1 / 1", status: "published" },
+  { id: "PM-52", title: P("user-center 登录延迟抖动", "user-center login jitter"), severity: "P2", date: "9/15", duration: P("25 分钟", "25 min"), cause: P("容量", "Capacity"), actions: "2 / 3", status: "published" },
+  { id: "PM-51", title: P("inventory-worker 重复消费", "inventory-worker duplicate consumption"), severity: "P3", date: "9/12", duration: P("1 时 40 分", "1 h 40 m"), cause: P("代码缺陷", "Code defect"), actions: "2 / 2", status: "published" },
+];
+const PM_MINUTES: Record<string, number> = { "PM-57": 18, "PM-56": 72, "PM-55": 48, "PM-54": 35, "PM-53": 120, "PM-52": 25, "PM-51": 100 };
+/** The server writes durations as 18m / 1h 12m. */
+const pmDuration = (m: number) => (m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`);
+const PM_INCIDENTS: Record<string, string> = { "PM-57": "INC-1042", "PM-56": "INC-1040", "PM-55": "INC-1036", "PM-54": "INC-1033", "PM-53": "INC-1029", "PM-52": "INC-1027", "PM-51": "INC-1022" };
+for (const row of PM_ROWS) {
+  const day = PM_ROWS.indexOf(row);
+  const minutes = PM_MINUTES[row.id] ?? 30;
+  const published = row.status === "published";
+  rememberPostmortem({
+    id: row.id,
+    incident_id: PM_INCIDENTS[row.id],
+    status: published ? "published" : "draft",
+    revision: published ? 3 : 1,
+    source_revision: `case:${4000 + day}`,
+    sections:
+      row.id === "PM-57"
+        ? [
+            { key: "summary", title: P("概要", "Summary"), text: P("inventory-03 磁盘变慢，checkout-api 超时后立即重试 3 次，把库存调用放大到 3.2 倍，整个库存服务被压满，下单 5xx 升至 8.4%，持续 18 分钟。重试降为 1 次并打开熔断后恢复。", "inventory-03's disk slowed down; checkout-api retried each timeout 3 times at once, amplifying inventory calls 3.2×, the inventory service saturated and checkout 5xx reached 8.4% for 18 minutes. Retrying once with the breaker on restored service.") },
+            { key: "impact", title: P("影响", "Impact"), text: "" },
+            { key: "root", title: P("根因", "Root cause"), text: P("库存调用的重试配置自 v2.6 起就是超时 300 ms、重试 3 次、无退避，也没有熔断；一台实例变慢就会被放大成整个服务的风暴。", "Since v2.6 inventory calls have used a 300 ms timeout, 3 retries, no backoff and no breaker, so one slow instance becomes a storm across the service.") },
+          ]
+        : [
+            { key: "summary", title: P("概要", "Summary"), text: P(`${row.title.zh}，持续 ${row.duration.zh}。`, `${row.title.en}, lasting ${row.duration.en}.`) },
+            { key: "impact", title: P("影响", "Impact"), text: P("示例复盘：影响写在这里，不知道的写“未知”。", "Sample postmortem: the impact goes here, with “unknown” where it isn't known.") },
+            { key: "root", title: P("根因", "Root cause"), text: P(`根因类别：${row.cause.zh}。`, `Cause category: ${row.cause.en}.`) },
+          ],
+    actions:
+      row.id === "PM-57"
+        ? [
+            { text: P("库存调用改为指数退避，重试预算不超过 10%", "Exponential backoff on inventory calls, retry budget under 10%"), owner: "张磊", due: "9/27" },
+            { text: P("库存服务开启离群实例摘除", "Outlier ejection for the inventory service"), owner: "李明", due: "9/30" },
+          ]
+        : [{ text: P("补一条覆盖这次根因的告警", "Add an alert covering this cause"), owner: "周航", due: "10/31" }],
+    authored_by_me: row.id === "PM-57",
+    author: row.id === "PM-57" ? SAMPLE_ME : "张磊",
+    created_at: at("15:10", -day),
+    updated_at: at("16:20", -day),
+    incident: { id: PM_INCIDENTS[row.id], title: row.title, severity: row.severity, started_at: at("14:05", -day), closed_at: new Date(new Date(at("14:05", -day)).getTime() + minutes * 60_000).toISOString(), duration: pmDuration(minutes) },
+    submitted: published ? { by: "张磊", at: at("17:00", -day) } : null,
+    published: published ? { by: "周航", at: at("18:30", -day) } : null,
+    returned: null,
+  });
+}
+const stateOf = (id: string, fallback: string) => samplePostmortems.get(id)?.status ?? fallback;
+
 mock("GET", "/postmortems", ({ query }) => {
-  const all = [
-    { id: "PM-57", title: P("checkout-api 5xx 上升", "checkout-api 5xx spike"), severity: "P1", date: "9/20", duration: P("18 分钟", "18 min"), cause: P("依赖", "Dependency"), actions: "0 / 3", status: "draft" },
-    { id: "PM-56", title: P("payment-gateway 延迟升高", "payment-gateway latency"), severity: "P2", date: "9/20", duration: P("1 时 12 分", "1 h 12 m"), cause: P("依赖", "Dependency"), actions: "1 / 2", status: "draft" },
-    { id: "PM-55", title: P("order-service 慢查询导致超时", "order-service slow-query timeouts"), severity: "P2", date: "9/19", duration: P("48 分钟", "48 min"), cause: P("代码缺陷", "Code defect"), actions: "2 / 2", status: "published" },
-    { id: "PM-54", title: P("search-api 发布后可用性下降", "search-api availability after release"), severity: "P1", date: "9/18", duration: P("35 分钟", "35 min"), cause: P("发布", "Release"), actions: "3 / 4", status: "published" },
-    { id: "PM-53", title: P("notification-svc 短信通道失败", "notification-svc SMS failures"), severity: "P3", date: "9/16", duration: P("2 小时", "2 h"), cause: P("第三方", "Third party"), actions: "1 / 1", status: "published" },
-    { id: "PM-52", title: P("user-center 登录延迟抖动", "user-center login jitter"), severity: "P2", date: "9/15", duration: P("25 分钟", "25 min"), cause: P("容量", "Capacity"), actions: "2 / 3", status: "published" },
-    { id: "PM-51", title: P("inventory-worker 重复消费", "inventory-worker duplicate consumption"), severity: "P3", date: "9/12", duration: P("1 时 40 分", "1 h 40 m"), cause: P("代码缺陷", "Code defect"), actions: "2 / 2", status: "published" },
-  ];
+  const all = PM_ROWS.map((row) => ({ ...row, status: stateOf(row.id, row.status) }));
   const tab = String(query.tab ?? "all");
   return {
     kpis: [
@@ -85,7 +134,7 @@ mock("GET", "/postmortems", ({ query }) => {
       { id: "recur", label: P("复发率", "Recurrence"), value: "11%", tone: "warn", sub: P("同根因 90 天内再次发生", "Same cause within 90 days"), series: [] },
       { id: "done", label: P("改进项完成率", "Action items done"), value: "72%", sub: "18 / 25", series: [] },
     ],
-    items: tab === "draft" ? all.filter((x) => x.status === "draft") : tab === "published" ? all.filter((x) => x.status === "published") : all,
+    items: tab === "draft" ? all.filter((x) => x.status !== "published") : tab === "published" ? all.filter((x) => x.status === "published") : all,
     causes: [
       { label: P("配置变更", "Config change"), pct: 34, color: "var(--c1)" },
       { label: P("容量", "Capacity"), pct: 22, color: "var(--c2)" },
@@ -102,6 +151,43 @@ mock("GET", "/postmortems", ({ query }) => {
       { text: P("配置模板禁止无退避的重试", "Config template rejects retries without backoff"), owner: "张磊", due: "9/27", tone: "neutral" },
     ],
   };
+});
+
+const samplePm = (id: string) => {
+  const p = samplePostmortems.get(id);
+  if (!p) throw new MockError(404, "not_found", "Postmortem not found");
+  return p;
+};
+const copyPm = (p: SamplePostmortem) => JSON.parse(JSON.stringify(p)) as SamplePostmortem;
+mock("GET", "/postmortems/:id", ({ params }) => copyPm(samplePm(params.id)));
+mock("PATCH", "/postmortems/:id", ({ params, body }) => {
+  const p = samplePm(params.id);
+  const b = (body ?? {}) as Partial<Pick<SamplePostmortem, "sections" | "actions">> & { status?: string };
+  if (p.status !== "draft") throw new MockError(409, "invalid_state", "Only a draft postmortem can be edited or submitted");
+  const sections = b.sections ?? p.sections;
+  const actions = b.actions ?? p.actions;
+  const filled = (v: unknown) => typeof v !== "string" || !!v.trim();
+  if (actions.some((a) => !filled(a.text) || !filled(a.owner) || !filled(a.due)) || (b.status === "review" && sections.some((x) => !filled(x.text))))
+    throw new MockError(422, "invalid_postmortem", "Sections, actions or status are invalid; review needs every section filled in");
+  Object.assign(p, { sections, actions, revision: p.revision + 1, updated_at: nowIso() });
+  if (b.status === "review") Object.assign(p, { status: "review", submitted: { by: SAMPLE_ME, at: nowIso() }, returned: null });
+  return copyPm(p);
+});
+mock("POST", "/postmortems/:id/return", ({ params, body }) => {
+  const p = samplePm(params.id);
+  const reason = String((body as { reason?: string })?.reason ?? "").trim();
+  if (p.authored_by_me) throw new MockError(403, "self_review_forbidden", "A second reviewer must return this postmortem");
+  if (p.status !== "review") throw new MockError(409, "invalid_state", "Only a postmortem in review can be returned");
+  if (!reason || reason.length > 2000) throw new MockError(422, "invalid_return", "Send the reason for returning it, 1-2000 characters");
+  Object.assign(p, { status: "draft", revision: p.revision + 1, updated_at: nowIso(), returned: { by: SAMPLE_ME, at: nowIso(), reason } });
+  return copyPm(p);
+});
+mock("POST", "/postmortems/:id/publish", ({ params }) => {
+  const p = samplePm(params.id);
+  if (p.authored_by_me) throw new MockError(403, "self_review_forbidden", "A second reviewer must publish this postmortem");
+  if (p.status !== "review") throw new MockError(409, "invalid_state", "Postmortem is not ready for publication");
+  Object.assign(p, { status: "published", revision: p.revision + 1, updated_at: nowIso(), published: { by: SAMPLE_ME, at: nowIso() } });
+  return { id: p.id, status: "published" };
 });
 
 mock("GET", "/memory", () => ({

@@ -32,6 +32,8 @@
 .f-callout > svg { flex: none; }
 .f-callout.warn { background: var(--warn-soft); }
 .f-callout.warn > svg { color: var(--warn); }
+.f-callout.danger { background: var(--danger-soft); }
+.f-callout.danger > svg { color: var(--danger); }
 .f-callout.ok { background: var(--ok-soft); }
 .f-callout.ok > svg { color: var(--ok); }
 .f-callout.accent { background: var(--accent-soft); border: 1px solid var(--accent-line); }

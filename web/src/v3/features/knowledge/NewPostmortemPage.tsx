@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import { AiAvatar, Avatar, Badge, Brand, Btn, Col, Dot, Icon, KV, Mono, Muted, Row, Skeleton, Spacer, Stepper, Strong, Textarea, TextLink, type Severity, type Tone } from "../../ui/core";
+import { AiAvatar, Badge, Brand, Btn, Col, Dot, Icon, KV, Mono, Muted, Row, Skeleton, Spacer, Stepper, Strong, Textarea, TextLink, type Severity, type Tone } from "../../ui/core";
 import type { SeverityReason } from "../../api/types";
 import { SeverityBadge } from "../events/peeks";
 import { toast } from "../../ui/overlays";
@@ -11,6 +11,8 @@ import { useI18n } from "../../i18n";
 import "./knowledge.css";
 import { useWhen } from "../../ui/when";
 import { LoadError, PageUnavailable, UnknownValue } from "../../ui/unknown";
+import { Callout } from "../../ui/forms";
+import { PostmortemActions, cleanActions, useActionsProblem } from "./postmortemParts";
 
 /** severity is null with severity_reason when the incident's recorded severity is unknown (PA-247). */
 type Candidate = { id: string; title: string; severity: Severity | null; severity_reason?: SeverityReason; resolved: string; duration: string; evidence: number };
@@ -53,21 +55,23 @@ export default function NewPostmortemPage() {
         ]
       : sections.map((s) => [s.title, s.text.trim() ? "ok" : "warn"]);
   const stateLabel = { ok: API_MODE === "mock" ? tx("AI 已起草", "AI drafted") : tx("已填写", "Filled in"), warn: tx("需补充", "Needs input"), danger: tx("缺数据", "Missing data") };
+  const actionsProblem = useActionsProblem(actions);
   const submit = async (mode: "draft" | "review") => {
     setBusy(mode);
     try {
-      await api("POST", "/postmortems", {
-        body: { incident_id: incident, source_revision: data?.source_revision, source_close_event_seq: data?.source_close_event_seq, sections, actions, status: mode },
+      const r = await api<{ id: string }>("POST", "/postmortems", {
+        body: { incident_id: incident, source_revision: data?.source_revision, source_close_event_seq: data?.source_close_event_seq, sections, actions: cleanActions(actions), status: mode },
       });
-      toast(mode === "draft" ? tx("草稿已保存", "Draft saved") : tx("已提交审阅", "Submitted for review"));
-      if (mode === "review") nav("/postmortems");
+      toast(mode === "draft" ? tx("草稿已保存", "Draft saved") : tx("已提交审核", "Submitted for review"));
+      // Either way the postmortem now exists: carry on on its own page, where saving again edits it (PA-128).
+      nav(`/postmortems/${encodeURIComponent(r.id)}`, { replace: true });
     } catch (e) {
       toast(e instanceof ApiError ? e.message : tx("保存失败，请稍后重试", "Couldn't save; try again later"), { tone: "danger" });
     } finally {
       setBusy(null);
     }
   };
-  const steps = [tx("选择事件", "Pick incident"), API_MODE === "mock" ? tx("AI 起草", "AI draft") : tx("起草", "Draft"), tx("审阅", "Review"), tx("发布", "Publish")];
+  const steps = [tx("选择事件", "Pick incident"), API_MODE === "mock" ? tx("AI 起草", "AI draft") : tx("起草", "Draft"), tx("审核", "Review"), tx("发布", "Publish")];
   return (
     <Page flush crumbs={[tx("知识与记忆", "Knowledge"), tx("复盘报告", "Postmortems"), tx("新建", "New")]} actions={incident && <Btn kind="ghost" onClick={() => setParams({}, { replace: true })}>{tx("换一个事件", "Pick another incident")}</Btn>}>
       <div style={{ padding: "12px 24px", borderBottom: "1px solid var(--border)", flex: "none" }}>
@@ -141,7 +145,11 @@ export default function NewPostmortemPage() {
             </Col>
           </aside>
           <div className="pm-center">
-            {!data && draftError instanceof ApiError && draftError.status === 404 ? (
+            {!data && draftError instanceof ApiError && draftError.code === "postmortem_exists" && typeof draftError.detail.postmortem_id === "string" ? (
+              <Callout icon="file" action={<Btn kind="primary" to={`/postmortems/${encodeURIComponent(draftError.detail.postmortem_id)}`}>{tx("打开复盘", "Open the postmortem")}</Btn>}>
+                {tx("这个事件已经有复盘了，在复盘页里继续编辑或审核。", "This incident already has a postmortem; carry on editing or reviewing it there.")}
+              </Callout>
+            ) : !data && draftError instanceof ApiError && draftError.status === 404 ? (
               // The server answers 404 for an incident that isn't resolved or already has a postmortem (PA-221).
               <PageUnavailable icon="search" configure={false} title={tx("这个事件不能起草复盘", "This incident can't be drafted")} desc={tx("只有已解决、还没有复盘的事件可以起草；它也可能在当前环境里看不到。", "Only resolved incidents without a postmortem can be drafted; it may also not be visible in this environment.")} />
             ) : !data && draftError ? (
@@ -189,30 +197,7 @@ export default function NewPostmortemPage() {
                 </div>
                 <div className="pm-section">
                   <b>{tx("改进项", "Action items")}</b>
-                  <div className="v3-card" style={{ overflow: "hidden" }}>
-                    <table className="v3-table">
-                      <thead>
-                        <tr>
-                          <th>{tx("事项", "Item")}</th>
-                          <th>{tx("负责人", "Owner")}</th>
-                          <th>{tx("期限", "Due")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {actions.map((a) => (
-                          <tr key={a.text}>
-                            <td>{a.text}</td>
-                            <td><Row gap={6}>{a.owner === "AI" ? <AiAvatar size={18} /> : <Avatar name={a.owner} size={18} />}{a.owner}</Row></td>
-                            <td className="muted">{a.due}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <button type="button" className="f-add" onClick={() => setActions([...actions, { text: tx("新的改进项", "New action item"), owner: API_MODE === "mock" ? "王晨" : "", due: "—" }])}>
-                    <Icon name="plus" size={12} />
-                    {tx("改进项", "Action item")}
-                  </button>
+                  <PostmortemActions actions={actions} onChange={setActions} />
                 </div>
               </>
             )}
@@ -237,7 +222,7 @@ export default function NewPostmortemPage() {
                     <Muted size={11.5}>{tx("发布到", "Publish to")}</Muted>
                     <Row gap={8}><Brand name="confluence" size={22} /><span style={{ fontSize: "var(--fs-sm)" }}>{tx("Confluence · SRE 手册 / 复盘", "Confluence · SRE handbook / Postmortems")}</span></Row>
                     <Row gap={8}><Brand name="feishu" size={22} /><span style={{ fontSize: "var(--fs-sm)" }}>{tx("飞书 · 交易平台群摘要", "Feishu · trading group summary")}</span></Row>
-                    <Muted size={11}>{tx("发布需要审阅通过后手动确认", "Publishing needs review and a manual confirmation")}</Muted>
+                    <Muted size={11}>{tx("发布需要审核通过后手动确认", "Publishing needs review and a manual confirmation")}</Muted>
                   </Col>
                   <Col gap={6}>
                     <Muted size={11.5}>{tx("后续", "Follow-ups")}</Muted>
@@ -247,12 +232,17 @@ export default function NewPostmortemPage() {
               )}
               <Row gap={8}>
                 <Gate need={["knowledge", "manage"]}>
-                  <Btn loading={busy === "draft"} disabled={!data} onClick={() => submit("draft")}>{tx("保存草稿", "Save draft")}</Btn>
+                  <Btn loading={busy === "draft"} disabled={!data || !!actionsProblem || !!busy} onClick={() => submit("draft")}>{tx("保存草稿", "Save draft")}</Btn>
                 </Gate>
                 <Gate need={["knowledge", "manage"]}>
-                  <Btn kind="primary" icon="check" loading={busy === "review"} disabled={!data} onClick={() => submit("review")}>{tx("提交审阅", "Submit for review")}</Btn>
+                  <Btn kind="primary" icon="check" loading={busy === "review"} disabled={!data || !!actionsProblem || sections.some((x) => !x.text.trim()) || !!busy} onClick={() => submit("review")}>{tx("提交审核", "Submit for review")}</Btn>
                 </Gate>
               </Row>
+              {data && (actionsProblem || sections.some((x) => !x.text.trim())) && (
+                <Muted size={12} style={{ color: "var(--warn)" }}>
+                  {actionsProblem ?? tx("提交审核前每个章节都要填写；可以先保存草稿。", "Every section needs text before review; you can save a draft first.")}
+                </Muted>
+              )}
             </div>
           </aside>
         </div>

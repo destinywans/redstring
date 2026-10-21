@@ -752,6 +752,28 @@ export type PostmortemSummary = {
   followups: { text: string; owner: string; due: string; tone: Tone }[] | null;
   unknown_fields?: string[];
 };
+/** A recorded review step, read from the audit trail; `reason` is set on a return only (PA-128). */
+export type PostmortemStep = { by: string; at: string; reason?: string };
+/** GET /postmortems/{id} (PA-65, PA-128). `revision` is the ETag that PATCH sends back in If-Match. */
+export type PostmortemDetail = {
+  id: string;
+  incident_id: string;
+  status: "draft" | "review" | "published";
+  revision: number;
+  source_revision: string;
+  sections: { key: string; title: string; text: string }[];
+  actions: { text: string; owner: string; due: string }[];
+  authored_by_me: boolean;
+  author: string;
+  created_at: string;
+  updated_at: string;
+  /** null when the saved resolution of the incident can no longer be read. */
+  incident: { id: string; title: string; severity: Severity | null; severity_reason?: SeverityReason; started_at: string | null; closed_at: string; duration: string | null } | null;
+  submitted: PostmortemStep | null;
+  published: PostmortemStep | null;
+  /** The return that sent this draft back since its last submission. */
+  returned: PostmortemStep | null;
+};
 export type MemoryLayer = { id: "working" | "service" | "episodic" | "semantic" | "workspace"; name: string; count: string | number; desc?: string; description?: string; /** Real layers list the facts they hold. */ evidence?: { fact_ids?: string[] } };
 /** Real facts carry `revision`/`state`; confidence, recalls and expiry are null until measured. */
 export type MemoryFact = { id: string; fact: string; source: string; /** The source document's title; null when it has none (PA-166). */ source_title?: string | null; confidence: "high" | "medium" | "low" | null; confirmed: string | null; recalls: number | null; expires: string | null; revision?: number; state?: string };

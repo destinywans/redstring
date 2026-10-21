@@ -55,8 +55,8 @@ export default function PostmortemsPage() {
               loading={isLoading}
               error={error}
               rowKey={(r) => r.id}
-              // Sample rows open the sample execution report; real rows open their incident (there is no postmortem detail page yet).
-              onRowClick={(r) => (API_MODE === "mock" ? nav("/executions/EXE-51") : r.incident_id && nav(`/incidents/${r.incident_id}`))}
+              // A row opens the postmortem itself (PA-128).
+              onRowClick={(r) => nav(`/postmortems/${encodeURIComponent(r.id)}`)}
               rowHeight={44}
               columns={[
                 { key: "t", header: tx("标题", "Title"), width: "34%", render: (r) => <Row gap={10}><Icon name="file" size={15} color="var(--muted)" /><span className="ellipsis" style={{ fontWeight: 500 }}>{r.title}</span></Row> },

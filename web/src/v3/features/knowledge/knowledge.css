@@ -176,3 +176,29 @@
 .rb-preview { display: flex; flex-direction: column; gap: 12px; padding-left: 18px; margin: 0; color: var(--text); }
 .rb-preview p { margin: 4px 0 0; color: var(--muted); }
 .rb-preview pre { margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--sunken); font-family: var(--mono); font-size: var(--fs-mono); white-space: pre-wrap; }
+/* Postmortem detail (PA-128): the new page's three columns plus a status rail. */
+.pm-nav li { padding: 0; height: auto; }
+.pm-nav button { display: flex; align-items: center; gap: 8px; width: 100%; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; }
+.pm-nav button:hover { background: var(--hover); }
+.pm-right { width: 300px; flex: none; padding: 16px; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 16px; overflow: auto; }
+.pm-divider { height: 1px; background: var(--border); flex: none; }
+.pm-h2 { margin: 0; font-size: var(--fs-lg); font-weight: 600; }
+.pm-read { margin: 0; max-width: 760px; font-size: var(--fs-md); line-height: 1.75; white-space: pre-wrap; }
+.pm-center > .pm-section { max-width: 760px; }
+.pm-actions { overflow-x: auto; }
+.pm-actions table { table-layout: fixed; min-width: 520px; }
+.pm-actions td { vertical-align: top; }
+.pm-cell { display: block; width: 100%; box-sizing: border-box; padding: 5px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-sm); line-height: 1.5; resize: none; }
+.pm-cell:hover { border-color: var(--border); }
+.pm-cell:focus { border-color: var(--accent); background: var(--panel); outline: none; }
+.pm-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pm-step { position: relative; display: flex; gap: 10px; padding-bottom: 14px; }
+.pm-step:last-child { padding-bottom: 0; }
+.pm-step:not(:last-child)::after { content: ""; position: absolute; left: 8px; top: 21px; bottom: 3px; width: 2px; background: var(--border); }
+.pm-step .n { width: 18px; height: 18px; flex: none; margin-top: 1px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--border-strong); background: var(--bg); color: #fff; display: flex; align-items: center; justify-content: center; }
+.pm-step.cur .n { border-color: var(--accent); background: var(--accent); }
+.pm-step.cur .n i { width: 6px; height: 6px; border-radius: 50%; background: #fff; }
+.pm-step.done .n { border-color: var(--ok); background: var(--ok); color: var(--bg); }
+.pm-step b { display: block; font-size: var(--fs-sm); font-weight: 600; }
+.pm-step.todo b { color: var(--muted); font-weight: 500; }
+.pm-step p { margin: 0; font-size: var(--fs-sub); color: var(--muted); }

@@ -35,6 +35,7 @@ const Canvas = p(() => import("../features/canvas/CanvasPage"));
 const NewRule = p(() => import("../features/events/NewRulePage"));
 const NewRunbook = p(() => import("../features/knowledge/NewRunbookPage"));
 const NewPostmortem = p(() => import("../features/knowledge/NewPostmortemPage"));
+const PostmortemDetail = p(() => import("../features/knowledge/PostmortemDetailPage"));
 const NewSource = p(() => import("../features/knowledge/NewSourcePage"));
 const DocCanvas = p(() => import("../features/canvas/DocCanvasPage"));
 const Canvases = p(() => import("../features/canvas/CanvasesPage"));
@@ -144,6 +145,7 @@ export default function V3App() {
           <Route path="runbooks/:id" element={<RunbookEditor />} />
           <Route path="postmortems" element={<Postmortems />} />
           <Route path="postmortems/new" element={<NewPostmortem />} />
+          <Route path="postmortems/:id" element={<PostmortemDetail />} />
           <Route path="memory" element={<Memory />} />
           <Route path="knowledge-sources" element={<Sources />} />
           <Route path="knowledge-sources/new" element={<NewSource />} />

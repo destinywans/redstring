@@ -2,6 +2,7 @@
 import { mock, MockError } from "../router";
 import { at } from "../time";
 import { l } from "../../i18n";
+import { SAMPLE_ME, nowIso, rememberPostmortem, type SamplePostmortem } from "../postmortemStore";
 
 const P = l;
 const id = (p: string) => `${p}-${Math.floor(1000 + Math.random() * 8999)}`;
@@ -140,8 +141,18 @@ mock("GET", "/postmortems/draft", ({ query }) => ({
   ],
 }));
 mock("POST", "/postmortems", ({ body }) => {
-  need((body as { incident_id?: string })?.incident_id, "incident_id");
-  return { id: id("PM") };
+  const b = (body ?? {}) as { incident_id?: string; status?: string; sections?: SamplePostmortem["sections"]; actions?: SamplePostmortem["actions"] };
+  need(b.incident_id, "incident_id");
+  // The demo opens what it saved on the postmortem page (PA-128).
+  const pm = id("PM");
+  const review = b.status === "review";
+  rememberPostmortem({
+    id: pm, incident_id: String(b.incident_id), status: review ? "review" : "draft", revision: 1, source_revision: "case:4100",
+    sections: b.sections ?? [], actions: b.actions ?? [], authored_by_me: true, author: SAMPLE_ME, created_at: nowIso(), updated_at: nowIso(),
+    incident: { id: String(b.incident_id), title: P("checkout-api 5xx 升高", "checkout-api 5xx rising"), severity: "P1", started_at: at("14:05"), closed_at: at("14:23"), duration: "18m" },
+    submitted: review ? { by: SAMPLE_ME, at: nowIso() } : null, published: null, returned: null,
+  });
+  return { id: pm };
 });
 
 /* ---- knowledge sources ---- */

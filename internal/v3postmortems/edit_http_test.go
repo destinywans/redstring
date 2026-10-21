@@ -151,7 +151,15 @@ func TestPostmortemDraftEditSubmitAndPublish(t *testing.T) {
 	expect(call("GET", "/api/v1/postmortems/pm-draft", "reader", "", ""), 404, "not_found")
 	// The incident already has this draft: the draft preview points to it.
 	existing := call("GET", "/api/v1/postmortems/draft?incident=INC-edit", "author", "", "")
-	if existing.Code != 409 || !strings.Contains(existing.Body.String(), `"postmortem_id":"pm-draft"`) {
+	var exists struct {
+		Error struct {
+			Code         string `json:"code"`
+			PostmortemID string `json:"postmortem_id"`
+		} `json:"error"`
+		PostmortemID string `json:"postmortem_id"`
+	}
+	if err := json.Unmarshal(existing.Body.Bytes(), &exists); err != nil || existing.Code != 409 || exists.Error.Code != "postmortem_exists" ||
+		exists.Error.PostmortemID != "pm-draft" || exists.PostmortemID != "pm-draft" {
 		t.Fatalf("existing draft pointer: %d %s", existing.Code, existing.Body.String())
 	}
 	expect(call("GET", "/api/v1/postmortems/draft?incident=INC-edit", "reader", "", ""), 404, "not_found")

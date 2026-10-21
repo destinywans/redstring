@@ -200,8 +200,8 @@ v3_route('get','/postmortems/draft','Read an evidence-only postmortem starting p
          'complete_v3_dto','partial','missing']),
     desc='Partial evidence-only operation in one authorized repeatable snapshot. Legacy ops incidents require their investigation report and exact investigation.closed event; a human case requires its persisted resolved status event and may have no investigation. source_revision is the exact source token required for case create; ops also returns the existing source_close_event_seq. Source changes return 409 on save and require re-preview. NoCanvas cases have no fabricated report/timeline or outage duration; impact, root cause and recommendations remain blank or unknown. More than 200 real timeline rows returns 413.')
 P['/postmortems/draft']['get']['responses']['409'] = {
-    'description':'postmortem_exists: the incident already has a postmortem the caller may see; postmortem_id names it (PA-65)',
-    'content':{'application/json':{'schema':obj({'error':obj({'code':string(enum=['postmortem_exists']),'message':string()},['code','message']),
+    'description':'postmortem_exists: the incident already has a postmortem the caller may see; postmortem_id names it (PA-65), also inside error (PA-128)',
+    'content':{'application/json':{'schema':obj({'error':obj({'code':string(enum=['postmortem_exists']),'message':string(),'postmortem_id':string()},['code','message','postmortem_id']),
         'postmortem_id':string()},['error','postmortem_id'])}}}
 P['/postmortems/draft']['get']['responses']['413'] = {
     'description':'Incident evidence timeline exceeds 200 events',

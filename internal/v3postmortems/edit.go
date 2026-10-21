@@ -441,8 +441,10 @@ func (s *Service) visibleExistingPostmortem(ctx context.Context, tx pgx.Tx, r *h
 }
 
 func postmortemExists(w http.ResponseWriter, id string) {
+	// The ID is also inside the error object, which is what clients keep of
+	// an error response (PA-128).
 	httpapi.WriteJSON(w, http.StatusConflict, map[string]any{
-		"error":         map[string]string{"code": "postmortem_exists", "message": "This incident already has a postmortem; open it to edit or review"},
+		"error":         map[string]string{"code": "postmortem_exists", "message": "This incident already has a postmortem; open it to edit or review", "postmortem_id": id},
 		"postmortem_id": id,
 	})
 }

@@ -41757,7 +41757,7 @@
             }
           },
           "409": {
-            "description": "postmortem_exists: the incident already has a postmortem the caller may see; postmortem_id names it (PA-65)",
+            "description": "postmortem_exists: the incident already has a postmortem the caller may see; postmortem_id names it (PA-65), also inside error (PA-128)",
             "content": {
               "application/json": {
                 "schema": {
@@ -41774,12 +41774,16 @@
                         },
                         "message": {
                           "type": "string"
+                        },
+                        "postmortem_id": {
+                          "type": "string"
                         }
                       },
                       "additionalProperties": false,
                       "required": [
                         "code",
-                        "message"
+                        "message",
+                        "postmortem_id"
                       ]
                     },
                     "postmortem_id": {

@@ -210,11 +210,26 @@ S['V3PostmortemDetail'] = obj({'id':string(),'incident_id':string(),
     'status':string(enum=['draft','review','published']),'revision':integer(minimum=1),
     'source_revision':string(pattern='^(ops|case):[1-9][0-9]*$'),
     'sections':arr(ref('V3PostmortemSectionInput')),'actions':arr(ref('V3PostmortemActionInput')),
-    'authored_by_me':v3_bool(),'created_at':string(format='date-time'),'updated_at':string(format='date-time')},
-    ['id','incident_id','status','revision','source_revision','sections','actions','authored_by_me','created_at','updated_at'])
+    'authored_by_me':v3_bool(),'created_at':string(format='date-time'),'updated_at':string(format='date-time'),
+    'author':string(description="The creator's name, or their ID when the account has no name"),
+    'incident':{**v3_nullable(ref('V3PostmortemDetailIncident')),'description':'The source incident as the record list reads it; null when the saved lifecycle event can no longer be read (PA-128)'},
+    'submitted':{**v3_nullable(ref('V3PostmortemLifecycleStep')),'description':'Latest submission for review from the audit trail (a create straight into review counts); null when never submitted'},
+    'published':{**v3_nullable(ref('V3PostmortemLifecycleStep')),'description':'Publication from the audit trail; null unless published'},
+    'returned':{**v3_nullable(ref('V3PostmortemLifecycleStep')),'description':'The return that sent this draft back since its last submission, with the reviewer\'s reason; null otherwise (PA-128)'}},
+    ['id','incident_id','status','revision','source_revision','sections','actions','authored_by_me','created_at','updated_at',
+     'author','incident','submitted','published','returned'])
+S['V3PostmortemDetailIncident'] = obj({**fieldnames('id title'),
+    'severity':{**v3_nullable(string(enum=['P1','P2','P3','P4'])),'description':'Null when the incident severity is unknown; severity_reason says why (PA-247)'},
+    'severity_reason':string(enum=['unclassified','not_filled']),
+    'started_at':{'type':['string','null'],'format':'date-time','description':'Null with duration when the incident start is unknown'},
+    'closed_at':string(format='date-time'),
+    'duration':{'type':['string','null']}},
+    ['id','title','severity','started_at','closed_at','duration'])
+S['V3PostmortemLifecycleStep'] = obj({'by':string(description='Actor name, or their ID when the account has no name'),
+    'at':string(format='date-time'),'reason':string(description='Set on a return only')},['by','at'])
 v3_route('get','/postmortems/{id}','Read one saved postmortem with its content',
     response=ref('V3PostmortemDetail'),
-    desc='Requires events:view and knowledge:view on the source application or its owner team; a draft or review is visible to its author and knowledge managers only, otherwise 404. Returns the revision as a quoted ETag for PATCH (PA-65).')
+    desc='Requires events:view and knowledge:view on the source application or its owner team; a draft or review is visible to its author and knowledge managers only, otherwise 404. Returns the revision as a quoted ETag for PATCH (PA-65), with the author, the source incident and the submission, publication and open return read from the audit trail (PA-128).')
 v3_route('patch','/postmortems/{id}','Edit a draft postmortem or submit it for review',
     body=obj({'sections':arr(ref('V3PostmortemSectionInput')),'actions':arr(ref('V3PostmortemActionInput')),
         'status':string(enum=['draft','review'])}),
@@ -225,6 +240,10 @@ P['/postmortems/{id}']['patch'].setdefault('parameters', []).append(
 v3_route('post','/postmortems/{id}/publish','Publish a reviewed postmortem',
     response=obj({'id':string(),'status':string(enum=['published'])},['id','status']),
     desc='Auxiliary human review operation requiring scoped knowledge.manage. The author cannot publish their own report. The saved exact legacy investigation close source or human case resolved status event and current source revision are rechecked under authorization before publication; drift returns 409 and requires refresh. This records review and audit locally without external publication.')
+v3_route('post','/postmortems/{id}/return','Return a postmortem in review to its author',
+    body=obj({'reason':string(minLength=1,maxLength=2000,description='What to change; shown on the draft until it is submitted again')},['reason']),
+    response=ref('V3PostmortemDetail'),
+    desc='Auxiliary human review operation (PA-128) with the same reviewer rule as publish: a human with scoped events:view plus knowledge.manage who is not the author (403 self_review_forbidden, 403 human_required). Only a postmortem in review can be returned (409 invalid_state); a blank or over-long reason, or any other field, returns 422 invalid_return. The postmortem goes back to draft with a new revision, and the reason is kept in the postmortem.returned audit row written in the same transaction. The response is the updated detail with its ETag. Nothing is sent outside the platform.')
 # PA-222: vector is null when the hit's corpus has no vector index (public Web,
 # uploads) or vectors could not be read (degraded); corpus names its corpora entry.
 S['V3KnowledgeSearchHit'] = obj({**fieldnames('title snippet'),

@@ -173,13 +173,49 @@ func TestPostmortemDraftEditSubmitAndPublish(t *testing.T) {
 	}
 	expect(call("PATCH", "/api/v1/postmortems/pm-draft", "author", `"3"`, `{"status":"draft"}`), 409, "invalid_state")
 	expect(call("POST", "/api/v1/postmortems/pm-draft/publish", "author", "", ""), 403, "self_review_forbidden")
-	expect(call("POST", "/api/v1/postmortems/pm-draft/publish", "reviewer", "", ""), 200, "")
-	var updatedAudit, submittedAudit int
-	if err := db.QueryRow(ctx, `SELECT count(*) FILTER (WHERE action='postmortem.updated'),count(*) FILTER (WHERE action='postmortem.submitted')
- FROM management_audit WHERE target='pm-draft' AND actor_id=$1`, ids["author"]).Scan(&updatedAudit, &submittedAudit); err != nil || updatedAudit != 1 || submittedAudit != 1 {
-		t.Fatalf("audit: updated=%d submitted=%d err=%v", updatedAudit, submittedAudit, err)
+
+	// PA-128: the reviewer can send it back with a reason instead; the author
+	// cannot, and a return needs a reason.
+	expect(call("POST", "/api/v1/postmortems/pm-draft/return", "author", "", `{"reason":"Fix it"}`), 403, "self_review_forbidden")
+	expect(call("POST", "/api/v1/postmortems/pm-draft/return", "reader", "", `{"reason":"Fix it"}`), 404, "not_found")
+	expect(call("POST", "/api/v1/postmortems/pm-draft/return", "reviewer", "", `{"reason":"  "}`), 422, "invalid_return")
+	expect(call("POST", "/api/v1/postmortems/pm-draft/return", "reviewer", "", `{"reason":"x","note":"y"}`), 422, "invalid_return")
+	returned := call("POST", "/api/v1/postmortems/pm-draft/return", "reviewer", "", `{"reason":"Name the metric behind the impact"}`)
+	var back Detail
+	if err := json.Unmarshal(returned.Body.Bytes(), &back); err != nil || returned.Code != 200 || back.Status != "draft" || back.Revision != 4 ||
+		returned.Header().Get("ETag") != `"4"` || back.AuthoredByMe || back.Returned == nil || back.Returned.By != "reviewer" ||
+		back.Returned.Reason != "Name the metric behind the impact" || back.Submitted == nil || back.Submitted.By != "author" {
+		t.Fatalf("return: %d %s", returned.Code, returned.Body.String())
 	}
-	if got := call("GET", "/api/v1/postmortems/pm-draft", "reader", "", ""); got.Code != 200 || !strings.Contains(got.Body.String(), `"status":"published"`) {
+	expect(call("POST", "/api/v1/postmortems/pm-draft/return", "reviewer", "", `{"reason":"Again"}`), 409, "invalid_state")
+	expect(call("POST", "/api/v1/postmortems/pm-draft/publish", "reviewer", "", ""), 409, "invalid_state")
+	read = call("GET", "/api/v1/postmortems/pm-draft", "author", "", "")
+	detail = Detail{}
+	if err := json.Unmarshal(read.Body.Bytes(), &detail); err != nil || read.Code != 200 || detail.Author != "author" || detail.Returned == nil ||
+		detail.Returned.Reason != "Name the metric behind the impact" || detail.Published != nil || detail.Incident == nil ||
+		detail.Incident.ID != "INC-edit" || detail.Incident.Title != "Bad release" || detail.Incident.Severity == nil || *detail.Incident.Severity != "P2" ||
+		detail.Incident.ClosedAt == "" {
+		t.Fatalf("returned draft detail: %d %s", read.Code, read.Body.String())
+	}
+	resubmitted := call("PATCH", "/api/v1/postmortems/pm-draft", "author", `"4"`, `{"status":"review"}`)
+	detail = Detail{}
+	if err := json.Unmarshal(resubmitted.Body.Bytes(), &detail); err != nil || resubmitted.Code != 200 || detail.Status != "review" ||
+		detail.Returned != nil || detail.Submitted == nil || resubmitted.Header().Get("ETag") != `"5"` {
+		t.Fatalf("resubmit: %d %s", resubmitted.Code, resubmitted.Body.String())
+	}
+
+	expect(call("POST", "/api/v1/postmortems/pm-draft/publish", "reviewer", "", ""), 200, "")
+	var updatedAudit, submittedAudit, returnedAudit int
+	if err := db.QueryRow(ctx, `SELECT count(*) FILTER (WHERE action='postmortem.updated' AND actor_id=$1),
+ count(*) FILTER (WHERE action='postmortem.submitted' AND actor_id=$1),count(*) FILTER (WHERE action='postmortem.returned' AND actor_id=$2)
+ FROM management_audit WHERE target='pm-draft'`, ids["author"], ids["reviewer"]).Scan(&updatedAudit, &submittedAudit, &returnedAudit); err != nil ||
+		updatedAudit != 1 || submittedAudit != 2 || returnedAudit != 1 {
+		t.Fatalf("audit: updated=%d submitted=%d returned=%d err=%v", updatedAudit, submittedAudit, returnedAudit, err)
+	}
+	got := call("GET", "/api/v1/postmortems/pm-draft", "reader", "", "")
+	detail = Detail{}
+	if err := json.Unmarshal(got.Body.Bytes(), &detail); err != nil || got.Code != 200 || detail.Status != "published" ||
+		detail.Published == nil || detail.Published.By != "reviewer" || detail.Returned != nil || detail.AuthoredByMe {
 		t.Fatalf("published read: %d %s", got.Code, got.Body.String())
 	}
 }

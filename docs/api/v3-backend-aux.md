@@ -52,6 +52,9 @@
 | GET | `/api/v1/runbooks/{id}/record` | 读取持久化的结构化步骤及版本、维护者、应用/环境、来源类型；返回 `partial: true`，明确缺少用量、事件处置和执行核验。旧文档无结构化步骤时 503，不把全文猜成步骤。 |
 | GET | `/api/v1/runbooks/{id}/history` | 读取版本、审核与只读验证预览，各集合最多 100 条；审核说明只对维护者/管理者显示。`execution_verification_available: false`。超限返回 413，不截断冒充完整。 |
 | POST | `/api/v1/postmortems/{id}/publish` | 复盘创建者以外、持久身份为 `human` 的当前 `knowledge.manage` 成员在 `review` 状态发布；旧事故须保有原调查结案与报告，手工事件须保有创建时绑定的精确 resolved 状态事件和当前修订。来源变化返回 409，发布与审计同事务；无外部发布或 AI 生成。详见[手工事件与复盘生命周期](v3-incident-postmortem-lifecycle.md)。 |
+| GET | `/api/v1/postmortems/{id}` | 读取一份复盘的章节、改进项和修订号（ETag，PATCH 要带回）；草稿和待审核只对作者与知识管理员可见，其他人 404（PA-65）。另返回作者名、来源事件（标题、级别、起止、持续；保存的解决记录读不到时为 null），以及从审计读出的最近一次提交、发布和尚未处理的退回（含退回原因），没有时为 null（PA-128）。 |
+| PATCH | `/api/v1/postmortems/{id}` | 带 `If-Match` 修改草稿的章节和改进项，或以 `status: review` 提交审核（每个章节都要有内容，来源须仍是记录的结案/resolved 事件）；只有草稿能改，修订号过期 412 `postmortem_revision_conflict`。返回更新后的详情和新 ETag（PA-65）。 |
+| POST | `/api/v1/postmortems/{id}/return` | `{ reason }`（去空白后 1–2000 字）。审核人把待审核的复盘退回给作者修改：条件同发布（作者以外、持久身份为 `human`、当前 `knowledge.manage`）；只有 `review` 能退回（409 `invalid_state`），原因为空、超长或带其他字段 422 `invalid_return`。复盘回到草稿、修订号加 1，原因记在同事务的 `postmortem.returned` 审计里，作者在草稿上看到它直到再次提交。返回更新后的详情和 ETag；不向外部发消息（PA-128）。 |
 | GET | `/api/v1/memory/facts` | 仅列出当前受权、来源文档仍已发布且版本/正文归属匹配的事实，返回 `partial: true` 与缺失置信度、召回、过期及层级/策略字段；超过 500 个候选事实返回 413。此接口不替代完整 `MemoryView`。 |
 | GET | `/api/v1/uploads/{id}/content` | 下载本人上传的文件，或内联读取经重新验证格式的图片。可不传环境头；后端根据上传记录核对实例环境、当前 `conversation.view` 授权和所有者。普通文件以附件下载，响应禁缓存、禁 MIME 猜测；损坏图片拒绝返回。该辅助读取不改变 `POST /uploads` 的主契约状态。 |
 

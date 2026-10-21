@@ -29,6 +29,35 @@ type Detail struct {
 	AuthoredByMe bool   `json:"authored_by_me"`
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
+	// Author is the creator's name (their ID when the account has no name).
+	Author string `json:"author"`
+	// Incident is the source incident as the record list reads it; null when
+	// the saved lifecycle event can no longer be read (PA-128).
+	Incident *DetailIncident `json:"incident"`
+	// Submitted, Published and Returned come from the audit trail: the latest
+	// submission, the publication, and the return that sent a draft back
+	// since its last submission (null when there is none).
+	Submitted *LifecycleStep `json:"submitted"`
+	Published *LifecycleStep `json:"published"`
+	Returned  *LifecycleStep `json:"returned"`
+}
+
+// DetailIncident mirrors the incident fields of a postmortem record.
+type DetailIncident struct {
+	ID             string  `json:"id"`
+	Title          string  `json:"title"`
+	Severity       *string `json:"severity"`
+	SeverityReason string  `json:"severity_reason,omitempty"`
+	StartedAt      *string `json:"started_at"`
+	ClosedAt       string  `json:"closed_at"`
+	Duration       *string `json:"duration"`
+}
+
+// LifecycleStep is one recorded review step. Reason is set on a return only.
+type LifecycleStep struct {
+	By     string `json:"by"`
+	At     string `json:"at"`
+	Reason string `json:"reason,omitempty"`
 }
 
 type savedPostmortem struct {
@@ -72,6 +101,91 @@ func readSavedPostmortem(ctx context.Context, tx pgx.Tx, id string, lock bool) (
 	v.CreatedAt = created.UTC().Format(time.RFC3339)
 	v.UpdatedAt = updated.UTC().Format(time.RFC3339)
 	return v, nil
+}
+
+const detailIncidentSQL = postmortemSources + ` SELECT s.title,s.severity,s.severity_labels,s.started_at,
+ CASE WHEN pm.source_kind='ops' THEN saved_close.created_at ELSE saved_case.created_at END
+ ` + recordSourceFrom + `
+ WHERE ` + validRecordedSource + ` AND pm.id=$1`
+
+// Create records a postmortem saved straight into review as postmortem.created
+// with status review; that counts as its submission.
+const lifecycleSQL = `SELECT a.action,COALESCE(NULLIF(u.name,''),a.actor_id),a.created_at,
+ COALESCE(a.changes->>'reason',''),COALESCE(a.changes->>'status','')
+ FROM management_audit a LEFT JOIN users u ON u.id=a.actor_id
+ WHERE a.target=$1 AND a.outcome='succeeded' AND a.action IN
+ ('postmortem.created','postmortem.submitted','postmortem.published','postmortem.returned')
+ ORDER BY a.id DESC LIMIT 200`
+
+// describe adds the author, the source incident and the review steps to a
+// detail read under the caller's transaction.
+func describe(ctx context.Context, tx pgx.Tx, v *savedPostmortem) error {
+	if err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT NULLIF(name,'') FROM users WHERE id=$1),$1)`, v.author).Scan(&v.Author); err != nil {
+		return err
+	}
+	var title string
+	var raw *string
+	var labels map[string]string
+	var start *time.Time
+	var closed time.Time
+	err := tx.QueryRow(ctx, detailIncidentSQL, v.ID).Scan(&title, &raw, &labels, &start, &closed)
+	v.Incident = nil
+	if err == nil {
+		incident := DetailIncident{ID: v.IncidentID, Title: title, ClosedAt: closed.UTC().Format(time.RFC3339)}
+		level, reason := severity(deref(raw), labels)
+		if level != "" {
+			incident.Severity = &level
+		} else {
+			incident.SeverityReason = reason
+		}
+		if start != nil {
+			at, d := start.UTC().Format(time.RFC3339), duration(*start, closed)
+			incident.StartedAt, incident.Duration = &at, &d
+		}
+		v.Incident = &incident
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	rows, err := tx.Query(ctx, lifecycleSQL, v.ID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	v.Submitted, v.Published, v.Returned = nil, nil, nil
+	submittedSince := false
+	for rows.Next() {
+		var action, by, reason, status string
+		var at time.Time
+		if err = rows.Scan(&action, &by, &at, &reason, &status); err != nil {
+			return err
+		}
+		step := &LifecycleStep{By: by, At: at.UTC().Format(time.RFC3339)}
+		switch {
+		case action == "postmortem.published":
+			if v.Published == nil && v.Status == "published" {
+				v.Published = step
+			}
+		case action == "postmortem.returned":
+			// Newest first: a return with no submission after it is still open.
+			if !submittedSince && v.Returned == nil && v.Status == "draft" {
+				step.Reason = reason
+				v.Returned = step
+			}
+		case action == "postmortem.submitted" || action == "postmortem.created" && status == "review":
+			if v.Submitted == nil {
+				v.Submitted = step
+			}
+			submittedSince = true
+		}
+	}
+	return rows.Err()
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func postmortemTeam(ctx context.Context, tx pgx.Tx, app string) (string, error) {
@@ -122,6 +236,10 @@ func (s *Service) Get(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		httpapi.Error(w, 503, "authorization_unavailable", "Postmortem access could not be checked")
+		return
+	}
+	if err = describe(ctx, tx, &v); err != nil {
+		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem is unavailable")
 		return
 	}
 	v.AuthoredByMe = v.author == user.ID
@@ -275,6 +393,10 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, store.ErrSessionRevoked) {
 		postmortemReadError(w, err)
 		return
+	}
+	if err == nil {
+		v.Status = next.Status
+		err = describe(r.Context(), tx, &v)
 	}
 	if err == nil {
 		err = tx.Commit(r.Context())

@@ -39,6 +39,8 @@ Vite 开了 `strictPort`，5173 被占用时直接报 `Port 5173 is already in u
 
 公开演示构建时可再设 `VITE_DEMO_ABOUT_URL`（英文页另设 `VITE_DEMO_ABOUT_URL_EN`），顶栏的「示意数据」标记就会链到这个项目介绍页，在新标签页打开。不设时它只是一个文字标记。
 
+要把演示嵌在别的页面里时，构建时设 `VITE_EMBED_ORIGINS`（逗号分隔的来源，例如 `https://wans.run`）：嵌入页可以在地址里带 `?theme=light|dark|system&lang=zh|en` 决定打开时的主题和语言，打开后再用 `postMessage` 发 `{ type: "redstring:preferences", theme, lang }` 跟着它切换；只有列出的来源会被接受。这些只作用于本次访问，不写进访客保存的偏好。地址参数不依赖这个变量，任何构建都认。能不能被别的站点嵌入由服务器的 `frame-ancestors` 决定，不在前端。
+
 ## 只看界面
 
 ```sh

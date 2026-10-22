@@ -28,7 +28,7 @@ export function PostmortemActions({ actions, onChange }: { actions: PmAction[]; 
   const set = (i: number, patch: Partial<PmAction>) => onChange?.(actions.map((a, j) => (j === i ? { ...a, ...patch } : a)));
   return (
     <>
-      <div className="v3-card pm-actions">
+      <div className={onChange ? "v3-card pm-actions editing" : "v3-card pm-actions"}>
         <table className="v3-table">
           <thead>
             <tr>

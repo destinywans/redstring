@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
 import { ApiError, api, useGet } from "../../api/client";
 import type { PostmortemDetail } from "../../api/types";
-import { Badge, Btn, Col, Dot, Icon, KV, Muted, Row, Skeleton, Spacer, Strong, Textarea, TextLink, type Tone } from "../../ui/core";
+import { Badge, Btn, Col, Dot, Icon, KV, Mono, Muted, Row, Skeleton, Spacer, Textarea, TextLink, type Tone } from "../../ui/core";
 import { Callout } from "../../ui/forms";
 import { Dialog, toast } from "../../ui/overlays";
 import { Gate, usePermission } from "../../ui/permission";
@@ -165,7 +165,8 @@ export default function PostmortemDetailPage() {
   const empty = sections.filter((s) => !s.text.trim());
   const at = (iso: string) => when.at(iso) ?? iso;
   const incident = pm.incident;
-  const title = incident ? tx("{id} 复盘：{t}", "{id} postmortem: {t}", { id: pm.incident_id, t: incident.title }) : tx("{id} 复盘", "{id} postmortem", { id: pm.incident_id });
+  // The incident ID is on the card at the left; a 36-character ID in the heading would push the title onto a new line.
+  const title = incident ? tx("复盘：{t}", "Postmortem: {t}", { t: incident.title }) : tx("{id} 复盘", "{id} postmortem", { id: pm.incident_id });
   const badge: [Tone, string] = pm.status === "published" ? ["ok", tx("已发布", "Published")] : pm.status === "review" ? ["warn", tx("待审核", "In review")] : ["neutral", tx("草稿", "Draft")];
   const reviewerView = pm.status === "review" && !pm.authored_by_me && manage;
 
@@ -174,11 +175,14 @@ export default function PostmortemDetailPage() {
       <div className="pm-layout">
         <aside className="pm-left">
           <div className="v3-card" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
-            <Row gap={6}>
-              {incident && <SeverityBadge p={incident.severity} reason={incident.severity_reason} />}
-              <Strong size={13}>{pm.incident_id}</Strong>
-              {incident && <Badge tone="ok">{tx("已解决", "Resolved")}</Badge>}
-            </Row>
+            {incident && (
+              <Row gap={6}>
+                <SeverityBadge p={incident.severity} reason={incident.severity_reason} />
+                <Badge tone="ok">{tx("已解决", "Resolved")}</Badge>
+              </Row>
+            )}
+            {/* Real incident IDs run to 36 characters: shown whole, wrapping, rather than shortened (PA-128). */}
+            <Mono size={11.5} style={{ overflowWrap: "anywhere" }}>{pm.incident_id}</Mono>
             {incident ? (
               <>
                 <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{incident.title}</span>
@@ -408,7 +412,7 @@ export default function PostmortemDetailPage() {
               <>
                 <Muted size={11.5}>{tx("后续", "Next")}</Muted>
                 <Gate need={["knowledge", "manage"]}>
-                  <Btn h={32} kind="primary" icon="book" to={`/runbooks/new?source=postmortem&from=${encodeURIComponent(pm.id)}`}>
+                  <Btn h={32} kind="primary" icon="book" style={{ width: "100%" }} to={`/runbooks/new?source=postmortem&from=${encodeURIComponent(pm.id)}`}>
                     {tx("从这份复盘起草 Runbook", "Draft a runbook from it")}
                   </Btn>
                 </Gate>

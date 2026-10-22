@@ -187,7 +187,8 @@
 .pm-center > .pm-section { max-width: 760px; }
 .pm-actions { overflow-x: auto; }
 .pm-actions table { table-layout: fixed; min-width: 520px; }
-.pm-actions td { vertical-align: top; }
+.pm-actions td { vertical-align: top; padding: 10px 12px; height: auto; }
+.pm-actions.editing td { padding: 4px; }
 .pm-cell { display: block; width: 100%; box-sizing: border-box; padding: 5px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-sm); line-height: 1.5; resize: none; }
 .pm-cell:hover { border-color: var(--border); }
 .pm-cell:focus { border-color: var(--accent); background: var(--panel); outline: none; }

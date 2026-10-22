@@ -106,9 +106,9 @@ export default function NewPostmortemPage() {
               <div className="v3-card" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 6 }}>
                 <Row gap={6}>
                   <SeverityBadge p={data.incident.severity} reason={data.incident.severity_reason} />
-                  <Strong size={13}>{data.incident.id}</Strong>
                   <Badge tone="ok">{tx("已解决", "Resolved")}</Badge>
                 </Row>
+                <Mono size={11.5} style={{ overflowWrap: "anywhere" }}>{data.incident.id}</Mono>
                 <span style={{ fontSize: "var(--fs-sm)", fontWeight: 500 }}>{data.incident.title}</span>
                 <Muted size={11.5}>{tx("{w} · 持续 {d}", "{w} · {d}", {
                     w: data.incident.started_at
@@ -163,7 +163,7 @@ export default function NewPostmortemPage() {
             ) : (
               <>
                 <Row gap={8}>
-                  <h1 style={{ fontSize: 18, fontWeight: 600 }}>{tx("{id} 复盘：{t}", "{id} postmortem: {t}", { id: data.incident.id, t: data.incident.title })}</h1>
+                  <h1 style={{ fontSize: 18, fontWeight: 600 }}>{tx("复盘：{t}", "Postmortem: {t}", { t: data.incident.title })}</h1>
                   <Badge>{tx("草稿", "Draft")}</Badge>
                   {API_MODE === "mock" && <Badge tone="accent"><Icon name="sparkles" size={11} />{tx("AI 起草", "AI drafted")}</Badge>}
                 </Row>

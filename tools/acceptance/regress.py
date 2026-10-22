@@ -39,8 +39,9 @@ TARGET_SERVICE = 'checkout-api'  # the silence drawer and the alert it silences 
 # with passkeys, executes and expires a silence end to end, so it covers approval in the regression.
 # phase1-fixes: route-pinned checks for the WAN-434 phase 1 fixes (no writes). account-security: TOTP, passkey,
 # photo and preferences on a throwaway account (tools/acceptance/accounts.py prod mfa:viewer); it skips without one.
+# postmortem-detail: the PA-128 postmortem detail page through draft, review and published, pinned with page.route (no writes).
 SPECS = {'golden-conversation.spec.ts': {}, 'golden-invite.spec.ts': {}, 'phase1-fixes.spec.ts': {}, 'account-security.spec.ts': {},
-         'golden-silence-ui.spec.ts': None}
+         'postmortem-detail.spec.ts': {}, 'golden-silence-ui.spec.ts': None}
 # Phase 2 rounds add their fix checks here (the author's round instructions, §7); run once the file exists.
 # Fixes made in parallel sessions keep their checks in phase2-fixes-<topic>.spec.ts; they run after the main file.
 _phase2 = sorted(p.name for p in (ROOT / 'web/e2e').glob('phase2-fixes*.spec.ts'))

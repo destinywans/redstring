@@ -1,9 +1,10 @@
 // Apply the saved palette before the first paint; theme motion is for changes only.
 // External (not inline) so the server CSP `script-src 'self'` allows it.
-// A page embedding Redstring can ask for a theme in the address (?theme=light|dark), for this visit only.
+// A page embedding Redstring can ask for a theme in the address (?theme=light|dark|system), for this
+// visit only; the same values the app itself accepts.
 (() => {
   const asked = new URLSearchParams(location.search).get("theme");
-  const forced = asked === "light" || asked === "dark" ? asked : null;
+  const forced = asked === "light" || asked === "dark" || asked === "system" ? asked : null;
   let preference = "system";
   try {
     preference = localStorage.getItem("aiops-theme") || "system";

@@ -86,8 +86,9 @@ export const usePreferences = create<Preferences>((set) => {
 
 /**
  * While embedded, the host page can keep Redstring in step with its own theme and language by posting
- * `{ type: "redstring:preferences", theme?, lang? }`. Only origins listed in VITE_EMBED_ORIGINS (comma
- * separated, e.g. the public demo's https://wans.run) are listened to; without it no message is.
+ * `{ type: "redstring:preferences", theme?, lang? }`. Only the page that directly frames Redstring is
+ * listened to, and only when its origin is listed in VITE_EMBED_ORIGINS (comma separated, e.g. the public
+ * demo's https://wans.run); without it no message is.
  * Like the address, these apply to this visit and are not saved.
  */
 const embedOrigins = (import.meta.env.VITE_EMBED_ORIGINS ?? "")
@@ -96,7 +97,7 @@ const embedOrigins = (import.meta.env.VITE_EMBED_ORIGINS ?? "")
   .filter(Boolean);
 if (window.parent !== window && embedOrigins.length) {
   window.addEventListener("message", (event) => {
-    if (!embedOrigins.includes(event.origin)) return;
+    if (event.source !== window.parent || !embedOrigins.includes(event.origin)) return;
     const data = event.data as { type?: unknown; theme?: unknown; lang?: unknown } | null;
     if (!data || data.type !== "redstring:preferences") return;
     const patch: Partial<Preferences> = {};

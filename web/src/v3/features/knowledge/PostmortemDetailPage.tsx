@@ -251,19 +251,15 @@ export default function PostmortemDetailPage() {
             </Callout>
           )}
           {problem === "conflict" && (
-            <Callout
-              tone="warn"
-              icon="alert"
-              action={
-                <Row gap={6}>
-                  <Btn icon="copy" onClick={copyEdits}>{tx("复制我的修改", "Copy my edits")}</Btn>
-                  <Btn kind="primary" icon="rotate" onClick={() => void reload()}>{tx("重新加载", "Reload")}</Btn>
-                </Row>
-              }
-            >
+            <Callout tone="warn" icon="alert">
               <b>{tx("没有保存：这份复盘在你打开之后被别人改过。", "Not saved: someone changed this postmortem after you opened it.")}</b>
               <br />
               {tx("你的修改还在编辑框里。先复制下来，再重新加载最新内容，把需要的部分补回去。", "Your edits are still in the editor. Copy them, reload the latest version, then add back what you need.")}
+              {/* Below the text: beside it, two buttons pushed past the callout at 1440 wide (seen on the acceptance instance). */}
+              <Row gap={6} style={{ marginTop: 8 }}>
+                <Btn icon="copy" onClick={copyEdits}>{tx("复制我的修改", "Copy my edits")}</Btn>
+                <Btn kind="primary" icon="rotate" onClick={() => void reload()}>{tx("重新加载", "Reload")}</Btn>
+              </Row>
             </Callout>
           )}
           {problem === "source" && (

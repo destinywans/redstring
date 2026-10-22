@@ -65,7 +65,7 @@ export function PostmortemActions({ actions, onChange }: { actions: PmAction[]; 
             )}
             {!actions.length && (
               <tr>
-                <td colSpan={onChange ? 4 : 3}>
+                <td colSpan={onChange ? 4 : 3} style={{ padding: "10px 12px" }}>
                   <Muted>{tx("还没有改进项", "No action items yet")}</Muted>
                 </td>
               </tr>

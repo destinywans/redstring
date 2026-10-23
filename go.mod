@@ -1,6 +1,6 @@
 module github.com/destinywans/redstring
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/coreos/go-oidc/v3 v3.21.0
@@ -12,6 +12,7 @@ require (
 	go.opentelemetry.io/otel/sdk v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
 	golang.org/x/crypto v0.57.0
+	golang.org/x/net v0.60.0
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/adk/v2 v2.4.0
 	google.golang.org/genai v1.70.0
@@ -61,7 +62,6 @@ require (
 	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/sdk/log v0.22.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect

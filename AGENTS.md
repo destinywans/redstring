@@ -16,7 +16,7 @@
 
 ## 构建与校验
 
-需要 Go 1.27.1、Node 与 pnpm（版本固定在 `web/package.json` 的 `packageManager`，可用 `corepack enable` 自动切换）、Docker Compose（本地 PostgreSQL + pgvector）。
+需要 Go 1.27.3、Node 与 pnpm（版本固定在 `web/package.json` 的 `packageManager`，可用 `corepack enable` 自动切换）、Docker Compose（本地 PostgreSQL + pgvector）。
 
 ```sh
 go build ./...

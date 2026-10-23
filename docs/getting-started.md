@@ -6,7 +6,7 @@ README 的「快速开始」只列命令，这里补充各方式的前提、地�
 
 | 工具 | 说明 |
 | --- | --- |
-| Go | 版本以 `go.mod` 为准（1.27.1） |
+| Go | 版本以 `go.mod` 为准（1.27.3） |
 | Node 与 pnpm | pnpm 版本以 `web/package.json` 的 `packageManager` 为准（12.4.1） |
 | Docker Compose | 用 `docker compose` 子命令，只用来起 PostgreSQL（pgvector） |
 | openssl | `make init` 用它生成随机密码 |

@@ -145,7 +145,7 @@ AIOPS_WEB_DIR="$PWD/web/dist" make run
 
 PostgreSQL 里的消息、证据、版本和事件是唯一的权威历史；每次推理用独立的 ADK Session，从冻结的上下文构造输入，换模型不改写历史。流式事件带序号，断线后从已提交的位置续读。业务仓储、向量、Embedding、模型和连接器分别适配；模型支持 Ollama、OpenAI 兼容接口（如 DeepSeek）和 Claude，见 [模型说明](internal/inference/README.md)。授权和同源校验在服务端完成。
 
-React · TypeScript · Vite · React Flow · assistant-ui · Go 1.27.1 · Google ADK Go 2.4.0 · PostgreSQL 17 + pgvector 0.8.6
+React · TypeScript · Vite · React Flow · assistant-ui · Go 1.27.3 · Google ADK Go 2.4.0 · PostgreSQL 17 + pgvector 0.8.6
 
 ## 文档
 

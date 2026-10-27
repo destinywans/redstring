@@ -22,7 +22,9 @@ export default function MembersPage() {
   // Without members.view the list is refused (403): the page says so instead of an endless skeleton (PA-200).
   const { data, error } = useGet<MembersView>("/members", { filter, q });
   const { data: roleList } = useGet<{ items: Role[] }>("/roles");
-  const [inviteRole, setInviteRole] = useState("readonly");
+  // PA-268: POST /members/invitations takes only role "viewer"; business roles are assigned after the invitation is
+  // accepted (PUT /members/{id}/access), so real mode offers only read-only.
+  const [inviteRole, setInviteRole] = useState("viewer");
   const fRole = useFacet(data?.items, (m) => m.roles);
   const fSrc = useFacet(data?.items, (m) => m.source);
   const sync = useSend<void, { added: number; updated: number }>("POST", "/members/sync", ["/members"]);
@@ -241,7 +243,7 @@ export default function MembersPage() {
             <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoFocus />
           </Field>
           <Field label={tx("角色", "Role")} hint={tx("外部成员默认只读，需要单独授权应用范围", "External members start read-only and need app scopes granted")}>
-            <ChipSelect label="" showLabel={false} value={inviteRole} onChange={(v) => setInviteRole(v as string)} options={[{ value: "readonly", label: tx("只读", "Read-only") }, ...(roleList?.items ?? []).filter((r) => r.kind === "business").map((r) => ({ value: r.id, label: r.name }))]} />
+            <ChipSelect label="" showLabel={false} value={inviteRole} onChange={(v) => setInviteRole(v as string)} options={[{ value: "viewer", label: tx("只读", "Read-only") }, ...(API_MODE === "mock" ? (roleList?.items ?? []).filter((r) => r.kind === "business").map((r) => ({ value: r.id, label: r.name })) : [])]} />
           </Field>
         </Col>
       </Dialog>

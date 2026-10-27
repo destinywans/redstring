@@ -149,3 +149,32 @@ test.describe("role scope on the real page (PA-204)", () => {
     expect(m.pageErrors).toEqual([]);
   });
 });
+
+test.describe("member invitation from the members page (PA-268)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("sends the read-only role the server accepts and offers no business role", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    let sent: Record<string, unknown> | null = null;
+    await page.route(at("/members/invitations"), (r) => {
+      if (r.request().method() !== "POST") return r.fallback();
+      sent = r.request().postDataJSON();
+      return json(r, 200, { ok: true });
+    });
+    await page.goto(origin + "/settings/members");
+    await page.getByRole("button", { name: "邀请成员" }).first().click({ timeout: 20_000 });
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("textbox").first().fill("pa-268-check@example.invalid");
+    // The role picker lists only 只读: business roles are assigned after the invitation is accepted.
+    await dialog.getByRole("button", { name: "只读" }).click();
+    const options = await page.getByRole("option").allInnerTexts();
+    expect(options.map((o) => o.trim())).toEqual(["只读"]);
+    await page.keyboard.press("Escape");
+    await dialog.getByRole("button", { name: "发送邀请" }).click();
+    await expect.poll(() => sent).not.toBeNull();
+    expect(sent).toEqual({ email: "pa-268-check@example.invalid", role: "viewer" });
+    await expect.poll(() => page.locator(".v3-toast").allInnerTexts()).toContain("邀请已发送");
+    expect(m.pageErrors).toEqual([]);
+  });
+});

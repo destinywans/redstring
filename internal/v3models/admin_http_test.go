@@ -154,12 +154,12 @@ func TestModelAdminBoundViewObservationsAndHistoricalUse(t *testing.T) {
 	insertAdminHistoricalUse(t, st, user.ID)
 	used := readAdminResponse(t, dev())
 	if !strings.Contains(used.Items[0].UsedBy, "1 completed conversation turns") ||
-		!strings.Contains(used.Items[0].UsedBy, "1 completed canvas turns") ||
+		!strings.Contains(used.Items[0].UsedBy, "2 completed canvas turns") ||
 		!strings.Contains(used.Items[0].UsedBy, "1 recorded Agent LLM spans") ||
 		!strings.Contains(used.Detail.Agents, "No active Agent-model binding") {
 		t.Fatalf("historical associations missing or promoted into active bindings: %+v", used)
 	}
-	if zh := readAdminResponse(t, devIn("zh-CN")); zh.Items[0].UsedBy != "历史：1 次已完成的对话回合、1 次已完成的画布回合、1 条 Agent 模型调用记录" ||
+	if zh := readAdminResponse(t, devIn("zh-CN")); zh.Items[0].UsedBy != "历史：1 次已完成的对话回合、2 次已完成的画布回合、1 条 Agent 模型调用记录" ||
 		zh.Detail.Agents != "没有生效的 Agent 与模型绑定；历史 Agent 模型调用 1 条。" {
 		t.Fatalf("zh historical use: %+v", zh)
 	}
@@ -201,6 +201,22 @@ func insertAdminHistoricalUse(t *testing.T, st *store.Store, userID string) {
  VALUES('admin-agent-run','admin-agent','v1','admin-application','dev','manual','success',clock_timestamp())`,
 		`INSERT INTO v3_agent_run_spans(id,run_id,kind,name,started_at,status,model_id)
  VALUES('admin-agent-span','admin-agent-run','llm','history:fixture',clock_timestamp(),'ok','openai:local')`,
+		// PA-269: investigation canvas replies are canvas turns too; one in dev
+		// counts, a failed one and one in test don't.
+		`INSERT INTO application_environments(id,application_id,key,name) VALUES
+ ('admin-app-dev','admin-application','dev','Dev'),('admin-app-test','admin-application','test','Test')`,
+		`INSERT INTO investigations(id,application_id,environment_id,title,status) VALUES
+ ('admin-inv','admin-application','admin-app-dev','History fixture','open'),
+ ('admin-inv-test','admin-application','admin-app-test','History fixture','open')`,
+		`INSERT INTO branches(id,investigation_id,title,revision) VALUES
+ ('admin-branch','admin-inv','Branch',1),('admin-branch-test','admin-inv-test','Branch',1)`,
+		`INSERT INTO v3_investigation_node_replies(id,investigation_id,branch_id,user_id,user_text,assistant_text,
+ model_id,model_name,model_provider,state,base_revision,result_revision,lease_expires_at,completed_at) VALUES
+ ('admin-inv-reply','admin-inv','admin-branch',$1,'question','answer','openai:local','local','openai','completed',0,1,clock_timestamp(),clock_timestamp()),
+ ('admin-inv-test-reply','admin-inv-test','admin-branch-test',$1,'question','answer','openai:local','local','openai','completed',0,1,clock_timestamp(),clock_timestamp())`,
+		`INSERT INTO v3_investigation_node_replies(id,investigation_id,branch_id,user_id,user_text,
+ model_id,model_name,model_provider,state,base_revision,failure_code,lease_expires_at) VALUES
+ ('admin-inv-failed','admin-inv','admin-branch',$1,'question','openai:local','local','openai','failed',1,'model_unavailable',clock_timestamp())`,
 	}
 	for _, statement := range statements {
 		var args []any

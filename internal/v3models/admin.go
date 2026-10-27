@@ -220,7 +220,14 @@ func readAdminUsage(ctx context.Context, tx pgx.Tx, env string, ids []string) (m
 		{`SELECT x.model_id,count(*) FROM v3_canvas_node_exchanges x
  JOIN v3_canvases c ON c.id=x.canvas_id
  WHERE c.environment_id=$1 AND x.state='completed' AND x.model_id=ANY($2::text[])
- GROUP BY x.model_id`, func(u *adminUsage, n int64) { u.Canvases = n }},
+ GROUP BY x.model_id`, func(u *adminUsage, n int64) { u.Canvases += n }},
+		// PA-269: investigation canvas replies are canvas turns too; their
+		// environment is the key of the investigation's application environment.
+		{`SELECT r.model_id,count(*) FROM v3_investigation_node_replies r
+ JOIN investigations i ON i.id=r.investigation_id
+ JOIN application_environments ae ON ae.id=i.environment_id AND ae.application_id=i.application_id
+ WHERE ae.key=$1 AND r.state='completed' AND r.model_id=ANY($2::text[])
+ GROUP BY r.model_id`, func(u *adminUsage, n int64) { u.Canvases += n }},
 		{`SELECT s.model_id,count(*) FROM v3_agent_run_spans s
  JOIN v3_agent_runs r ON r.id=s.run_id
  WHERE r.environment_id=$1 AND s.kind='llm' AND s.model_id=ANY($2::text[])

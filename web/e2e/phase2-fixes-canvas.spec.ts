@@ -59,3 +59,37 @@ test.describe("evidence tray in real mode (PA-105)", () => {
     await expect(page.locator(".dp")).not.toContainText("证据托盘拖入");
   });
 });
+
+test.describe("node reply failures say why (PA-267)", () => {
+  test.use({ storageState: statePath("prod", "admin"), viewport: { width: 1440, height: 1000 } });
+
+  test("the reply list names timeouts, interruptions and unusable answers", async ({ page }) => {
+    await page.addInitScript(zh);
+    const m = monitor(page);
+    await page.goto(origin + "/healthz");
+    const id = await someId(page, "/canvases?kind=investigation", "investigation canvas");
+    const failed = (rid: string, code: string) => ({
+      id: rid, text: "检查用问题", author: "Admin", answer: null, state: "failed", failure_code: code,
+      model: { id: "check", name: "check", provider: "check" }, reasoning: null,
+      created_at: "2026-10-27T09:11:57Z", completed_at: null, evidence_ids: [], rollback_suggestion: null,
+    });
+    const replies = /^\/api\/v1\/investigations\/[^/]+\/nodes\/([^/]+)\/replies$/;
+    await page.route((url) => replies.test(url.pathname), (r) =>
+      json(r, 200, {
+        investigation_id: id, node_id: new URL(r.request().url()).pathname.match(replies)?.[1], has_more: false, next_cursor: null,
+        replies: [failed("INR-check-1", "reply_timeout"), failed("INR-check-2", "reply_interrupted"), failed("INR-check-3", "model_reply_invalid")],
+      }),
+    );
+    await page.goto(origin + `/canvas/${id}`);
+    const node = page.locator("article.cv-node").first();
+    await node.waitFor({ timeout: 20_000 });
+    await node.click({ position: { x: 40, y: 16 } });
+    await page.locator(".dp").getByRole("tab", { name: /^对话/ }).click({ timeout: 10_000 });
+    const panel = page.locator(".dp");
+    await expect(panel).toContainText("回复超过了时间上限", { timeout: 10_000 });
+    await expect(panel).toContainText("回复被中断了");
+    await expect(panel).toContainText("模型没有给出可用的回答");
+    await expect(panel).not.toContainText("原因未知");
+    expect(m.pageErrors).toEqual([]);
+  });
+});

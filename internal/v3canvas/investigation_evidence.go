@@ -122,11 +122,14 @@ func (c *investigationEvidenceCollector) handle(e inference.Event) error {
 		default:
 			return fail(errInvestigationEvidence)
 		}
+		if v.ErrorCode != "" && v.Status != "failed" {
+			return fail(errInvestigationEvidence)
+		}
 		if err := c.audit(v); err != nil {
 			return fail(err)
 		}
 		c.calls[v.StepID] = v
-		if v.Status == "failed" {
+		if v.Status == "failed" && !investigationReadFailureContinues(v.ErrorCode) {
 			return fail(errInvestigationEvidence)
 		}
 		return nil
@@ -159,10 +162,43 @@ func (c *investigationEvidenceCollector) finish() ([]investigationReplyEvidence,
 	if err := c.ctx.Err(); err != nil {
 		return nil, err
 	}
-	if len(c.evidence) != len(c.calls) {
+	// Every finished read either failed with a code that lets the reply go on
+	// (no evidence) or succeeded with exactly one piece of evidence.
+	succeeded := 0
+	for _, v := range c.calls {
+		switch {
+		case v.Status == "succeeded":
+			succeeded++
+		case v.Status != "failed":
+			return nil, errInvestigationEvidence
+		}
+	}
+	if len(c.evidence) != succeeded {
 		return nil, errInvestigationEvidence
 	}
 	return append([]investigationReplyEvidence(nil), c.evidence...), nil
+}
+
+// failure is the error that stopped collection, if any.
+func (c *investigationEvidenceCollector) failure() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.err
+}
+
+// PA-267: a read that failed with one of these PA-50 codes produced no
+// evidence and only tells the model what it couldn't read (the source isn't
+// set up for the service, the input was wrong, the source is down); the
+// reply goes on without it, as in chat. Every other failure — a refused grant
+// (not_permitted, unknown_service), a session, audit or scope failure, or an
+// error without a code — still fails the reply closed. The audit records the
+// failed read either way.
+func investigationReadFailureContinues(code string) bool {
+	switch code {
+	case inference.ToolNotConfigured, inference.ToolInvalidInput, inference.ToolSourceUnavailable:
+		return true
+	}
+	return false
 }
 
 // Lock order matches reply completion: principal, branch, investigation, reply.

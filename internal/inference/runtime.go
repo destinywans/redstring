@@ -140,12 +140,15 @@ type Event struct {
 // arguments, returned evidence, or error text into the audit event. A started
 // event is persisted immediately before Read; a terminal event follows Read.
 // DurationMS measures only the Read call, excluding callback persistence time.
+// ErrorCode is the ToolError code of a failed read (PA-50), never its message;
+// empty for any other failure.
 type ToolInvocation struct {
 	Name       string `json:"name"`
 	StepID     string `json:"step_id"`
 	Status     string `json:"status"` // started, succeeded, failed
 	DurationMS int64  `json:"duration_ms"`
 	TargetID   string `json:"target_id,omitempty"`
+	ErrorCode  string `json:"error_code,omitempty"`
 }
 
 // Read receives an opaque query, not a target URL. Callers bind the authorized
@@ -641,6 +644,7 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 			finished := ToolInvocation{Name: read.Name, StepID: step.ID, Status: "succeeded", DurationMS: time.Since(readStarted).Milliseconds()}
 			if err != nil {
 				finished.Status = "failed"
+				finished.ErrorCode = ToolErrorCode(err)
 			} else {
 				finished.TargetID = ev.TargetID
 			}

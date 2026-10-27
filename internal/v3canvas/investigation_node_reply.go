@@ -113,7 +113,7 @@ func (s *Service) investigationNodeMessage(w http.ResponseWriter, r *http.Reques
 	if toolErr != nil {
 		stop()
 		s.failInvestigationReply(id, "evidence_unavailable")
-		(&graphFailure{503, "node_reply_unavailable", "Investigation evidence tools are unavailable"}).write(w)
+		(&graphFailure{503, "node_reply_unavailable", investigationReplyFailureText("evidence_unavailable", english)}).write(w)
 		return
 	}
 	maxCalls := 1
@@ -142,7 +142,7 @@ func (s *Service) investigationNodeMessage(w http.ResponseWriter, r *http.Reques
 		runErr = ctx.Err()
 	}
 	if runErr == nil && (strings.TrimSpace(answer) == "" || len(answer) > maxNodeReplyBytes) {
-		runErr = errors.New("empty or oversized model reply")
+		runErr = errNodeReplyInvalid
 	}
 	// PA-72: the suggestion step runs while the reply's lease is still
 	// renewed; it never fails the reply.
@@ -156,8 +156,12 @@ func (s *Service) investigationNodeMessage(w http.ResponseWriter, r *http.Reques
 	}
 	stop()
 	if runErr != nil {
-		s.failInvestigationReply(id, "model_unavailable")
-		(&graphFailure{503, "node_reply_unavailable", "Node reply failed; inspect the saved attempt before retrying"}).write(w)
+		// PA-267: the attempt records why it failed, and the response says so in
+		// the request language; the cause goes to the server log.
+		code := investigationReplyFailure(runErr, collected.failure())
+		logInvestigationReplyFailure(id, code, runErr, collected.failure())
+		s.failInvestigationReply(id, code)
+		(&graphFailure{503, "node_reply_unavailable", investigationReplyFailureText(code, english)}).write(w)
 		return
 	}
 	if failure = s.completeInvestigationReply(r, user, envs[0], id, answer, &suggestion, evidence...); failure != nil {

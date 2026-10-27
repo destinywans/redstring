@@ -104,6 +104,42 @@ func TestToolInvocationFailureIsRecordedBeforeStepCloses(t *testing.T) {
 	}
 }
 
+// PA-267: a failed read names its ToolError code so a bound runner can tell a
+// source that isn't set up from a refused or broken read; the message stays out.
+func TestToolInvocationFailureCarriesOnlyTheToolErrorCode(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		code string
+	}{
+		{NewToolError(ToolNotConfigured, "private: no change source for checkout"), ToolNotConfigured},
+		{fmt.Errorf("wrapped: %w", NewToolError(ToolSourceUnavailable, "private: cluster down")), ToolSourceUnavailable},
+		{errors.New("private: grant revoked"), ""},
+	} {
+		var modelCalls atomic.Int32
+		server := invocationServer("status", &modelCalls)
+		var failed []ToolInvocation
+		_, _ = runtimeFor(t, server, "openai").Run(context.Background(), invocationRequest(func(context.Context, string) (Evidence, error) {
+			return Evidence{}, tc.err
+		}), func(e Event) error {
+			if e.Invocation != nil && e.Invocation.Status == "failed" {
+				failed = append(failed, *e.Invocation)
+				encoded, _ := json.Marshal(e.Invocation)
+				if strings.Contains(string(encoded), "private") {
+					t.Errorf("invocation leaked failure details: %s", encoded)
+				}
+			}
+			if e.Invocation != nil && e.Invocation.Status != "failed" && e.Invocation.ErrorCode != "" {
+				t.Errorf("code on a %s invocation: %+v", e.Invocation.Status, e.Invocation)
+			}
+			return nil
+		})
+		server.Close()
+		if len(failed) != 1 || failed[0].ErrorCode != tc.code {
+			t.Fatalf("err %v: failed invocations %+v, want code %q", tc.err, failed, tc.code)
+		}
+	}
+}
+
 func TestRejectedToolCallHasNoInvocation(t *testing.T) {
 	var modelCalls, reads atomic.Int32
 	server := invocationServer(strings.Repeat("q", 8193), &modelCalls)

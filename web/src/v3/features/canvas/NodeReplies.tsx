@@ -109,6 +109,10 @@ export function NodeReplies({
         context_version_conflict: tx("回复期间分支上下文有了更新，结果没有保存，可以重新提问。", "The branch context changed while it ran, so the result wasn't saved; ask again."),
         reply_state_conflict: tx("这条回复的状态被其他操作改变了，结果没有保存。", "Another action changed this reply's state, so the result wasn't saved."),
         node_context_too_large: tx("分支上下文超过上限，没能生成回复。", "The branch context is over the limit, so no reply was made."),
+        // PA-267: the server now saves why a reply failed instead of model_unavailable for everything.
+        reply_timeout: tx("回复超过了时间上限，没有完成。可以把问题拆小一些再问。", "The reply ran past its time limit and didn't finish. Try a narrower question."),
+        reply_interrupted: tx("回复被中断了（会话或权限有变化，或连接已断开），没有完成。", "The reply was interrupted (a session or access change, or the connection closed) and didn't finish."),
+        model_reply_invalid: tx("模型没有给出可用的回答，这条回复没有保存。", "The model gave no usable answer, so nothing was saved."),
       }) as Record<string, string>
     )[code ?? ""] ?? tx("回复没有完成，原因未知。", "The reply didn't finish; the reason is unknown.");
   const when = (iso: string | null) => (iso ? fmt.dateTime(iso) : "");

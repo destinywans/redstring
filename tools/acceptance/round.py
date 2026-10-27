@@ -142,9 +142,15 @@ USAGE_QUERIES = {
     'agent_llm_spans': """SELECT count(*) AS calls, count(*) FILTER (WHERE status='failed') AS failed, 0 AS provider_failed, 0 AS unfinished,
         coalesce(sum(token_input),0) AS input_tokens, coalesce(sum(token_output),0) AS output_tokens
         FROM v3_agent_run_spans WHERE kind='llm' AND started_at >= :'since'::timestamptz AND started_at < :'until'::timestamptz""",
+    # V3 investigation canvas replies (v3_investigation_node_replies): one row per reply, each with one or more model
+    # calls; run_steps above only has the legacy executor's steps (round 4 found them uncounted). No token columns.
+    'investigation_replies': """SELECT count(*) AS calls, count(*) FILTER (WHERE state='failed') AS failed,
+        count(*) FILTER (WHERE state='failed' AND failure_code IN ('model_unavailable','reply_timeout')) AS provider_failed,
+        count(*) FILTER (WHERE state='running') AS unfinished
+        FROM v3_investigation_node_replies WHERE created_at >= :'since'::timestamptz AND created_at < :'until'::timestamptz""",
 }
 USAGE_LABELS = {'canvas_model_steps': '画布/调查模型调用', 'conversation_replies': '对话回复（每条含 ≥1 次调用）', 'prompt_trials': 'Prompt 试运行',
-                'rule_assistant': '规则助手', 'agent_llm_spans': 'Agent 运行 LLM 片段'}
+                'rule_assistant': '规则助手', 'agent_llm_spans': 'Agent 运行 LLM 片段', 'investigation_replies': '调查画布回复（每条含 ≥1 次调用）'}
 
 
 def model_usage(since, until, databases=None):

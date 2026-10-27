@@ -42,7 +42,9 @@ test.describe("new postmortem (PA-127, PA-129)", () => {
       return json(r, 409, { error: { code: "source_changed", message: "检查用：事件刚刚变化" } });
     });
     await page.goto(origin + "/postmortems/new?incident=INC-check");
-    await expect(page.getByText("INC-check 复盘：LabHigh5xxRate")).toBeVisible({ timeout: 20_000 });
+    // WAN-458 heading: "复盘：<incident title>"; the incident ID is on the incident card.
+    await expect(page.getByRole("heading", { name: "复盘：LabHigh5xxRate" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("complementary").getByText("INC-check")).toBeVisible();
     // PA-129: the sample's impact numbers, AI checks, publish targets and runbook follow-up stay in the sample data.
     const body = await page.locator("#root").innerText();
     for (const sample of ["12k", "23%", "根因引用了证据", "Confluence", "生成 Runbook 修订", "AI 已起草"]) expect.soft(body, sample).not.toContain(sample);
@@ -61,9 +63,9 @@ test.describe("new postmortem as an operator (PA-127)", () => {
     await page.addInitScript(zh);
     await page.route(at("/postmortems/draft"), (r) => json(r, 200, PM_DRAFT));
     await page.goto(origin + "/postmortems/new?incident=INC-check");
-    await expect(page.getByText("INC-check 复盘：LabHigh5xxRate")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("heading", { name: "复盘：LabHigh5xxRate" })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole("button", { name: "保存草稿" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "提交审阅" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "提交审核" })).toBeDisabled();
   });
 });
 

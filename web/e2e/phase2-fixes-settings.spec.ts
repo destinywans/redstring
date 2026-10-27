@@ -170,7 +170,7 @@ test.describe("member invitation from the members page (PA-268)", () => {
     await dialog.getByRole("button", { name: "只读" }).click();
     const options = await page.getByRole("option").allInnerTexts();
     expect(options.map((o) => o.trim())).toEqual(["只读"]);
-    await page.keyboard.press("Escape");
+    await page.getByRole("option", { name: "只读" }).click();
     await dialog.getByRole("button", { name: "发送邀请" }).click();
     await expect.poll(() => sent).not.toBeNull();
     expect(sent).toEqual({ email: "pa-268-check@example.invalid", role: "viewer" });

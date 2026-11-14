@@ -99,7 +99,8 @@ export default function RunbookEditorPage() {
   const metricSteps = rb.steps.filter((step) => step.probe);
   const canExecute = status === "published" && env !== "all" && !!rb.application_id && metricSteps.length > 0 && metricSteps.length <= 10 && metricSteps.every((step) =>
     step.readonly && step.kind !== "action" && !step.approval && !step.code && !step.tool && step.connectors?.length === 1 && !!step.connectors[0]);
-  const rollbackService = status === "published" && env !== "all" && rb.application_id ? serviceIdOf(rb.application_id, env) : null;
+  const scopedService = env !== "all" && rb.application_id ? serviceIdOf(rb.application_id, env) : undefined;
+  const rollbackService = status === "published" ? scopedService : undefined;
   const observation = execution?.env === env && execution.id === id && execution.result.version === Number(rb.version.replace(/^v/, "")) ? execution.result : undefined;
   const execute = async () => {
     setExecuting(true);
@@ -288,7 +289,7 @@ export default function RunbookEditorPage() {
             </Section>
             <Section title={tx("排查与处理步骤", "Steps")}>
               {editing ? <Col gap={10}>
-                <RunbookStepsForm steps={editing.steps} disabled={saving} onChange={(steps) => setEditing({ ...editing, steps })} />
+                <RunbookStepsForm steps={editing.steps} disabled={saving} onChange={(steps) => setEditing({ ...editing, steps })} serviceId={scopedService} />
                 <Row gap={8}>
                   <Btn disabled={saving} onClick={() => setEditing(undefined)}>{tx("取消修改", "Discard changes")}</Btn>
                   <Btn kind="primary" loading={saving} disabled={!canEdit || !editing.title.trim() || editing.steps.some((step) => !step.title.trim())} onClick={() => void saveEdit()}>{tx("保存草稿", "Save draft")}</Btn>
@@ -343,20 +344,20 @@ export default function RunbookEditorPage() {
                               {accepted === "yes" ? s.suggestion.plus : s.suggestion.minus}
                             </p>
                           )}
-                          <Row gap={8}>
-                            <Badge tone="warn">
-                              <Icon name="shield" size={11} />
-                              {tx("需人工批准", "Needs approval")}
-                            </Badge>
-                            <Muted size={11.5}>{s.action === "kubernetes_rollback" ? tx("由人工提交提案，两人批准后由执行器回滚", "Submit a proposal for two approvals before the executor rolls back") : tx("人工操作说明", "Manual instructions")}</Muted>
-                          </Row>
-                          {s.action === "kubernetes_rollback" && rollbackService && API_MODE !== "mock" && <Gated reason={rollbackBlocked}>
-                            <Btn icon="undo" onClick={() => openRollback({ serviceId: rollbackService })}>
-                              {tx("打开 Kubernetes 回滚提案", "Open Kubernetes rollback proposal")}
-                            </Btn>
-                          </Gated>}
                         </Col>
                       )}
+                      {(s.approval || s.suggestion) && <Row gap={8}>
+                        <Badge tone="warn">
+                          <Icon name="shield" size={11} />
+                          {tx("需人工批准", "Needs approval")}
+                        </Badge>
+                        <Muted size={11.5}>{s.action === "kubernetes_rollback" ? tx("由人工提交提案，两人批准后由执行器回滚", "Submit a proposal for two approvals before the executor rolls back") : tx("人工操作说明", "Manual instructions")}</Muted>
+                      </Row>}
+                      {s.action === "kubernetes_rollback" && rollbackService && API_MODE !== "mock" && <Gated reason={rollbackBlocked}>
+                        <Btn icon="undo" onClick={() => openRollback({ serviceId: rollbackService })}>
+                          {tx("打开 Kubernetes 回滚提案", "Open Kubernetes rollback proposal")}
+                        </Btn>
+                      </Gated>}
                     </Col>
                   </li>
                 ))}

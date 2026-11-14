@@ -1,5 +1,5 @@
 import { useGet } from "../../api/client";
-import type { ConnectorList, RunbookProbe, RunbookStep } from "../../api/types";
+import type { ConnectorList, ExternalTargetOptions, RunbookProbe, RunbookStep } from "../../api/types";
 import { useI18n } from "../../i18n";
 import { Badge, Btn, Col, Field, Input, Row, Spacer, Textarea } from "../../ui/core";
 import { ChipSelect } from "../../ui/demo";
@@ -11,10 +11,20 @@ export function useRunbookProbeLabels(): Record<RunbookProbe, string> {
   return { request_rate: tx("服务请求速率", "Service request rate"), error_rate: tx("HTTP 错误比例", "HTTP error ratio"), http_p95_seconds: tx("HTTP P95 延迟", "HTTP P95 latency") };
 }
 
-export function RunbookStepsForm({ steps, onChange, disabled }: { steps: RunbookStep[]; onChange: (next: RunbookStep[]) => void; disabled?: boolean }) {
+export function RunbookStepsForm({ steps, onChange, disabled, serviceId }: { steps: RunbookStep[]; onChange: (next: RunbookStep[]) => void; disabled?: boolean; serviceId?: string }) {
   const { tx } = useI18n();
   const { data } = useGet<ConnectorList>("/connectors");
+  const { data: mappings } = useGet<ExternalTargetOptions>(serviceId && steps.length ? `/services/${encodeURIComponent(serviceId)}/external-targets/options` : null);
   const prometheus = (data?.items ?? []).filter((c) => c.brand === "prometheus");
+  const mapped = mappings?.systems.find((system) => system.system_id === "metrics")?.current?.connector_id;
+  const metricOptions = prometheus.map((connector) => ({
+    value: connector.id,
+    label: connector.id === mapped
+      ? tx("{name} · 已映射", "{name} · mapped", { name: connector.name })
+      : prometheus.some((other) => other.id !== connector.id && other.name === connector.name)
+        ? `${connector.name} · ${connector.id.slice(0, 8)}`
+        : connector.name,
+  }));
   const probes = useRunbookProbeLabels();
   const labels = { query: tx("查询", "Query"), check: tx("判断", "Check"), verify: tx("验证", "Verify"), action: tx("动作", "Action") };
   const replace = (index: number, edit: Partial<RunbookStep>) => onChange(steps.map((step, i) => i === index ? { ...step, ...edit } : step));
@@ -43,7 +53,7 @@ export function RunbookStepsForm({ steps, onChange, disabled }: { steps: Runbook
             {!manual && <Row gap={10} wrap>
               <label><input type="checkbox" checked={!!step.readonly} disabled={disabled} onChange={(ev) => replace(i, { readonly: ev.target.checked, ...(ev.target.checked ? {} : { probe: undefined }) })} /> {tx("只读", "Read-only")}</label>
               {step.probe
-                ? <ChipSelect label={tx("Prometheus 连接器", "Prometheus connector")} disabled={disabled} value={step.connectors?.[0] ?? ""} options={prometheus.map((c) => ({ value: c.id, label: c.name }))} onChange={(id) => replace(i, { connectors: id ? [id as string] : [] })} />
+                ? <ChipSelect label={tx("Prometheus 连接器", "Prometheus connector")} disabled={disabled} value={step.connectors?.[0] ?? ""} options={metricOptions} onChange={(id) => replace(i, { connectors: id ? [id as string] : [] })} />
                 : <ChipSelect label={tx("连接器", "Connectors")} multi disabled={disabled} value={step.connectors ?? []} options={(data?.items ?? []).map((c) => ({ value: c.id, label: c.name }))} onChange={(ids) => replace(i, { connectors: ids as string[] })} />}
               {step.readonly && <ChipSelect label={tx("执行查询", "Execution query")} disabled={disabled} value={step.probe ?? "none"} options={[{ value: "none", label: tx("仅说明", "Instructions only") }, ...Object.entries(probes).map(([value, label]) => ({ value, label }))]} onChange={(value) => {
                 const keepBinding = value === "none" || (step.connectors?.length === 1 && prometheus.some((c) => c.id === step.connectors?.[0]));

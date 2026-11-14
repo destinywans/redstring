@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
-import { API_MODE, useGet, useSend } from "../../api/client";
+import { API_MODE, api, useGet, useSend } from "../../api/client";
+import { useEnv } from "../../app/environment";
 import type { McpDetail, McpList, McpServer } from "../../api/types";
 import { Badge, Brand, Btn, Card, Col, Icon, IconBtn, KV, Mono, Muted, Num, Row, SearchBox, Section, Skeleton, Spacer, State, Strong, Tabs, TextLink, Toggle, cx, type Tone } from "../../ui/core";
 import { Kpi, KpiRow } from "../../ui/data";
@@ -18,6 +20,8 @@ export default function McpPage() {
   const { tx } = useI18n();
   const { data, error } = useGet<McpList>("/mcp-servers");
   const noManage = useNeed(["connectors", "manage"]);
+  const env = useEnv((state) => state.env);
+  const client = useQueryClient();
   const [sel, setSel] = useState<string | null>(null);
   const [registering, setRegistering] = useState(false);
   const [q, setQ] = useState("");
@@ -25,6 +29,26 @@ export default function McpPage() {
   const review = useSend<void>("POST", "/mcp-servers/k8s-mcp/review", ["/mcp-servers"]);
   const stLabel = (s: McpServer["status"]) => ({ ok: tx("正常", "Healthy"), pending: tx("待定", "Pending"), error: tx("异常", "Error") })[s];
   const items = data?.items.filter((s) => !q || s.name.includes(q) || s.caps?.toLowerCase().includes(q.toLowerCase()));
+  async function disableServer(server: McpServer) {
+    const ok = await confirmAction({
+      title: tx("停用 {name}？", "Disable {name}?", { name: server.name }),
+      desc: tx("此服务器的发现和 Agent 工具调用将停止。平台会保留服务器登记和审核记录。", "Discovery and Agent calls for this server stop. Its registration and review history are retained."),
+      confirm: tx("停用", "Disable"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      if (API_MODE === "http") {
+        await api("POST", `/mcp-servers/${encodeURIComponent(server.id)}/disable`, {
+          body: {}, headers: { "X-AIOps-Environment": env },
+        });
+        await client.invalidateQueries({ predicate: ({ queryKey }) => /^\/(mcp-servers|agents)(\/|$)/.test(String(queryKey[0])) });
+      }
+      toast(tx("{name} 已停用", "{name} disabled", { name: server.name }));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : tx("停用失败", "Disable failed"), { tone: "danger" });
+    }
+  }
   return (
     <Page
       flush
@@ -95,7 +119,7 @@ export default function McpPage() {
                     ))}
                   </Row>
                   <span>
-                    <State tone={ST[s.status]}>{stLabel(s.status)}</State>
+                    <State tone={s.enabled === false ? "neutral" : ST[s.status]}>{s.enabled === false ? tx("已停用", "Disabled") : stLabel(s.status)}</State>
                   </span>
                   <span className="hact" onClick={(e) => e.stopPropagation()}>
                     <MenuButton
@@ -107,8 +131,8 @@ export default function McpPage() {
                       items={[
                         { label: tx("查看详情", "Open details"), icon: "panel", onSelect: () => setSel(s.id) },
                         ...(API_MODE === "mock" ? [{ label: tx("重新发现工具", "Rediscover tools"), icon: "rotate" as const, onSelect: () => toast(tx("{n}：工具列表已刷新，无新增", "{n}: tools refreshed, nothing new", { n: s.name })) }] : []),
-                        // Disabling has no server side yet and only showed a toast; sample only (PA-163, D52).
-                        ...(API_MODE === "mock" ? [{ sep: true, label: "" }, { label: tx("停用", "Disable"), icon: "x" as const, danger: true, onSelect: () => void disableServer(s.name) }] : []),
+                        ...(API_MODE === "mock" || (!noManage && env !== "all" && s.enabled === true)
+                          ? [{ sep: true, label: "" }, { label: tx("停用", "Disable"), icon: "x" as const, danger: true, onSelect: () => void disableServer(s) }] : []),
                       ]}
                     />
                   </span>
@@ -146,13 +170,13 @@ export default function McpPage() {
             )}
           </div>
         </div>
-        {sel && <McpAside key={sel} id={sel} onClose={() => setSel(null)} />}
+        {sel && <McpAside key={sel} id={sel} onClose={() => setSel(null)} onDisable={disableServer} />}
       </div>
     </Page>
   );
 }
 
-function McpAside({ id, onClose }: { id: string; onClose: () => void }) {
+function McpAside({ id, onClose, onDisable }: { id: string; onClose: () => void; onDisable: (server: McpServer) => Promise<void> }) {
   const { tx } = useI18n();
   const { data: s, error } = useGet<McpDetail>(`/mcp-servers/${id}`);
   const [tab, setTab] = useState<"tools" | "resources" | "prompts" | "calls">("tools");
@@ -327,23 +351,11 @@ function McpAside({ id, onClose }: { id: string; onClose: () => void }) {
                 {tx("在 Agent 中配置", "Configure in agents")}
               </Btn>
               <Spacer />
-              {API_MODE === "mock" && <Btn kind="danger" onClick={() => void disableServer(s.name)}>{tx("停用", "Disable")}</Btn>}
+              {API_MODE === "mock" && <Btn kind="danger" onClick={() => void onDisable(s)}>{tx("停用", "Disable")}</Btn>}
             </Row>
           </Col>
         </>
       )}
     </aside>
   );
-}
-
-/** Disabling an MCP server stops discovery and every grant of its tools; registration is kept. */
-async function disableServer(name: string) {
-  const zh = document.documentElement.lang.startsWith("zh");
-  const ok = await confirmAction({
-    title: zh ? `停用 ${name}？` : `Disable ${name}?`,
-    desc: zh ? "停用后 Agent 不能再调用它的工具，正在进行的调查会改用其他来源。登记信息和授权配置会保留。" : "Agents can no longer call its tools; running investigations fall back to other sources. Registration and grants are kept.",
-    confirm: zh ? "停用" : "Disable",
-    danger: true,
-  });
-  if (ok) toast(zh ? `${name} 已停用` : `${name} disabled`, { undo: () => undefined });
 }

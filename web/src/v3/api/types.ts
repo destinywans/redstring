@@ -1169,6 +1169,7 @@ export type McpServer = {
   id: string;
   brand: string;
   name: string;
+  enabled?: boolean;
   desc: string;
   transport: string;
   caps: string;

@@ -195,6 +195,10 @@ export default function NewRunbookPage() {
   const [appSelection, setAppSelection] = useState<{ env: string; id: string }>();
   const selectedApp = appSelection?.env === env ? appSelection.id : "";
   const { data: serviceCatalog } = useGet<ServiceCatalog>(appSelectable && env !== "all" ? "/services" : null);
+  const serviceOptions = (serviceCatalog?.items ?? []).flatMap((item) => {
+    const service = serviceParts(item.id);
+    return service?.environment === env ? [{ id: item.id, application: service.application, name: item.name }] : [];
+  });
   const from = params.get("from");
   const { data, isLoading, error } = useGet<Draft>(blank ? null : "/runbooks/draft", { source, from });
   const lists = usePickLists();
@@ -264,13 +268,10 @@ export default function NewRunbookPage() {
                 {appSelectable && env !== "all" && <Field label={tx("应用", "Application")} hint={tx("执行查询或提交回滚提案需要绑定应用", "Bind an application to run queries or open a rollback proposal")}>
                   <select value={selectedApp} disabled={!!saving} onChange={(e) => setAppSelection({ env, id: e.target.value })}>
                     <option value="">{tx("仅作工作区说明", "Workspace instructions")}</option>
-                    {(serviceCatalog?.items ?? []).flatMap((item) => {
-                      const service = serviceParts(item.id);
-                      return service?.environment === env ? [<option key={item.id} value={service.application}>{item.name}</option>] : [];
-                    })}
+                    {serviceOptions.map((item) => <option key={item.id} value={item.application}>{item.name}</option>)}
                   </select>
                 </Field>}
-                {API_MODE !== "mock" && <RunbookStepsForm steps={steps} onChange={(next) => setEdits({ key: draftKey, steps: next })} disabled={!!saving} />}
+                {API_MODE !== "mock" && <RunbookStepsForm steps={steps} onChange={(next) => setEdits({ key: draftKey, steps: next })} disabled={!!saving} serviceId={serviceOptions.find((item) => item.application === selectedApp)?.id} />}
                 {API_MODE === "mock" && <ol className="rb-steps">
                   {draft?.steps.map((s, i) => (
                     <li key={i} className="anim-rise">

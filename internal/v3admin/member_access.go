@@ -81,7 +81,7 @@ func accessError(w http.ResponseWriter, err error) {
 		httpapi.Error(w, 409, "role_exists", "Role ID or name already belongs to a different role")
 	case errors.Is(err, errLoginNotReady):
 		httpapi.Error(w, 409, "login_not_ready", "Member has no login credential")
-	case errors.Is(err, store.ErrLastRBACManager), errors.Is(err, store.ErrLastAdmin):
+	case errors.Is(err, store.ErrLastAdmin):
 		httpapi.Error(w, 409, "last_administrator", "At least one active platform administrator with login credentials is required")
 	default:
 		respond(w, nil, err)
@@ -248,6 +248,19 @@ func (s *Service) createRoleRecord(ctx context.Context, actor core.User, token, 
 	}
 	if err = s.authorizeAccess(ctx, tx, actor, token, env, false); err != nil {
 		return false, 0, err
+	}
+	platformAdmin, err := isPlatformAdmin(ctx, tx, actor.ID)
+	if err != nil {
+		return false, 0, err
+	}
+	if !platformAdmin {
+		ceiling, err := loadGrantCeiling(ctx, tx, actor.ID)
+		if err != nil {
+			return false, 0, err
+		}
+		if err = checkGrantCeiling(ceiling, grants); err != nil {
+			return false, 0, err
+		}
 	}
 	var name, description, kind string
 	var builtin bool
@@ -421,6 +434,18 @@ func (s *Service) memberAccessRecord(ctx context.Context, actor core.User, token
 		}
 		return out, tx.Commit(ctx)
 	}
+	platformAdmin, err := isPlatformAdmin(ctx, tx, actor.ID)
+	if err != nil {
+		return out, err
+	}
+	if !platformAdmin {
+		if id == actor.ID {
+			return out, errSelfAccessChange
+		}
+		if err = protectPrivilegedMember(ctx, tx, id); err != nil {
+			return out, err
+		}
+	}
 	if out.Revision != in.ExpectedRevision {
 		return out, errAccessChanged
 	}
@@ -431,16 +456,38 @@ func (s *Service) memberAccessRecord(ctx context.Context, actor core.User, token
 		return out, errLoginNotReady
 	}
 	before := out
-	var privileged, platformAdmin bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM rbac_platform_administrators WHERE user_id=$1),
- EXISTS(SELECT 1 FROM (SELECT role_id FROM rbac_user_roles WHERE user_id=$2 UNION SELECT dr.role_id FROM users u JOIN rbac_department_roles dr ON dr.department_id=u.department_id WHERE u.id=$2) a WHERE a.role_id='admin' OR EXISTS(SELECT 1 FROM rbac_role_permissions p JOIN rbac_permission_resources pr ON pr.permission_id=p.permission_id WHERE p.role_id=a.role_id AND pr.action<>'view'))`, actor.ID, id).Scan(&platformAdmin, &privileged); err != nil {
-		return out, err
+	activating := !out.Enabled && *in.Enabled
+	oldDirect := make(map[string]bool, len(out.Roles))
+	var changedGrants []grant
+	var removed []string
+	for _, role := range out.Roles {
+		if role.Origin != "direct" {
+			if activating {
+				changedGrants = append(changedGrants, role.Grants...)
+			}
+			continue
+		}
+		oldDirect[role.ID] = true
+		if _, keep := in.RoleRevisions[role.ID]; !keep {
+			removed = append(removed, role.ID)
+			changedGrants = append(changedGrants, role.Grants...)
+		} else if activating {
+			changedGrants = append(changedGrants, role.Grants...)
+		}
 	}
-	if privileged && !platformAdmin {
-		return out, store.ErrForbidden
+	if !platformAdmin && len(removed) > 0 {
+		var protected bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM rbac_role_permissions
+ WHERE role_id=ANY($1::text[]))`, removed).Scan(&protected); err != nil {
+			return out, err
+		}
+		if protected {
+			return out, errPlatformAdminRequired
+		}
 	}
-	// Direct assignments are replaced; department and legacy associations stay
-	// visible and intact. Do not convert inherited roles into editable bindings.
+	// Direct assignments are updated separately from department and legacy
+	// associations. Do not convert inherited roles into editable bindings.
+	var added []string
 	for _, roleID := range in.RoleIDs {
 		var valid, inherited, legacy bool
 		var revision int64
@@ -459,28 +506,42 @@ func (s *Service) memberAccessRecord(ctx context.Context, actor core.User, token
 		if strconv.FormatInt(revision, 10) != in.RoleRevisions[roleID] {
 			return out, errAccessChanged
 		}
+		if oldDirect[roleID] {
+			continue
+		}
 		if legacy && !platformAdmin {
-			return out, store.ErrForbidden
+			return out, errPlatformAdminRequired
+		}
+		added = append(added, roleID)
+		if !platformAdmin {
+			grants, err := loadGrants(ctx, tx, roleID)
+			if err != nil {
+				return out, err
+			}
+			changedGrants = append(changedGrants, grants...)
 		}
 	}
-	oldDirect := []string{}
-	for _, role := range out.Roles {
-		if role.Origin == "direct" {
-			oldDirect = append(oldDirect, role.ID)
+	if !platformAdmin && len(changedGrants) > 0 {
+		ceiling, err := loadGrantCeiling(ctx, tx, actor.ID)
+		if err != nil {
+			return out, err
+		}
+		if err = checkGrantCeiling(ceiling, changedGrants); err != nil {
+			return out, err
 		}
 	}
-	sort.Strings(oldDirect)
-	same := strings.Join(oldDirect, "\x00") == strings.Join(in.RoleIDs, "\x00") && out.Enabled == *in.Enabled
-	if same {
+	if len(added) == 0 && len(removed) == 0 && out.Enabled == *in.Enabled {
 		if err = store.LockActiveSession(ctx, tx, token, actor.ID); err != nil {
 			return out, err
 		}
 		return out, tx.Commit(ctx)
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND origin='direct'`, id); err != nil {
-		return out, err
+	if len(removed) > 0 {
+		if _, err = tx.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND origin='direct' AND role_id=ANY($2::text[])`, id, removed); err != nil {
+			return out, err
+		}
 	}
-	for _, roleID := range in.RoleIDs {
+	for _, roleID := range added {
 		if _, err = tx.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id,origin) VALUES($1,$2,'direct')`, id, roleID); err != nil {
 			return out, err
 		}
@@ -506,6 +567,9 @@ func (s *Service) memberAccessRecord(ctx context.Context, actor core.User, token
 	}
 	if !manager {
 		return out, errLastRoleManager
+	}
+	if err = protectPlatformRoleManager(ctx, tx); err != nil {
+		return out, err
 	}
 	out, err = readAccessSnapshot(ctx, tx, id)
 	if err != nil {

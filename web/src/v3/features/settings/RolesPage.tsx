@@ -47,6 +47,26 @@ export default function RolesPage() {
     ["business", tx("业务角色", "Business roles")],
     ["machine", tx("机器身份", "Machine identities")],
   ];
+  const saveErrorMessage = (error: ApiError) => {
+    switch (error.code) {
+      case "role_changed":
+        return tx("角色刚被其他人修改，已重新读取，请核对后再保存", "Someone just changed this role. Check the latest version before saving.");
+      case "platform_admin_required":
+        return tx("这项权限变更需要平台管理员。", "Only a platform administrator can make this permission change.");
+      case "grant_exceeds_actor":
+        return tx("只能授出或撤销你自己拥有的权限。", "You can only grant or revoke permissions you hold.");
+      case "self_access_change_forbidden":
+        return tx("你持有这个角色，请让平台管理员修改。", "You hold this role. Ask a platform administrator to change it.");
+      case "admin_approval_forbidden":
+        return tx("如需审批权限，请单独分配变更审批角色。", "Assign the Change approver role separately to grant approval access.");
+      case "last_administrator":
+        return tx("至少要保留一位能登录并管理成员和角色的平台管理员。", "Keep at least one platform administrator who can sign in and manage members and roles.");
+      case "last_role_manager":
+        return tx("至少要保留一位拥有全局角色管理和环境查看权限的有效人员账号。", "Keep at least one active human account with global role management and environment view.");
+      default:
+        return error.message;
+    }
+  };
   const create = async () => {
     const v = await openForm({
       title: tx("新建角色", "New role"),
@@ -102,7 +122,7 @@ export default function RolesPage() {
         <>
           {dirty && (
             <Gated reason={noManage}>
-              <Btn kind="primary" icon="check" loading={save.isPending} onClick={() => matrix && save.mutate({ matrix }, { onSuccess: () => toast(tx("权限已保存并写入审计", "Permissions saved and audited")), onError: (e) => toast(e.status === 409 || e.status === 412 ? tx("角色刚被其他人修改，已重新读取，请核对后再保存", "Someone just changed this role; reloaded — check and save again") : e.message, { tone: "danger" }) })}>
+              <Btn kind="primary" icon="check" loading={save.isPending} onClick={() => matrix && save.mutate({ matrix }, { onSuccess: () => toast(tx("权限已保存并写入审计", "Permissions saved and audited")), onError: (error) => toast(saveErrorMessage(error), { tone: "danger" }) })}>
                 {tx("保存权限", "Save permissions")}
               </Btn>
             </Gated>

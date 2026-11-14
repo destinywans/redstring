@@ -37,6 +37,8 @@ func respondMember(w http.ResponseWriter, detail memberDetail, err error) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		httpapi.Error(w, 404, "not_found", "Member not found")
+	case errors.Is(err, errPlatformAdminRequired):
+		respond(w, nil, err)
 	case errors.Is(err, store.ErrForbidden):
 		httpapi.Error(w, 403, "forbidden", "Insufficient permission")
 	case errors.Is(err, store.ErrSessionRevoked):
@@ -294,6 +296,15 @@ func (s *Service) writeMember(ctx context.Context, actor core.User, token, envir
 	detail, err = memberSnapshot(ctx, tx, id, environment, global, true)
 	if err != nil {
 		return detail, err
+	}
+	platformAdmin, err := isPlatformAdmin(ctx, tx, actor.ID)
+	if err != nil {
+		return detail, err
+	}
+	if !platformAdmin {
+		if err = protectPrivilegedMember(ctx, tx, id); err != nil {
+			return detail, err
+		}
 	}
 	if detail.RecordedSource != "local" {
 		return detail, errMemberSourceManaged

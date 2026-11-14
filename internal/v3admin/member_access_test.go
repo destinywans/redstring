@@ -323,10 +323,41 @@ func TestMemberAccessAuthorityAndLastManagerPostgres(t *testing.T) {
 // A role write admitted by middleware must still fail when its exact session
 // or its authority is revoked while it waits for the shared identity lock.
 func TestRoleCreationRechecksAfterLockPostgres(t *testing.T) {
-	for _, which := range []string{"session", "grant"} {
+	for _, which := range []string{"session", "grant", "delegated_ceiling"} {
 		t.Run(which, func(t *testing.T) {
 			s, actor, token, h := accessHTTPFixture(t)
 			ctx := t.Context()
+			in := createRoleInput{ID: "custom-revoked", Name: "Revoked create", Scopes: []accessScope{{Kind: "environment", ID: "dev"}}, Matrix: accessTestMatrix()}
+			if which == "delegated_ceiling" {
+				password := "synthetic-delegated-ceiling-password"
+				var err error
+				actor, err = s.Store.CreateUser(ctx, core.User{Email: "queued-manager@example.invalid", Name: "Queued manager", Role: "viewer"}, password)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = s.Store.DB.Exec(ctx, `INSERT INTO rbac_roles(id,name) VALUES('custom-queued-manager','Queued manager');
+ INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+ ('custom-queued-manager','environment','view','global','*'),
+ ('custom-queued-manager','roles','manage','global','*'),
+ ('custom-queued-manager','events','change','environment','dev')`); err != nil {
+					t.Fatal(err)
+				}
+				if _, err = s.Store.DB.Exec(ctx, `INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'custom-queued-manager')`, actor.ID); err != nil {
+					t.Fatal(err)
+				}
+				_, token, err = s.Store.Login(ctx, actor.Email, password)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for i := range in.Matrix {
+					if in.Matrix[i].Resource == "events" {
+						in.Matrix[i].Grants[1] = 1
+					}
+				}
+				probe := in
+				probe.ID, probe.Name = "custom-queue-control", "Queued manager control"
+				requireAccessStatus(t, accessRequest(t, h, "POST", "/api/v1/roles", "dev", token, probe), 201)
+			}
 			blocker, err := s.Store.DB.Begin(ctx)
 			if err != nil {
 				t.Fatal(err)
@@ -339,7 +370,6 @@ func TestRoleCreationRechecksAfterLockPostgres(t *testing.T) {
 			if _, err = blocker.Exec(ctx, `SELECT pg_advisory_xact_lock(752018992)`); err != nil {
 				t.Fatal(err)
 			}
-			in := createRoleInput{ID: "custom-revoked", Name: "Revoked create", Scopes: []accessScope{{Kind: "environment", ID: "dev"}}, Matrix: accessTestMatrix()}
 			body, err := json.Marshal(in)
 			if err != nil {
 				t.Fatal(err)
@@ -365,10 +395,13 @@ func TestRoleCreationRechecksAfterLockPostgres(t *testing.T) {
 				time.Sleep(10 * time.Millisecond)
 			}
 			expected := 403
-			if which == "session" {
+			switch which {
+			case "session":
 				expected = 401
 				_, err = blocker.Exec(ctx, `DELETE FROM sessions WHERE token_hash=$1 AND user_id=$2`, store.Hash(token), actor.ID)
-			} else {
+			case "delegated_ceiling":
+				_, err = blocker.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='custom-queued-manager' AND module='events' AND action='change'`)
+			default:
 				_, err = blocker.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='admin' AND module='roles' AND action='manage'`)
 			}
 			if err != nil {
@@ -380,6 +413,9 @@ func TestRoleCreationRechecksAfterLockPostgres(t *testing.T) {
 			select {
 			case w := <-done:
 				requireAccessStatus(t, w, expected)
+				if which == "delegated_ceiling" && !strings.Contains(w.Body.String(), `"code":"grant_exceeds_actor"`) {
+					t.Fatalf("ordinary grant revocation did not hit the ceiling: %s", w.Body.String())
+				}
 			case <-time.After(5 * time.Second):
 				t.Fatal("blocked role write did not return")
 			}

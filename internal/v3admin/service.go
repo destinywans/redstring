@@ -54,6 +54,16 @@ func respond(w http.ResponseWriter, v any, err error) {
 		httpapi.Error(w, 403, "forbidden", "Insufficient permission")
 	case errors.Is(err, store.ErrSessionRevoked):
 		httpapi.Error(w, 401, "unauthorized", "Login required")
+	case errors.Is(err, errPlatformAdminRequired):
+		httpapi.Error(w, 403, "platform_admin_required", "Only a platform administrator can make this change")
+	case errors.Is(err, errGrantExceedsActor):
+		httpapi.Error(w, 403, "grant_exceeds_actor", "You can only grant or revoke permissions you hold yourself")
+	case errors.Is(err, errSelfAccessChange):
+		httpapi.Error(w, 403, "self_access_change_forbidden", "Delegated administrators cannot change their own access")
+	case errors.Is(err, errAdminApproval):
+		httpapi.Error(w, 422, "admin_approval_forbidden", "Assign an approval role separately from the built-in admin role")
+	case errors.Is(err, store.ErrLastRBACManager):
+		httpapi.Error(w, 409, "last_administrator", "At least one active platform administrator with login credentials and global administration access is required")
 	case errors.Is(err, errInvalidMatrix):
 		httpapi.Error(w, 422, "invalid_matrix", "Matrix must contain each known resource once with five valid operation cells")
 	case errors.Is(err, errMachineApproval):

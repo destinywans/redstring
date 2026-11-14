@@ -56427,7 +56427,7 @@
       "post": {
         "summary": "Create an explicitly scoped custom business role",
         "operationId": "post_roles",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires the exact active Cookie session, a human with global roles.manage and global environment.view, and one selected environment. Exactly one explicit scope: the selected environment, or global:* reviewed explicitly. Writes the complete matrix plus environment.view in one audited transaction. Stable custom-* IDs are idempotent only for identical content; conflicting IDs/names return 409. No legacy permission or machine/system role is created. All-environment writes remain 409.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires the exact active Cookie session, a human with global roles.manage and global environment.view, and one selected environment. Exactly one explicit scope: the selected environment, or global:* reviewed explicitly. Writes the complete matrix plus environment.view in one audited transaction. Stable custom-* IDs are idempotent only for identical content; conflicting IDs/names return 409. Delegated administrators can create only non-privileged grants within their current authority. No legacy permission or machine/system role is created. All-environment writes remain 409.",
         "responses": {
           "200": {
             "description": "Success",
@@ -56450,7 +56450,7 @@
             }
           },
           "403": {
-            "description": "Forbidden or cross-origin request",
+            "description": "Insufficient administration authority (forbidden), privileged grant (platform_admin_required), or a grant outside the actor authority (grant_exceeds_actor)",
             "content": {
               "application/json": {
                 "schema": {
@@ -56656,7 +56656,7 @@
       "put": {
         "summary": "Update role matrix",
         "operationId": "put_roles_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment as authorization context, an active account with global roles.manage and global environment.view, and the exact decimal matrix revision returned by GET /roles/{id} in If-Role-Matrix-Revision. A successful edit changes global role grants across every environment, not just the selected environment. Rechecks authority and revision under the write lock; stale revisions return 409 role_changed. Success returns only {ok:true} plus the new matrix revision header; a manager is not automatically authorized to read role detail after the write. Unrepresentable or scoped grants return 409 rather than being silently overwritten. Machine identities cannot approve. Rejects removal of the last eligible global human role manager. The frozen frontend does not yet forward the revision header, so its real-mode save receives 428 until adapted.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment as authorization context, an active account with global roles.manage and global environment.view, and the exact decimal matrix revision returned by GET /roles/{id} in If-Role-Matrix-Revision. A successful edit changes global role grants across every environment, not just the selected environment. Rechecks authority and revision under the write lock; stale revisions return 409 role_changed. Success returns only {ok:true} plus the new matrix revision header; a manager is not automatically authorized to read role detail after the write. Unrepresentable or scoped grants return 409 rather than being silently overwritten. Delegated administrators cannot edit built-in roles, roles they hold, privileged roles, or roles held by privileged members. All changed grants must be within their current non-privileged authority. Machine identities cannot approve. The built-in admin role cannot acquire new approval grants. Protects the last eligible global human role manager and the last platform administrator with local credentials, global roles and members view/manage, and global environment.view.",
         "responses": {
           "200": {
             "description": "Success",
@@ -56697,7 +56697,7 @@
             }
           },
           "403": {
-            "description": "Forbidden or cross-origin request",
+            "description": "Insufficient administration authority (forbidden), protected role (platform_admin_required), self-access change (self_access_change_forbidden), or a grant outside the actor authority (grant_exceeds_actor)",
             "content": {
               "application/json": {
                 "schema": {
@@ -56717,7 +56717,7 @@
             }
           },
           "409": {
-            "description": "Stale matrix revision (role_changed), unrepresentable or scoped grants, or last eligible human role manager",
+            "description": "Stale matrix revision (role_changed), unrepresentable or scoped grants (matrix_editor_required), or last eligible administrator (last_role_manager or last_administrator)",
             "content": {
               "application/json": {
                 "schema": {
@@ -56727,7 +56727,7 @@
             }
           },
           "422": {
-            "description": "Invalid input",
+            "description": "Invalid matrix or selected environment, approval on a machine role (machine_approval_forbidden), or a new approval on the built-in admin role (admin_approval_forbidden)",
             "content": {
               "application/json": {
                 "schema": {
@@ -57568,7 +57568,7 @@
       "patch": {
         "summary": "Change saved member contact display fields",
         "operationId": "patch_members_id",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary backend route outside the frozen 166-page Mock contract. Requires one selected environment, an active human account with members.view for that environment, global members.manage and global environment.view, and a visible locally owned target (recorded source=local). External or uncertain sources return 409 member_source_managed rather than overwriting directory-owned values. Changes only the globally stored name and phone; it cannot modify roles, department, status, email, MFA or external identity. expected_revision is a canonical decimal string; concurrent name/phone updates from this or other account writers return 409 member_changed. Strict nonempty patch, no unknown or duplicate fields, trimmed nonblank name up to 120 Unicode characters and trimmed nonblank phone up to 64 characters; null clears phone. The write and audit of changed field names commit together, then return the authorized persisted detail. The frozen frontend does not call this route.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary backend route outside the frozen 166-page Mock contract. Requires one selected environment, an active human account with members.view for that environment, global members.manage and global environment.view, and a visible locally owned target (recorded source=local). Only a platform administrator may edit a privileged member. External or uncertain sources return 409 member_source_managed rather than overwriting directory-owned values. Changes only the globally stored name and phone; it cannot modify roles, department, status, email, MFA or external identity. expected_revision is a canonical decimal string; concurrent name/phone updates from this or other account writers return 409 member_changed. Strict nonempty patch, no unknown or duplicate fields, trimmed nonblank name up to 120 Unicode characters and trimmed nonblank phone up to 64 characters; null clears phone. The write and audit of changed field names commit together, then return the authorized persisted detail. The frozen frontend does not call this route.",
         "responses": {
           "200": {
             "description": "Success",
@@ -57591,7 +57591,7 @@
             }
           },
           "403": {
-            "description": "Forbidden or cross-origin request",
+            "description": "Insufficient administration authority (forbidden) or privileged member (platform_admin_required)",
             "content": {
               "application/json": {
                 "schema": {
@@ -57786,7 +57786,7 @@
       "put": {
         "summary": "Replace direct member roles and activation state",
         "operationId": "put_members_id_access",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Same human global authority as the access read. Replaces direct roles only; inherited legacy/department roles are preserved. expected_revision must match the complete access snapshot, and role_revisions must match each submitted role current matrix revision. Machine targets/roles, duplicate IDs, unknown fields and password input are rejected. Assigning legacy permissions or changing privileged legacy identities additionally requires actual platform-administrator membership. Enabled members require environment admission. Imported Feishu/LDAP activation does not provision authentication. Protects final usable platform administrator and human global role manager, writes atomic audit and revokes target sessions after changes. Idempotent no-op preserves sessions and audit count. Audit/storage/auth failures roll back the entire edit. Self-disable is rejected; all-environment writes remain 409. A direct role the member already holds through the invitation (legacy origin) is refused with 409 role_already_inherited (PA-54).",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Same human global authority as the access read. Replaces direct roles only; inherited legacy/department roles are preserved. expected_revision must match the complete access snapshot, and role_revisions must match each submitted role current matrix revision. Machine targets/roles, duplicate IDs, unknown fields and password input are rejected. Only human platform administrators can change privileged targets or add/remove roles with legacy permissions. Delegated administrators cannot change their own access. Added, removed and reactivated grants must be within their current non-privileged authority. Disabling an ordinary account without changing roles is a lifecycle operation. Enabled members require environment admission. Imported Feishu/LDAP activation does not provision authentication. Protects final usable platform administrator and human global role manager, writes atomic audit and revokes target sessions after changes. Idempotent no-op preserves sessions and audit count. Audit/storage/auth failures roll back the entire edit. Self-disable is rejected; all-environment writes remain 409. A direct role the member already holds through the invitation (legacy origin) is refused with 409 role_already_inherited (PA-54).",
         "responses": {
           "200": {
             "description": "Success",
@@ -57809,7 +57809,7 @@
             }
           },
           "403": {
-            "description": "Forbidden or cross-origin request",
+            "description": "Insufficient administration authority (forbidden), protected target or role (platform_admin_required), self-access change (self_access_change_forbidden), or a grant outside the actor authority (grant_exceeds_actor)",
             "content": {
               "application/json": {
                 "schema": {

@@ -91,10 +91,8 @@ func (s *Service) saveMatrix(ctx context.Context, roleID, environment, sessionTo
 	// those locks before the matrix lock and authority reads, so a queued
 	// matrix write cannot use a role assignment revoked by either writer.
 	// The final lock serializes matrix writes for the last-manager invariant.
-	for _, key := range []int64{752018992, 752018995, 752018998} {
-		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, key); err != nil {
-			return 0, err
-		}
+	if err = memberIdentityLocks(ctx, tx, true); err != nil {
+		return 0, err
 	}
 	// Middleware authorizes before entering this transaction. Recheck on the
 	// same connection after the write lock so a removed grant cannot authorize
@@ -122,8 +120,9 @@ func (s *Service) saveMatrix(ctx context.Context, roleID, environment, sessionTo
 		return 0, store.ErrForbidden
 	}
 	var kind string
+	var builtin bool
 	var revision int64
-	err = tx.QueryRow(ctx, `SELECT v3_kind,v3_matrix_revision FROM rbac_roles WHERE id=$1 FOR UPDATE`, roleID).Scan(&kind, &revision)
+	err = tx.QueryRow(ctx, `SELECT v3_kind,builtin,v3_matrix_revision FROM rbac_roles WHERE id=$1 FOR UPDATE`, roleID).Scan(&kind, &builtin, &revision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, store.ErrNotFound
 	}
@@ -144,11 +143,20 @@ func (s *Service) saveMatrix(ctx context.Context, roleID, environment, sessionTo
 	if err != nil {
 		return 0, err
 	}
+	platformAdmin, err := isPlatformAdmin(ctx, tx, actor.ID)
+	if err != nil {
+		return 0, err
+	}
+	if !platformAdmin {
+		if err = protectDelegatedRoleEdit(ctx, tx, actor.ID, roleID, kind, builtin, beforeGrants); err != nil {
+			return 0, err
+		}
+	}
 	if err := validateMatrixEditable(beforeGrants); err != nil {
 		return 0, err
 	}
 	before := matrixForRole(beforeGrants)
-	changed := false
+	var remove, add []grant
 	for index, definition := range matrixCatalog {
 		cells := wanted[definition.Code]
 		if cells == nil {
@@ -157,42 +165,58 @@ func (s *Service) saveMatrix(ctx context.Context, roleID, environment, sessionTo
 		for col, action := range matrixActions {
 			oldValue := before[index].Grants[col]
 			newValue := cells[col]
-			// A selected approval always becomes a conditional passkey
-			// grant, whether the UI sent 1 or 2. The authorization layer
-			// denies it until it receives verified step-up evidence.
-			if action == "approve" && newValue > 0 {
-				newValue = 2
+			assurance := "standard"
+			// An approval cell always represents a conditional passkey grant.
+			if action == "approve" {
+				assurance = "passkey"
+				if newValue > 0 {
+					newValue = 2
+				}
 			}
 			if oldValue == newValue {
 				continue
 			}
+			if roleID == "admin" && action == "approve" && newValue > 0 {
+				return 0, errAdminApproval
+			}
 			for _, module := range definition.Modules {
+				g := grant{Module: module, Action: action, ScopeKind: "global", ScopeID: "*", Assurance: assurance}
 				if oldValue > 0 {
-					if _, err = tx.Exec(ctx, `DELETE FROM v3_role_grants
- WHERE role_id=$1 AND module=$2 AND action=$3 AND scope_kind='global' AND scope_id='*'`, roleID, module, action); err != nil {
-						return 0, err
-					}
+					remove = append(remove, g)
 				}
 				if newValue > 0 {
-					assurance := "standard"
-					if action == "approve" {
-						assurance = "passkey"
-					}
-					if _, err = tx.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id,assurance)
- VALUES($1,$2,$3,'global','*',$4) ON CONFLICT (role_id,module,action,scope_kind,scope_id)
- DO UPDATE SET assurance=excluded.assurance`, roleID, module, action, assurance); err != nil {
-						return 0, err
-					}
+					add = append(add, g)
 				}
-				changed = true
 			}
 		}
 	}
-	if !changed {
+	if len(remove) == 0 && len(add) == 0 {
 		if err = store.LockActiveSession(ctx, tx, sessionToken, actor.ID); err != nil {
 			return 0, err
 		}
 		return revision, tx.Commit(ctx)
+	}
+	if !platformAdmin {
+		ceiling, err := loadGrantCeiling(ctx, tx, actor.ID)
+		if err != nil {
+			return 0, err
+		}
+		if err = checkGrantCeiling(ceiling, append(remove, add...)); err != nil {
+			return 0, err
+		}
+	}
+	for _, g := range remove {
+		if _, err = tx.Exec(ctx, `DELETE FROM v3_role_grants
+ WHERE role_id=$1 AND module=$2 AND action=$3 AND scope_kind='global' AND scope_id='*'`, roleID, g.Module, g.Action); err != nil {
+			return 0, err
+		}
+	}
+	for _, g := range add {
+		if _, err = tx.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id,assurance)
+ VALUES($1,$2,$3,'global','*',$4) ON CONFLICT (role_id,module,action,scope_kind,scope_id)
+ DO UPDATE SET assurance=excluded.assurance`, roleID, g.Module, g.Action, g.Assurance); err != nil {
+			return 0, err
+		}
 	}
 	var managers int
 	err = tx.QueryRow(ctx, `SELECT count(DISTINCT manager.user_id) FROM v3_effective_role_grants manager
@@ -206,6 +230,9 @@ func (s *Service) saveMatrix(ctx context.Context, roleID, environment, sessionTo
 	}
 	if managers == 0 {
 		return 0, errLastRoleManager
+	}
+	if err = protectPlatformRoleManager(ctx, tx); err != nil {
+		return 0, err
 	}
 	if err = tx.QueryRow(ctx, `UPDATE rbac_roles SET v3_matrix_revision=v3_matrix_revision+1 WHERE id=$1 RETURNING v3_matrix_revision`, roleID).Scan(&revision); err != nil {
 		return 0, err

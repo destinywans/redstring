@@ -92,9 +92,9 @@ func (s *Service) RegisterV3Incidents(api *httpapi.Server) {
 	api.MarkV3ObjectRoute("GET /api/v1/incidents/{id}", "events", "view")
 	api.Register("GET /api/v1/incidents/{id}/changes", "viewer", s.IncidentChanges)
 	api.MarkV3ObjectRoute("GET /api/v1/incidents/{id}/changes", "events", "view")
-	// PA-88: the operator route plus the incident's events.view.
+	// The V3 handler authorizes event reads and both write grants on the incident scope.
 	api.Register("POST /api/v1/incidents/{id}/investigation", "operator", s.OpenInvestigation)
-	api.MarkV3ObjectRoute("POST /api/v1/incidents/{id}/investigation", "events", "view")
+	api.MarkV3ObjectRoute("POST /api/v1/incidents/{id}/investigation", "events", "change")
 }
 
 type incidentRecord struct {

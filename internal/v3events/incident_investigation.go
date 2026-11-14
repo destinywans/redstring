@@ -14,17 +14,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// OpenInvestigation answers POST /incidents/{id}/investigation (PA-88): it
-// reuses the investigation already linked to the incident, or creates one
-// for the incident's service and environment, titled after the incident and
-// with the same structure as an investigation created on the canvas, and
-// links it back. Seeing the incident needs its events.view (404 otherwise);
-// opening writes (the investigation, the alert's status), so it also needs
-// events.change, like starting one from an alert group, and is refused with
-// 403 before anything is written (PA-252: the V3 route skips the legacy
-// "operator" role, so this handler is the only check). Without a model_id no model is called; starting the AI with one is
-// the canvas's job, so a model_id is refused rather than ignored. The
-// response is the incident as GET /incidents/{id} returns it.
+// OpenInvestigation creates or reuses the incident's investigation and returns
+// the incident detail. The caller must be able to see the incident and have
+// both events.change and canvas.change for its scope. Browsers can navigate
+// an existing investigation link without sending this write request.
 func (s *Service) OpenInvestigation(w http.ResponseWriter, r *http.Request) {
 	if s == nil || s.DB == nil {
 		httpapi.Error(w, http.StatusServiceUnavailable, "events_unavailable", "Event storage unavailable")
@@ -131,17 +124,30 @@ func (s *Service) openInvestigationTx(r *http.Request, tx pgx.Tx, id string) err
 	return err
 }
 
-// errInvestigationForbidden: the viewer may see the incident but not change it.
-var errInvestigationForbidden = errors.New("opening an investigation needs events.change")
+// An actor who can view the incident may still lack the grants to open it.
+var errInvestigationForbidden = errors.New("opening an investigation needs events.change and canvas.change")
 
-// authorizeInvestigationStart requires events.change on the incident's
-// application and environment, after its events.view has been checked.
+// authorizeInvestigationStart rechecks both write grants after the target lock.
+// authorizeAlertTx holds the app, environment, session and role-grant locks.
 func (s *Service) authorizeInvestigationStart(r *http.Request, tx pgx.Tx, v incidentRecord) error {
-	err := s.authorizeAlertTx(r, tx, v, "change")
-	if errors.Is(err, store.ErrForbidden) {
-		return errInvestigationForbidden
+	if err := s.authorizeAlertTx(r, tx, v, "change"); err != nil {
+		if errors.Is(err, store.ErrForbidden) {
+			return errInvestigationForbidden
+		}
+		return err
 	}
-	return err
+	var ownerTeam string
+	if err := tx.QueryRow(r.Context(), `SELECT COALESCE(owner_team_id,'') FROM applications WHERE id=$1`,
+		v.ApplicationID).Scan(&ownerTeam); err != nil {
+		return err
+	}
+	if err := s.authorizeCanvasActionTx(r, tx, v.ApplicationID, v.EnvironmentKey, ownerTeam, "change"); err != nil {
+		if errors.Is(err, store.ErrForbidden) {
+			return errInvestigationForbidden
+		}
+		return err
+	}
+	return activeAlertReadSession(r.Context(), tx, r)
 }
 
 // linkedInvestigation checks that an incident's existing investigation is

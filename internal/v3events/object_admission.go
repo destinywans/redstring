@@ -66,6 +66,9 @@ func (s *Service) admitAlertScope(r *http.Request, tx pgx.Tx, v incidentRecord, 
 		if errors.Is(err, store.ErrForbidden) && ownerTeam != "" && s.AuthorizeTeamTx != nil {
 			err = s.AuthorizeTeamTx(r.Context(), tx, user, ownerTeam, v.EnvironmentKey, action)
 		}
+		if investigate && err == nil {
+			err = s.authorizeCanvasActionTx(r, tx, v.ApplicationID, v.EnvironmentKey, ownerTeam, "change")
+		}
 		if investigate && errors.Is(err, store.ErrForbidden) {
 			return errInvestigationForbidden
 		}

@@ -248,22 +248,23 @@ func (s *Service) incidentCreateRetryTx(r *http.Request, tx pgx.Tx, key, hash st
 }
 
 func (s *Service) authorizeCanvasCreateTx(r *http.Request, tx pgx.Tx, app, env, ownerTeam string) error {
+	if err := s.authorizeCanvasActionTx(r, tx, app, env, ownerTeam, "change"); err != nil {
+		return err
+	}
+	return s.authorizeCanvasActionTx(r, tx, app, env, ownerTeam, "view")
+}
+
+func (s *Service) authorizeCanvasActionTx(r *http.Request, tx pgx.Tx, app, env, ownerTeam, action string) error {
 	policy := &rbac.V3Policy{Store: &store.Store{DB: s.DB}}
 	user := httpapi.CurrentUser(r)
-	for _, action := range []string{"change", "view"} {
-		err := policy.AuthorizeWithTx(r.Context(), tx, user, rbac.V3Decision{
-			Module: "canvas", Action: action, EnvironmentID: env, ApplicationID: app,
-		})
-		if errors.Is(err, store.ErrForbidden) && ownerTeam != "" {
-			err = policy.AuthorizeWithTx(r.Context(), tx, user, rbac.V3Decision{
-				Module: "canvas", Action: action, EnvironmentID: env, TeamID: ownerTeam,
-			})
-		}
-		if err != nil {
-			return err
-		}
+	decision := rbac.V3Decision{Module: "canvas", Action: action, EnvironmentID: env, ApplicationID: app}
+	err := policy.AuthorizeWithTx(r.Context(), tx, user, decision)
+	if errors.Is(err, store.ErrForbidden) && ownerTeam != "" {
+		decision.ApplicationID = ""
+		decision.TeamID = ownerTeam
+		err = policy.AuthorizeWithTx(r.Context(), tx, user, decision)
 	}
-	return nil
+	return err
 }
 
 // CreateIncident confirms a selected alert set as one durable human incident.

@@ -607,6 +607,7 @@ Push 事件接入（供外部系统调用，不是前端调用）：`POST /api/v
 
 | 日期 | 变更 |
 | --- | --- |
+| 2026-11-14 | 单条事件发起调查或通过 POST 复用调查，需对事件应用或当前负责团队同时拥有 `events.change` 和 `canvas.change`。保留 `events.view` 检查、既有关联调查的详情导航及画布自己的查看权限；见 [后端辅助接口](v3-backend-aux.md)。 |
 | 2026-10-22 | 复盘详情页（PA-128）：`GET /postmortems/{id}` 与 `PATCH` 的响应新增 `author`、`incident`（来源事件的标题、级别、起止与持续，保存的解决记录读不到时为 `null`）以及从审计读出的 `submitted`、`published`、`returned`（含退回原因）；新增辅助接口 `POST /postmortems/{id}/return`，审核人写明原因把待审核的复盘退回草稿，条件同发布。三条复盘辅助接口见 [后端辅助接口](v3-backend-aux.md)。`GET /postmortems/draft` 的 409 `postmortem_exists` 在 `error` 里也带 `postmortem_id`，前端只保留 `error` 对象。 |
 | 2026-10-19 | PA-264（第 3 轮）：Prometheus 区间读取里的 NaN 点（某个时间桶没有流量时分位数为 NaN）按空档传给调用方，不再让整次读取失败：`GET /metrics/dashboard` 与服务详情信号把它显示为空档（PA-44 原有语义），指标样本接口省略这些点，全部为 NaN 时 `status=no_samples`；±Inf 与格式错误仍判为读取失败 |
 | 2026-10-19 | PA-252（第 3 轮，越权）：`POST /incidents/{id}/investigation` 除事件的 `events.view`（否则 404）外还需要 `events.change`，否则 403 `forbidden`、不新建调查也不改事件状态；与告警组发起调查一致。V3 路由不再依赖登记时的 operator 角色；见 [后端辅助接口](v3-backend-aux.md) |

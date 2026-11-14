@@ -3,6 +3,7 @@ package v3events
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -92,7 +93,8 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 	reader, readOnly := login("reader@example.invalid")
 	_, outsider := login("outsider@example.invalid")
 	exec(`INSERT INTO rbac_user_roles(user_id,role_id) VALUES($1,'event-operator'),($2,'event-viewer')`, operator.ID, reader.ID)
-	exec(`INSERT INTO applications(id,name,key,environment) VALUES('app','App','app','dev')`)
+	exec(`INSERT INTO teams(id,name) VALUES('owner','Owner'),('other','Other')`)
+	exec(`INSERT INTO applications(id,name,key,environment,owner_team_id) VALUES('app','App','app','dev','owner')`)
 	exec(`INSERT INTO application_environments(id,application_id,key,name) VALUES('app-dev','app','dev','Dev')`)
 	exec(`INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app','dev')`)
 	start := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Second)
@@ -122,9 +124,9 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 		policy, st.Session, nil); err != nil {
 		t.Fatal(err)
 	}
-	open := func(id, env, session, body string) (int, map[string]any) {
+	openWithContext := func(ctx context.Context, id, env, session, body string) (int, map[string]any) {
 		t.Helper()
-		r := httptest.NewRequest(http.MethodPost, "/api/v1/incidents/"+id+"/investigation", strings.NewReader(body))
+		r := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/incidents/"+id+"/investigation", strings.NewReader(body))
 		r.Header.Set("X-AIOps-Environment", env)
 		r.Header.Set("Content-Type", "application/json")
 		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: session})
@@ -133,6 +135,9 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 		var out map[string]any
 		_ = json.Unmarshal(w.Body.Bytes(), &out)
 		return w.Code, out
+	}
+	open := func(id, env, session, body string) (int, map[string]any) {
+		return openWithContext(ctx, id, env, session, body)
 	}
 	count := func(sql string, args ...any) int {
 		t.Helper()
@@ -156,6 +161,113 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 		count(`SELECT count(*) FROM v3_incident_cases WHERE id='INC-1' AND investigation_id IS NULL`) != 1 {
 		t.Fatal("a read-only request opened an investigation")
 	}
+
+	// An event writer without canvas.change cannot open either kind of incident.
+	for _, id := range []string{"incident", "INC-1"} {
+		if status, body := open(id, "dev", token, `{}`); status != 403 {
+			t.Fatalf("event writer without canvas.change for %s: %d %v", id, status, body)
+		}
+	}
+	// canvas.view and another team's canvas.change do not grant creation.
+	exec(`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+ ('event-operator','canvas','view','application','app'),('event-operator','canvas','change','team','other')`)
+	for _, id := range []string{"incident", "INC-1"} {
+		if status, body := open(id, "dev", token, `{}`); status != 403 {
+			t.Fatalf("event writer with canvas.view and unrelated team canvas.change for %s: %d %v", id, status, body)
+		}
+	}
+	// A denied writer must not wait for a target row locked by another request.
+	t.Run("canvas denial precedes the incident lock", func(t *testing.T) {
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if _, err := tx.Exec(ctx, `SELECT id FROM ops_incidents WHERE id='incident' FOR UPDATE;
+ SELECT id FROM v3_incident_cases WHERE id='INC-1' FOR UPDATE`); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"incident", "INC-1"} {
+			callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			status, body := openWithContext(callCtx, id, "dev", token, `{}`)
+			cancel()
+			if status != 403 {
+				t.Fatalf("unauthorized request waited for the row %s: %d %v", id, status, body)
+			}
+		}
+	})
+	if count(`SELECT count(*) FROM investigations`) != 0 ||
+		count(`SELECT count(*) FROM ops_incidents WHERE id='incident' AND status='open' AND investigation_id=''`) != 1 ||
+		count(`SELECT count(*) FROM v3_incident_cases WHERE id='INC-1' AND investigation_id IS NULL`) != 1 ||
+		count(`SELECT count(*) FROM management_audit WHERE action='v3.incident.investigation_opened'`) != 0 {
+		t.Fatal("a canvas-unauthorized request changed investigation, incident or audit state")
+	}
+	exec(`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('event-operator','canvas','change','application','app')`)
+
+	t.Run("rechecks canvas grant after waiting for the incident lock", func(t *testing.T) {
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		if _, err = tx.Exec(ctx, `SELECT id FROM ops_incidents WHERE id='incident' FOR UPDATE`); err != nil {
+			t.Fatal(err)
+		}
+		callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		type result struct {
+			status int
+			body   map[string]any
+		}
+		done := make(chan result, 1)
+		go func() {
+			status, body := openWithContext(callCtx, "incident", "dev", token, `{}`)
+			done <- result{status, body}
+		}()
+		// The request must have passed admission and be waiting for the
+		// incident row before the other transaction revokes its grant.
+		waitCtx, stopWaiting := context.WithTimeout(ctx, 4*time.Second)
+		defer stopWaiting()
+		for {
+			var pid uint32
+			err := db.QueryRow(waitCtx, `SELECT pid FROM pg_stat_activity
+ WHERE $1=ANY(pg_blocking_pids(pid)) AND position('FOR UPDATE OF i' in query)>0 LIMIT 1`,
+				tx.Conn().PgConn().PID()).Scan(&pid)
+			if err == nil {
+				break
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				t.Fatal(err)
+			}
+			select {
+			case <-waitCtx.Done():
+				t.Fatal("investigation did not wait for the target row")
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+		if _, err = tx.Exec(ctx, `DELETE FROM v3_role_grants
+ WHERE role_id='event-operator' AND module='canvas' AND action='change' AND scope_kind='application'`); err != nil {
+			t.Fatal(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case got := <-done:
+			if got.status != 403 {
+				t.Fatalf("opened an investigation with a revoked grant: %d %v", got.status, got.body)
+			}
+		case <-callCtx.Done():
+			t.Fatal("investigation request did not finish after the row was released")
+		}
+		if count(`SELECT count(*) FROM investigations`) != 0 ||
+			count(`SELECT count(*) FROM management_audit WHERE action='v3.incident.investigation_opened'`) != 0 {
+			t.Fatal("the revoked request created an investigation or success audit")
+		}
+	})
+	exec(`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('event-operator','canvas','change','application','app')`)
 
 	// An alert incident: a new investigation for its service and environment.
 	status, body := open("incident", "dev", token, `{}`)
@@ -198,11 +310,28 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 		count(`SELECT count(*) FROM investigations`) != 1 {
 		t.Fatalf("reuse: %d %v", status, again)
 	}
-	// A linked investigation is opened through its link; the POST still needs events.change.
+	// A linked investigation is opened through its link; POST replay requires the same grants as creation.
 	if status, again := open("incident", "dev", readOnly, `{}`); status != 403 {
 		t.Fatalf("read-only reuse: %d %v", status, again)
 	}
-	// A manual incident: titled after it, with its impact as the goal.
+	exec(`DELETE FROM v3_role_grants WHERE role_id='event-operator' AND module='canvas' AND action='change' AND scope_kind='application'`)
+	if status, again := open("incident", "dev", token, `{}`); status != 403 {
+		t.Fatalf("reuse after canvas.change revocation: %d %v", status, again)
+	}
+	// The existing event link is available through the unchanged read endpoint.
+	r := httptest.NewRequest(http.MethodGet, "/api/v1/incidents/incident", nil)
+	r.Header.Set("X-AIOps-Environment", "dev")
+	r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+	w := httptest.NewRecorder()
+	api.ServeHTTP(w, r)
+	var detail map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &detail); err != nil || w.Code != 200 || detail["investigation_id"] != investigation {
+		t.Fatalf("linked incident navigation after write grant revocation: %d %s, %v", w.Code, w.Body.String(), err)
+	}
+	exec(`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('event-operator','canvas','change','team','owner')`)
+
+	// A manual incident using its current owner-team grant.
 	status, body = open("INC-1", "dev", token, `{}`)
 	caseInvestigation, _ := body["investigation_id"].(string)
 	if status != 200 || !strings.HasPrefix(caseInvestigation, "INV-") || caseInvestigation == investigation {
@@ -219,6 +348,13 @@ func TestOpenInvestigationFromIncident(t *testing.T) {
 	if status, again := open("INC-1", "dev", token, `{}`); status != 200 || again["investigation_id"] != caseInvestigation {
 		t.Fatalf("case reuse: %d %v", status, again)
 	}
+	// Once the app moves teams, the former owner's grant no longer allows replay.
+	exec(`UPDATE applications SET owner_team_id=NULL WHERE id='app'`)
+	if status, again := open("INC-1", "dev", token, `{}`); status != 403 {
+		t.Fatalf("former owner team replay: %d %v", status, again)
+	}
+	exec(`UPDATE applications SET owner_team_id='owner' WHERE id='app'`)
+
 	// No model is called: a model_id is refused.
 	if status, body := open("incident", "dev", token, `{"model_id":"deepseek"}`); status != 422 ||
 		!strings.Contains(func() string { raw, _ := json.Marshal(body); return string(raw) }(), `"code":"initial_analysis_unavailable"`) {

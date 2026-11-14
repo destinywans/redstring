@@ -7,10 +7,11 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
+
 	"github.com/destinywans/redstring/internal/core"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/argon2"
-	"strings"
 )
 
 // ErrSessionRevoked means the request's session or user is no longer active.
@@ -56,21 +57,41 @@ func PasswordHash(password string) string {
 	return base64.RawStdEncoding.EncodeToString(salt) + "." + base64.RawStdEncoding.EncodeToString(key)
 }
 func CheckPassword(password, hash string) bool {
-	parts := strings.Split(hash, ".")
-	if len(parts) != 2 {
-		return false
-	}
-	salt, e := base64.RawStdEncoding.DecodeString(parts[0])
-	if e != nil || len(salt) != 16 {
-		return false
-	}
-	want, e := base64.RawStdEncoding.DecodeString(parts[1])
-	if e != nil || len(want) != 32 {
-		return false
-	}
-	got := argon2.IDKey([]byte(password), salt, 2, 64*1024, 2, 32)
-	return subtle.ConstantTimeCompare(got, want) == 1
+	salt, want, ok := decodePasswordHash(hash)
+	return ok && passwordMatches(password, salt, want)
 }
+
+func decodePasswordHash(hash string) (salt, key []byte, ok bool) {
+	saltText, keyText, found := strings.Cut(hash, ".")
+	if !found {
+		return nil, nil, false
+	}
+	salt, err := base64.RawStdEncoding.DecodeString(saltText)
+	if err != nil || len(salt) != 16 {
+		return nil, nil, false
+	}
+	key, err = base64.RawStdEncoding.DecodeString(keyText)
+	if err != nil || len(key) != 32 {
+		return nil, nil, false
+	}
+	return salt, key, true
+}
+
+func passwordMatches(password string, salt, key []byte) bool {
+	got := argon2.IDKey([]byte(password), salt, 2, 64*1024, 2, 32)
+	return subtle.ConstantTimeCompare(got, key) == 1
+}
+
+func verifyLoginPassword(password, hash string) bool {
+	salt, want, valid := decodePasswordHash(hash)
+	if !valid {
+		// Match the work for a real account even when no usable hash exists.
+		// A match against this dummy input never authenticates.
+		salt, want = make([]byte, 16), make([]byte, 32)
+	}
+	return passwordMatches(password, salt, want) && valid
+}
+
 func (s *Store) Bootstrap(ctx context.Context, email, password string) error {
 	var count int
 	if e := s.DB.QueryRow(ctx, "SELECT count(*) FROM users").Scan(&count); e != nil {
@@ -101,7 +122,10 @@ func (s *Store) Login(ctx context.Context, email, password string) (core.User, s
 	// Serialize login with password changes: a revoked password cannot create
 	// a session after the password-changing transaction has invalidated sessions.
 	e = tx.QueryRow(ctx, "SELECT u.id,u.email,u.name,"+sessionLegacyRole+",u.password_hash FROM users u WHERE u.email=$1 AND NOT u.disabled AND u.deleted_at IS NULL FOR UPDATE OF u", strings.ToLower(email)).Scan(&u.ID, &u.Email, &u.Name, &u.Role, &hash)
-	if e != nil || !CheckPassword(password, hash) {
+	if e != nil {
+		hash = ""
+	}
+	if !verifyLoginPassword(password, hash) {
 		return u, "", ErrNotFound
 	}
 	token := ID() + ID()

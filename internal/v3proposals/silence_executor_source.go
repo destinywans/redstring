@@ -147,6 +147,9 @@ func loadReviewedSilenceCancel(ctx context.Context, tx pgx.Tx, proposalID, selec
 		return zero, ErrInvalidProposal
 	}
 	storedAction, err := canonicalProposalJSON(json.RawMessage(actionRaw))
+	// Older digested actions can retain nanoseconds. PostgreSQL stores the
+	// relational timestamp at microsecond precision via pgx.
+	observedAtMatches := action.ObservedAt.Truncate(time.Microsecond).Equal(intentObservedAt)
 	if err != nil || !bytes.Equal(canonicalAction, storedAction) ||
 		proposalDigest("aiops.v3.proposal.action.v1", canonicalAction) != result.ActionDigest ||
 		action.Kind != kind || action.SchemaVersion != version ||
@@ -158,7 +161,7 @@ func loadReviewedSilenceCancel(ctx context.Context, tx pgx.Tx, proposalID, selec
 		action.InvestigationID != investigation || !action.InvestigationUpdatedAt.Equal(investigationUpdatedAt) ||
 		action.UpstreamID != intentUpstream || action.IdempotencyKey != key ||
 		action.RequestHash != requestHash || action.ObservedDigest != intentObservedDigest ||
-		!action.ObservedAt.Equal(intentObservedAt) || action.Reason != intentReason ||
+		!observedAtMatches || action.Reason != intentReason ||
 		!silenceProposalKey.MatchString(key) || !validReviewedSilenceID(intentUpstream) {
 		return zero, ErrInvalidProposal
 	}

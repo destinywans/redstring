@@ -270,7 +270,9 @@ func (p *DatabaseSilenceCancelProduct) SubmitSilenceCancel(ctx context.Context, 
 	}
 	observedSum := sha256.Sum256(snapshot)
 	observedDigest := hex.EncodeToString(observedSum[:])
-	observedAt := p.Ledger.currentTime()
+	// Store the same precision in the immutable JSON action and the timestamp
+	// column used to verify it at approval and execution.
+	observedAt := p.Ledger.currentTime().UTC().Truncate(time.Microsecond)
 	intentID := store.ID()
 	action := ProposedSilenceCancel{SchemaVersion: ProposedSilenceCancelVersion, Kind: ProposedSilenceCancelKind,
 		IntentID: intentID, CreateOperationID: op.ID, CreatePayloadHash: op.PayloadHash,

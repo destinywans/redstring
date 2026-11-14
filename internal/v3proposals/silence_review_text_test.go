@@ -239,3 +239,91 @@ func TestStoredSilenceCancelReviewMatchesKnownWording(t *testing.T) {
 		t.Fatal("altered review accepted")
 	}
 }
+
+func TestSilenceCancelLoadsLegacyNanosecondsAndRejectsChangedTimestamp(t *testing.T) {
+	f := newSilenceProposalFixture(t)
+	ctx := t.Context()
+	tx, err := f.db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(context.Background())
+
+	const operationID = "synthetic-silence-operation"
+	const upstreamID = "12345678-1234-1234-1234-123456789abc"
+	at := time.Date(2026, 11, 14, 9, 13, 2, 706700385, time.UTC)
+	request := v3alertmanager.CreateSilenceRequest{
+		CreatedBy: f.actor.ID, Comment: "Synthetic alert",
+		StartsAt: at.Truncate(time.Second).Add(-time.Minute), EndsAt: at.Truncate(time.Second).Add(time.Hour),
+		Annotations: map[string]string{"aiops_operation_id": operationID},
+		Matchers: []v3alertmanager.Matcher{
+			{Name: "application", Value: "checkout", IsEqual: true}, {Name: "environment", Value: "test", IsEqual: true},
+		},
+	}
+	payload, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloadHash := reviewedSilenceSHA256(payload)
+	if _, err := tx.Exec(ctx, `INSERT INTO v3_silence_create_operations
+ (id,actor_id,environment_id,environment_label,application_id,application_label,idempotency_key,request_hash,
+  payload_hash,payload,upstream_id,state)
+ VALUES($1,$2,'test','environment','app-1','checkout','synthetic-create-key',$3,$4,$5::jsonb,$6,'confirmed')`,
+		operationID, f.actor.ID, strings.Repeat("a", 64), payloadHash, payload, upstreamID); err != nil {
+		t.Fatal(err)
+	}
+	observed := v3alertmanager.Silence{ID: upstreamID, CreatedBy: request.CreatedBy, Comment: request.Comment,
+		StartsAt: request.StartsAt, EndsAt: request.EndsAt, UpdatedAt: request.StartsAt,
+		Matchers: request.Matchers, Annotations: request.Annotations}
+	observed.Status.State = "active"
+	snapshot, err := canonicalProposalJSON(observed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var invUpdated time.Time
+	if err := tx.QueryRow(ctx, `SELECT updated_at FROM investigations WHERE id='inv-1'`).Scan(&invUpdated); err != nil {
+		t.Fatal(err)
+	}
+	action := v3alertmanager.ProposedSilenceCancel{
+		SchemaVersion: v3alertmanager.ProposedSilenceCancelVersion, Kind: v3alertmanager.ProposedSilenceCancelKind,
+		IntentID: "synthetic-cancel-intent", CreateOperationID: operationID, CreatePayloadHash: payloadHash,
+		BindingFingerprint: strings.Repeat("b", 64), ActorID: f.actor.ID, EnvironmentID: "test", EnvironmentLabel: "environment",
+		ApplicationID: "app-1", ApplicationLabel: "checkout", InvestigationID: "inv-1", InvestigationUpdatedAt: invUpdated.UTC(),
+		UpstreamID: upstreamID, IdempotencyKey: "synthetic-cancel-key", ObservedAt: at, ObservedDigest: reviewedSilenceSHA256(snapshot),
+		Reason: "Synthetic alert cleared",
+	}
+	action.RequestHash, err = reviewedSilenceCancelRequestHash(action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	producer := &SilenceProductProducer{Proposals: f.svc, Ledger: f.ledger, Client: f.client}
+	proposal, err := producer.WritePendingSilenceCancelWithTx(ctx, tx, f.actor, action)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO v3_silence_cancel_intents
+ (id,create_operation_id,proposal_id,actor_id,environment_id,application_id,investigation_id,upstream_id,idempotency_key,
+  request_hash,observed_digest,observed_snapshot,observed_at,reason)
+ VALUES($1,$2,$3,$4,'test','app-1','inv-1',$5,$6,$7,$8,$9::jsonb,$10,$11)`,
+		action.IntentID, operationID, proposal.ProposalID, f.actor.ID, upstreamID, action.IdempotencyKey,
+		action.RequestHash, action.ObservedDigest, snapshot, at, action.Reason); err != nil {
+		t.Fatal(err)
+	}
+	source := &SilenceExecutionActionSource{Proposals: f.svc}
+	reviewed, err := source.LoadReviewedActionWithTx(ctx, tx, proposal.ProposalID)
+	if err != nil {
+		t.Fatalf("legacy cancellation with pgx microsecond projection did not load: %v", err)
+	}
+	if !reviewed.Cancel.ObservedAt.Equal(at) || reviewed.ActionDigest != proposal.ActionDigest {
+		t.Fatalf("immutable action changed: %+v", reviewed)
+	}
+	if _, err := tx.Exec(ctx, `ALTER TABLE v3_silence_cancel_intents DISABLE TRIGGER v3_silence_cancel_intent_immutable`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE v3_silence_cancel_intents SET observed_at=observed_at+interval '1 microsecond' WHERE id=$1`, action.IntentID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := source.LoadReviewedActionWithTx(ctx, tx, proposal.ProposalID); !errors.Is(err, ErrInvalidProposal) {
+		t.Fatalf("changed relational timestamp accepted: %v", err)
+	}
+}

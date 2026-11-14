@@ -64,3 +64,67 @@ func catalogResource(v string) (matrixResource, bool) {
 func englishLanguage(header string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(header)), "en")
 }
+
+// Stable role IDs let V3 translate the default text without replacing names
+// or descriptions edited in the legacy role catalog.
+type roleText struct {
+	nameZH, nameEN             string
+	descZH, descEN             string
+	legacyNameZH               string
+	legacyDescZH, legacyDescEN string
+}
+
+var systemRoleText = map[string]roleText{
+	"admin": {
+		nameZH: "平台管理员", nameEN: "Platform administrator",
+		descZH:       "管理平台设置与身份；资源操作仍按明确关联授权。",
+		descEN:       "Manage platform settings and identity. Resource operations still require explicit access.",
+		legacyDescZH: "保留现有管理员权限；管理对象逐项声明，执行仍须人工审批。",
+		legacyDescEN: "Retain existing administrator access. Managed objects must be declared individually, and execution still requires human approval.",
+	},
+	"operator": {
+		nameZH: "运维人员", nameEN: "Operator",
+		descZH:       "查看和变更已关联的基础设施资源。",
+		descEN:       "View and change associated infrastructure resources.",
+		legacyDescZH: "保留现有应用 ACL 范围，不自动授权新应用。",
+		legacyDescEN: "Retain existing application access without automatically granting access to new applications.",
+	},
+	"viewer": {
+		nameZH: "只读成员", nameEN: "Read-only member",
+		descZH:       "查看已关联的基础设施资源。",
+		descEN:       "View associated infrastructure resources.",
+		legacyDescZH: "保留现有应用 ACL 只读范围。",
+		legacyDescEN: "Retain existing read-only application access.",
+	},
+	"change-approver": {
+		nameZH: "变更审批员", nameEN: "Change approver",
+		descZH:       "查看并审批已关联资源的变更。",
+		descEN:       "View and approve changes to associated resources.",
+		legacyNameZH: "变更审批",
+		legacyDescZH: "审批迁移时未归档应用；不包含执行。",
+		legacyDescEN: "Approve changes to applications that were active at migration. Execution is excluded.",
+	},
+}
+
+func englishRoleName(id, name string) string {
+	text := systemRoleText[id]
+	if name != "" && (name == text.nameZH || name == text.legacyNameZH) {
+		return text.nameEN
+	}
+	return name
+}
+
+func englishRoleDescription(id, description string) string {
+	text := systemRoleText[id]
+	if description == "" {
+		return description
+	}
+	switch description {
+	case text.descZH:
+		return text.descEN
+	case text.legacyDescZH:
+		return text.legacyDescEN
+	default:
+		return description
+	}
+}

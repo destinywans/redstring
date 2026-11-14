@@ -28,8 +28,13 @@ type memberContactPatch struct {
 	Phone            *string
 }
 
-func respondMember(w http.ResponseWriter, detail memberDetail, err error) {
+func respondMember(w http.ResponseWriter, r *http.Request, detail memberDetail, err error) {
 	if err == nil {
+		if englishLanguage(r.Header.Get("Accept-Language")) {
+			for i, role := range detail.Roles {
+				detail.Roles[i].Name = englishRoleName(role.ID, role.Name)
+			}
+		}
 		w.Header().Set("Cache-Control", "private, no-store")
 		httpapi.WriteJSON(w, http.StatusOK, detail)
 		return
@@ -59,7 +64,7 @@ func (s *Service) memberDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	detail, err := s.readMember(r.Context(), httpapi.CurrentUser(r), roleSessionToken(r), envs[0], r.PathValue("id"))
-	respondMember(w, detail, err)
+	respondMember(w, r, detail, err)
 }
 
 func (s *Service) patchMember(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +79,7 @@ func (s *Service) patchMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	detail, err := s.writeMember(r.Context(), httpapi.CurrentUser(r), roleSessionToken(r), envs[0], r.PathValue("id"), patch)
-	respondMember(w, detail, err)
+	respondMember(w, r, detail, err)
 }
 
 // Decode a small flat object token by token so duplicate keys cannot silently

@@ -386,6 +386,13 @@ func (s *Service) memberAccessHTTP(w http.ResponseWriter, r *http.Request, write
 		accessError(w, err)
 		return
 	}
+	// The revision hashes the stored snapshot. Localize only the response so
+	// a language change cannot invalidate an otherwise current write.
+	if englishLanguage(r.Header.Get("Accept-Language")) {
+		for i, role := range out.Roles {
+			out.Roles[i].Name = englishRoleName(role.ID, role.Name)
+		}
+	}
 	w.Header().Set("Cache-Control", "private, no-store")
 	httpapi.WriteJSON(w, 200, out)
 }

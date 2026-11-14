@@ -173,11 +173,15 @@ func (s *Service) roles(w http.ResponseWriter, r *http.Request) {
 		respond(w, nil, err)
 		return
 	}
+	english := englishLanguage(r.Header.Get("Accept-Language"))
 	items := []role{}
 	for rows.Next() {
 		var v role
 		if err = rows.Scan(&v.ID, &v.Name, &v.Kind); err != nil {
 			break
+		}
+		if english {
+			v.Name = englishRoleName(v.ID, v.Name)
 		}
 		items = append(items, v)
 	}
@@ -360,6 +364,8 @@ func (s *Service) getRole(ctx context.Context, id string, actor core.User, sessi
 	sort.Strings(v.Scope)
 	v.Actions = []string{"查看", "创建 / 编辑", "删除", "批准", "管理"}
 	if english {
+		v.Name = englishRoleName(v.ID, v.Name)
+		v.Desc = englishRoleDescription(v.ID, v.Desc)
 		v.Actions = []string{"View", "Create / edit", "Delete", "Approve", "Manage"}
 	}
 	v.Matrix = displayMatrix(grants, english)
@@ -649,11 +655,12 @@ func (s *Service) getMembers(ctx context.Context, actor core.User, sessionToken 
 		deptCounts = map[string]int{}
 		for _, m := range all {
 			roleOK := len(facets[0]) == 0
-			for _, id := range roleIDs[m.ID] {
-				roleOK = roleOK || v3pagequery.Matches(facets[0], id)
-			}
-			for _, name := range m.Roles {
-				roleOK = roleOK || v3pagequery.Matches(facets[0], name)
+			// Current and saved facets can both come from displayed role names.
+			// Keep stable IDs and both locale names valid before translating the response.
+			for i, id := range roleIDs[m.ID] {
+				name := m.Roles[i]
+				roleOK = roleOK || v3pagequery.Matches(facets[0], id) ||
+					v3pagequery.Matches(facets[0], name) || v3pagequery.Matches(facets[0], englishRoleName(id, name))
 			}
 			if roleOK && v3pagequery.Matches(facets[1], m.Source) {
 				kept = append(kept, m)
@@ -674,6 +681,11 @@ func (s *Service) getMembers(ctx context.Context, actor core.User, sessionToken 
 		}
 		if (filter == "all" || filter == "admin" && adminIDs[m.ID] || filter == "disabled" && m.Status == "disabled") &&
 			(q == "" || searchtext.Match(m.Name+" "+m.Email+" "+m.Phone+" "+m.Department, q)) {
+			if english {
+				for i, id := range roleIDs[m.ID] {
+					m.Roles[i] = englishRoleName(id, m.Roles[i])
+				}
+			}
 			v.Items = append(v.Items, m)
 		}
 	}

@@ -29,7 +29,7 @@
 - `GET /api/v1/members/{id}/access`
 - `PUT /api/v1/members/{id}/access`
 
-两个入口均要求活跃人类拥有 **global roles.manage + global members.manage + global environment.view**。members.manage 单独不能授权；角色管理也不能单独修改成员。所选环境用于准入；返回的是该成员**全部环境**的角色与授权，避免把全局角色展示成仅当前环境生效。
+两个入口均要求活跃人类拥有 **global roles.manage + global members.manage + global environment.view**。members.manage 单独不能授权；角色管理也不能单独修改成员。所选环境用于准入；返回的是该成员**全部环境**的角色与授权，避免把全局角色展示成仅当前环境生效。 系统角色显示名按 `Accept-Language` 返回，版本值由持久访问快照计算，切换语言后仍可用于条件写入。
 
 GET 包含 `enabled`、`identity_kind`、`source`、`local_login_ready`、`roles[]`、`revision`。每个 role 有 id/name/kind/origin/matrix_revision/grants；origin 为 direct、legacy、department。最后两种均明确为继承，不能通过此入口删除。SHA256 revision 覆盖完整快照，包括角色版本和实际授权；联系人修改不假装成权限版本。
 

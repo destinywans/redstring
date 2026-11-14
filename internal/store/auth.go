@@ -100,8 +100,11 @@ func (s *Store) Bootstrap(ctx context.Context, email, password string) error {
 	if count > 0 {
 		return nil
 	}
-	if len(password) < 12 || email == "" {
-		return fmt.Errorf("first startup requires AIOPS_ADMIN_EMAIL and AIOPS_ADMIN_PASSWORD of at least 12 characters")
+	if IsPlaceholderSecret(password) {
+		return errors.New("AIOPS_ADMIN_PASSWORD must be a new random password; example values are not accepted")
+	}
+	if len(password) < 12 || len(password) > 1024 || email == "" {
+		return fmt.Errorf("first startup requires AIOPS_ADMIN_EMAIL and AIOPS_ADMIN_PASSWORD of 12 to 1024 characters")
 	}
 	_, e := s.DB.Exec(ctx, "INSERT INTO users(id,email,name,role,password_hash) VALUES($1,$2,'Administrator','admin',$3) ON CONFLICT(email) DO NOTHING", ID(), strings.ToLower(email), PasswordHash(password))
 	return e
@@ -125,7 +128,7 @@ func (s *Store) Login(ctx context.Context, email, password string) (core.User, s
 	if e != nil {
 		hash = ""
 	}
-	if !verifyLoginPassword(password, hash) {
+	if !verifyLoginPassword(password, hash) || IsPublishedPlaceholder(password) {
 		return u, "", ErrNotFound
 	}
 	token := ID() + ID()

@@ -68,7 +68,7 @@ make db
 pnpm --dir web install --frozen-lockfile
 ```
 
-- `make init` 生成权限为 0600 的 `.env`，包含随机数据库与初始管理员密码，不覆盖已有文件。管理员邮箱默认 `admin@localhost`，密码是 `.env` 里 `AIOPS_ADMIN_PASSWORD` 的值。不要提交或分享该文件。
+- `make init` 生成权限为 0600 的 `.env`，包含随机数据库与初始管理员密码，不覆盖已有文件。管理员邮箱默认 `admin@localhost`，密码是 `.env` 里 `AIOPS_ADMIN_PASSWORD` 的值。`.env.example` 仅作配置参考。不要提交或分享 `.env`。
 - `AIOPS_V3_INSTANCE_CONFIG` 指向实例描述（实例名、域名、环境列表），必须设。不设时服务以旧版模式启动，当前界面依赖的 `/api/v1/instance` 返回 404，服务目录、成员等页面会一直停在加载骨架；旧版模式只供 `/legacy` 使用。示例 `v3-instance.nonprod.json` 含 dev、test、staging 三个非生产环境，域名是占位值，本机运行不需要改。
 - 数据库第一次以这个配置启动后就绑定该实例，之后漏设变量会拒绝启动（`database is bound to a V3 instance`）。以旧版模式启动过的库，补上变量后可以直接切过来。
 - 追加的 `OLLAMA_MODEL=` 覆盖 `make init` 写的本机 Ollama 模型，表示先不接模型；直接改原来那一行也一样。本机已经装好 Ollama 的话可以不加这一行，见下面的“模型”。
@@ -110,7 +110,7 @@ make web-build
 AIOPS_WEB_DIR="$PWD/web/dist" make run
 ```
 
-默认访问 **http://127.0.0.1:8080**；地址以 `.env` 的 `AIOPS_ADDR` 为准。`make run` 同样加载 `.env`，上面写入的 `AIOPS_V3_INSTANCE_CONFIG` 照样生效；本机用这个地址访问时不需要设 `AIOPS_PUBLIC_ORIGIN`。`.env.example` 中 Web 目录与生产 Origin 仅作为注释，避免覆盖命令行传入值。如自己的 `.env` 已定义同名变量，启动脚本会以该文件值为准，需同步修改。未设置 `AIOPS_WEB_DIR` 时，`make run` 只提供 API，不托管 Web 页面。
+默认访问 **http://127.0.0.1:8080**；地址以 `.env` 的 `AIOPS_ADDR` 为准。`make run` 同样加载 `.env`，上面写入的 `AIOPS_V3_INSTANCE_CONFIG` 照样生效；从回环 IP 或 `localhost` 访问时，`AIOPS_PUBLIC_ORIGIN` 可留空。从其他主机名或 IP 访问时，将其设为浏览器地址栏的 Origin，例如 `https://redstring.example`，否则服务返回 `421 host_not_allowed`。Origin 使用小写 ASCII 主机名（国际化域名使用 Punycode），保留非默认端口，省略路径和尾斜杠。`.env.example` 中 Web 目录与生产 Origin 仅作为注释，避免覆盖命令行传入值。如自己的 `.env` 已定义同名变量，启动脚本会以该文件值为准，需同步修改。未设置 `AIOPS_WEB_DIR` 时，`make run` 只提供 API，不托管 Web 页面。
 
 API 前缀 `/api/v1`；契约入口 `/openapi.json`，健康入口 `/healthz`。
 
@@ -132,7 +132,9 @@ docker compose --profile app up -d --build --wait
 
 打开 [本机登录页](http://127.0.0.1:8080/login)，管理员凭据在 `.env`。容器挂载示例非生产实例描述并使用真实 API 构建。要替换实例描述，设置宿主路径 `AIOPS_COMPOSE_INSTANCE_CONFIG`。在未启用宿主 Ollama 时，可在 `.env` 中设置空值 `OLLAMA_MODEL=`。有 Ollama 时需在宿主先拉取模型，容器通过 `host.docker.internal:11434` 走兼容接口。Embedding 可在已拉取模型时用 `EMBEDDING_PROVIDER=ollama` 启用。
 
-数据保存在独立 volume，`docker compose down` 默认保留。服务器部署需配置 HTTPS 反向代理、实际 `AIOPS_PUBLIC_ORIGIN` 与 `AIOPS_SECURE_COOKIES=true`，并把实际信任的代理地址写进 `AIOPS_TRUSTED_PROXY_CIDRS`。本地默认端口仅映射回环。
+数据保存在独立 volume，`docker compose down` 默认保留。服务器部署需配置 HTTPS 反向代理、实际 `AIOPS_PUBLIC_ORIGIN` 与 `AIOPS_SECURE_COOKIES=true`，并把实际信任的代理地址写进 `AIOPS_TRUSTED_PROXY_CIDRS`（否则登录限流按代理 IP 共用）。代理要转发浏览器的 Host，例如 nginx 的 `proxy_set_header Host $http_host;`。`GET /healthz`（含 HEAD）和经凭据认证的 Alertmanager、GitLab Webhook 与签名 Push 入站可使用机器网络地址。模型和集群凭据保留在服务端，本地默认端口仅映射回环。
+
+升级既有实例时，数据库连接使用示例密码会拒绝启动。先在 PostgreSQL 更改该账号的密码，再同步 `DATABASE_URL` 及部署使用的 `POSTGRES_PASSWORD`。如果已配置的初始管理员账号仍使用示例密码，将 `AIOPS_ADMIN_PASSWORD` 换为新的随机值再重启，服务会替换其密码、撤销该账号的现有会话并留下系统审计。管理员应另行检查 API Token、通行密钥和其他认证配置。
 
 使用完整的本机 `aiops-test` 演示数据时，从已配置的实验环境运行 [演示 Compose 入口](demo-compose.md)。它复用独立实验实例、TLS 和观测依赖。
 

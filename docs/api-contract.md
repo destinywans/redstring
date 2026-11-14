@@ -52,6 +52,7 @@
 - `GET /action-plans/{id}/execution` → `Execution`，尚无执行时 404。用于页面刷新后恢复执行视图，查看者也可使用；不会批准、入队或重复执行动作。
 - 上述三个入口最低角色均为 `viewer`；所有写操作继续沿用服务端权限和同源校验。
 - 设置 `AIOPS_WEB_DIR` 后，Go 从该构建目录托管 Vite 产物，支持浏览器历史路由。API、健康和 OpenAPI 路径独立路由；缺失资源返回 404，不返回 SPA HTML。HTML 不缓存，构建资源可长期缓存。目录必须含 `index.html`，部署时不得指向仓库根目录或凭据目录。
+- 外层 HTTP 服务只接收回环 IP、`localhost` 或配置的 `AIOPS_PUBLIC_ORIGIN` 主机名，Host 端口不参与匹配。其他 Host 返回 `421 host_not_allowed`。健康探针及使用专用凭据的 Alertmanager、GitLab Webhook 和签名 Push 入站走各自既有校验。代理应转发客户端 Host。
 - Vite 开发代理应转发 `/api`、`/healthz` 和 `/openapi.json`，同时将 Go 的 `AIOPS_PUBLIC_ORIGIN` 设置为浏览器实际访问的 Vite Origin；生产同源部署按实际 HTTPS Origin 配置。不放宽 CSRF 检查来适配开发环境。
 
 本次限定检查已覆盖 SPA 路由、资源缺失、目录/隐藏文件/外部符号链接隔离、HEAD、缓存与安全头，以及 Deployment 镜像信息投影不含环境变量；机器契约的 47 个路由匹配。未启动数据库、模型或集群进行这三个新接口的集成验证。

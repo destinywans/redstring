@@ -148,7 +148,7 @@ func newMemberWorkspaceDefaults(ctx context.Context, tx pgx.Tx) (timezone, local
 func (s *Store) CreateMember(ctx context.Context, v MemberCreate) (Member, error) {
 	v.Email = strings.ToLower(strings.TrimSpace(v.Email))
 	v.Name = strings.TrimSpace(v.Name)
-	if !validMember(v.Email, v.Name, v.Department, v.JobTitle) || !validRole(v.Role) || len(v.Password) < 12 || len(v.Password) > 1024 {
+	if !validMember(v.Email, v.Name, v.Department, v.JobTitle) || !validRole(v.Role) || len(v.Password) < 12 || len(v.Password) > 1024 || IsPublishedPlaceholder(v.Password) {
 		return Member{}, ErrMemberInvalid
 	}
 	tx, e := s.DB.Begin(ctx)
@@ -249,7 +249,7 @@ func (s *Store) UpdateMember(ctx context.Context, id string, v MemberUpdate) (Me
 	if v.JobTitle != nil {
 		m.JobTitle = *v.JobTitle
 	}
-	if !validMember(m.Email, m.Name, m.Department, m.JobTitle) || !validRole(m.Role) || (v.Password != nil && (len(*v.Password) < 12 || len(*v.Password) > 1024)) {
+	if !validMember(m.Email, m.Name, m.Department, m.JobTitle) || !validRole(m.Role) || (v.Password != nil && (len(*v.Password) < 12 || len(*v.Password) > 1024 || IsPublishedPlaceholder(*v.Password))) {
 		return m, ErrMemberInvalid
 	}
 	if oldRole == "admin" && !oldDisabled && (m.Role != "admin" || m.Disabled) {

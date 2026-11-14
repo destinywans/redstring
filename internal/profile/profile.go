@@ -211,7 +211,7 @@ func (s *Service) ChangePassword(ctx context.Context, current, next string) erro
 	if current == "" || len(current) > 1024 || current == next {
 		return ErrInvalid
 	}
-	if !validNewPassword(next) {
+	if !validNewPassword(next) || store.IsPublishedPlaceholder(next) {
 		return ErrPasswordRequirements
 	}
 	id := store.Principal(ctx).ID

@@ -198,21 +198,23 @@ func v3EnvironmentExempt(r *http.Request) bool {
 	case "POST /api/v1/auth/login", "POST /api/v1/auth/logout", "GET /api/v1/auth/me", "GET /api/v1/instance", "GET /api/v1/auth/oidc/start", "GET /api/v1/auth/oidc/callback", "POST /api/v1/auth/invitations/accept":
 		return true
 	}
-	// These handlers authenticate a configured source and bind it to a fixed
-	// application and environment. They do not accept browser session scope.
-	if v3SignedPushRoute(r) {
-		return true
+	return v3SignedPushRoute(r) || nativeWebhookRoute(r)
+}
+
+// Native inbound receivers authenticate their configured source tokens and
+// bind payloads to server-owned targets. Use escaped path segments so a
+// configured source ID containing a slash remains one route parameter.
+func nativeWebhookRoute(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
 	}
-	// Native inbound receivers authenticate their configured source tokens and
-	// bind payloads to server-owned targets. They have no browser session or
-	// selectable environment header. Use escaped path segments so a configured
-	// source ID containing a slash remains one route parameter.
-	if r.Method == http.MethodPost {
-		parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
-		return len(parts) == 5 && parts[0] == "api" && parts[1] == "v1" &&
-			parts[2] == "webhooks" && (parts[3] == "alertmanager" || parts[3] == "gitlab") && parts[4] != ""
+	path, ok := strings.CutPrefix(r.URL.EscapedPath(), "/api/v1/webhooks/")
+	if !ok {
+		return false
 	}
-	return false
+	kind, source, ok := strings.Cut(path, "/")
+	return ok && (kind == "alertmanager" || kind == "gitlab") &&
+		source != "" && source != "." && source != ".." && !strings.Contains(source, "/")
 }
 
 func v3SignedPushRoute(r *http.Request) bool {

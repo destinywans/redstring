@@ -3,7 +3,7 @@
   "info": {
     "title": "AIOps Canvas Backend API",
     "version": "0.7.0",
-    "description": "Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role.",
+    "description": "Single-workspace multi-application SRE API. All business history is server authoritative; application authorization is enforced beyond minimum workspace role. The HTTP server accepts loopback, localhost and the configured public origin host. Other hosts receive 421 host_not_allowed except for the health probe and machine-authenticated Alertmanager, GitLab and signed Push ingress.",
     "license": {
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"

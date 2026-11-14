@@ -195,7 +195,7 @@ func readInvitationAcceptance(w http.ResponseWriter, r *http.Request) (invitatio
 		return out, errors.New("invalid name")
 	}
 	out.Password = values["password"]
-	if len(out.Password) < 12 || len(out.Password) > 1024 {
+	if len(out.Password) < 12 || len(out.Password) > 1024 || store.IsPublishedPlaceholder(out.Password) {
 		return out, errors.New("invalid password")
 	}
 	return out, nil

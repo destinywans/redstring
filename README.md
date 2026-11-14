@@ -82,7 +82,8 @@
 
   不要把生产集群、生产 Alertmanager、生产 GitLab 或生产配置仓库的写凭据交给它。
 - **不要暴露到公网。** 没有做过独立安全审查，登录不校验二次验证。默认只监听本机（`.env` 的 `AIOPS_ADDR=127.0.0.1:8080`，Docker Compose 也只映射回环地址）；改监听地址前先想清楚谁能访问。
-- **默认开发配置不是 HTTPS。** `AIOPS_SECURE_COOKIES` 默认未开启，会话 Cookie 在 HTTP 下也会发送。放到服务器上要加 HTTPS 反向代理，并设置 `AIOPS_PUBLIC_ORIGIN` 与 `AIOPS_SECURE_COOKIES=true`；在代理后面还要把代理地址写进 `AIOPS_TRUSTED_PROXY_CIDRS`，否则所有登录共用代理 IP 的限流额度。见 [运行与部署](docs/getting-started.md)。
+- **用 `make init` 生成本地凭据。** `.env.example` 仅说明配置格式。首次启动要求真实的管理员密码，数据库连接不得使用示例密码。
+- **默认开发配置不是 HTTPS。** `AIOPS_SECURE_COOKIES` 默认未开启，会话 Cookie 在 HTTP 下也会发送。放到服务器上要加 HTTPS 反向代理，并设置 `AIOPS_PUBLIC_ORIGIN` 与 `AIOPS_SECURE_COOKIES=true`；在代理后面还要把代理地址写进 `AIOPS_TRUSTED_PROXY_CIDRS`，否则所有登录共用代理 IP 的限流额度。浏览器请求只接受回环地址、`localhost` 或公开 Origin 的主机名。反向代理须转发浏览器的 Host。见 [运行与部署](docs/getting-started.md)。
 - **证据会发给模型。** AI 取证会把指标、脱敏后的日志正文等发给你配置的模型；用外部模型服务（如 DeepSeek）前，确认这些数据可以发出去。
 - 凭据只放在服务端；`.env`、kubeconfig、令牌文件不要提交。安全问题请按 [SECURITY.md](SECURITY.md) 私密报告，不要公开提 issue。
 

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/destinywans/redstring/internal/actions"
 	"github.com/destinywans/redstring/internal/aiextensions"
-	"github.com/destinywans/redstring/internal/apicontract"
 	"github.com/destinywans/redstring/internal/connectors"
 	"github.com/destinywans/redstring/internal/httpapi"
 	"github.com/destinywans/redstring/internal/inference"
@@ -44,14 +43,27 @@ func main() {
 func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+	databaseURL := os.Getenv("DATABASE_URL")
+	if err := validateStartupDatabaseSecret(databaseURL); err != nil {
+		return err
+	}
+	publicOrigin := os.Getenv("AIOPS_PUBLIC_ORIGIN")
+	hostPolicy, e := httpapi.NewHostPolicy(publicOrigin)
+	if e != nil {
+		return e
+	}
+	addr := os.Getenv("AIOPS_ADDR")
+	if addr == "" {
+		addr = "127.0.0.1:8080"
+	}
+	if publicOrigin == "" && warnMissingPublicOrigin(addr) {
+		slog.Warn("AIOPS_PUBLIC_ORIGIN is unset on a non-loopback listener; browser requests require a loopback Host")
+	}
 	stopTracing, e := setupTracing(ctx)
 	if e != nil {
 		return e
 	}
 	defer stopTracing()
-	if os.Getenv("DATABASE_URL") == "" {
-		return fmt.Errorf("DATABASE_URL is required")
-	}
 	var v3Info *v3Instance
 	var v3Scope httpapi.V3InstanceConfig
 	if path := os.Getenv("AIOPS_V3_INSTANCE_CONFIG"); path != "" {
@@ -61,7 +73,7 @@ func run() error {
 		}
 		v3Info, v3Scope = &info, cfg
 	}
-	s, e := store.New(ctx, os.Getenv("DATABASE_URL"))
+	s, e := store.New(ctx, databaseURL)
 	if e != nil {
 		return e
 	}
@@ -76,8 +88,12 @@ func run() error {
 	if e = s.Migrate(ctx); e != nil {
 		return e
 	}
-	if e = s.Bootstrap(ctx, os.Getenv("AIOPS_ADMIN_EMAIL"), os.Getenv("AIOPS_ADMIN_PASSWORD")); e != nil {
+	adminEmail, adminPassword := os.Getenv("AIOPS_ADMIN_EMAIL"), os.Getenv("AIOPS_ADMIN_PASSWORD")
+	if e = s.Bootstrap(ctx, adminEmail, adminPassword); e != nil {
 		return e
+	}
+	if e = s.RetirePlaceholderAdminPassword(ctx, adminEmail, adminPassword); e != nil {
+		return fmt.Errorf("startup administrator credential check: %w", e)
 	}
 	if v3Info == nil {
 		// Retain the legacy bootstrap behavior without inserting a demo service
@@ -98,7 +114,7 @@ func run() error {
 		return e
 	}
 	api.SecureCookies = os.Getenv("AIOPS_SECURE_COOKIES") == "true"
-	api.AllowedOrigin = os.Getenv("AIOPS_PUBLIC_ORIGIN")
+	api.AllowedOrigin = publicOrigin
 	embedder, e := inference.NewEmbedderFromEnv()
 	if e != nil {
 		return e
@@ -261,26 +277,16 @@ func run() error {
 		go func() { defer close(actionDone); acts.Run(ctx) }()
 		go func() { defer close(workerDone); worker.Run(ctx) }()
 	}
-	addr := os.Getenv("AIOPS_ADDR")
-	if addr == "" {
-		addr = "127.0.0.1:8080"
-	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /openapi.json", apicontract.ServeHTTP)
-	mux.Handle("/api/", api)
-	mux.Handle("/api", api)
-	mux.Handle("/healthz", api)
+	var web http.Handler
 	if directory := os.Getenv("AIOPS_WEB_DIR"); directory != "" {
 		workspace, err := webui.New(directory)
 		if err != nil {
 			return err
 		}
 		defer workspace.Close()
-		mux.Handle("/", workspace)
-	} else {
-		mux.Handle("/", api)
+		web = workspace
 	}
-	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+	server := &http.Server{Addr: addr, Handler: rootHandler(api, web, hostPolicy), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	errC := make(chan error, 1)
 	go func() { slog.Info("AIOps API listening", "address", addr); errC <- server.ListenAndServe() }()
 	select {

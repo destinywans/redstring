@@ -99,7 +99,7 @@ func (s *Service) dependencies(ctx context.Context, scope httpapi.V3EnvironmentS
 		}
 		obs, cached := statusCache[otherApp]
 		if !cached {
-			if obs, e = s.observe(ctx, scope, user, other, nowOf(s)); e != nil {
+			if obs, e = s.observe(ctx, scope, user, other, nowOf(s), false); e != nil {
 				return out, nil, e
 			}
 			statusCache[otherApp] = obs

@@ -64,6 +64,7 @@ type Metrics struct {
 	BindingID   string
 	ConnectorID string
 	ResourceID  string
+	empty       bool
 }
 
 const metricStep = v3metricpanels.Step
@@ -74,9 +75,20 @@ const metricStep = v3metricpanels.Step
 // Absent panels are not an error; they are reported in Metrics.Missing.
 func ReadMetrics(ctx context.Context, reader MetricReader, scope httpapi.V3EnvironmentScope, user core.User,
 	serviceKey, appID, env string, target float64, now time.Time) (Metrics, error) {
+	if math.IsNaN(target) || math.IsInf(target, 0) || target <= 0 || target >= 100 {
+		return Metrics{}, &MetricError{Code: "slo_unavailable"}
+	}
+	metrics, err := readDashboard(ctx, reader, scope, user, serviceKey, appID, env, &target, now)
+	if metrics.empty {
+		return Metrics{}, &MetricError{Code: "metric_result_incomplete"}
+	}
+	return metrics, err
+}
+
+func readDashboard(ctx context.Context, reader MetricReader, scope httpapi.V3EnvironmentScope, user core.User,
+	serviceKey, appID, env string, target *float64, now time.Time) (Metrics, error) {
 	var zero Metrics
-	if reader == nil || serviceKey == "" || appID == "" || env == "" || now.IsZero() ||
-		math.IsNaN(target) || math.IsInf(target, 0) || target <= 0 || target >= 100 {
+	if reader == nil || serviceKey == "" || appID == "" || env == "" || now.IsZero() {
 		return zero, &MetricError{Code: "slo_unavailable"}
 	}
 	end := now.UTC().Truncate(metricStep * time.Second)
@@ -85,7 +97,7 @@ func ReadMetrics(ctx context.Context, reader MetricReader, scope httpapi.V3Envir
 	if err != nil {
 		return zero, err
 	}
-	if evidence.Empty || evidence.ApplicationID != appID || evidence.EnvironmentID != env ||
+	if evidence.ApplicationID != appID || evidence.EnvironmentID != env ||
 		evidence.QueryID != "dashboard" || evidence.BindingID == "" || evidence.ConnectorID == "" ||
 		evidence.ResourceID == "" || evidence.CapturedAt.IsZero() ||
 		evidence.CapturedAt.After(now.Add(15*time.Second)) {
@@ -94,29 +106,83 @@ func ReadMetrics(ctx context.Context, reader MetricReader, scope httpapi.V3Envir
 	if evidence.CapturedAt.Before(end) {
 		return zero, &MetricError{Code: "metric_result_stale"}
 	}
-	panels, ok := v3metricpanels.Parse(evidence.Series, window)
-	if !ok {
+	var projected Metrics
+	switch {
+	case evidence.Empty && len(evidence.Series) == 0:
+		projected = Metrics{empty: true}
+	case evidence.Empty:
 		return zero, &MetricError{Code: "metric_result_incomplete"}
+	default:
+		panels, ok := v3metricpanels.Parse(evidence.Series, window)
+		if !ok {
+			return zero, &MetricError{Code: "metric_result_incomplete"}
+		}
+		projected, err = projectServiceMetrics(panels, target)
+		if err != nil {
+			return zero, err
+		}
 	}
-	projected, err := projectServiceMetrics(panels, target, evidence.CapturedAt)
-	if err != nil {
-		return zero, err
-	}
+	projected.CapturedAt = evidence.CapturedAt
 	projected.BindingID = evidence.BindingID
 	projected.ConnectorID = evidence.ConnectorID
 	projected.ResourceID = evidence.ResourceID
 	return projected, nil
 }
 
-func projectServiceMetrics(p v3metricpanels.Set, target float64, captured time.Time) (Metrics, error) {
-	out := Metrics{Target: fmt.Sprintf("%g%%", target), CapturedAt: captured, Missing: map[string]string{}}
+func projectServiceMetrics(p v3metricpanels.Set, target *float64) (Metrics, error) {
+	out := Metrics{Missing: map[string]string{}}
 	rate, errorsPct, requests, consistent := p.Requests()
-	slo := p.SLO(target)
 	// Present panels must agree with each other; a contradiction makes the
 	// whole result untrustworthy rather than partially shown.
-	if !consistent || !slo.Consistent || !p.LatencyOrdered() {
+	if !consistent || !p.LatencyOrdered() {
 		return Metrics{}, &MetricError{Code: "metric_result_incomplete"}
 	}
+	if target == nil {
+		for _, field := range []string{"status", "slo.availability", "slo.budget_left", "slo.burn.1h", "slo.burn.6h", "slo.burn.3d"} {
+			out.Missing[field] = reasonNotConfigured
+		}
+	} else if !out.projectSLO(p, *target) {
+		return Metrics{}, &MetricError{Code: "metric_result_incomplete"}
+	}
+	last := v3metricpanels.Points - 1
+	// Labels are English here; the detail handler relabels them in the
+	// request language by signal ID. A signal without a current value is
+	// unknown (not_generated); its series keeps the other bins.
+	signal := func(id, unit, format string, series []float64) {
+		if !v3metricpanels.Defined(series[last]) {
+			out.Missing["signals."+id] = v3metricpanels.ReasonNoCurrentData
+			return
+		}
+		label, sub := english.signal(id)
+		out.Signals = append(out.Signals, KPI{ID: id, Label: label, Value: fmt.Sprintf(format, series[last]), Unit: unit, Sub: sub,
+			Series: v3metricpanels.Nullable(series)})
+	}
+	if requests {
+		signal("rps", "/s", "%.2f", rate)
+		signal("err", "%", "%.2f", errorsPct)
+	} else {
+		out.Missing["signals.rps"], out.Missing["signals.err"] = reasonNotConfigured, reasonNotConfigured
+	}
+	for _, s := range []struct{ id, panel, unit, format string }{
+		{"p99", v3metricpanels.LatencyP99, "ms", "%.1f"},
+		{"wait", v3metricpanels.ConnectionWaitP95, "ms", "%.1f"},
+		{"cpu", v3metricpanels.CPUSaturation, "%", "%.1f"},
+	} {
+		if series, ok := p.Plain[s.panel]; ok {
+			signal(s.id, s.unit, s.format, series)
+		} else {
+			out.Missing["signals."+s.id] = reasonNotConfigured
+		}
+	}
+	return out, nil
+}
+
+func (out *Metrics) projectSLO(p v3metricpanels.Set, target float64) bool {
+	slo := p.SLO(target)
+	if !slo.Consistent {
+		return false
+	}
+	out.Target = formatTarget(target)
 	if slo.Availability != nil {
 		availability := fmt.Sprintf("%.3f%%", *slo.Availability)
 		out.Availability = &availability
@@ -152,37 +218,7 @@ func projectServiceMetrics(p v3metricpanels.Set, target float64, captured time.T
 	} else {
 		out.Missing["status"] = slo.Reasons[v3metricpanels.FieldBudgetLeft]
 	}
-	last := v3metricpanels.Points - 1
-	// Labels are English here; the detail handler relabels them in the
-	// request language by signal ID. A signal without a current value is
-	// unknown (not_generated); its series keeps the other bins.
-	signal := func(id, unit, format string, series []float64) {
-		if !v3metricpanels.Defined(series[last]) {
-			out.Missing["signals."+id] = v3metricpanels.ReasonNoCurrentData
-			return
-		}
-		label, sub := english.signal(id)
-		out.Signals = append(out.Signals, KPI{ID: id, Label: label, Value: fmt.Sprintf(format, series[last]), Unit: unit, Sub: sub,
-			Series: v3metricpanels.Nullable(series)})
-	}
-	if requests {
-		signal("rps", "/s", "%.2f", rate)
-		signal("err", "%", "%.2f", errorsPct)
-	} else {
-		out.Missing["signals.rps"], out.Missing["signals.err"] = reasonNotConfigured, reasonNotConfigured
-	}
-	for _, s := range []struct{ id, panel, unit, format string }{
-		{"p99", v3metricpanels.LatencyP99, "ms", "%.1f"},
-		{"wait", v3metricpanels.ConnectionWaitP95, "ms", "%.1f"},
-		{"cpu", v3metricpanels.CPUSaturation, "%", "%.1f"},
-	} {
-		if series, ok := p.Plain[s.panel]; ok {
-			signal(s.id, s.unit, s.format, series)
-		} else {
-			out.Missing["signals."+s.id] = reasonNotConfigured
-		}
-	}
-	return out, nil
+	return true
 }
 
 // metricReason maps a failed metric read to the reason its fields are null.
@@ -201,7 +237,7 @@ func metricReason(ctx context.Context, err error) (string, error) {
 		case "source_not_found":
 			return reasonNotConnected, nil
 		case "query_unregistered":
-			return reasonNotConfigured, nil
+			return reasonQueryNotConfigured, nil
 		case "forbidden":
 			return reasonNoAuthorized, nil
 		}

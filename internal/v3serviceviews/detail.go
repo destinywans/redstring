@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/destinywans/redstring/internal/core"
@@ -98,7 +99,7 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	row := rows[0]
-	item, err := s.project(ctx, scope, user, row, nowOf(s))
+	item, err := s.project(ctx, scope, user, row, nowOf(s), true)
 	if err != nil {
 		writeReadError(w, err)
 		return
@@ -203,10 +204,20 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 			signal.Label, signal.Sub = t.signal(signal.ID)
 			out.Signals[i] = signal
 		}
+		signalsReason := reasonQueryNotConfigured
 		for field, reason := range m.Missing {
-			if field != "status" {
-				out.Unavailable[field] = reason
+			if field == "status" {
+				continue
 			}
+			if strings.HasPrefix(field, "signals.") {
+				switch reason {
+				case reasonNotConfigured:
+					reason = reasonQueryNotConfigured
+				case reasonNotGenerated:
+					signalsReason = reasonNotGenerated
+				}
+			}
+			out.Unavailable[field] = reason
 		}
 		if len(m.Burn) == 0 {
 			out.SLO.Burn = nil
@@ -214,10 +225,11 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 		}
 		if len(m.Signals) == 0 {
 			out.Signals = nil
-			out.Unavailable["signals"] = reasonNotConfigured
+			out.Unavailable["signals"] = signalsReason
 		}
 	} else {
-		for _, field := range []string{"signals", "slo.availability", "slo.budget_left", "slo.burn"} {
+		out.Unavailable["signals"] = item.obs.signalsReason
+		for _, field := range []string{"slo.availability", "slo.budget_left", "slo.burn"} {
 			out.Unavailable[field] = item.obs.metricsReason
 		}
 	}
@@ -301,7 +313,7 @@ func (s *Service) incidentCount(ctx context.Context, row serviceRow) (int, error
 // services reports a source change during the read as unavailable too.
 func statusOnly(ctx context.Context, s *Service, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow, now time.Time) (string, metricSourceSeal, error) {
 	var zero metricSourceSeal
-	obs, err := s.observe(ctx, scope, user, row, now)
+	obs, err := s.observe(ctx, scope, user, row, now, false)
 	if errors.Is(err, errSourceChanged) {
 		return "", zero, errIncomplete
 	}

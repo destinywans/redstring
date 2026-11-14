@@ -95,6 +95,7 @@ func (s *Service) release(ctx context.Context, row serviceRow) (*release, error)
 type observation struct {
 	metrics       *Metrics
 	metricsReason string
+	signalsReason string
 	alerts        *int
 	critical      bool
 	alertsReason  string
@@ -106,16 +107,23 @@ type observation struct {
 // observe reads the metric and alert evidence independently: one missing
 // source leaves the other's values intact. An error is a request failure
 // (storage, policy, cancellation or a source changing during the read).
-func (s *Service) observe(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow, now time.Time) (observation, error) {
+func (s *Service) observe(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow, now time.Time, detail bool) (observation, error) {
 	var out observation
-	metrics, used, err := s.readMetrics(ctx, scope, user, row, now)
+	metrics, used, err := s.readMetrics(ctx, scope, user, row, now, detail)
 	if reason, ok := unknownReason(err); ok {
-		out.metricsReason = reason
+		out.metricsReason, out.signalsReason = reason, reason
+		// Only the detail can query standalone signals with no SLO target.
+		_, hasTarget := sloTarget(row)
+		if reason == reasonQueryNotConfigured || (detail && !hasTarget &&
+			(reason == reasonNotGenerated || reason == reasonUnavailable || reason == reasonStale)) {
+			out.metricsReason = reasonNotConfigured
+		}
 	} else if err != nil {
 		return out, err
 	} else {
-		out.metrics, out.used = &metrics, used
+		out.metrics = &metrics
 	}
+	out.used = used
 	// The event module has a separate ACL. An alert count or critical-derived
 	// health signal would disclose incident state to services-only readers.
 	allowed, err := s.canView(ctx, user, row, "events")
@@ -182,7 +190,7 @@ func (s *Service) observe(ctx context.Context, scope httpapi.V3EnvironmentScope,
 
 // readMetrics performs one sealed live Prometheus read. The seal is taken
 // before and after the read; a change between them fails the request.
-func (s *Service) readMetrics(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow, now time.Time) (Metrics, evidence, error) {
+func (s *Service) readMetrics(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow, now time.Time, detail bool) (Metrics, evidence, error) {
 	var zero Metrics
 	// Exposing connector provider names requires its own current grant. The
 	// metric reader enforces a separate bound-source connector grant too.
@@ -200,32 +208,61 @@ func (s *Service) readMetrics(ctx context.Context, scope httpapi.V3EnvironmentSc
 	if err != nil {
 		return zero, evidence{}, err
 	}
-	target, ok := sloTarget(row)
-	if !ok {
+	var target *float64
+	if value, ok := sloTarget(row); ok {
+		target = &value
+	} else if !detail {
 		return zero, evidence{}, unknown(reasonNotConfigured)
 	}
+	// The detail's golden signals do not require a configured SLO target.
 	metricScope := scope
 	metricScope.All = false
 	metricScope.EnvironmentIDs = []string{row.Env}
-	metrics, err := ReadMetrics(ctx, s.MetricReader, metricScope, user, row.Key, row.AppID, row.Env, target, now)
+	var metrics Metrics
+	if detail {
+		metrics, err = readDashboard(ctx, s.MetricReader, metricScope, user, row.Key, row.AppID, row.Env, target, now)
+	} else {
+		metrics, err = ReadMetrics(ctx, s.MetricReader, metricScope, user, row.Key, row.AppID, row.Env, *target, now)
+	}
 	if err != nil {
 		reason, fatal := metricReason(ctx, err)
 		if fatal != nil {
 			return zero, evidence{}, fatal
+		}
+		if reason == reasonQueryNotConfigured {
+			if !detail {
+				return zero, evidence{}, unknown(reasonNotConfigured)
+			}
+			used, err := s.checkMetricSeal(ctx, row, before)
+			if err != nil {
+				return zero, evidence{}, err
+			}
+			return zero, used, unknown(reason)
 		}
 		return zero, evidence{}, unknown(reason)
 	}
 	if metrics.BindingID != before.BindingID || metrics.ConnectorID != before.ConnectorID || metrics.ResourceID != before.ResourceID {
 		return zero, evidence{}, errSourceChanged
 	}
-	after, err := s.sourceSeal(ctx, row)
-	if _, isUnknown := unknownReason(err); isUnknown || (err == nil && after != before) {
-		return zero, evidence{}, errSourceChanged
-	}
+	used, err := s.checkMetricSeal(ctx, row, before)
 	if err != nil {
 		return zero, evidence{}, err
 	}
-	return metrics, evidence{metrics: true, seal: before}, nil
+	if metrics.empty {
+		return zero, used, unknown(reasonNotGenerated)
+	}
+	return metrics, used, nil
+}
+
+func (s *Service) checkMetricSeal(ctx context.Context, row serviceRow, before metricSourceSeal) (evidence, error) {
+	after, err := s.sourceSeal(ctx, row)
+	if _, isUnknown := unknownReason(err); isUnknown || (err == nil && after != before) {
+		return evidence{}, errSourceChanged
+	}
+	if err != nil {
+		return evidence{}, err
+	}
+	return evidence{metrics: true, seal: before}, nil
 }
 
 func (s *Service) connectors(ctx context.Context, row serviceRow, metrics Metrics) ([]string, error) {
@@ -250,7 +287,7 @@ func (s *Service) connectors(ctx context.Context, row serviceRow, metrics Metric
 	return []string{provider}, nil
 }
 
-func (s *Service) project(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow, now time.Time) (summary, error) {
+func (s *Service) project(ctx context.Context, scope httpapi.V3EnvironmentScope, user core.User, row serviceRow, now time.Time, detail bool) (summary, error) {
 	out := summary{ID: encodeID(row.AppID, row.Env), Name: row.Name, Desc: row.Description,
 		Unavailable: map[string]string{}, Env: row.Env, row: row}
 	out.Tier, out.Team, out.Oncall = identity(row, out.Unavailable)
@@ -260,7 +297,7 @@ func (s *Service) project(ctx context.Context, scope httpapi.V3EnvironmentScope,
 	} else {
 		out.Unavailable["slo.target"] = reasonNotConfigured
 	}
-	obs, err := s.observe(ctx, scope, user, row, now)
+	obs, err := s.observe(ctx, scope, user, row, now, detail)
 	if err != nil {
 		return out, err
 	}

@@ -61,12 +61,13 @@ type serviceRow struct {
 
 // Reasons for a null field. The vocabulary is shared with GET /home and /me.
 const (
-	reasonNotConnected  = "not_connected"
-	reasonNotConfigured = "not_configured"
-	reasonNoAuthorized  = "no_authorized_target"
-	reasonNotGenerated  = "not_generated"
-	reasonUnavailable   = "unavailable"
-	reasonStale         = "stale"
+	reasonNotConnected       = "not_connected"
+	reasonNotConfigured      = "not_configured"
+	reasonQueryNotConfigured = "query_not_configured"
+	reasonNoAuthorized       = "no_authorized_target"
+	reasonNotGenerated       = "not_generated"
+	reasonUnavailable        = "unavailable"
+	reasonStale              = "stale"
 	// The service's CMDB relations cannot all be drawn as dependency edges
 	// between services the reader can see. It is a property of the recorded
 	// relations, not a failed read, so retrying does not change it (PA-191).
@@ -129,7 +130,8 @@ type summary struct {
 // evidence lists the separately authorized sources a reply relies on. The
 // final recheck repeats exactly these grants and source checks, so a shown
 // value cannot outlive its grant, alert source or metric configuration. An
-// unknown field relied on nothing and needs no recheck.
+// unknown field may also rely on evidence, such as a missing dashboard query
+// or a successfully queried window without samples.
 type evidence struct {
 	metrics     bool // connectors.view and the sealed Prometheus target
 	seal        metricSourceSeal

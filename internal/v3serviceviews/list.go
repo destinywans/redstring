@@ -57,7 +57,7 @@ func (s *Service) list(w http.ResponseWriter, r *http.Request) {
 	items := make([]summary, 0, len(rows))
 	read := make([]checked, 0, len(rows))
 	for _, row := range rows {
-		item, e := s.project(ctx, scope, user, row, now)
+		item, e := s.project(ctx, scope, user, row, now, false)
 		if e != nil {
 			writeReadError(w, e)
 			return

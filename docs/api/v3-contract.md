@@ -232,7 +232,7 @@ V3 知识正文读取按持久环境、有效应用与当前授权失败关闭�
 | 方法 | 路径 | 参数 / 请求体 | 响应 | 状态 |
 | --- | --- | --- | --- | --- |
 | GET | `/services` | `q`, `tier`, `team`, `status` | `ServiceCatalog`；当前有权服务，缺证据的字段为 `null` 并在逐项 `unavailable` 中给出原因；KPI 只统计已知值 | implemented |
-| GET | `/services/{id}` | | `ServiceDetail`；按持久服务身份汇集指标、告警、发布、依赖与当前调查，缺项同样为 `null` + 原因。仪表盘查询可只含部分面板（PA-41）：状态与 SLO 余量需要 `slo_burn_1h` 和 `slo_month_availability_pct`，燃烧窗口与信号只列已有的，缺失项在 `unavailable` 中注明 `not_configured`（如 `signals.wait`、`slo.burn.6h`）。缺点与零流量（PA-44）：缺少或为 NaN 的样本是缺点，序列中为 `null`；零流量计为 0 请求，该分桶错误率为 `null`；当前分桶没有值的指标、端点或 SLO 值标 `not_generated`，不再让整块不可用。 | implemented |
+| GET | `/services/{id}` | | `ServiceDetail`；按持久服务身份汇集指标、告警、发布、依赖与当前调查，缺项同样为 `null` + 原因。仪表盘查询可只含部分面板（PA-41）：状态与 SLO 余量需要 `slo_burn_1h` 和 `slo_month_availability_pct`，燃烧窗口与信号只列已有的，缺失的 SLO 面板注明 `not_configured`。黄金指标可独立于 SLO 目标读取。来源已绑定但未配置已审核的仪表盘查询，或查询缺少对应信号面板时，对应的 `unavailable.signals` 或 `signals.<id>` 为 `query_not_configured`。查询成功但暂无样本为 `not_generated`，未接入、故障及缺少权限按各自原因标记。缺点与零流量（PA-44）：缺少或为 NaN 的样本是缺点，序列中为 `null`；零流量计为 0 请求，该分桶错误率为 `null`；当前分桶没有值的指标、端点或 SLO 值标 `not_generated`，不再让整块不可用。 | implemented |
 | GET | `/services/{id}/resilience` | | `Resilience`；仅在固定 HTTPS 五类完整来源配置且证据有效时返回 200，否则 503 | implemented |
 | POST | `/services/{id}/resilience/proposals` | `{ kind, params: { investigation_id, reason, desired } }` | 201 `{ proposal_id }`；仅保存人工审阅提案，不创建可执行动作或合并请求 | implemented |
 | GET | `/topology` | `cluster`, `around`, `depth`, `group_by` | 无 `topology_v1` 目录项时为授权 CMDB 部分响应；配置经审查的精确来源后可返回完整 `Topology`，来源不全返回 503；部分 CMDB 投影另带 `collection`：按环境和采集类型汇总采集源是否在 5 分钟内成功（`fresh`/`partial`/`stale`/`never`、最近与最早成功时间，不含源名），过期采集源的资源不显示，空图配合 `stale`/`never` 即为采集失败而非集群无资源；仅对持有资源查看授权者列出（PA-61） | implemented |

@@ -1,7 +1,7 @@
 package v3events
 
 import (
-	"errors"
+	"context"
 	"net/http"
 	"net/url"
 	"time"
@@ -41,60 +41,30 @@ func (s *Service) visibleInboxIncidentsTx(r *http.Request, tx pgx.Tx, since, unt
 	if !ok || len(scope.EnvironmentIDs) == 0 || s.AuthorizeTx == nil {
 		return nil, store.ErrForbidden
 	}
-	rows, err := tx.Query(r.Context(), incidentListSelect+` WHERE e.key=ANY($1::text[]) AND NOT i.suspected AND i.updated_at >= $2 AND i.updated_at <= $3
-		ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001`, scope.EnvironmentIDs, since, until)
-	if err != nil {
-		return nil, err
+	cte, predicate, args := s.eventListGrants(r, "e.key", "a.id", "a.owner_team_id", scope.EnvironmentIDs, since, until)
+	if cte != "" {
+		cte += ", "
 	}
-	candidates := make([]incidentRecord, 0)
-	for rows.Next() {
-		if len(candidates) == 5000 {
-			rows.Close()
-			return nil, errTooManyIncidents
-		}
-		v, scanErr := scanIncident(rows)
-		if scanErr != nil {
-			rows.Close()
-			return nil, scanErr
-		}
-		candidates = append(candidates, v)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	cookie, err := r.Cookie("aiops_session")
-	if err != nil {
-		return nil, store.ErrSessionRevoked
-	}
-	if err := store.LockActiveSession(r.Context(), tx, cookie.Value, httpapi.CurrentUser(r).ID); err != nil {
-		return nil, err
-	}
-	// Preserve the inbox's precheck ordering, and carry only its successful
-	// held-lock fact into this transaction's scope checks.
 	guard := newListAuthorityGuard(r, tx)
-	guard.sessionHeld = true
-	allowed := make(map[string]bool)
-	denied := make(map[string]bool)
-	visible := make([]incidentRecord, 0, len(candidates))
-	for _, v := range candidates {
-		key := v.ApplicationID + "\x00" + v.EnvironmentID
-		if !allowed[key] && !denied[key] {
-			authErr := s.authorizeAlertWithGuard(r, tx, v, "view", guard)
-			if errors.Is(authErr, store.ErrForbidden) || errors.Is(authErr, store.ErrNotFound) {
-				denied[key] = true
-			} else if authErr != nil {
-				return nil, authErr
-			} else {
-				allowed[key] = true
+	scopeVisible := s.visibleEventScope(r, tx, guard)
+	visible := func(ctx context.Context, v incidentRecord) (bool, error) {
+		// Preserve the inbox's precheck ordering after the first fetch.
+		if !guard.sessionHeld {
+			cookie, err := r.Cookie("aiops_session")
+			if err != nil {
+				return false, store.ErrSessionRevoked
 			}
+			if err = store.LockActiveSession(ctx, tx, cookie.Value, httpapi.CurrentUser(r).ID); err != nil {
+				return false, err
+			}
+			guard.sessionHeld = true
 		}
-		if allowed[key] {
-			visible = append(visible, v)
-		}
+		return scopeVisible(ctx, v)
 	}
-	return visible, nil
+	return scanVisibleList(r.Context(), tx, eventListLimit, scanIncident, visible,
+		"WITH "+cte+incidentListScopes+predicate+incidentListSelect+`
+ WHERE NOT i.suspected AND i.updated_at >= $2 AND i.updated_at <= $3
+ ORDER BY i.updated_at DESC,i.id DESC`, args...)
 }
 
 // Inbox returns only the alert portion whose membership and ownership are

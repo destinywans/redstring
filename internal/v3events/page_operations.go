@@ -1,6 +1,7 @@
 package v3events
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -115,7 +116,53 @@ func (s *Service) pageObject(r *http.Request, tx pgx.Tx, kind, id string, lock b
 	return v, v.Title, "proposal", err
 }
 
+// assignmentScope reads only the target identity before the caller may lock it.
+func assignmentScope(r *http.Request, tx pgx.Tx, kind, id string) (incidentRecord, string, error) {
+	var v incidentRecord
+	query := `SELECT i.application_id,i.environment_id,e.key FROM ops_incidents i
+ JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id
+ WHERE i.id=$1`
+	if kind == "incident" {
+		err := tx.QueryRow(r.Context(), `SELECT application_id,environment_id,environment_key
+ FROM v3_incident_cases WHERE id=$1`, id).Scan(&v.ApplicationID, &v.EnvironmentID, &v.EnvironmentKey)
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return v, kind, err
+		}
+		kind = "alert"
+	}
+	if kind == "proposal" {
+		query = `SELECT p.application_id,ae.id,p.environment_id FROM v3_proposals p
+ JOIN application_environments ae ON ae.application_id=p.application_id AND ae.key=p.environment_id AND NOT ae.archived
+ WHERE p.id=$1`
+	}
+	err := tx.QueryRow(r.Context(), query, id).Scan(&v.ApplicationID, &v.EnvironmentID, &v.EnvironmentKey)
+	return v, kind, err
+}
+
+// Lock only the admitted identity; neither title nor proposal contents are
+// needed for assignment. The final policy checks run after this lock.
+func lockAssignmentTarget(r *http.Request, tx pgx.Tx, kind, id string, v incidentRecord) error {
+	query := `SELECT i.id FROM ops_incidents i
+ WHERE i.id=$1 AND i.application_id=$2 AND i.environment_id=$3 FOR UPDATE OF i`
+	scope := v.EnvironmentID
+	switch kind {
+	case "incident":
+		query = `SELECT c.id FROM v3_incident_cases c
+ WHERE c.id=$1 AND c.application_id=$2 AND c.environment_id=$3 FOR UPDATE OF c`
+	case "proposal":
+		query = `SELECT p.id FROM v3_proposals p
+ WHERE p.id=$1 AND p.application_id=$2 AND p.environment_id=$3 FOR UPDATE OF p`
+		scope = v.EnvironmentKey
+	}
+	var lockedID string
+	return tx.QueryRow(r.Context(), query, id, v.ApplicationID, scope).Scan(&lockedID)
+}
+
 func (s *Service) pageDecision(r *http.Request, tx pgx.Tx, user core.User, v incidentRecord, module, action string) error {
+	return s.pageDecisionWithLocks(r, tx, user, v, module, action, true)
+}
+
+func (s *Service) pageDecisionWithLocks(r *http.Request, tx pgx.Tx, user core.User, v incidentRecord, module, action string, lock bool) error {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok {
 		return store.ErrForbidden
@@ -131,12 +178,18 @@ func (s *Service) pageDecision(r *http.Request, tx pgx.Tx, user core.User, v inc
 		return store.ErrForbidden
 	}
 	var team string
-	err := tx.QueryRow(r.Context(), `SELECT COALESCE(a.owner_team_id,'') FROM applications a JOIN application_environments ae ON ae.application_id=a.id AND ae.id=$2 AND ae.key=$3 JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=ae.key WHERE a.id=$1 AND NOT a.archived AND NOT ae.archived FOR SHARE OF a,ae,ve`, v.ApplicationID, v.EnvironmentID, v.EnvironmentKey).Scan(&team)
+	query := `SELECT COALESCE(a.owner_team_id,'') FROM applications a JOIN application_environments ae ON ae.application_id=a.id AND ae.id=$2 AND ae.key=$3 JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=ae.key WHERE a.id=$1 AND NOT a.archived AND NOT ae.archived`
+	if lock {
+		query += " FOR SHARE OF a,ae,ve"
+	}
+	err := tx.QueryRow(r.Context(), query, v.ApplicationID, v.EnvironmentID, v.EnvironmentKey).Scan(&team)
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(r.Context(), `LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants IN SHARE MODE`); err != nil {
-		return err
+	if lock {
+		if _, err = tx.Exec(r.Context(), `LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants IN SHARE MODE`); err != nil {
+			return err
+		}
 	}
 	policy := &rbac.V3Policy{Store: &store.Store{DB: s.DB}}
 	d := rbac.V3Decision{Module: module, Action: action, ApplicationID: v.ApplicationID, EnvironmentID: v.EnvironmentKey}
@@ -178,37 +231,50 @@ func (s *Service) assignItem(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 403, "forbidden", "Human assignment required")
 		return
 	}
-	v, _, canonicalKind, err := s.pageObject(r, tx, in.Kind, in.ID, true)
+	identity, canonicalKind, err := assignmentScope(r, tx, in.Kind, in.ID)
 	if err != nil {
 		respondIncidentCreateError(w, err)
 		return
 	}
+	module := "events"
+	if canonicalKind == "proposal" {
+		module = "proposals"
+	}
+	if err = s.pageDecisionWithLocks(r, tx, user, identity, module, "view", false); err != nil {
+		respondIncidentCreateError(w, err)
+		return
+	}
+	if err = s.pageDecisionWithLocks(r, tx, user, identity, module, "change", false); err != nil {
+		respondAlertAuthorityError(w, err)
+		return
+	}
+	if err = lockAssignmentTarget(r, tx, canonicalKind, in.ID, identity); err != nil {
+		respondIncidentCreateError(w, err)
+		return
+	}
+	v := identity
 	// Legacy incident URLs can refer to an alert. Persist the actual object kind
 	// so the assignment ledger and the operational owner stay one identity.
 	in.Kind = canonicalKind
-	module := "events"
-	if in.Kind == "proposal" {
-		module = "proposals"
-	}
-	for _, action := range []string{"view", "change"} {
-		if err = s.pageDecision(r, tx, user, v, module, action); err != nil {
-			respondAlertAuthorityError(w, err)
-			return
-		}
-	}
-	var recipient core.User
-	err = tx.QueryRow(r.Context(), `SELECT id,name,email,role FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND v3_identity_kind='human' FOR SHARE`, in.Assignee).Scan(&recipient.ID, &recipient.Name, &recipient.Email, &recipient.Role)
-	if err != nil {
+	if err = s.pageDecision(r, tx, user, v, module, "view"); err != nil {
 		respondIncidentCreateError(w, err)
 		return
 	}
-	if err = s.pageDecision(r, tx, recipient, v, "environment", "view"); err != nil {
-		httpapi.Error(w, 422, "assignee_unavailable", "Assignee must be able to view the environment and item")
+	if err = s.pageDecision(r, tx, user, v, module, "change"); err != nil {
+		respondAlertAuthorityError(w, err)
 		return
 	}
-	if err = s.pageDecision(r, tx, recipient, v, module, "view"); err != nil {
-		if errors.Is(err, store.ErrForbidden) {
-			httpapi.Error(w, 422, "assignee_unavailable", "Assignee must be able to view the item")
+	var recipient core.User
+	err = tx.QueryRow(r.Context(), `SELECT id,name,email,role FROM users WHERE id=$1 AND NOT disabled AND deleted_at IS NULL AND v3_identity_kind='human' FOR SHARE`, in.Assignee).Scan(&recipient.ID, &recipient.Name, &recipient.Email, &recipient.Role)
+	if err == nil {
+		err = s.pageDecision(r, tx, recipient, v, "environment", "view")
+	}
+	if err == nil {
+		err = s.pageDecision(r, tx, recipient, v, module, "view")
+	}
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 422, "assignee_unavailable", "Assignee must be able to view the environment and item")
 		} else {
 			respondErr(w, err)
 		}
@@ -273,77 +339,87 @@ func assignedHref(kind, id string) string {
 
 func (s *Service) readAssignmentNotifications(r *http.Request, tx pgx.Tx, since time.Time) ([]persistedInboxItem, error) {
 	t := textFor(r.Header.Get("Accept-Language"))
-	rows, err := tx.Query(r.Context(), `SELECT n.id,n.item_kind,n.item_id,n.created_at,n.actor_id,a.application_id,a.environment_id FROM v3_assignment_notifications n JOIN v3_item_assignments a ON a.item_kind=n.item_kind AND a.item_id=n.item_id WHERE n.recipient_id=$1 AND a.assignee_id=$1 AND n.created_at=a.updated_at AND n.created_at>=$2 ORDER BY n.created_at DESC,n.id LIMIT 501`, httpapi.CurrentUser(r).ID, since)
-	if err != nil {
-		return nil, err
-	}
+	user := httpapi.CurrentUser(r)
+	scope, _ := httpapi.V3ScopeFromContext(r.Context())
 	type record struct {
 		id, kind, item, actor, app, env string
 		at                              time.Time
 	}
-	all := []record{}
-	for rows.Next() {
-		var v record
-		if err = rows.Scan(&v.id, &v.kind, &v.item, &v.at, &v.actor, &v.app, &v.env); err != nil {
-			break
-		}
-		all = append(all, v)
+	query := "WITH " + rbac.V3ListGrantsCTE("$1") + `
+ SELECT n.id,n.item_kind,n.item_id,n.created_at,n.actor_id,a.application_id,a.environment_id
+ FROM v3_assignment_notifications n
+ JOIN v3_item_assignments a ON a.item_kind=n.item_kind AND a.item_id=n.item_id
+ JOIN applications app ON app.id=a.application_id AND NOT app.archived
+ JOIN application_environments ae ON ae.application_id=app.id AND ae.key=a.environment_id AND NOT ae.archived
+ JOIN v3_application_environments ve ON ve.application_id=app.id AND ve.environment_id=ae.key
+ WHERE n.recipient_id=$1 AND a.assignee_id=$1 AND n.created_at=a.updated_at AND n.created_at>=$2
+ AND ae.key=ANY($3::text[]) AND (
+  (n.item_kind='proposal' AND ` + rbac.V3ListScopePredicate("ae.key", "app.id", "app.owner_team_id", "proposals", "view") + `)
+  OR (n.item_kind<>'proposal' AND ` + rbac.V3ListScopePredicate("ae.key", "app.id", "app.owner_team_id", "events", "view") + `)
+ ) ORDER BY n.created_at DESC,n.id`
+	type candidate struct {
+		record
+		title string
 	}
-	if err == nil {
-		err = rows.Err()
+	scan := func(row pgx.Row) (*candidate, error) {
+		n := new(candidate)
+		err := row.Scan(&n.id, &n.kind, &n.item, &n.at, &n.actor, &n.app, &n.env)
+		return n, err
 	}
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	if len(all) > 500 {
-		return nil, errTooManyIncidents
-	}
-	items := []persistedInboxItem{}
-	for _, n := range all {
-		v, title, canonicalKind, err := s.pageObject(r, tx, n.kind, n.item, false)
+	visible := func(ctx context.Context, n *candidate) (bool, error) {
+		request := r.WithContext(ctx)
+		v, title, canonicalKind, err := s.pageObject(request, tx, n.kind, n.item, false)
 		if errors.Is(err, pgx.ErrNoRows) {
-			continue
+			return false, nil
 		}
 		if err != nil {
-			return nil, err
+			return false, err
 		}
 		// Discovery was an unlocked snapshot. A writer can commit while this
 		// request waits for the object lock, so re-read the current epoch under
 		// assignment/notification SHARE locks after the object lock.
 		if canonicalKind != n.kind {
-			continue
+			return false, nil
 		}
 		var app, env, recipient string
 		var epoch time.Time
-		err = tx.QueryRow(r.Context(), `SELECT a.application_id,a.environment_id,a.assignee_id,a.updated_at
+		err = tx.QueryRow(ctx, `SELECT a.application_id,a.environment_id,a.assignee_id,a.updated_at
             FROM v3_item_assignments a JOIN v3_assignment_notifications current_notification
               ON current_notification.item_kind=a.item_kind AND current_notification.item_id=a.item_id
             WHERE a.item_kind=$1 AND a.item_id=$2 AND current_notification.id=$3
               AND current_notification.recipient_id=$4 AND current_notification.created_at=a.updated_at
-            FOR SHARE OF a,current_notification`, n.kind, n.item, n.id, httpapi.CurrentUser(r).ID).Scan(&app, &env, &recipient, &epoch)
+            FOR SHARE OF a,current_notification`, n.kind, n.item, n.id, user.ID).Scan(&app, &env, &recipient, &epoch)
 		if errors.Is(err, pgx.ErrNoRows) {
-			continue
+			return false, nil
 		}
 		if err != nil {
-			return nil, err
+			return false, err
 		}
-		if recipient != httpapi.CurrentUser(r).ID {
-			continue
+		if recipient != user.ID {
+			return false, nil
 		}
 		if v.ApplicationID != app || v.EnvironmentKey != env {
-			return nil, store.ErrInvalidReference
+			return false, store.ErrInvalidReference
 		}
 		module := "events"
 		if n.kind == "proposal" {
 			module = "proposals"
 		}
-		if err = s.pageDecision(r, tx, httpapi.CurrentUser(r), v, module, "view"); errors.Is(err, store.ErrForbidden) || errors.Is(err, store.ErrNotFound) {
-			continue
+		if err = s.pageDecision(request, tx, user, v, module, "view"); errors.Is(err, store.ErrForbidden) || errors.Is(err, store.ErrNotFound) {
+			return false, nil
 		} else if err != nil {
-			return nil, err
+			return false, err
 		}
-		items = append(items, persistedInboxItem{ID: "assignment:" + n.id, Kind: "assignment", Tone: "neutral", Title: title,
+		n.title = title
+		return true, nil
+	}
+	all, err := scanVisibleList(r.Context(), tx, pageListLimit, scan, visible, query, user.ID, since, scope.EnvironmentIDs)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]persistedInboxItem, 0, len(all))
+	for _, n := range all {
+		items = append(items, persistedInboxItem{ID: "assignment:" + n.id, Kind: "assignment", Tone: "neutral", Title: n.title,
 			Sub: t.assignedSub(n.kind), At: n.at.UTC().Format(time.RFC3339),
 			Href: assignedHref(n.kind, n.item), AssignmentKind: n.kind})
 	}
@@ -463,52 +539,45 @@ func (s *Service) maintenancePlans(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	scope, _ := httpapi.V3ScopeFromContext(r.Context())
-	rows, err := tx.Query(r.Context(), `SELECT p.id,p.schedule,p.matchers,p.reason,u.name,p.application_id,p.environment_id,ae.id FROM v3_maintenance_plans p JOIN users u ON u.id=p.owner_id JOIN application_environments ae ON ae.application_id=p.application_id AND ae.key=p.environment_id AND NOT ae.archived WHERE p.environment_id=ANY($1::text[]) ORDER BY p.created_at DESC,p.id LIMIT 501`, scope.EnvironmentIDs)
-	if err != nil {
-		respondErr(w, err)
-		return
+	cte, predicate, args := s.eventListGrants(r, "ae.key", "a.id", "a.owner_team_id", scope.EnvironmentIDs)
+	if cte != "" {
+		cte = "WITH " + cte + " "
 	}
+	query := cte + `SELECT p.id,p.schedule,p.matchers,p.reason,u.name,p.application_id,p.environment_id,ae.id
+ FROM v3_maintenance_plans p JOIN users u ON u.id=p.owner_id
+ JOIN application_environments ae ON ae.application_id=p.application_id AND ae.key=p.environment_id AND NOT ae.archived
+ JOIN applications a ON a.id=p.application_id AND NOT a.archived
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=ae.key
+ WHERE p.environment_id=ANY($1::text[]) AND ` + predicate + ` ORDER BY p.created_at DESC,p.id`
 	type candidate struct {
 		plan maintenancePlan
 		row  string
+		raw  []byte
 	}
-	candidates := []candidate{}
-	for rows.Next() {
-		var v candidate
-		var raw []byte
-		if err = rows.Scan(&v.plan.ID, &v.plan.Schedule, &raw, &v.plan.Reason, &v.plan.Owner, &v.plan.ApplicationID, &v.plan.EnvironmentID, &v.row); err != nil {
-			break
-		}
-		if err = json.Unmarshal(raw, &v.plan.Matchers); err != nil {
-			break
-		}
-		v.plan.Status = "planned"
-		candidates = append(candidates, v)
+	scan := func(row pgx.Row) (*candidate, error) {
+		v := new(candidate)
+		err := row.Scan(&v.plan.ID, &v.plan.Schedule, &v.raw, &v.plan.Reason, &v.plan.Owner, &v.plan.ApplicationID, &v.plan.EnvironmentID, &v.row)
+		return v, err
 	}
-	if err == nil {
-		err = rows.Err()
+	scopeVisible := s.visibleEventScope(r, tx, nil)
+	visible := func(ctx context.Context, v *candidate) (bool, error) {
+		return scopeVisible(ctx, incidentRecord{ApplicationID: v.plan.ApplicationID, EnvironmentID: v.row, EnvironmentKey: v.plan.EnvironmentID})
 	}
-	rows.Close()
+	candidates, err := scanVisibleList(r.Context(), tx, pageListLimit, scan, visible, query, args...)
 	if err != nil {
-		respondErr(w, err)
+		respondAlertAuthorityError(w, err)
 		return
 	}
-	if len(candidates) > 500 {
-		respondErr(w, errTooManyIncidents)
-		return
-	}
-	items := []maintenancePlan{}
+	items := make([]maintenancePlan, 0, len(candidates))
 	for _, v := range candidates {
-		err = s.authorizeAlertTx(r, tx, incidentRecord{ApplicationID: v.plan.ApplicationID, EnvironmentID: v.row, EnvironmentKey: v.plan.EnvironmentID}, "view")
-		if errors.Is(err, store.ErrForbidden) || errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			respondAlertAuthorityError(w, err)
+		if err = json.Unmarshal(v.raw, &v.plan.Matchers); err != nil {
+			respondErr(w, err)
 			return
 		}
+		v.plan.Status = "planned"
 		items = append(items, v.plan)
 	}
+
 	if err = activeAlertReadSession(r.Context(), tx, r); err != nil {
 		respondAlertAuthorityError(w, err)
 		return
@@ -534,11 +603,18 @@ func (s *Service) notificationDeliveries(w http.ResponseWriter, r *http.Request)
 	}
 	defer tx.Rollback(r.Context())
 	scope, _ := httpapi.V3ScopeFromContext(r.Context())
-	rows, err := tx.Query(r.Context(), `SELECT n.created_at,n.incident_id,n.channel,n.status,n.application_id,n.environment_id,ae.key FROM ops_notifications n JOIN application_environments ae ON ae.id=n.environment_id AND ae.application_id=n.application_id WHERE ae.key=ANY($1::text[]) AND n.created_at>=$2 AND ($3='' OR strpos(lower(n.incident_id||' '||n.channel||' '||n.status),lower($3))>0) ORDER BY n.created_at DESC,n.id DESC LIMIT 501`, scope.EnvironmentIDs, time.Now().Add(-duration), q)
-	if err != nil {
-		respondErr(w, err)
-		return
+	cte, predicate, args := s.eventListGrants(r, "ae.key", "a.id", "a.owner_team_id", scope.EnvironmentIDs, time.Now().Add(-duration), q)
+	if cte != "" {
+		cte = "WITH " + cte + " "
 	}
+	query := cte + `SELECT n.created_at,n.incident_id,n.channel,n.status,n.application_id,n.environment_id,ae.key
+ FROM ops_notifications n
+ JOIN application_environments ae ON ae.id=n.environment_id AND ae.application_id=n.application_id AND NOT ae.archived
+ JOIN applications a ON a.id=n.application_id AND NOT a.archived
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=ae.key
+ WHERE ae.key=ANY($1::text[]) AND ` + predicate + `
+ AND n.created_at>=$2 AND ($3='' OR strpos(lower(n.incident_id||' '||n.channel||' '||n.status),lower($3))>0)
+ ORDER BY n.created_at DESC,n.id DESC`
 	type item struct {
 		Time     string `json:"time"`
 		Alert    string `json:"alert"`
@@ -549,40 +625,27 @@ func (s *Service) notificationDeliveries(w http.ResponseWriter, r *http.Request)
 		item item
 		v    incidentRecord
 	}
-	all := []candidate{}
-	for rows.Next() {
+	scan := func(row pgx.Row) (candidate, error) {
 		var c candidate
 		var at time.Time
-		if err = rows.Scan(&at, &c.item.Alert, &c.item.Receiver, &c.item.Result, &c.v.ApplicationID, &c.v.EnvironmentID, &c.v.EnvironmentKey); err != nil {
-			break
-		}
+		err := row.Scan(&at, &c.item.Alert, &c.item.Receiver, &c.item.Result, &c.v.ApplicationID, &c.v.EnvironmentID, &c.v.EnvironmentKey)
 		c.item.Time = at.UTC().Format(time.RFC3339Nano)
-		all = append(all, c)
+		return c, err
 	}
-	if err == nil {
-		err = rows.Err()
+	scopeVisible := s.visibleEventScope(r, tx, nil)
+	visible := func(ctx context.Context, c candidate) (bool, error) {
+		return scopeVisible(ctx, c.v)
 	}
-	rows.Close()
+	candidates, err := scanVisibleList(r.Context(), tx, pageListLimit, scan, visible, query, args...)
 	if err != nil {
-		respondErr(w, err)
+		respondAlertAuthorityError(w, err)
 		return
 	}
-	if len(all) > 500 {
-		respondErr(w, errTooManyIncidents)
-		return
-	}
-	items := []item{}
-	for _, c := range all {
-		err = s.authorizeAlertTx(r, tx, c.v, "view")
-		if errors.Is(err, store.ErrForbidden) || errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			respondAlertAuthorityError(w, err)
-			return
-		}
+	items := make([]item, 0, len(candidates))
+	for _, c := range candidates {
 		items = append(items, c.item)
 	}
+
 	if err = activeAlertReadSession(r.Context(), tx, r); err != nil {
 		respondAlertAuthorityError(w, err)
 		return

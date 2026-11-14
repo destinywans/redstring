@@ -40,9 +40,6 @@ func newListClaimFixture(t *testing.T) *listClaimFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15461 || cfg.ConnConfig.Database != "aiops_testlab" {
-		t.Skip("dedicated disposable testlab migration DB required")
-	}
 	ctx := t.Context()
 	admin, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

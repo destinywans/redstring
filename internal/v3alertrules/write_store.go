@@ -107,18 +107,30 @@ func newManifest(opID, env, app string, rules []draftManifestRule) ([]byte, erro
 }
 
 func (s *WriteService) authorize(ctx context.Context, actor core.User, env, app string) error {
+	return s.checkWriteScope(ctx, actor, env, app, false)
+}
+
+func (s *WriteService) admitWrite(ctx context.Context, actor core.User, env, app string) error {
+	return s.checkWriteScope(ctx, actor, env, app, true)
+}
+
+func (s *WriteService) checkWriteScope(ctx context.Context, actor core.User, env, app string, hideUnreadable bool) error {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if err := s.authorizeTx(ctx, tx, actor, env, app); err != nil {
+	if err := s.authorizeWriteScopeTx(ctx, tx, actor, env, app, hideUnreadable); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
 }
 
 func (s *WriteService) authorizeTx(ctx context.Context, tx pgx.Tx, actor core.User, env, app string) error {
+	return s.authorizeWriteScopeTx(ctx, tx, actor, env, app, false)
+}
+
+func (s *WriteService) authorizeWriteScopeTx(ctx context.Context, tx pgx.Tx, actor core.User, env, app string, hideUnreadable bool) error {
 	if app == "" || len(app) > 200 || env == "" {
 		return problem(404, "not_found", "Application not found")
 	}
@@ -145,10 +157,25 @@ func (s *WriteService) authorizeTx(ctx context.Context, tx pgx.Tx, actor core.Us
 		decision.TeamID = owner
 		err = s.Access.AuthorizeWithTx(ctx, tx, actor, decision)
 	}
-	if errors.Is(err, store.ErrForbidden) {
-		return problem(403, "forbidden", "Alert rule change permission required")
+	if !errors.Is(err, store.ErrForbidden) {
+		return err
 	}
-	return err
+	if hideUnreadable {
+		decision.Action = "view"
+		decision.ApplicationID, decision.TeamID = app, ""
+		viewErr := s.Access.AuthorizeWithTx(ctx, tx, actor, decision)
+		if errors.Is(viewErr, store.ErrForbidden) && owner != "" {
+			decision.ApplicationID, decision.TeamID = "", owner
+			viewErr = s.Access.AuthorizeWithTx(ctx, tx, actor, decision)
+		}
+		if errors.Is(viewErr, store.ErrForbidden) {
+			return problem(404, "not_found", "Application not found")
+		}
+		if viewErr != nil {
+			return viewErr
+		}
+	}
+	return problem(403, "forbidden", "Alert rule change permission required")
 }
 
 func dbWriteProblem(err error) error {
@@ -245,21 +272,34 @@ func (s *WriteService) reserveUpdate(ctx context.Context, actor core.User, env, 
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	if err := s.authorizeTx(ctx, tx, actor, env, input.Rule.ApplicationID); err != nil {
-		return nil, err
-	}
-	var storedEnv, storedApp, storedFile, storedGroup, storedName, storedObservedID, storedObservedDigest string
-	var version int
-	err = tx.QueryRow(ctx, `SELECT environment_id,application_id,provider_file,provider_group,alert_name,
- observed_rule_id,observed_digest,current_version FROM v3_alert_rule_drafts WHERE id=$1 FOR UPDATE`, id).
-		Scan(&storedEnv, &storedApp, &storedFile, &storedGroup, &storedName, &storedObservedID, &storedObservedDigest, &version)
+	var admittedApp string
+	err = tx.QueryRow(ctx, `SELECT application_id FROM v3_alert_rule_drafts WHERE id=$1 AND environment_id=$2`, id, env).Scan(&admittedApp)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, problem(404, "not_found", "Draft not found")
 	}
 	if err != nil {
 		return nil, err
 	}
-	if storedEnv != env || storedApp != input.Rule.ApplicationID || storedFile != group.file ||
+	if err = s.authorizeWriteScopeTx(ctx, tx, actor, env, admittedApp, true); err != nil {
+		var denied *writeProblem
+		if errors.As(err, &denied) && denied.status == 404 {
+			return nil, problem(404, "not_found", "Draft not found")
+		}
+		return nil, err
+	}
+	var storedApp, storedFile, storedGroup, storedName, storedObservedID, storedObservedDigest string
+	var version int
+	err = tx.QueryRow(ctx, `SELECT application_id,provider_file,provider_group,alert_name,
+ observed_rule_id,observed_digest,current_version FROM v3_alert_rule_drafts
+ WHERE id=$1 AND environment_id=$2 AND application_id=$3 FOR UPDATE`, id, env, admittedApp).
+		Scan(&storedApp, &storedFile, &storedGroup, &storedName, &storedObservedID, &storedObservedDigest, &version)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, problem(404, "not_found", "Draft not found")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if storedApp != input.Rule.ApplicationID || storedFile != group.file ||
 		storedGroup != input.Rule.Group || storedName != input.Rule.Name || version != input.ExpectedVersion {
 		return nil, problem(409, "draft_version_conflict", "Draft identity or version changed")
 	}

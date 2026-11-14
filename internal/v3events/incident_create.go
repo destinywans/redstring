@@ -112,7 +112,7 @@ func incidentCreateHash(in incidentCreateRequest) string {
 func (s *Service) selectedIncidentAlertsTx(r *http.Request, tx pgx.Tx, ids []string, action string) ([]incidentRecord, error) {
 	alerts := make([]incidentRecord, 0, len(ids))
 	for _, id := range ids {
-		v, err := scanIncident(tx.QueryRow(r.Context(), incidentSelect+` WHERE i.id=$1 AND NOT i.suspected FOR SHARE OF i`, id))
+		v, err := s.lockAdmittedAlert(r, tx, id, false, false, action)
 		if err != nil {
 			return nil, err
 		}

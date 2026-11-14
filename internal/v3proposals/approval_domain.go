@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/destinywans/redstring/internal/core"
 	"github.com/destinywans/redstring/internal/store"
 	"github.com/destinywans/redstring/internal/v3alertmanager"
 	"github.com/destinywans/redstring/internal/v3passkey"
@@ -115,27 +116,19 @@ func (s *Service) approvalEvidenceReadyTx(ctx context.Context, tx pgx.Tx,
 
 // loadApprovalActionTx takes the proposal write lock before the immutable
 // action reader's SHARE locks, so two approvals cannot deadlock on promotion.
-func (s *Service) loadApprovalActionTx(ctx context.Context, tx pgx.Tx, id string) (record,
+func (s *Service) loadApprovalActionTx(ctx context.Context, tx pgx.Tx, v record) (
 	v3alertmanager.SilenceReviewedAction, error) {
 	var zero v3alertmanager.SilenceReviewedAction
-	if s == nil || s.DB == nil || tx == nil || !bounded(id, 128) {
-		return record{}, zero, ErrInvalidProposal
-	}
-	v, err := loadReviewTx(ctx, tx, id, true)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return record{}, zero, store.ErrNotFound
-	}
-	if err != nil {
-		return record{}, zero, err
-	}
+	id := v.ID
 	var kind string
-	if err = tx.QueryRow(ctx, `SELECT action_kind FROM v3_proposal_actions
+	if err := tx.QueryRow(ctx, `SELECT action_kind FROM v3_proposal_actions
  WHERE proposal_id=$1 FOR SHARE`, id).Scan(&kind); errors.Is(err, pgx.ErrNoRows) {
-		return record{}, zero, store.ErrNotFound
+		return zero, store.ErrNotFound
 	} else if err != nil {
-		return record{}, zero, err
+		return zero, err
 	}
 	var a v3alertmanager.SilenceReviewedAction
+	var err error
 	if alertRuleActionKind(kind) {
 		a, err = s.loadAlertRuleEnableApprovalActionTx(ctx, tx, id, v)
 	} else if kind == RollbackActionKind {
@@ -144,16 +137,16 @@ func (s *Service) loadApprovalActionTx(ctx context.Context, tx pgx.Tx, id string
 		a, err = (&SilenceExecutionActionSource{Proposals: s}).LoadReviewedActionWithTx(ctx, tx, id)
 	}
 	if err != nil {
-		return record{}, zero, err
+		return zero, err
 	}
 	if a.ProposalID != v.ID || a.Status != v.Status || a.EnvironmentID != v.EnvironmentID ||
 		a.ApplicationID != v.ApplicationID || a.InvestigationID != v.InvestigationID ||
 		a.CreatorID == "" || a.ActionDigest == "" || a.ReviewContentDigest == "" ||
 		(a.Kind != v3alertmanager.ProposedSilenceCreateKind && a.Kind != v3alertmanager.ProposedSilenceCancelKind &&
 			!alertRuleActionKind(a.Kind) && a.Kind != RollbackActionKind) {
-		return record{}, zero, ErrInvalidProposal
+		return zero, ErrInvalidProposal
 	}
-	return v, a, nil
+	return a, nil
 }
 
 // A domain verifier must reconstruct and check the immutable alert-rule intent
@@ -274,6 +267,59 @@ func approvalGrantTx(ctx context.Context, tx pgx.Tx, userID, envID, appID, teamI
 	return nil
 }
 
+// Read the persisted scope without locking or interpreting proposal state.
+func approvalScopeTx(ctx context.Context, tx pgx.Tx, actor v3passkey.Actor, proposalID string) (record, error) {
+	var v record
+	if !bounded(proposalID, 128) {
+		return v, store.ErrNotFound
+	}
+	err := tx.QueryRow(ctx, `SELECT p.application_id,p.environment_id,COALESCE(a.owner_team_id,'')
+ FROM v3_proposals p
+ JOIN applications a ON a.id=p.application_id AND NOT a.archived
+ JOIN investigations i ON i.id=p.investigation_id AND i.application_id=p.application_id
+ JOIN application_environments e ON e.id=i.environment_id AND e.application_id=p.application_id
+  AND e.key=p.environment_id AND NOT e.archived
+ JOIN v3_application_environments m ON m.application_id=p.application_id AND m.environment_id=p.environment_id
+ WHERE p.id=$1 AND p.environment_id=$2`, proposalID, actor.EnvironmentID).
+		Scan(&v.ApplicationID, &v.EnvironmentID, &v.TeamID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return v, store.ErrNotFound
+	}
+	return v, err
+}
+
+func (s *Service) authorizeApprovalTx(ctx context.Context, tx pgx.Tx, actor v3passkey.Actor, v record) error {
+	err := approvalGrantTx(ctx, tx, actor.UserID, v.EnvironmentID, v.ApplicationID, v.TeamID)
+	if !errors.Is(err, store.ErrForbidden) {
+		return err
+	}
+	// A reader can distinguish insufficient approval permission from a
+	// missing target. Someone with neither permission sees no proposal.
+	if s.Access != nil {
+		viewErr := s.authorizeTx(ctx, tx, core.User{ID: actor.UserID}, v, "view")
+		if viewErr == nil {
+			return store.ErrForbidden
+		}
+		if !errors.Is(viewErr, store.ErrForbidden) {
+			return viewErr
+		}
+	}
+	return store.ErrNotFound
+}
+
+// This is a nonlocking admission check. The caller must reauthorize after
+// taking the proposal, user, session and grant locks used for the operation.
+func (s *Service) approvalAdmissionTx(ctx context.Context, tx pgx.Tx, actor v3passkey.Actor, proposalID string) error {
+	v, err := approvalScopeTx(ctx, tx, actor, proposalID)
+	if err != nil {
+		return err
+	}
+	if err = approvalSessionFreshTx(ctx, tx, actor); err != nil {
+		return err
+	}
+	return s.authorizeApprovalTx(ctx, tx, actor, v)
+}
+
 func (s *Service) ApprovalOptions(ctx context.Context, actor v3passkey.Actor, proposalID string) (
 	v3passkey.ProposalBinding, error) {
 	var empty v3passkey.ProposalBinding
@@ -285,19 +331,19 @@ func (s *Service) ApprovalOptions(ctx context.Context, actor v3passkey.Actor, pr
 		return empty, err
 	}
 	defer tx.Rollback(ctx)
-	v, action, err := s.loadApprovalActionTx(ctx, tx, proposalID)
+	if err = s.approvalAdmissionTx(ctx, tx, actor, proposalID); err != nil {
+		return empty, err
+	}
+	v, raw, err := lockReviewTx(ctx, tx, proposalID, true)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && v.EnvironmentID != actor.EnvironmentID {
+		return empty, store.ErrNotFound
+	}
 	if err != nil {
 		return empty, err
 	}
-	if v.EnvironmentID != actor.EnvironmentID {
-		return empty, store.ErrNotFound
-	}
-	if v.Status != "pending" {
-		return empty, store.ErrConflict
-	}
-	if action.CreatorID == actor.UserID {
-		return empty, store.ErrForbidden
-	}
+	// Keep the established proposal/action lock order, but withhold action
+	// validation failures until authority is confirmed under the grant locks.
+	action, actionErr := s.loadApprovalActionTx(ctx, tx, v)
 	if err = lockApprovalActorTx(ctx, tx, actor); err != nil {
 		return empty, err
 	}
@@ -307,8 +353,20 @@ func (s *Service) ApprovalOptions(ctx context.Context, actor v3passkey.Actor, pr
 	if err = approvalSessionFreshTx(ctx, tx, actor); err != nil {
 		return empty, err
 	}
-	if err = approvalGrantTx(ctx, tx, actor.UserID, v.EnvironmentID, v.ApplicationID, v.TeamID); err != nil {
+	if err = s.authorizeApprovalTx(ctx, tx, actor, v); err != nil {
 		return empty, err
+	}
+	if actionErr != nil {
+		return empty, actionErr
+	}
+	if err = decodeReviewContent(&v, raw); err != nil {
+		return empty, err
+	}
+	if v.Status != "pending" {
+		return empty, store.ErrConflict
+	}
+	if action.CreatorID == actor.UserID {
+		return empty, store.ErrForbidden
 	}
 	if err = s.approvalEvidenceReadyTx(ctx, tx, action); err != nil {
 		return empty, err
@@ -316,7 +374,7 @@ func (s *Service) ApprovalOptions(ctx context.Context, actor v3passkey.Actor, pr
 	return approvalBinding(action), tx.Commit(ctx)
 }
 
-func approvalVoteByChallengeTx(ctx context.Context, tx pgx.Tx, proposalID, challengeID string) (approvalVote, bool, error) {
+func approvalVoteByChallengeTx(ctx context.Context, tx pgx.Tx, challengeID string) (approvalVote, bool, error) {
 	var v approvalVote
 	err := tx.QueryRow(ctx, `SELECT id,proposal_id,approver_id,challenge_id,action_kind,
  action_digest,review_content_digest,instance_id,rp_id,credential_id,
@@ -330,9 +388,6 @@ func approvalVoteByChallengeTx(ctx context.Context, tx pgx.Tx, proposalID, chall
 	}
 	if err != nil {
 		return approvalVote{}, false, err
-	}
-	if v.ProposalID != proposalID {
-		return approvalVote{}, false, store.ErrConflict
 	}
 	return v, true, nil
 }
@@ -460,34 +515,26 @@ func (s *Service) ApproveProposal(ctx context.Context, actor v3passkey.Actor, pr
 		return empty, err
 	}
 	defer tx.Rollback(ctx)
-	v, action, err := s.loadApprovalActionTx(ctx, tx, proposalID)
+	if err = s.approvalAdmissionTx(ctx, tx, actor, proposalID); err != nil {
+		return empty, err
+	}
+	v, raw, err := lockReviewTx(ctx, tx, proposalID, true)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && v.EnvironmentID != actor.EnvironmentID {
+		return empty, store.ErrNotFound
+	}
 	if err != nil {
 		return empty, err
 	}
-	if v.EnvironmentID != actor.EnvironmentID {
-		return empty, store.ErrNotFound
-	}
-	if action.CreatorID == actor.UserID {
-		return empty, store.ErrForbidden
-	}
-	if v.Status != "pending" && v.Status != "approved" {
-		return empty, store.ErrConflict
-	}
+	// Keep the established proposal/action lock order, but withhold action
+	// validation failures until authority is confirmed under the grant locks.
+	action, actionErr := s.loadApprovalActionTx(ctx, tx, v)
 	if err = lockApprovalActorTx(ctx, tx, actor); err != nil {
 		return empty, err
 	}
 	requestHash := approvalRequestHash(proposalID, challengeID, response, comment)
-	replayed, exists, err := approvalVoteByChallengeTx(ctx, tx, proposalID, challengeID)
+	replayed, exists, err := approvalVoteByChallengeTx(ctx, tx, challengeID)
 	if err != nil {
 		return empty, err
-	}
-	if exists && (replayed.ApproverID != actor.UserID || replayed.RequestHash != requestHash ||
-		replayed.ActionKind != action.Kind || replayed.ActionDigest != action.ActionDigest ||
-		replayed.ReviewContentDigest != action.ReviewContentDigest) {
-		return empty, store.ErrConflict
-	}
-	if !exists && v.Status != "pending" {
-		return empty, store.ErrConflict
 	}
 	var now time.Time
 	if err = tx.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&now); err != nil {
@@ -510,8 +557,28 @@ func (s *Service) ApproveProposal(ctx context.Context, actor v3passkey.Actor, pr
 	if err = approvalSessionFreshTx(ctx, tx, actor); err != nil {
 		return empty, err
 	}
-	if err = approvalGrantTx(ctx, tx, actor.UserID, v.EnvironmentID, v.ApplicationID, v.TeamID); err != nil {
+	if err = s.authorizeApprovalTx(ctx, tx, actor, v); err != nil {
 		return empty, err
+	}
+	if actionErr != nil {
+		return empty, actionErr
+	}
+	if err = decodeReviewContent(&v, raw); err != nil {
+		return empty, err
+	}
+	if action.CreatorID == actor.UserID {
+		return empty, store.ErrForbidden
+	}
+	if v.Status != "pending" && v.Status != "approved" {
+		return empty, store.ErrConflict
+	}
+	if exists && (replayed.ProposalID != proposalID || replayed.ApproverID != actor.UserID || replayed.RequestHash != requestHash ||
+		replayed.ActionKind != action.Kind || replayed.ActionDigest != action.ActionDigest ||
+		replayed.ReviewContentDigest != action.ReviewContentDigest) {
+		return empty, store.ErrConflict
+	}
+	if !exists && v.Status != "pending" {
+		return empty, store.ErrConflict
 	}
 	if exists {
 		result, err := approvalResultTx(ctx, tx, v, action, candidates)

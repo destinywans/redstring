@@ -36,23 +36,37 @@ func (s *Service) resolveAgentVersionSnapshot(ctx context.Context, tx pgx.Tx, ac
 		!boundedText(env, 100) || env == "prod" || env == "all" {
 		return readAgentSnapshot{}, "", errInvalid
 	}
-	var name, appID, version, artifactRef string
-	err := tx.QueryRow(ctx, `SELECT a.name,a.application_id,a.stable_version,v.artifact_ref
+	var scopeApp, ownerTeam string
+	err := tx.QueryRow(ctx, `SELECT a.application_id,COALESCE(app.owner_team_id,'')
  FROM v3_agents a
- JOIN v3_agent_versions v ON v.agent_id=a.id AND v.version=a.stable_version
  JOIN applications app ON app.id=a.application_id AND NOT app.archived
  JOIN v3_application_environments ae ON ae.application_id=a.application_id AND ae.environment_id=a.environment_id
- WHERE a.id=$1 AND a.environment_id=$2 AND a.stable_version IS NOT NULL
- FOR SHARE OF a,v,app,ae`, id, env).Scan(&name, &appID, &version, &artifactRef)
+ WHERE a.id=$1 AND a.environment_id=$2`, id, env).Scan(&scopeApp, &ownerTeam)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return readAgentSnapshot{}, "", store.ErrNotFound
 	}
 	if err != nil {
 		return readAgentSnapshot{}, "", err
 	}
-	if err = s.Access.AuthorizeWithTx(ctx, tx, actor, rbac.V3Decision{
-		Module: "agents", Action: "change", EnvironmentID: env, ApplicationID: appID,
-	}); err != nil {
+	if err = s.authorizePromotionSource(ctx, tx, actor, "agent_version", env, scopeApp, ownerTeam, ownerTeam, true); err != nil {
+		return readAgentSnapshot{}, "", err
+	}
+
+	var name, appID, version, artifactRef string
+	err = tx.QueryRow(ctx, `SELECT a.name,a.application_id,a.stable_version,v.artifact_ref,COALESCE(app.owner_team_id,'')
+ FROM v3_agents a
+ JOIN v3_agent_versions v ON v.agent_id=a.id AND v.version=a.stable_version
+ JOIN applications app ON app.id=a.application_id AND NOT app.archived
+ JOIN v3_application_environments ae ON ae.application_id=a.application_id AND ae.environment_id=a.environment_id
+ WHERE a.id=$1 AND a.environment_id=$2 AND a.application_id=$3 AND a.stable_version IS NOT NULL
+ FOR SHARE OF a,v,app,ae`, id, env, scopeApp).Scan(&name, &appID, &version, &artifactRef, &ownerTeam)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return readAgentSnapshot{}, "", store.ErrNotFound
+	}
+	if err != nil {
+		return readAgentSnapshot{}, "", err
+	}
+	if err = s.authorizePromotionSource(ctx, tx, actor, "agent_version", env, appID, ownerTeam, ownerTeam, true); err != nil {
 		return readAgentSnapshot{}, "", err
 	}
 	snapshot := readAgentSnapshot{Name: name, Version: version, ArtifactRef: artifactRef}

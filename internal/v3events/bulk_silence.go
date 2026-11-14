@@ -153,20 +153,18 @@ func exactPreparedBulkMatchers(prepared v3alertmanager.ProposedSilenceCreate,
 	return len(expected) == 0
 }
 
-// Scan the complete authenticated ingress source up to the same bounded
-// candidate ceiling as GET /alert-groups. The source_id prefix of the
-// (source_id,fingerprint,starts_at) unique index bounds the rows fetched.
-// If the source has more history than this limit, refuse a proposal instead
-// of treating an incomplete scan as proof of no current collision. Alerts
-// on other sources and future inserts remain covered by the operator's
-// endpoint-wide attestation, not by this finite database check.
+// The collision check inspects the authenticated ingress source, including
+// otherwise hidden alerts: a silence can match every alert on that source.
+// Refuse the proposal if the source-wide invariant cannot be verified.
+const bulkIdentityCollisionScanLimit = 5000
+
 func currentBulkIdentityCollision(ctx context.Context, tx pgx.Tx, key groupKey,
 	labelName, labelValue string) error {
 	scanCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	rows, err := tx.Query(scanCtx, `SELECT environment_id,application_id,fingerprint,labels->>$2
  FROM ops_incidents WHERE source_id=$1
- ORDER BY fingerprint,starts_at LIMIT $3`, key.SourceID, labelName, bulkMaxCandidates+1)
+ ORDER BY fingerprint,starts_at LIMIT $3`, key.SourceID, labelName, bulkIdentityCollisionScanLimit+1)
 	if err != nil {
 		return errBulkNotConnected
 	}
@@ -174,7 +172,7 @@ func currentBulkIdentityCollision(ctx context.Context, tx pgx.Tx, key groupKey,
 	count := 0
 	for rows.Next() {
 		count++
-		if count > bulkMaxCandidates {
+		if count > bulkIdentityCollisionScanLimit {
 			return errBulkNotConnected
 		}
 		var environmentID, applicationID, fingerprint string
@@ -377,6 +375,9 @@ func (b *BulkService) attachBulkSilenceEvidence(r *http.Request, env, id string,
 		return err
 	}
 	defer tx.Rollback(r.Context())
+	if err = b.admitBulkGroup(r, tx, env, key, "silence"); err != nil {
+		return err
+	}
 	group, err := lockBulkGroup(r.Context(), tx, env, id, key)
 	if err != nil {
 		return err
@@ -391,15 +392,15 @@ func (b *BulkService) attachBulkSilenceEvidence(r *http.Request, env, id string,
 	if err != nil {
 		return err
 	}
+	token, err := b.authorizeLockedGroup(r, tx, key, group, env, "silence")
+	if err != nil {
+		return err
+	}
 	if status != "pending" || digest != result.ActionDigest ||
 		proposalKey != initial.Input.IdempotencyKey ||
 		binding != initial.Evidence.EndpointBindingFingerprint ||
 		kind != v3alertmanager.ProposedSilenceCreateKind || creator != httpapi.CurrentUser(r).ID {
 		return store.ErrConflict
-	}
-	token, err := b.authorizeLockedGroup(r, tx, key, group, env, "silence")
-	if err != nil {
-		return err
 	}
 	if group.OverLimit {
 		return errBulkGroupTooLarge

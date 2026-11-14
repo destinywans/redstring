@@ -91,6 +91,11 @@ func (s *WriteService) handleEnable(w http.ResponseWriter, r *http.Request, env 
 		writeError(w, problem(422, "invalid_enable_request", "An investigation ID and an Idempotency-Key of at least eight characters are required"))
 		return
 	}
+	if err := s.admitWrite(r.Context(), actor, env, in.ApplicationID); err != nil {
+		writeError(w, err)
+		return
+	}
+	in.DraftRuleSpec = s.withScopeLabels(in.DraftRuleSpec, env)
 	spec := in.DraftRuleSpec
 	// The stored spec keeps the draft rule format; enabling is the proposal
 	// action, never a mode of the rule itself.

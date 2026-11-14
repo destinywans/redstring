@@ -341,8 +341,8 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		postmortemReadError(w, err)
 		return
 	}
-	source, err := lockSource(r.Context(), tx, in.IncidentID)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && !inScope(scope, source.env) {
+	candidate, err := readSourceScope(r.Context(), tx, in.IncidentID)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && !inScope(scope, candidate.env) {
 		httpapi.Error(w, 404, "not_found", "Incident not found")
 		return
 	}
@@ -351,16 +351,23 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := httpapi.CurrentUser(r)
+	if !s.allowCreate(w, r, tx, candidate) {
+		return
+	}
+	source, err := lockSource(r.Context(), tx, in.IncidentID, candidate)
+	if errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 404, "not_found", "Incident not found")
+		return
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "postmortems_unavailable", "Incident unavailable")
+		return
+	}
 	if err = postmortemReadSession(r.Context(), tx, r); err != nil {
 		postmortemReadError(w, err)
 		return
 	}
-	if err = s.authorizeTx(r.Context(), tx, user, source.app, source.team, source.env, "manage"); err != nil {
-		if errors.Is(err, store.ErrForbidden) {
-			httpapi.Error(w, 403, "forbidden", "Postmortem permission required")
-		} else {
-			httpapi.Error(w, 503, "authorization_unavailable", "Postmortem access could not be checked")
-		}
+	if !s.allowCreate(w, r, tx, source.sourceScope) {
 		return
 	}
 	if source.kind == "ops" && in.SourceCloseEventSeq <= 0 && in.SourceRevision == "" {
@@ -421,6 +428,26 @@ func (s *Service) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpapi.WriteJSON(w, 201, map[string]string{"id": id})
+}
+
+func (s *Service) allowCreate(w http.ResponseWriter, r *http.Request, tx pgx.Tx, scope sourceScope) bool {
+	ctx, user := r.Context(), httpapi.CurrentUser(r)
+	err := s.authorizeModuleTx(ctx, tx, user, scope.app, scope.team, scope.env, "events", "view")
+	if errors.Is(err, store.ErrForbidden) {
+		httpapi.Error(w, 404, "not_found", "Incident not found")
+		return false
+	}
+	if err == nil {
+		err = s.authorizeModuleTx(ctx, tx, user, scope.app, scope.team, scope.env, "knowledge", "manage")
+		if errors.Is(err, store.ErrForbidden) {
+			httpapi.Error(w, 403, "forbidden", "Postmortem permission required")
+			return false
+		}
+	}
+	if err != nil {
+		httpapi.Error(w, 503, "authorization_unavailable", "Postmortem access could not be checked")
+	}
+	return err == nil
 }
 
 func postmortemSourceChanged(w http.ResponseWriter) {

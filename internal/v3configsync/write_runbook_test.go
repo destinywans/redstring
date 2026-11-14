@@ -18,14 +18,23 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type runbookPromotionAccess struct{ decisions []rbac.V3Decision }
+type runbookPromotionAccess struct {
+	decisions      []rbac.V3Decision
+	deny, viewOnly bool
+}
 
 func (a *runbookPromotionAccess) Authorize(_ context.Context, _ core.User, d rbac.V3Decision) error {
 	a.decisions = append(a.decisions, d)
+	if a.deny || a.viewOnly && d.Action != "view" {
+		return store.ErrForbidden
+	}
 	return nil
 }
 func (a *runbookPromotionAccess) AuthorizeWithTx(_ context.Context, _ pgx.Tx, _ core.User, d rbac.V3Decision) error {
 	a.decisions = append(a.decisions, d)
+	if a.deny || a.viewOnly && d.Action != "view" {
+		return store.ErrForbidden
+	}
 	return nil
 }
 
@@ -133,6 +142,20 @@ func TestRunbookSourceCurrentRevisionAndProductionDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
+	access := s.Access.(*runbookPromotionAccess)
+	access.deny = true
+	for _, id := range []string{doc.ID, "missing-runbook"} {
+		if _, _, err := s.resolveRunbookSnapshot(ctx, tx, core.User{ID: "owner"}, "test", id); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("invisible or missing Runbook %s: got %v", id, err)
+		}
+	}
+	access.deny = false
+	access.viewOnly = true
+	if _, _, err := s.resolveRunbookSnapshot(ctx, tx, core.User{ID: "owner"}, "test", doc.ID); !errors.Is(err, store.ErrForbidden) {
+		t.Fatalf("visible Runbook without manage permission: got %v", err)
+	}
+	access.viewOnly = false
+	access.decisions = nil
 	resolved, appID, err := s.resolveRunbookSnapshot(ctx, tx, core.User{ID: "owner"}, "test", doc.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -145,8 +168,9 @@ func TestRunbookSourceCurrentRevisionAndProductionDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	decisions := s.Access.(*runbookPromotionAccess).decisions
-	if len(decisions) != 2 || decisions[0].Module != "knowledge" || decisions[0].Action != "manage" ||
-		decisions[0].ApplicationID != "app-a" || decisions[1].TeamID != "team-ops" {
+	if len(decisions) != 4 || decisions[0].Module != "knowledge" || decisions[0].Action != "manage" ||
+		decisions[0].ApplicationID != "app-a" || decisions[1].TeamID != "team-ops" ||
+		decisions[0] != decisions[2] || decisions[1] != decisions[3] {
 		t.Fatalf("Runbook ACL was not bound to application and team: %+v", decisions)
 	}
 	m := runbookSignedManifest(t, resolved)
@@ -206,7 +230,7 @@ func TestRunbookSourceCurrentRevisionAndProductionDraft(t *testing.T) {
 	}
 	_, _, err = s.resolveRunbookSnapshot(ctx, tx, core.User{ID: "owner"}, "test", doc.ID)
 	_ = tx.Rollback(ctx)
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("historical steps were guessed without a matching current revision: %v", err)
 	}
 }

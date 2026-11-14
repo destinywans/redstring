@@ -285,6 +285,13 @@ INSERT INTO v3_application_environments(application_id,environment_id)
 	if w := request("?cluster=cluster-one"); w.Code != 422 {
 		t.Fatalf("unbounded registered count: status=%d body=%s", w.Code, w.Body.String())
 	}
+	if _, err := db.Exec(ctx, `UPDATE applications SET owner_team_id='other' WHERE id LIKE 'bulk-app-%'`); err != nil {
+		t.Fatal(err)
+	}
+	decode(request("?cluster=cluster-one"))
+	if response.Registered != 1 || len(response.Items) != 1 || response.Items[0].ID != "narrow" {
+		t.Fatalf("hidden registered services consumed the budget: %+v", response)
+	}
 	if _, err := db.Exec(ctx, `DELETE FROM v3_application_environments WHERE application_id LIKE 'bulk-app-%';
 DELETE FROM application_environments WHERE application_id LIKE 'bulk-app-%';
 DELETE FROM applications WHERE id LIKE 'bulk-app-%'`); err != nil {
@@ -303,8 +310,19 @@ DELETE FROM applications WHERE id LIKE 'bulk-app-%'`); err != nil {
 	if response.Ambiguous != 4 || len(response.Items) != 1 || response.Items[0].ID != "narrow" {
 		t.Fatalf("off-cluster volume changed scoped result: %+v", response)
 	}
+	decode(request("?cluster=cluster-other"))
+	if response.Cluster != "cluster-other" || len(response.Items) != 0 || response.Ambiguous != 0 || response.Registered != 1 {
+		t.Fatalf("hidden workloads changed the selected cluster result: %+v", response)
+	}
+	decode(request(""))
+	if response.Cluster != "cluster-one" || response.Ambiguous != 4 || len(response.Items) != 1 || response.Items[0].ID != "narrow" {
+		t.Fatalf("hidden workload volume changed unfiltered discovery: %+v", response)
+	}
+	if _, err := db.Exec(ctx, `UPDATE cmdb_resources SET owner_team_id='platform' WHERE id LIKE 'load-%'`); err != nil {
+		t.Fatal(err)
+	}
 	if w := request("?cluster=cluster-other"); w.Code != 422 {
-		t.Fatalf("unbounded selected-cluster scan: status=%d body=%s", w.Code, w.Body.String())
+		t.Fatalf("unbounded visible workloads: status=%d body=%s", w.Code, w.Body.String())
 	}
 	if w := request("?cluster=cluster-one&cluster=cluster-other"); w.Code != 422 {
 		t.Fatalf("ambiguous cluster filter accepted: status=%d body=%s", w.Code, w.Body.String())

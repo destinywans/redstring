@@ -120,7 +120,7 @@ func (s *Service) ChangeIncidentCaseStatus(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	defer tx.Rollback(r.Context())
-	v, err := scanCase(tx.QueryRow(r.Context(), caseSelect+` WHERE c.id=$1 FOR UPDATE OF c`, caseID))
+	v, err := s.lockAdmittedCase(r, tx, caseID, true, "change", "view")
 	if err != nil {
 		respondErr(w, err)
 		return

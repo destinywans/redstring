@@ -53,35 +53,31 @@ func (s *Service) Return(w http.ResponseWriter, r *http.Request) {
 		postmortemReadError(w, err)
 		return
 	}
-	v, err := readSavedPostmortem(r.Context(), tx, id, false)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && !inScope(scope, v.env) {
-		httpapi.Error(w, 404, "not_found", "Postmortem not found")
-		return
-	}
-	if err != nil {
-		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem review is unavailable")
+	_, admitted, ok := s.admitSavedWrite(w, r, tx, id, scope)
+	if !ok {
 		return
 	}
 	// The application row is only shared, as in Publish; then the record.
-	team, err := postmortemTeam(r.Context(), tx, v.app)
+	team, err := postmortemTeam(r.Context(), tx, admitted.app)
 	if errors.Is(err, pgx.ErrNoRows) {
 		httpapi.Error(w, 404, "not_found", "Postmortem not found")
 		return
 	}
-	if err == nil {
-		v, err = readSavedPostmortem(r.Context(), tx, id, true)
-	}
 	if err != nil {
 		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem review is unavailable")
 		return
 	}
+	v, err := readSavedPostmortem(r.Context(), tx, id, true)
+	if err != nil {
+		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem review is unavailable")
+		return
+	}
+	if v.app != admitted.app || v.env != admitted.env {
+		httpapi.Error(w, 404, "not_found", "Postmortem not found")
+		return
+	}
 	user := httpapi.CurrentUser(r)
-	if err = s.authorizeTx(r.Context(), tx, user, v.app, team, v.env, "manage"); err != nil {
-		if errors.Is(err, store.ErrForbidden) {
-			httpapi.Error(w, 404, "not_found", "Postmortem not found")
-		} else {
-			httpapi.Error(w, 503, "authorization_unavailable", "Postmortem access could not be checked")
-		}
+	if !savedWriteAuthorized(w, s.authorizeTx(r.Context(), tx, user, v.app, team, v.env, "manage")) {
 		return
 	}
 	var human bool

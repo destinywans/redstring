@@ -58,8 +58,8 @@ func mappingVersion(at time.Time) string { return at.UTC().Format(time.RFC3339Na
 // The matrix only renders a candidate while its exact source and binding
 // revision remain current and it is the sole GitLab project for that service
 // in the selected environment. The caller supplies only authorized app IDs.
-func (s *Service) currentMappingSuggestions(ctx context.Context, env string, appIDs []string) ([]mappingSuggestion, error) {
-	rows, err := s.Store.DB.Query(ctx, `SELECT m.application_id,m.service_key,COALESCE(a.owner_team_id,''),m.connector_id,m.external_id,
+func currentMappingSuggestions(ctx context.Context, q mappingQuerier, env string, appIDs []string) ([]mappingSuggestion, error) {
+	rows, err := q.Query(ctx, `SELECT m.application_id,m.service_key,COALESCE(a.owner_team_id,''),m.connector_id,m.external_id,
  m.id,m.discovered_at,m.environment_id,m.system_id,m.source_id,m.binding_revision,m.expires_at
  FROM v3_service_mapping_candidates m
  JOIN v3_connector_targets t ON t.id=m.source_id AND t.application_id=m.application_id AND t.environment_id=m.environment_id

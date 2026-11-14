@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/destinywans/redstring/internal/httpapi"
-	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -34,22 +33,11 @@ func (s *Service) Publish(w http.ResponseWriter, r *http.Request) {
 		postmortemReadError(w, err)
 		return
 	}
-	var incident, app, env, status, author, kind string
-	var investigation *string
-	var closeSeq, statusEventID *int64
-	err = tx.QueryRow(r.Context(), `SELECT incident_id,application_id,environment_id,status,created_by,
- source_kind,investigation_id,close_event_seq,source_case_status_event_id
- FROM v3_postmortems WHERE id=$1`, id).
-		Scan(&incident, &app, &env, &status, &author, &kind, &investigation, &closeSeq, &statusEventID)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && !inScope(scope, env) {
-		httpapi.Error(w, 404, "not_found", "Postmortem not found")
+	incident, admitted, ok := s.admitSavedWrite(w, r, tx, id, scope)
+	if !ok {
 		return
 	}
-	if err != nil {
-		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem review is unavailable")
-		return
-	}
-	source, err := lockSource(r.Context(), tx, incident)
+	source, err := lockSource(r.Context(), tx, incident, admitted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		postmortemSourceChanged(w)
 		return
@@ -60,24 +48,22 @@ func (s *Service) Publish(w http.ResponseWriter, r *http.Request) {
 	}
 	// Match Create's source-then-record lock order. Re-read the record after
 	// locking it so a concurrent publish cannot reuse a stale review state.
-	err = tx.QueryRow(r.Context(), `SELECT status,created_by,source_kind,investigation_id,
- close_event_seq,source_case_status_event_id FROM v3_postmortems WHERE id=$1 FOR UPDATE`, id).
-		Scan(&status, &author, &kind, &investigation, &closeSeq, &statusEventID)
+	var currentIncident, app, env, status, author, kind string
+	var investigation *string
+	var closeSeq, statusEventID *int64
+	err = tx.QueryRow(r.Context(), `SELECT incident_id,application_id,environment_id,status,created_by,
+ source_kind,investigation_id,close_event_seq,source_case_status_event_id FROM v3_postmortems WHERE id=$1 FOR UPDATE`, id).
+		Scan(&currentIncident, &app, &env, &status, &author, &kind, &investigation, &closeSeq, &statusEventID)
 	if err != nil {
 		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem review is unavailable")
 		return
 	}
-	if source.app != app || source.env != env || !inScope(scope, source.env) {
+	if source.app != app || source.env != env || currentIncident != incident {
 		httpapi.Error(w, 404, "not_found", "Postmortem not found")
 		return
 	}
 	user := httpapi.CurrentUser(r)
-	if err = s.authorizeTx(r.Context(), tx, user, app, source.team, env, "manage"); err != nil {
-		if errors.Is(err, store.ErrForbidden) {
-			httpapi.Error(w, 404, "not_found", "Postmortem not found")
-		} else {
-			httpapi.Error(w, 503, "authorization_unavailable", "Postmortem access could not be checked")
-		}
+	if !savedWriteAuthorized(w, s.authorizeTx(r.Context(), tx, user, app, source.team, env, "manage")) {
 		return
 	}
 	// LockActiveSession already holds the current user row through this

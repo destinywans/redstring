@@ -13,13 +13,13 @@ import (
 // appendCaseTimeline continues a human-confirmed incident without mutating
 // the incoming alert occurrences linked to it.
 func (s *Service) appendCaseTimeline(w http.ResponseWriter, r *http.Request, tx pgx.Tx, v caseRecord, note string) {
-	if !validCase(v) {
-		respondIncidentDetailError(w, store.ErrInvalidReference)
-		return
-	}
 	identity := incidentRecord{ApplicationID: v.ApplicationID, EnvironmentID: v.EnvironmentID, EnvironmentKey: v.EnvironmentKey}
 	if err := s.authorizeAlertTx(r, tx, identity, "change"); err != nil {
 		respondAlertAuthorityError(w, err)
+		return
+	}
+	if !validCase(v) {
+		respondIncidentDetailError(w, store.ErrInvalidReference)
 		return
 	}
 	user := httpapi.CurrentUser(r)
@@ -65,7 +65,7 @@ func (s *Service) caseManualTimeline(w http.ResponseWriter, r *http.Request) boo
 		return true
 	}
 	defer tx.Rollback(r.Context())
-	v, err := scanCase(tx.QueryRow(r.Context(), caseSelect+` WHERE c.id=$1 FOR SHARE OF c`, r.PathValue("id")))
+	v, err := s.lockAdmittedCase(r, tx, r.PathValue("id"), false, "view")
 	if errors.Is(err, pgx.ErrNoRows) {
 		_ = tx.Rollback(r.Context())
 		return false

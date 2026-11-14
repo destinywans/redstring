@@ -48,24 +48,40 @@ type registryTarget struct {
 
 const maxMappingTargets = 10000
 
-// mappingRegistryTargets reads the registry targets of the given environments
-// (and application, when not empty), keyed by application and environment,
-// with the confirmed code project as system "code".
-func mappingRegistryTargets(ctx context.Context, q interface {
+type mappingQuerier interface {
 	Query(context.Context, string, ...any) (pgx.Rows, error)
-}, envs []string, app string) (map[string][]registryTarget, error) {
-	rows, err := q.Query(ctx, `SELECT t.application_id,t.environment_id,t.id,t.connector_id,c.provider,
+}
+
+const mappingRegistryTargetsQuery = `SELECT t.application_id,t.environment_id,t.id,t.connector_id,c.provider,
  CASE WHEN p.target_id IS NULL THEN t.target_kind ELSE 'code_project' END,t.external_id
  FROM v3_connector_targets t JOIN v3_connectors c ON c.id=t.connector_id AND c.environment_id=t.environment_id
  LEFT JOIN v3_service_code_projects p ON p.target_id=t.id
- WHERE t.environment_id=ANY($1::text[]) AND ($2='' OR t.application_id=$2)
- AND (t.target_kind IN ('metric_resource','log_stream','log_index','trace_service','workload') OR p.target_id IS NOT NULL)
- ORDER BY t.application_id,t.environment_id,t.target_kind,t.id LIMIT $3`, envs, app, maxMappingTargets+1)
+ JOIN unnest($1::text[],$2::text[]) visible(application_id,environment_id)
+   ON visible.application_id=t.application_id AND visible.environment_id=t.environment_id
+ WHERE t.target_kind IN ('metric_resource','log_stream','log_index','trace_service','workload') OR p.target_id IS NOT NULL
+ ORDER BY t.application_id,t.environment_id,t.target_kind,t.id LIMIT $3`
+
+// The write and options paths call this only for an authorized application.
+func mappingRegistryTargets(ctx context.Context, q mappingQuerier, envs []string, app string) (map[string][]registryTarget, error) {
+	apps := make([]string, len(envs))
+	for i := range apps {
+		apps[i] = app
+	}
+	return mappingRegistryTargetsForPairs(ctx, q, apps, envs)
+}
+
+// The list uses exact authorized application/environment pairs. Independent
+// IN lists could admit a combination that the caller cannot access.
+func mappingRegistryTargetsForPairs(ctx context.Context, q mappingQuerier, apps, envs []string) (map[string][]registryTarget, error) {
+	out := map[string][]registryTarget{}
+	if len(apps) == 0 {
+		return out, nil
+	}
+	rows, err := q.Query(ctx, mappingRegistryTargetsQuery, apps, envs, maxMappingTargets+1)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string][]registryTarget{}
 	count := 0
 	for rows.Next() {
 		var appID, env string

@@ -37,6 +37,9 @@ type Service struct {
 	// AuthorizeListTx is an optional view-only policy for the two held-lock list
 	// helpers. Missing configuration retains the ordinary authority path.
 	AuthorizeListTx AuthorizeWithTx
+	// UseV3ListPrefilter is for the standard V3 matrix policy. The final
+	// callback checks still run against the held current authorization.
+	UseV3ListPrefilter bool
 	// AuthorizeTeamTx checks events grants against the current locked owner team.
 	// The composition root injects the same V3 policy used by AuthorizeTx.
 	AuthorizeTeamTx AuthorizeTeamWithTx
@@ -120,12 +123,13 @@ const incidentSelect = `SELECT ` + incidentProjection + `
 // incidentListSelect resolves the live metadata for the requested environments
 // once per statement, rather than joining it for every incident. The projection
 // and the subsequent held-lock authorization remain shared with incident reads.
-const incidentListSelect = `WITH incident_scopes AS MATERIALIZED (
+const incidentListScopes = `incident_scopes AS MATERIALIZED (
  SELECT e.id,e.application_id,e.key FROM application_environments e
  JOIN v3_application_environments ve ON ve.application_id=e.application_id AND ve.environment_id=e.key
  JOIN applications a ON a.id=e.application_id AND NOT a.archived
- WHERE NOT e.archived AND e.key=ANY($1::text[])
-)
+ WHERE NOT e.archived AND e.key=ANY($1::text[]) AND `
+
+const incidentListSelect = `)
 SELECT ` + incidentProjection + `
  FROM ops_incidents i
  JOIN incident_scopes e ON e.id=i.environment_id AND e.application_id=i.application_id
@@ -358,106 +362,42 @@ func (s *Service) listVisible(r *http.Request, tx pgx.Tx) ([]incidentRecord, err
 	if !ok || len(scope.EnvironmentIDs) == 0 || tx == nil || (s.Authorize == nil && s.AuthorizeTx == nil) {
 		return nil, store.ErrForbidden
 	}
-	rows, err := tx.Query(r.Context(), incidentSelect+` WHERE e.key=ANY($1::text[])
- AND NOT EXISTS (SELECT 1 FROM v3_incident_case_alerts linked WHERE linked.alert_id=i.id)
- ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001`, scope.EnvironmentIDs)
-	if err != nil {
-		return nil, err
+	cte, predicate, args := s.eventListGrants(r, "e.key", "a.id", "a.owner_team_id", scope.EnvironmentIDs)
+	if cte != "" {
+		cte += ", "
 	}
-	out := make([]incidentRecord, 0)
-	candidates := make([]incidentRecord, 0)
-	scanned := 0
-	for rows.Next() {
-		scanned++
-		// A bounded query must never be mistaken for complete totals.
-		if scanned > 5000 {
-			rows.Close()
-			return nil, errTooManyIncidents
-		}
-		v, err := scanIncident(rows)
-		if err != nil {
-			rows.Close()
-			return nil, err
-		}
-		candidates = append(candidates, v)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	for _, v := range candidates {
-		if s.AuthorizeTx != nil {
-			err = s.authorizeAlertTx(r, tx, v, "view")
-		} else {
-			// Older callers without transaction-aware V3 policy keep their
-			// existing read behavior; created cases remain unavailable to them.
-			err = s.scoped(r, v.ApplicationID, v.EnvironmentKey, "view")
-		}
-		if err != nil {
-			if errors.Is(err, store.ErrForbidden) || errors.Is(err, store.ErrNotFound) {
-				continue
-			}
-			return nil, err
-		}
-		out = append(out, v)
-	}
-	return out, nil
+	return scanVisibleList(r.Context(), tx, eventListLimit, scanIncident,
+		s.visibleEventScope(r, tx, nil), "WITH "+cte+incidentListScopes+predicate+incidentListSelect+`
+ WHERE NOT EXISTS (SELECT 1 FROM v3_incident_case_alerts linked WHERE linked.alert_id=i.id)
+ ORDER BY i.updated_at DESC,i.id DESC`, args...)
 }
 
-// listVisibleCases similarly captures case fields without blocking lifecycle
-// writes. Current authority is checked against each captured scope, and the
-// caller retains the link-table boundary until both list reads finish.
+// listVisibleCases captures case fields without blocking lifecycle writes.
+// Current authority is checked against each captured scope.
 func (s *Service) listVisibleCases(r *http.Request, tx pgx.Tx) ([]caseRecord, error) {
 	scope, ok := httpapi.V3ScopeFromContext(r.Context())
 	if !ok || len(scope.EnvironmentIDs) == 0 || tx == nil {
 		return nil, store.ErrForbidden
 	}
-	rows, err := tx.Query(r.Context(), caseSelect+` WHERE c.environment_key=ANY($1::text[])
- ORDER BY c.updated_at DESC,c.id DESC LIMIT 5001`, scope.EnvironmentIDs)
-	if err != nil {
-		return nil, err
+	cte, predicate, args := s.eventListGrants(r, "c.environment_key", "a.id", "a.owner_team_id", scope.EnvironmentIDs)
+	if cte != "" {
+		cte = "WITH " + cte + " "
 	}
-	candidates := make([]caseRecord, 0)
-	for rows.Next() {
-		if len(candidates) == 5000 {
-			rows.Close()
-			return nil, errTooManyIncidents
+	scopeVisible := s.visibleEventScope(r, tx, nil)
+	visible := func(ctx context.Context, v caseRecord) (bool, error) {
+		if s.AuthorizeTx == nil {
+			return false, store.ErrInvalidReference
 		}
-		v, scanErr := scanCase(rows)
-		if scanErr != nil {
-			rows.Close()
-			return nil, scanErr
+		ok, err := scopeVisible(ctx, incidentRecord{ApplicationID: v.ApplicationID,
+			EnvironmentID: v.EnvironmentID, EnvironmentKey: v.EnvironmentKey})
+		if ok && !validCase(v) {
+			return false, store.ErrInvalidReference
 		}
-		candidates = append(candidates, v)
+		return ok, err
 	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	if len(candidates) > 0 && s.AuthorizeTx == nil {
-		return nil, store.ErrInvalidReference
-	}
-	out := make([]caseRecord, 0, len(candidates))
-	for _, v := range candidates {
-		// authorizeAlertTx uses only the persisted application/environment
-		// identity. It also locks the current owner, session and V3 grant rows.
-		identity := incidentRecord{ApplicationID: v.ApplicationID,
-			EnvironmentID: v.EnvironmentID, EnvironmentKey: v.EnvironmentKey}
-		err = s.authorizeAlertTx(r, tx, identity, "view")
-		if errors.Is(err, store.ErrForbidden) || errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if !validCase(v) {
-			return nil, store.ErrInvalidReference
-		}
-		out = append(out, v)
-	}
-	return out, nil
+	return scanVisibleList(r.Context(), tx, eventListLimit, scanCase, visible, cte+caseSelect+`
+ WHERE c.environment_key=ANY($1::text[]) AND `+predicate+`
+ ORDER BY c.updated_at DESC,c.id DESC`, args...)
 }
 
 var errTooManyIncidents = errors.New("V3 incident list exceeds unpaginated safety limit")
@@ -495,7 +435,7 @@ func (s *Service) Incidents(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, err)
 		return
 	}
-	if len(values)+len(cases) > 5000 {
+	if len(values)+len(cases) > eventListLimit {
 		respondErr(w, errTooManyIncidents)
 		return
 	}
@@ -634,7 +574,7 @@ func (s *Service) AppendTimeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	caseValue, caseErr := scanCase(tx.QueryRow(r.Context(), caseSelect+` WHERE c.id=$1 FOR UPDATE OF c`, r.PathValue("id")))
+	caseValue, caseErr := s.lockAdmittedCase(r, tx, r.PathValue("id"), true, "change")
 	if caseErr == nil {
 		s.appendCaseTimeline(w, r, tx, caseValue, input.Text)
 		return
@@ -643,7 +583,7 @@ func (s *Service) AppendTimeline(w http.ResponseWriter, r *http.Request) {
 		respondErr(w, caseErr)
 		return
 	}
-	v, err := scanIncident(tx.QueryRow(r.Context(), incidentSelect+` WHERE i.id=$1 FOR UPDATE OF i`, r.PathValue("id")))
+	v, err := s.lockAdmittedAlert(r, tx, r.PathValue("id"), true, true, legacyTimelineChange)
 	if err != nil {
 		respondErr(w, err)
 		return

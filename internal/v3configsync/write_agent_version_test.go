@@ -18,12 +18,13 @@ import (
 
 type agentPromotionAccess struct {
 	deny      bool
+	viewOnly  bool
 	decisions []rbac.V3Decision
 }
 
 func (a *agentPromotionAccess) Authorize(_ context.Context, _ core.User, d rbac.V3Decision) error {
 	a.decisions = append(a.decisions, d)
-	if a.deny {
+	if a.deny || a.viewOnly && d.Action != "view" {
 		return store.ErrForbidden
 	}
 	return nil
@@ -31,7 +32,7 @@ func (a *agentPromotionAccess) Authorize(_ context.Context, _ core.User, d rbac.
 
 func (a *agentPromotionAccess) AuthorizeWithTx(_ context.Context, _ pgx.Tx, _ core.User, d rbac.V3Decision) error {
 	a.decisions = append(a.decisions, d)
-	if a.deny {
+	if a.deny || a.viewOnly && d.Action != "view" {
 		return store.ErrForbidden
 	}
 	return nil
@@ -110,10 +111,18 @@ INSERT INTO v3_agent_versions(agent_id,version,artifact_ref,created_by)
 		t.Fatal(err)
 	}
 	defer tx.Rollback(ctx)
-	if _, _, err := service.resolveAgentVersionSnapshot(ctx, tx, core.User{ID: "owner"}, "test", "triage"); !errors.Is(err, store.ErrForbidden) {
-		t.Fatalf("permission: got %v", err)
+	for _, id := range []string{"triage", "missing-agent"} {
+		if _, _, err := service.resolveAgentVersionSnapshot(ctx, tx, core.User{ID: "owner"}, "test", id); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("invisible or missing agent %s: got %v", id, err)
+		}
 	}
 	access.deny = false
+	access.viewOnly = true
+	if _, _, err := service.resolveAgentVersionSnapshot(ctx, tx, core.User{ID: "owner"}, "test", "triage"); !errors.Is(err, store.ErrForbidden) {
+		t.Fatalf("visible agent without change permission: got %v", err)
+	}
+	access.viewOnly = false
+	access.decisions = nil
 	snapshot, appID, err := service.resolveAgentVersionSnapshot(ctx, tx, core.User{ID: "owner"}, "test", "triage")
 	if err != nil {
 		t.Fatal(err)

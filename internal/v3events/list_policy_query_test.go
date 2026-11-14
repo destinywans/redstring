@@ -45,7 +45,7 @@ func TestListViewPolicyOneFreshStatementPerScope(t *testing.T) {
 			if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &body) != nil || body.Counts.All != 100 {
 				t.Fatalf("authorized list: %d %s", response.Code, response.Body.String())
 			}
-			policy := trace.count("FROM v3_effective_role_grants")
+			policy := trace.count("SELECT 1 FROM v3_effective_role_grants")
 			if policy != 100 {
 				t.Errorf("fresh policy SQL statements=%d want=100 (one combined current decision per distinct scope)", policy)
 			}
@@ -93,20 +93,20 @@ func TestListViewPolicyDoesNotReplaceDefaultOrClaimAuthorization(t *testing.T) {
 	if calls.Load() != 0 {
 		t.Fatalf("ordinary detail/first/idempotent claim invoked list-only callback %d times", calls.Load())
 	}
-	if n := trace.count("FROM v3_effective_role_grants"); n != 10 {
-		t.Errorf("detail plus first/retry claim view+change decisions must retain two SQL each: %d want=10", n)
+	if n := trace.count("SELECT 1 FROM v3_effective_role_grants"); n != 20 {
+		t.Errorf("detail and first/retry claim must check grants before and after the target lock: %d want=20", n)
 	}
 	var auditCount int
 	if err := f.db.QueryRow(t.Context(), `SELECT count(*) FROM management_audit WHERE action='alert.claim' AND target='incident'`).Scan(&auditCount); err != nil || auditCount != 1 {
 		t.Fatalf("claim audit after idempotent retry: count=%d err=%v", auditCount, err)
 	}
 	f.svc.AuthorizeListTx = nil
-	before := trace.count("FROM v3_effective_role_grants")
+	before := trace.count("SELECT 1 FROM v3_effective_role_grants")
 	response := f.request(t.Context(), http.MethodGet, "/api/v1/inbox", f.tokens[0], "")
 	if response.Code != 200 || !strings.Contains(response.Body.String(), "\"incident-b\"") {
 		t.Fatalf("nil list callback compatibility changed: %d %s", response.Code, response.Body.String())
 	}
-	if n := trace.count("FROM v3_effective_role_grants") - before; n != 6 {
+	if n := trace.count("SELECT 1 FROM v3_effective_role_grants") - before; n != 6 {
 		t.Errorf("unconfigured three-scope list must retain original two-query policy: %d want=6", n)
 	}
 }
@@ -136,7 +136,7 @@ func TestListViewPolicyTeamFallbackStaysCurrentAndUsesOriginalPolicy(t *testing.
 	if strings.Join(owners, ",") != "list-team-a,list-team-b,list-team-b" {
 		t.Fatalf("fallback owner teams=%v", owners)
 	}
-	if n := trace.count("FROM v3_effective_role_grants"); n != 9 {
+	if n := trace.count("SELECT 1 FROM v3_effective_role_grants"); n != 9 {
 		t.Errorf("three list single-query app decisions + three original two-query team decisions=%d want=9", n)
 	}
 }

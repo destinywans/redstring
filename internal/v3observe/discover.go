@@ -105,15 +105,13 @@ func (s *Service) discover(w http.ResponseWriter, r *http.Request) {
 	user := httpapi.CurrentUser(r)
 	english := strings.HasPrefix(strings.ToLower(r.Header.Get("Accept-Language")), "en")
 	visible := []discoveredService{}
-	names := map[string]int{}
 	clusters := map[string]bool{}
 	cursor := ""
-	scanned := 0
 	for {
 		// Bound the selected-cluster inventory walk. A second bounded-name
 		// query below checks cross-cluster namesakes before exposing a row to
 		// today's name-only registration page.
-		batch, err := s.workloadBatch(r.Context(), envs, cluster, cursor)
+		batch, err := s.workloadBatch(r.Context(), user, envs, cluster, cursor)
 		if err != nil {
 			httpapi.Error(w, 503, "catalog_unavailable", "Resource catalog unavailable")
 			return
@@ -121,14 +119,8 @@ func (s *Service) discover(w http.ResponseWriter, r *http.Request) {
 		if len(batch) == 0 {
 			break
 		}
-		scanned += len(batch)
-		if scanned > 2000 {
-			httpapi.Error(w, 422, "result_limit", "Narrow the cluster or environment filter")
-			return
-		}
 		for _, candidate := range batch {
 			cursor = candidate.ResourceID
-			names[strings.ToLower(candidate.Name)]++
 			if cluster != "" && candidate.Cluster != cluster {
 				continue
 			}
@@ -160,16 +152,12 @@ func (s *Service) discover(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	if cluster != "" && len(visible) > 0 {
-		// The list scan can now stay within the selected cluster. Resolve
-		// namesakes across every selected environment and cluster before
-		// offering a name-only registration to the current web client.
-		var err error
-		names, err = s.workloadNamesakeCounts(r.Context(), envs, visible)
-		if err != nil {
-			httpapi.Error(w, 503, "catalog_unavailable", "Resource catalog unavailable")
-			return
-		}
+	// Resolve namesakes of visible workloads across every selected environment
+	// and cluster. Hidden matches still matter for safe name-only registration.
+	names, err := s.workloadNamesakeCounts(r.Context(), envs, visible)
+	if err != nil {
+		httpapi.Error(w, 503, "catalog_unavailable", "Resource catalog unavailable")
+		return
 	}
 	raw, err := s.rawWorkloadIdentities(r.Context(), envs, visible)
 	if err != nil {
@@ -287,17 +275,25 @@ const trustedWorkloadFilter = `r.kind='deployment' AND r.source_kind='kubernetes
  AND NOT EXISTS (SELECT 1 FROM cmdb_resource_applications l WHERE l.resource_id=r.id)
  AND NOT EXISTS (SELECT 1 FROM applications a WHERE lower(a.key)=lower(r.name))`
 
-func (s *Service) workloadBatch(ctx context.Context, envs []string, cluster, cursor string) ([]workloadCandidate, error) {
+func (s *Service) workloadBatch(ctx context.Context, user core.User, envs []string, cluster, cursor string) ([]workloadCandidate, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	rows, err := s.Store.DB.Query(ctx, `SELECT r.id,r.name,r.external_id,src.environment_key,
+	query := `SELECT r.id,r.name,r.external_id,src.environment_key,
  src.id,r.attributes->>'cluster',COALESCE(r.owner_team_id,''),COALESCE(t.name,''),r.attributes,
  r.observed_at,src.last_success_at
  FROM cmdb_resources r
  JOIN cmdb_sync_sources src ON src.id=r.source_id AND src.kind=r.source_kind
  LEFT JOIN teams t ON t.id=r.owner_team_id
- WHERE r.id>$2 AND ($3='' OR r.attributes->>'cluster'=$3) AND `+trustedWorkloadFilter+`
- ORDER BY r.id LIMIT 200`, envs, cursor, cluster)
+ WHERE r.id>$2 AND ($3='' OR r.attributes->>'cluster'=$3) AND ` + trustedWorkloadFilter
+	args := []any{envs, cursor, cluster}
+	if _, ok := s.Access.(*rbac.V3Policy); ok {
+		query = "WITH " + rbac.V3ListGrantsCTE("$4") + " " + query
+		for _, module := range []string{"services", "resources"} {
+			query += " AND (" + rbac.V3ListScopePredicate("src.environment_key", "''", "r.owner_team_id", module, "view") + ")"
+		}
+		args = append(args, user.ID)
+	}
+	rows, err := s.Store.DB.Query(ctx, query+" ORDER BY r.id LIMIT 200", args...)
 	if err != nil {
 		return nil, err
 	}
@@ -319,6 +315,9 @@ func (s *Service) workloadBatch(ctx context.Context, envs []string, cluster, cur
 // outside the selected cluster and behind other teams' grants. The response
 // never contains those namesake identities.
 func (s *Service) workloadNamesakeCounts(ctx context.Context, envs []string, visible []discoveredService) (map[string]int, error) {
+	if len(visible) == 0 {
+		return nil, nil
+	}
 	keys := make([]string, 0, len(visible))
 	seen := map[string]bool{}
 	for _, item := range visible {
@@ -407,46 +406,68 @@ func projectWorkload(candidate workloadCandidate, attrs workloadAttributes, engl
 }
 
 func (s *Service) registeredServiceCount(ctx context.Context, user core.User, envs []string) (int, error) {
-	rows, err := s.Store.DB.Query(ctx, `SELECT DISTINCT a.id,ae.environment_id,COALESCE(a.owner_team_id,'')
+	query := `SELECT a.id,ae.environment_id,COALESCE(a.owner_team_id,'')
  FROM applications a
  JOIN v3_application_environments ae ON ae.application_id=a.id
  JOIN application_environments e ON e.application_id=a.id AND e.key=ae.environment_id AND NOT e.archived
- WHERE NOT a.archived AND ae.environment_id=ANY($1::text[]) LIMIT 1001`, envs)
-	if err != nil {
-		return 0, err
+ WHERE NOT a.archived AND ae.environment_id=ANY($1::text[]) AND (a.id,ae.environment_id)>($2,$3)`
+	_, useGrantFilter := s.Access.(*rbac.V3Policy)
+	if useGrantFilter {
+		query = "WITH " + rbac.V3ListGrantsCTE("$4") + " " + query + " AND (" +
+			rbac.V3ListScopePredicate("ae.environment_id", "a.id", "a.owner_team_id", "services", "view") + ")"
 	}
+	query += " ORDER BY a.id,ae.environment_id LIMIT 200"
 	type serviceScope struct{ id, env, team string }
-	services := []serviceScope{}
-	for rows.Next() {
-		var item serviceScope
-		if err = rows.Scan(&item.id, &item.env, &item.team); err != nil {
-			break
-		}
-		services = append(services, item)
-	}
-	if err == nil {
-		err = rows.Err()
-	}
-	rows.Close()
-	if err != nil {
-		return 0, err
-	}
-	if len(services) > 1000 {
-		return 0, errRegisteredLimit
-	}
 	seen := map[string]bool{}
-	for _, service := range services {
-		decision := rbac.V3Decision{Module: "services", Action: "view", EnvironmentID: service.env, ApplicationID: service.id}
-		err = s.Access.Authorize(ctx, user, decision)
-		if errors.Is(err, store.ErrForbidden) && service.team != "" {
-			decision.ApplicationID, decision.TeamID = "", service.team
-			err = s.Access.Authorize(ctx, user, decision)
+	lastID, lastEnv := "", ""
+	visibleScopes := 0
+	for {
+		args := []any{envs, lastID, lastEnv}
+		if useGrantFilter {
+			args = append(args, user.ID)
 		}
-		if err == nil {
-			seen[service.id] = true
-		} else if !errors.Is(err, store.ErrForbidden) {
+		rows, err := s.Store.DB.Query(ctx, query, args...)
+		if err != nil {
 			return 0, err
 		}
+		services := make([]serviceScope, 0, 200)
+		for rows.Next() {
+			var service serviceScope
+			if err = rows.Scan(&service.id, &service.env, &service.team); err != nil {
+				break
+			}
+			services = append(services, service)
+		}
+		if err == nil {
+			err = rows.Err()
+		}
+		rows.Close()
+		if err != nil {
+			return 0, err
+		}
+		for _, service := range services {
+			decision := rbac.V3Decision{Module: "services", Action: "view", EnvironmentID: service.env, ApplicationID: service.id}
+			err = s.Access.Authorize(ctx, user, decision)
+			if errors.Is(err, store.ErrForbidden) && service.team != "" {
+				decision.ApplicationID, decision.TeamID = "", service.team
+				err = s.Access.Authorize(ctx, user, decision)
+			}
+			if errors.Is(err, store.ErrForbidden) {
+				continue
+			}
+			if err != nil {
+				return 0, err
+			}
+			visibleScopes++
+			if visibleScopes > 1000 {
+				return 0, errRegisteredLimit
+			}
+			seen[service.id] = true
+		}
+		if len(services) < 200 {
+			return len(seen), nil
+		}
+		last := services[len(services)-1]
+		lastID, lastEnv = last.id, last.env
 	}
-	return len(seen), nil
 }

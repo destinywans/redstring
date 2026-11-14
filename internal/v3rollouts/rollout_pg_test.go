@@ -629,6 +629,50 @@ func TestRollbackProposalErrors(t *testing.T) {
 	expectError(f.call("GET", "/api/v1/services/"+ServiceID("app", "prod")+"/rollback-candidates", "requester", ""), 404, "not_found")
 }
 
+func TestApprovalDenialHidesProposalStateAndExecutorReadiness(t *testing.T) {
+	f := newRolloutFixture(t)
+	expectError := func(w *httptest.ResponseRecorder, status int, code string) {
+		t.Helper()
+		if w.Code != status || !strings.Contains(w.Body.String(), `"code":"`+code+`"`) {
+			t.Fatalf("status=%d body=%s, want %d %s", w.Code, w.Body, status, code)
+		}
+	}
+	id := f.propose("authorization-before-state")
+	f.secrets.set("vault://kv/lab/k8s-rollback#token", "")
+	for _, step := range []struct {
+		suffix, body string
+	}{
+		{"/approve/options", `{"confirm":true}`},
+		{"/approve", `{"challenge_id":"` + strings.Repeat("0", 32) + `","credential":{"id":"x"}}`},
+	} {
+		path := "/api/v1/proposals/" + id + step.suffix
+		expectError(f.call("POST", path, "requester", step.body), 403, "approval_forbidden")
+		expectError(f.call("POST", path, "approver1", step.body), 503, "proposal_approval_unavailable")
+	}
+	if _, err := f.db.Exec(t.Context(), `UPDATE v3_proposals SET status='rejected',rejected_by=created_by,rejected_at=now() WHERE id=$1`, id); err != nil {
+		t.Fatal(err)
+	}
+	expectError(f.call("POST", "/api/v1/proposals/"+id+"/approve/options", "requester", `{"confirm":true}`), 403, "approval_forbidden")
+
+	if _, err := f.db.Exec(t.Context(), `DELETE FROM v3_role_grants WHERE module='proposals' AND action='view' AND role_id IN ('viewer','operator')`); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct {
+		suffix, body string
+	}{
+		{"/approve/options", `{"confirm":true}`},
+		{"/approve", `{"challenge_id":"` + strings.Repeat("0", 32) + `","credential":{"id":"x"}}`},
+	} {
+		path := "/api/v1/proposals/"
+		existing := f.call("POST", path+id+step.suffix, "requester", step.body)
+		missing := f.call("POST", path+strings.Repeat("0", 32)+step.suffix, "requester", step.body)
+		expectError(existing, 404, "proposal_not_found")
+		if existing.Code != missing.Code || existing.Body.String() != missing.Body.String() {
+			t.Fatalf("%s: invisible and missing proposals differ: %s vs %s", step.suffix, existing.Body, missing.Body)
+		}
+	}
+}
+
 // A restarted dev-mode Vault is empty: reads report credential_unavailable,
 // a missing write token makes the executor not ready (approval refused), and
 // losing the read token mid-rollout ends in needs_attention, never in a

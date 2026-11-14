@@ -317,6 +317,14 @@ type record struct {
 }
 
 func loadReviewTx(ctx context.Context, tx pgx.Tx, id string, write bool) (record, error) {
+	v, raw, err := lockReviewTx(ctx, tx, id, write)
+	if err == nil {
+		err = decodeReviewContent(&v, raw)
+	}
+	return v, err
+}
+
+func lockReviewTx(ctx context.Context, tx pgx.Tx, id string, write bool) (record, []byte, error) {
 	var v record
 	var raw []byte
 	lock := " FOR SHARE"
@@ -328,40 +336,44 @@ func loadReviewTx(ctx context.Context, tx pgx.Tx, id string, write bool) (record
  FROM v3_proposals WHERE id=$1`+lock, id).Scan(&v.ID, &v.InvestigationID, &v.ApplicationID,
 		&v.EnvironmentID, &v.Status, &v.RejectedBy, &v.RejectionReason, &raw, &v.CreatedAt, &v.CreatedBy, &v.CreatorKind)
 	if err != nil {
-		return v, err
+		return v, nil, err
 	}
 	// Keep the target and its current scope stable through authorization and
 	// response assembly. Each lock is row-scoped and taken in the same order.
 	err = tx.QueryRow(ctx, `SELECT COALESCE(owner_team_id,'') FROM applications
  WHERE id=$1 AND NOT archived FOR SHARE`, v.ApplicationID).Scan(&v.TeamID)
 	if err != nil {
-		return record{}, err
+		return record{}, nil, err
 	}
 	var investigationEnvironment string
 	err = tx.QueryRow(ctx, `SELECT environment_id FROM investigations
  WHERE id=$1 AND application_id=$2 FOR SHARE`, v.InvestigationID, v.ApplicationID).Scan(&investigationEnvironment)
 	if err != nil {
-		return record{}, err
+		return record{}, nil, err
 	}
 	var mappedEnvironment string
 	err = tx.QueryRow(ctx, `SELECT key FROM application_environments
  WHERE id=$1 AND application_id=$2 AND key=$3 AND NOT archived FOR SHARE`,
 		investigationEnvironment, v.ApplicationID, v.EnvironmentID).Scan(&mappedEnvironment)
 	if err != nil {
-		return record{}, err
+		return record{}, nil, err
 	}
 	err = tx.QueryRow(ctx, `SELECT environment_id FROM v3_application_environments
  WHERE application_id=$1 AND environment_id=$2 FOR SHARE`, v.ApplicationID, v.EnvironmentID).Scan(&mappedEnvironment)
 	if err != nil {
-		return record{}, err
+		return record{}, nil, err
 	}
-	if err = json.Unmarshal(raw, &v.Content); err != nil || !validContent(v.Content) {
-		return record{}, ErrInvalidProposal
+	return v, raw, nil
+}
+
+func decodeReviewContent(v *record, raw []byte) error {
+	if err := json.Unmarshal(raw, &v.Content); err != nil || !validContent(v.Content) {
+		return ErrInvalidProposal
 	}
 	if v.Content.InvestigationID != v.InvestigationID {
-		return record{}, ErrInvalidProposal
+		return ErrInvalidProposal
 	}
-	return v, nil
+	return nil
 }
 
 func (s *Service) beginReview(w http.ResponseWriter, r *http.Request) (pgx.Tx, bool) {

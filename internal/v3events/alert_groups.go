@@ -208,52 +208,16 @@ func (s *Service) visibleAlertIncidentsTx(r *http.Request, tx pgx.Tx, requestedE
 	if !ok || len(scope.EnvironmentIDs) == 0 || s.AuthorizeTx == nil {
 		return nil, store.ErrForbidden
 	}
-	rows, err := tx.Query(r.Context(), incidentListSelect+` WHERE e.key=ANY($1::text[]) AND ($2='' OR e.key=$2)
-		ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001`, scope.EnvironmentIDs, requestedEnv)
-	if err != nil {
-		return nil, err
+	cte, predicate, args := s.eventListGrants(r, "e.key", "a.id", "a.owner_team_id", scope.EnvironmentIDs, requestedEnv)
+	if cte != "" {
+		cte += ", "
 	}
-	candidates := make([]incidentRecord, 0)
-	for rows.Next() {
-		if len(candidates) == 5000 {
-			rows.Close()
-			return nil, errTooManyIncidents
-		}
-		v, scanErr := scanIncident(rows)
-		if scanErr != nil {
-			rows.Close()
-			return nil, scanErr
-		}
-		candidates = append(candidates, v)
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
-		return nil, err
-	}
-	// The first scope still locks app, then actor/session, then grants. Later
-	// scopes reuse those held locks, but re-read scope, policy and DB expiry.
+	// The first scope locks app, then actor/session, then grants. Later
+	// scopes reuse those held locks but re-read scope, policy and DB expiry.
 	guard := newListAuthorityGuard(r, tx)
-	allowed := make(map[string]bool)
-	denied := make(map[string]bool)
-	visible := make([]incidentRecord, 0, len(candidates))
-	for _, v := range candidates {
-		key := v.ApplicationID + "\x00" + v.EnvironmentID
-		if !allowed[key] && !denied[key] {
-			authErr := s.authorizeAlertWithGuard(r, tx, v, "view", guard)
-			if errors.Is(authErr, store.ErrForbidden) || errors.Is(authErr, store.ErrNotFound) {
-				denied[key] = true
-			} else if authErr != nil {
-				return nil, authErr
-			} else {
-				allowed[key] = true
-			}
-		}
-		if allowed[key] {
-			visible = append(visible, v)
-		}
-	}
-	return visible, nil
+	return scanVisibleList(r.Context(), tx, eventListLimit, scanIncident,
+		s.visibleEventScope(r, tx, guard), "WITH "+cte+incidentListScopes+predicate+incidentListSelect+`
+ WHERE ($2='' OR e.key=$2) ORDER BY i.updated_at DESC,i.id DESC`, args...)
 }
 
 func activeAlertReadSession(ctx context.Context, tx pgx.Tx, r *http.Request) error {

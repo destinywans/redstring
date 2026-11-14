@@ -100,6 +100,46 @@ func bulkCookie(r *http.Request) string {
 	return cookie.Value
 }
 
+func (b *BulkService) admitBulkGroup(r *http.Request, tx pgx.Tx, env string, key groupKey, action string) error {
+	ctx := r.Context()
+	user := httpapi.CurrentUser(r)
+	if err := bulkSessionStillActive(ctx, tx, bulkCookie(r), user.ID); err != nil {
+		return err
+	}
+	var human bool
+	err := tx.QueryRow(ctx, `SELECT v3_identity_kind='human' AND source<>'settings_demo'
+ FROM users WHERE id=$1`, user.ID).Scan(&human)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && !human {
+		return errHumanRequired
+	}
+	if err != nil {
+		return err
+	}
+	var team string
+	err = tx.QueryRow(ctx, `SELECT COALESCE(a.owner_team_id,'')
+ FROM applications a
+ JOIN application_environments e ON e.application_id=a.id AND NOT e.archived
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=e.key
+ WHERE a.id=$1 AND e.id=$2 AND e.key=$3 AND NOT a.archived`, key.ApplicationID, key.EnvironmentID, env).Scan(&team)
+	if err != nil {
+		return err
+	}
+	return b.authorizeBulkAction(r, tx, key, team, env, action)
+}
+
+func (b *BulkService) authorizeBulkAction(r *http.Request, tx pgx.Tx, key groupKey, ownerTeam, env, action string) error {
+	ctx := r.Context()
+	user := httpapi.CurrentUser(r)
+	if err := authorizeBulkGroup(ctx, tx, b.Access, user, key.ApplicationID, ownerTeam, env); err != nil {
+		return err
+	}
+	if action == "investigate" {
+		return authorizeBulkModule(ctx, tx, b.Access, user,
+			key.ApplicationID, ownerTeam, env, "canvas", "change")
+	}
+	return nil
+}
+
 func (b *BulkService) authorizeLockedGroup(r *http.Request, tx pgx.Tx, key groupKey,
 	group lockedBulkGroup, env, action string) (string, error) {
 	user := httpapi.CurrentUser(r)
@@ -121,15 +161,8 @@ func (b *BulkService) authorizeLockedGroup(r *http.Request, tx pgx.Tx, key group
 	if _, err = tx.Exec(r.Context(), `LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants IN SHARE MODE`); err != nil {
 		return "", err
 	}
-	if err = authorizeBulkGroup(r.Context(), tx, b.Access, user,
-		key.ApplicationID, group.OwnerTeam, env); err != nil {
+	if err = b.authorizeBulkAction(r, tx, key, group.OwnerTeam, env, action); err != nil {
 		return "", err
-	}
-	if action == "investigate" {
-		if err = authorizeBulkModule(r.Context(), tx, b.Access, user,
-			key.ApplicationID, group.OwnerTeam, env, "canvas", "change"); err != nil {
-			return "", err
-		}
 	}
 	return token, nil
 }
@@ -163,6 +196,9 @@ func (b *BulkService) applyBulkGroup(r *http.Request, env, id string, key groupK
 		return safeBulkError(id, 0, err)
 	}
 	defer tx.Rollback(r.Context())
+	if err = b.admitBulkGroup(r, tx, env, key, action); err != nil {
+		return safeBulkError(id, 0, err)
+	}
 	group, err := lockBulkGroup(r.Context(), tx, env, id, key)
 	if err != nil {
 		return safeBulkError(id, 0, err)

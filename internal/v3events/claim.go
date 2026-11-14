@@ -83,7 +83,7 @@ func (s *Service) ClaimAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	v, err := scanIncident(tx.QueryRow(r.Context(), incidentSelect+` WHERE i.id=$1 FOR UPDATE OF i`, r.PathValue("id")))
+	v, err := s.lockAdmittedAlert(r, tx, r.PathValue("id"), true, true, "change", "view")
 	if err != nil {
 		respondErr(w, err)
 		return

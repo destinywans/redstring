@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/destinywans/redstring/internal/core"
@@ -193,6 +194,43 @@ func TestServiceMappingsHTTPV3ObjectScopeAndPersistedBindings(t *testing.T) {
 	if byName["visible"].Cells["deploy"].Value != "dev: job=visible" || byName["visible"].Cells["dash"].Value != "test: secret-test-log" ||
 		byName["unmapped"].Cells["deploy"].State != "missing" || byName["archived"].Service != "" {
 		t.Fatalf("incorrect mapped/unmapped all result: %+v", allView.Rows)
+	}
+	// The registry budget covers only app/environment pairs the caller can see.
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,credential_ref,enabled,tools)
+ VALUES('synthetic-mappings-prom','dev','prometheus','Synthetic','observe','https://metrics.example.invalid','none','',true,'[]')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connector_targets(id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
+ VALUES('synthetic-visible-target','app-visible','dev','synthetic-mappings-prom','metric_resource','visible-metrics',$1)`, appUser.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connector_targets(id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
+ SELECT 'synthetic-hidden-target-'||n,'app-hidden','dev','synthetic-mappings-prom','metric_resource','hidden-metrics-'||n,$1
+ FROM generate_series(1,$2::integer) n`, appUser.ID, maxMappingTargets+1); err != nil {
+		t.Fatal(err)
+	}
+	appView = read("dev", appToken)
+	if len(appView.Rows) != 1 || appView.Rows[0].Cells["metrics"].Value != "visible-metrics" {
+		t.Fatalf("hidden targets displaced the visible target: %+v", appView.Rows)
+	}
+	if w := request("dev", adminToken); w.Code != http.StatusUnprocessableEntity || !strings.Contains(w.Body.String(), "result_limit") {
+		t.Fatalf("visible registry cap: status=%d body=%s", w.Code, w.Body.String())
+	}
+	// The caller can also see app-hidden in test, and app-visible in dev. A
+	// cross-product of application and environment IDs would still include
+	// app-hidden's dev targets and consume the result budget.
+	if _, err := db.Exec(ctx, `INSERT INTO application_environments(id,application_id,key,name)
+ VALUES('hidden-test','app-hidden','test','Test');
+ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app-hidden','test');
+ INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+ ('mapping-app-reader','environment','view','environment','test'),
+ ('mapping-app-reader','services','view','environment','test')`); err != nil {
+		t.Fatal(err)
+	}
+	appAll = read("all", appToken)
+	if len(appAll.Rows) != 2 || appAll.Rows[0].Service != "hidden" || appAll.Rows[0].Cells["metrics"].State != "missing" ||
+		appAll.Rows[1].Service != "visible" || appAll.Rows[1].Cells["metrics"].Value != "dev: visible-metrics" {
+		t.Fatalf("registry targets crossed authorized application/environment pairs: %+v", appAll.Rows)
 	}
 	// A page of unrelated catalog rows must not consume the visible result
 	// budget before the service policy has run.

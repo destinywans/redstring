@@ -2,6 +2,7 @@ package v3home
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/destinywans/redstring/internal/core"
 	"github.com/destinywans/redstring/internal/operations"
+	"github.com/destinywans/redstring/internal/rbac"
 	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -95,5 +97,41 @@ func TestHomeOpenCountMatchesIncidentPage(t *testing.T) {
 	}
 	if len(out.Attention) != 1 || out.Attention[0].ID != "open" {
 		t.Fatalf("attention=%+v", out.Attention)
+	}
+	if err = tx.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(ctx, `DELETE FROM v3_role_grants WHERE role_id='viewer';
+ INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+ ('viewer','environment','view','environment','dev'),('viewer','events','view','application','app');
+ INSERT INTO rbac_user_roles(user_id,role_id,origin) VALUES('u','viewer','direct') ON CONFLICT DO NOTHING;
+ INSERT INTO applications(id,key,name)
+ SELECT 'a-hidden-'||n,'hidden-'||n,'Hidden '||n FROM generate_series(1,5001) n;
+ INSERT INTO application_environments(id,application_id,key,name)
+ SELECT 'hidden-dev-'||n,'a-hidden-'||n,'dev','Dev' FROM generate_series(1,5001) n;
+ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('app','dev') ON CONFLICT DO NOTHING;
+ INSERT INTO v3_application_environments(application_id,environment_id)
+ SELECT 'a-hidden-'||n,'dev' FROM generate_series(1,5001) n ON CONFLICT DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	readTargets := func() ([]target, error) {
+		t.Helper()
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		return New(db, &rbac.V3Policy{Store: st}).targets(ctx, tx, core.User{ID: "u"}, []string{"dev"})
+	}
+	visible, err := readTargets()
+	if err != nil || len(visible) != 1 || visible[0].AppID != "app" || !visible[0].EventsView {
+		t.Fatalf("hidden home rows changed the view: %+v, %v", visible, err)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('viewer','events','view','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readTargets(); !errors.Is(err, errTooMany) {
+		t.Fatalf("authorized home view exceeded the cap: %v", err)
 	}
 }

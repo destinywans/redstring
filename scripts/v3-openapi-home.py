@@ -75,3 +75,4 @@ v3_route('get', '/home', 'Read the authenticated scoped home summary',
          'availability explains each gap. '
          'The frozen HomeSummary has non-null assumptions for these sections '
          'and needs a later frontend type/rendering update.')
+P['/home']['get']['description'] += ' Only authorized application and environment pairs count toward the target limit.'

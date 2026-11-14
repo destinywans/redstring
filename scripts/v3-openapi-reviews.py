@@ -69,4 +69,10 @@ v3_route('post','/proposals/{id}/approve',
              ['challenge_id','credential']),
     response=ref('V3ProposalApprovalResult'),status=202,
     desc='Verifies and consumes one WebAuthn assertion in the proposal transaction, rechecks the current app, team, environment, human session and passkey-assured approval grant, and audits one immutable vote. A first valid vote returns 202 pending_review with no execution_id. A second distinct valid human other than the creator produces one durable approved decision and execution_id for an independent executor and returns 200. The 200 response is a historical decision and handoff ID, not proof that execution is currently permitted, claimed, or complete. An exact challenge and payload replay can return the original decision even after its proof expires or is revoked; the executor rechecks current evidence before claiming. Changed payload or a stale new vote returns 409. This handler never performs an upstream write.')
+P['/proposals/{id}/approve']['post']['description'] += ' A replay requires current approval authority and executor readiness.'
 P['/proposals/{id}/approve']['post']['responses']['200'] = P['/proposals/{id}/approve']['post']['responses']['202']
+for _path in ('/proposals/{id}/approve/options','/proposals/{id}/approve'):
+    P[_path]['post']['description'] += ' A missing proposal or one the caller can neither view nor approve returns 404. A visible proposal without current approval authority returns 403. Status and executor readiness are evaluated after authorization.'
+    P[_path]['post']['responses']['404'] = {
+        'description':'Proposal not found in the current authorized scope',
+        'content':{'application/json':{'schema':ref('Error')}}}

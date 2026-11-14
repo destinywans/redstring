@@ -13,6 +13,7 @@ import (
 	"github.com/destinywans/redstring/internal/httpapi"
 	"github.com/destinywans/redstring/internal/rbac"
 	"github.com/destinywans/redstring/internal/store"
+	"github.com/jackc/pgx/v5"
 )
 
 type mappingCatalogRow struct {
@@ -24,18 +25,17 @@ type mappingCatalogRow struct {
 	targetRevision int64
 }
 
-const mappingQuery = `SELECT a.id,a.key,ve.environment_id,COALESCE(a.owner_team_id,''),e.id,e.bindings,e.binding_revision,
+const mappingCandidatesQuery = `SELECT a.id,a.key,ve.environment_id,COALESCE(a.owner_team_id,''),e.id,e.bindings,e.binding_revision,
  COALESCE(r.revision,1)
  FROM applications a
  JOIN v3_application_environments ve ON ve.application_id=a.id
  JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
  LEFT JOIN v3_service_target_revisions r ON r.application_id=a.id AND r.environment_id=ve.environment_id
  WHERE NOT a.archived AND ve.environment_id=ANY($1::text[])
- AND (a.key,ve.environment_id,a.id)>($2,$3,$4)
- ORDER BY a.key,ve.environment_id,a.id LIMIT 128`
+ AND (a.key,ve.environment_id,a.id)>($2,$3,$4)`
 
-func (s *Service) mappingBatch(ctx context.Context, envs []string, key, env, id string) ([]mappingCatalogRow, error) {
-	rows, err := s.Store.DB.Query(ctx, mappingQuery, envs, key, env, id)
+func mappingBatch(ctx context.Context, q mappingQuerier, query string, args ...any) ([]mappingCatalogRow, error) {
+	rows, err := q.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -215,13 +215,85 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 	singleEnvironment := len(envs) == 1 && !requestScope.All
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+	user := httpapi.CurrentUser(r)
+	var q mappingQuerier = s.Store.DB
+	authorize := func(d rbac.V3Decision) error {
+		return s.Access.Authorize(ctx, user, d)
+	}
+	var tx pgx.Tx
+	if access, ok := s.transactionAccess(); ok {
+		// Read the authorized pairs and their registry targets from the same
+		// snapshot, including the revision used by the mapping editor.
+		var err error
+		tx, err = s.Store.DB.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+		if err != nil {
+			httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
+			return
+		}
+		defer tx.Rollback(ctx)
+		q = tx
+		authorize = func(d rbac.V3Decision) error {
+			return access.AuthorizeWithTx(ctx, tx, user, d)
+		}
+	}
+	serviceAccess := func(action, app, env, team string) error {
+		decision := rbac.V3Decision{Module: "services", Action: action, EnvironmentID: env, ApplicationID: app}
+		err := authorize(decision)
+		if errors.Is(err, store.ErrForbidden) && team != "" {
+			decision.ApplicationID, decision.TeamID = "", team
+			return authorize(decision)
+		}
+		return err
+	}
 	byName := map[string]*mappingRow{}
 	visibleAppIDs := []string{}
 	visibleAppKeys := map[string]string{}
 	visibleBindings := map[string][]core.Binding{}
 	visibleRows := map[string]mappingCatalogRow{}
 	visibleTargets := map[string][]registryTarget{}
-	targets, err := mappingRegistryTargets(ctx, s.Store.DB, envs, "")
+	visible := make([]mappingCatalogRow, 0)
+	targetApps, targetEnvs := []string{}, []string{}
+	query := mappingCandidatesQuery
+	_, useGrantFilter := s.Access.(*rbac.V3Policy)
+	if useGrantFilter {
+		query = "WITH " + rbac.V3ListGrantsCTE("$6") + " " + query + " AND (" +
+			rbac.V3ListScopePredicate("ve.environment_id", "a.id", "a.owner_team_id", "services", "view") + ")"
+	}
+	query += " ORDER BY a.key,ve.environment_id,a.id LIMIT $5"
+	var cursorKey, cursorEnv, cursorID string
+	for {
+		args := []any{envs, cursorKey, cursorEnv, cursorID, catalogPageSize}
+		if useGrantFilter {
+			args = append(args, user.ID)
+		}
+		batch, err := mappingBatch(ctx, q, query, args...)
+		if err != nil {
+			httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
+			return
+		}
+		for _, item := range batch {
+			err := serviceAccess("view", item.appID, item.env, item.teamID)
+			if errors.Is(err, store.ErrForbidden) {
+				continue
+			}
+			if err != nil {
+				httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
+				return
+			}
+			visible = append(visible, item)
+			if len(visible) > 1000 {
+				httpapi.Error(w, 422, "result_limit", "Narrow the environment scope")
+				return
+			}
+			targetApps, targetEnvs = append(targetApps, item.appID), append(targetEnvs, item.env)
+		}
+		if len(batch) < catalogPageSize {
+			break
+		}
+		last := batch[len(batch)-1]
+		cursorKey, cursorEnv, cursorID = last.key, last.env, last.appID
+	}
+	targets, err := mappingRegistryTargetsForPairs(ctx, q, targetApps, targetEnvs)
 	if errors.Is(err, errMappingTargetLimit) {
 		httpapi.Error(w, 422, "result_limit", "Narrow the environment scope")
 		return
@@ -231,88 +303,60 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	order := []string{}
-	count := 0
-	var cursorKey, cursorEnv, cursorID string
-	for {
-		batch, err := s.mappingBatch(ctx, envs, cursorKey, cursorEnv, cursorID)
-		if err != nil {
+	for _, item := range visible {
+		if singleEnvironment {
+			visibleAppIDs = append(visibleAppIDs, item.appID)
+			visibleAppKeys[item.appID] = item.key
+		}
+		var bindings []core.Binding
+		if err := json.Unmarshal(item.bindings, &bindings); err != nil {
 			httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
 			return
 		}
-		for _, item := range batch {
-			visible, authErr := s.canView(ctx, httpapi.CurrentUser(r), catalogRow{appID: item.appID, env: item.env, teamID: item.teamID})
-			if authErr != nil {
-				httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
-				return
-			}
-			if !visible {
-				continue
-			}
-			if singleEnvironment {
-				visibleAppIDs = append(visibleAppIDs, item.appID)
-				visibleAppKeys[item.appID] = item.key
-			}
-			// Hidden records cannot consume the visible result budget.
-			count++
-			if count > 1000 {
-				httpapi.Error(w, 422, "result_limit", "Narrow the environment scope")
-				return
-			}
-			var bindings []core.Binding
-			if err := json.Unmarshal(item.bindings, &bindings); err != nil {
-				httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
-				return
-			}
-			serviceTargets := targets[item.appID+"\x00"+item.env]
-			if singleEnvironment {
-				visibleBindings[item.appID] = bindings
-				visibleRows[item.appID] = item
-				visibleTargets[item.appID] = serviceTargets
-			}
-			row, found := byName[item.key]
-			if !found {
-				row = &mappingRow{Service: item.key, Cells: map[string]mappingCell{}}
-				byName[item.key] = row
-				order = append(order, item.key)
-			}
-			addCell := func(id, value, brand string) {
-				if id == "" || strings.TrimSpace(value) == "" {
-					return
-				}
-				if len(envs) > 1 {
-					value = item.env + ": " + value
-				}
-				cell := row.Cells[id]
-				if cell.State == "ok" {
-					if !strings.Contains("\n"+cell.Value+"\n", "\n"+value+"\n") {
-						cell.Value += ", " + value
-					}
-				} else {
-					cell = mappingCell{State: "ok", Value: value, Brand: brand}
-				}
-				row.Cells[id] = cell
-			}
-			// Registry systems come from targets, the rest from the stored
-			// bindings.
-			for _, target := range serviceTargets {
-				addCell(target.System, target.Resource, target.Provider)
-			}
-			for _, b := range legacyKept(bindings) {
-				addCell(mappingKind(b.Kind), b.Resource, b.Kind)
-			}
+		serviceTargets := targets[item.appID+"\x00"+item.env]
+		if singleEnvironment {
+			visibleBindings[item.appID] = bindings
+			visibleRows[item.appID] = item
+			visibleTargets[item.appID] = serviceTargets
 		}
-		if len(batch) < catalogPageSize {
-			break
+		row, found := byName[item.key]
+		if !found {
+			row = &mappingRow{Service: item.key, Cells: map[string]mappingCell{}}
+			byName[item.key] = row
+			order = append(order, item.key)
 		}
-		last := batch[len(batch)-1]
-		cursorKey, cursorEnv, cursorID = last.key, last.env, last.appID
+		addCell := func(id, value, brand string) {
+			if id == "" || strings.TrimSpace(value) == "" {
+				return
+			}
+			if len(envs) > 1 {
+				value = item.env + ": " + value
+			}
+			cell := row.Cells[id]
+			if cell.State == "ok" {
+				if !strings.Contains("\n"+cell.Value+"\n", "\n"+value+"\n") {
+					cell.Value += ", " + value
+				}
+			} else {
+				cell = mappingCell{State: "ok", Value: value, Brand: brand}
+			}
+			row.Cells[id] = cell
+		}
+		// Registry systems come from targets, the rest from the stored
+		// bindings.
+		for _, target := range serviceTargets {
+			addCell(target.System, target.Resource, target.Provider)
+		}
+		for _, b := range legacyKept(bindings) {
+			addCell(mappingKind(b.Kind), b.Resource, b.Kind)
+		}
 	}
 	output := make([]mappingRow, 0, len(order))
 	suggestions := 0
 	if singleEnvironment && len(visibleAppIDs) > 0 {
 		connectorAllowed := true
 		for _, action := range []string{"view", "manage"} {
-			err := s.Access.Authorize(ctx, httpapi.CurrentUser(r), rbac.V3Decision{
+			err := authorize(rbac.V3Decision{
 				Module: "connectors", Action: action, EnvironmentID: envs[0],
 			})
 			if errors.Is(err, store.ErrForbidden) {
@@ -326,13 +370,7 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 		}
 		if connectorAllowed {
 			for appID, item := range visibleRows {
-				decision := rbac.V3Decision{Module: "services", Action: "change", EnvironmentID: envs[0], ApplicationID: appID}
-				changeErr := s.Access.Authorize(ctx, httpapi.CurrentUser(r), decision)
-				if errors.Is(changeErr, store.ErrForbidden) && item.teamID != "" {
-					decision.ApplicationID = ""
-					decision.TeamID = item.teamID
-					changeErr = s.Access.Authorize(ctx, httpapi.CurrentUser(r), decision)
-				}
+				changeErr := serviceAccess("change", appID, envs[0], item.teamID)
 				if errors.Is(changeErr, store.ErrForbidden) {
 					continue
 				}
@@ -343,7 +381,7 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 				view := s.registrySaveProjection(item, visibleBindings[appID], visibleTargets[appID])
 				byName[item.key].Save = &view
 			}
-			pending, err := s.currentMappingSuggestions(ctx, envs[0], visibleAppIDs)
+			pending, err := currentMappingSuggestions(ctx, q, envs[0], visibleAppIDs)
 			if err != nil {
 				httpapi.Error(w, 503, "catalog_unavailable", "Mapping candidates unavailable")
 				return
@@ -352,23 +390,15 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 				if visibleAppKeys[candidate.appID] != candidate.key {
 					continue
 				}
-				visibleNow, err := s.canView(ctx, httpapi.CurrentUser(r), catalogRow{
-					appID: candidate.appID, env: envs[0], teamID: candidate.teamID,
-				})
+				err := serviceAccess("view", candidate.appID, envs[0], candidate.teamID)
+				if errors.Is(err, store.ErrForbidden) {
+					continue
+				}
 				if err != nil {
 					httpapi.Error(w, 503, "authorization_unavailable", "Mapping policy unavailable")
 					return
 				}
-				if !visibleNow {
-					continue
-				}
-				changeDecision := rbac.V3Decision{Module: "services", Action: "change", EnvironmentID: envs[0], ApplicationID: candidate.appID}
-				changeErr := s.Access.Authorize(ctx, httpapi.CurrentUser(r), changeDecision)
-				if errors.Is(changeErr, store.ErrForbidden) && candidate.teamID != "" {
-					changeDecision.ApplicationID = ""
-					changeDecision.TeamID = candidate.teamID
-					changeErr = s.Access.Authorize(ctx, httpapi.CurrentUser(r), changeDecision)
-				}
+				changeErr := serviceAccess("change", candidate.appID, envs[0], candidate.teamID)
 				if errors.Is(changeErr, store.ErrForbidden) {
 					continue
 				}
@@ -399,6 +429,12 @@ func (s *Service) mappings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		output = append(output, *row)
+	}
+	if tx != nil {
+		if err := tx.Commit(ctx); err != nil {
+			httpapi.Error(w, 503, "catalog_unavailable", "Service mappings unavailable")
+			return
+		}
 	}
 	httpapi.WriteJSON(w, 200, map[string]any{"systems": mappingSystemsFor(r.Header.Get("Accept-Language")), "rows": output, "suggestions": suggestions})
 }

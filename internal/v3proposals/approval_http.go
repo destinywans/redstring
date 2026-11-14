@@ -125,7 +125,7 @@ func (s *Service) Approve(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.approvalWorkflowReadyForProposal(r.Context(), r.PathValue("id"), actor.EnvironmentID); err != nil {
+	if err := s.approvalWorkflowReadyForProposal(r.Context(), r.PathValue("id"), actor); err != nil {
 		approvalHTTPError(w, err)
 		return
 	}
@@ -142,23 +142,33 @@ func (s *Service) Approve(w http.ResponseWriter, r *http.Request) {
 	httpapi.WriteJSON(w, status, result)
 }
 
-// Workflow readiness runs before opening the approval transaction because its
-// probes use their own DB connection. The domain locks and checks the exact
-// action, committed group evidence, human and passkey proof before a new vote.
-func (s *Service) approvalWorkflowReadyForProposal(ctx context.Context, proposalID, environmentID string) error {
+// Readiness probes may need another pool connection. Check admission and
+// release this transaction before probing, then recheck in ApproveProposal.
+func (s *Service) approvalWorkflowReadyForProposal(ctx context.Context, proposalID string, actor v3passkey.Actor) error {
 	if s == nil || s.DB == nil {
 		return v3alertmanager.ErrNotConfigured
 	}
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if err = s.approvalAdmissionTx(ctx, tx, actor, proposalID); err != nil {
+		return err
+	}
 	var kind string
-	err := s.DB.QueryRow(ctx, `SELECT action_kind FROM v3_proposal_actions
- WHERE proposal_id=$1 AND environment_id=$2`, proposalID, environmentID).Scan(&kind)
+	err = tx.QueryRow(ctx, `SELECT action_kind FROM v3_proposal_actions
+ WHERE proposal_id=$1 AND environment_id=$2`, proposalID, actor.EnvironmentID).Scan(&kind)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return store.ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	return s.approvalWorkflowReady(ctx, kind, environmentID)
+	if err = tx.Commit(ctx); err != nil {
+		return err
+	}
+	return s.approvalWorkflowReady(ctx, kind, actor.EnvironmentID)
 }
 
 func (s *Service) approvalWorkflowReady(ctx context.Context, kind, environmentID string) error {

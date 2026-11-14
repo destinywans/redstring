@@ -100,10 +100,10 @@ func (s *Service) AddParticipants(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	id := r.PathValue("id")
-	c, err := scanCase(tx.QueryRow(r.Context(), caseSelect+` WHERE c.id=$1 FOR UPDATE OF c`, id))
+	c, err := s.lockAdmittedCase(r, tx, id, true, "change", "view")
 	v := incidentRecord{ApplicationID: c.ApplicationID, EnvironmentID: c.EnvironmentID, EnvironmentKey: c.EnvironmentKey}
 	if errors.Is(err, pgx.ErrNoRows) {
-		v, err = scanIncident(tx.QueryRow(r.Context(), incidentSelect+` WHERE i.id=$1 FOR UPDATE OF i`, id))
+		v, err = s.lockAdmittedAlert(r, tx, id, true, true, "change", "view")
 	}
 	if err != nil {
 		respondIncidentCreateError(w, err)

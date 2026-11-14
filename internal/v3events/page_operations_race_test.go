@@ -229,6 +229,66 @@ func TestIncidentAliasAssignmentUsesAlertIdentityAndCurrentEpoch(t *testing.T) {
 	}
 }
 
+func TestAssignmentDenialHidesTargetAndRecipient(t *testing.T) {
+	f := newPageRaceFixture(t)
+	assignee := func(id, user string) *httptest.ResponseRecorder {
+		return f.call("POST", "/assignments", map[string]string{"item_kind": "alert", "item_id": id, "assignee": user})
+	}
+	hiddenUser, err := (&store.Store{DB: f.db}).CreateUser(t.Context(),
+		core.User{Email: "invisible@example.invalid", Name: "No Access", Role: "viewer"}, "isolated-hidden-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.exec(`DELETE FROM v3_role_grants WHERE role_id='viewer'`)
+	unknown, inaccessible := assignee("alert", "missing-user"), assignee("alert", hiddenUser.ID)
+	f.want(unknown, 422)
+	if inaccessible.Code != unknown.Code || inaccessible.Body.String() != unknown.Body.String() {
+		t.Fatalf("missing and invisible assignees differ: %d %s vs %d %s", unknown.Code, unknown.Body, inaccessible.Code, inaccessible.Body)
+	}
+
+	// This user may select the environment but cannot see or change this
+	// alert. The existing row is held by another transaction throughout the
+	// request so the denial also proves no wait on an unauthorized object.
+	f.exec(`DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id='admin'`, f.other.ID)
+	f.exec(`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('viewer','environment','view','environment','dev')`)
+	_, token, err := (&store.Store{DB: f.db}).Login(t.Context(), "other@example.invalid", "isolated-other-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.token = token
+	tx, err := f.db.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(t.Context())
+	if _, err := tx.Exec(t.Context(), `SELECT id FROM ops_incidents WHERE id='alert' FOR UPDATE`); err != nil {
+		t.Fatal(err)
+	}
+	missing := assignee("missing-alert", f.actor.ID)
+	f.want(missing, 404)
+	result := make(chan *httptest.ResponseRecorder, 1)
+	go func() { result <- assignee("alert", f.actor.ID) }()
+	select {
+	case hidden := <-result:
+		if hidden.Code != missing.Code || hidden.Body.String() != missing.Body.String() {
+			t.Fatalf("missing and invisible assignment targets differ: %d %s vs %d %s", hidden.Code, hidden.Body, missing.Code, missing.Body)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("unauthorized assignment waited for the target row")
+	}
+	f.exec(`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('viewer','events','view','application','app')`)
+	result = make(chan *httptest.ResponseRecorder, 1)
+	go func() { result <- assignee("alert", f.actor.ID) }()
+	select {
+	case visible := <-result:
+		f.want(visible, 403)
+	case <-time.After(3 * time.Second):
+		t.Fatal("assignment without change permission waited for the target row")
+	}
+}
+
 func TestAssignmentNotificationRechecksAfterObjectLockWait(t *testing.T) {
 	f := newPageRaceFixture(t)
 	f.assign("alert", f.actor.ID)

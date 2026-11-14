@@ -10,7 +10,6 @@ import (
 
 	"github.com/destinywans/redstring/internal/core"
 	"github.com/destinywans/redstring/internal/knowledge"
-	"github.com/destinywans/redstring/internal/rbac"
 	"github.com/destinywans/redstring/internal/store"
 	"github.com/jackc/pgx/v5"
 )
@@ -68,6 +67,22 @@ func sanitizeRunbookSnapshot(title string, version int, when string, rawSteps []
 	return readRunbookSnapshot{Title: title, Version: version, When: when, Steps: steps}, nil
 }
 
+// The denial response may acknowledge only a Runbook readable in the chosen
+// environment. In particular, draft status and a private team binding cannot
+// be inferred by attempting a promotion.
+const runbookPromotionReadScope = `
+ d.lifecycle='published'
+ AND CASE WHEN jsonb_typeof(d.metadata->'environment_ids')='array'
+   THEN d.metadata->'environment_ids' ? $2
+     AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(d.metadata->'environment_ids') item
+       WHERE jsonb_typeof(item)<>'string' OR btrim(item #>> '{}')='')
+   ELSE false END
+ AND NOT (d.metadata ? 'source_registration_id')
+ AND (NOT (d.metadata ? 'team_id') OR COALESCE(jsonb_typeof(d.metadata->'team_id')='string'
+   AND btrim(d.metadata->>'team_id')<>''
+   AND d.metadata->>'team_id'=a.owner_team_id,false)),
+ COALESCE(d.metadata->>'team_id','')`
+
 // resolveRunbookSnapshot accepts only the current, published V3 revision. The
 // document revision records versioned prose while v3_runbooks holds only the
 // current structured steps; an old version cannot be reconstructed honestly.
@@ -75,21 +90,45 @@ func (s *Service) resolveRunbookSnapshot(ctx context.Context, tx pgx.Tx, actor c
 	if !objectKeyRE.MatchString(id) || env == "" || env == "prod" || env == "all" {
 		return readRunbookSnapshot{}, "", errInvalid
 	}
+	var scopeApp, scopeTeam, readableTeam string
+	var readableScope bool
+	err := tx.QueryRow(ctx, `SELECT d.application_id,COALESCE(a.owner_team_id,''),`+runbookPromotionReadScope+`
+ FROM knowledge_documents d
+ JOIN applications a ON a.id=d.application_id AND NOT a.archived
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
+ JOIN application_environments ae ON ae.application_id=a.id AND ae.key=$2 AND NOT ae.archived
+ WHERE d.id=$1 AND d.source='runbook://v3/' || d.id`, id, env).Scan(&scopeApp, &scopeTeam, &readableScope, &readableTeam)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return readRunbookSnapshot{}, "", store.ErrNotFound
+	}
+	if err != nil {
+		return readRunbookSnapshot{}, "", err
+	}
+	if err = s.authorizePromotionSource(ctx, tx, actor, "runbook", env, scopeApp, scopeTeam, readableTeam, readableScope); err != nil {
+		return readRunbookSnapshot{}, "", err
+	}
+
 	var appID, ownerTeam, title, source, when, contentHash string
 	var version int
 	var metadataRaw, revisionRaw, stepsRaw []byte
-	err := tx.QueryRow(ctx, `SELECT d.application_id,COALESCE(a.owner_team_id,''),d.title,d.source,d.version,
- d.content_hash,d.metadata,r.snapshot,v.when_text,v.steps
+	err = tx.QueryRow(ctx, `SELECT d.application_id,COALESCE(a.owner_team_id,''),d.title,d.source,d.version,
+ d.content_hash,d.metadata,r.snapshot,v.when_text,v.steps,`+runbookPromotionReadScope+`
  FROM knowledge_documents d
  JOIN applications a ON a.id=d.application_id AND NOT a.archived
  JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
  JOIN application_environments ae ON ae.application_id=a.id AND ae.key=$2 AND NOT ae.archived
  JOIN knowledge_revisions r ON r.document_id=d.id AND r.version=d.version
  JOIN v3_runbooks v ON v.document_id=d.id
- WHERE d.id=$1 AND d.lifecycle='published' AND d.source='runbook://v3/' || d.id
- FOR SHARE OF d,r,v,a,ve,ae`, id, env).Scan(&appID, &ownerTeam, &title, &source, &version,
-		&contentHash, &metadataRaw, &revisionRaw, &when, &stepsRaw)
+ WHERE d.id=$1 AND d.lifecycle='published' AND d.source='runbook://v3/' || d.id AND d.application_id=$3
+ FOR SHARE OF d,r,v,a,ve,ae`, id, env, scopeApp).Scan(&appID, &ownerTeam, &title, &source, &version,
+		&contentHash, &metadataRaw, &revisionRaw, &when, &stepsRaw, &readableScope, &readableTeam)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return readRunbookSnapshot{}, "", store.ErrNotFound
+	}
 	if err != nil {
+		return readRunbookSnapshot{}, "", err
+	}
+	if err = s.authorizePromotionSource(ctx, tx, actor, "runbook", env, appID, ownerTeam, readableTeam, readableScope); err != nil {
 		return readRunbookSnapshot{}, "", err
 	}
 	var currentMeta knowledge.Metadata
@@ -101,17 +140,6 @@ func (s *Service) resolveRunbookSnapshot(ctx context.Context, tx pgx.Tx, actor c
 		revision.ContentHash != contentHash ||
 		!reflect.DeepEqual(revision.Metadata, currentMeta) {
 		return readRunbookSnapshot{}, "", errInvalidManifest
-	}
-	decision := rbac.V3Decision{Module: "knowledge", Action: "manage", EnvironmentID: env, ApplicationID: appID}
-	if err = s.Access.AuthorizeWithTx(ctx, tx, actor, decision); err != nil {
-		return readRunbookSnapshot{}, "", err
-	}
-	if ownerTeam != "" {
-		decision.ApplicationID = ""
-		decision.TeamID = ownerTeam
-		if err = s.Access.AuthorizeWithTx(ctx, tx, actor, decision); err != nil {
-			return readRunbookSnapshot{}, "", err
-		}
 	}
 	snapshot, err := sanitizeRunbookSnapshot(title, version, when, stepsRaw)
 	if err != nil {

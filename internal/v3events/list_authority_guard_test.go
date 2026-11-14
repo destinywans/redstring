@@ -472,7 +472,7 @@ func TestListAuthorityGuardHundredScopeSQLBudget(t *testing.T) {
 			if n := trace.count("FOR SHARE OF a,e,ve"); n != 100 {
 				t.Errorf("binding re-reads=%d want=100", n)
 			}
-			if n := trace.count("g.module='environment'"); n != 100 {
+			if n := trace.count("WHERE g.user_id=$1\n AND g.module='environment'"); n != 100 {
 				t.Errorf("environment policy=%d want=100", n)
 			}
 			if n := trace.count("g.module=$2"); n != 100 {
@@ -485,7 +485,7 @@ func TestListAuthorityGuardHundredScopeSQLBudget(t *testing.T) {
 			if n := trace.count("SELECT expires_at>clock_timestamp()"); n != clock {
 				t.Errorf("current DB clock queries=%d want=%d", n, clock)
 			}
-			actual := trace.count("SELECT id FROM users") + trace.count("SELECT user_id FROM sessions") + trace.count("LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants") + trace.count("FOR SHARE OF a,e,ve") + trace.count("FROM v3_effective_role_grants") + trace.count("SELECT expires_at>clock_timestamp()") - 1
+			actual := trace.count("SELECT id FROM users") + trace.count("SELECT user_id FROM sessions") + trace.count("LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants") + trace.count("FOR SHARE OF a,e,ve") + trace.count("SELECT 1 FROM v3_effective_role_grants") + trace.count("SELECT expires_at>clock_timestamp()") - 1
 			if actual != authority {
 				t.Errorf("authority-only SQL excluding final clock=%d want=%d", actual, authority)
 			}

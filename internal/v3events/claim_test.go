@@ -166,7 +166,8 @@ func TestClaimAlertAuthorizesOnLockedTransaction(t *testing.T) {
 		t.Fatalf("GET did not return current claim revision: %q", initialRevision)
 	}
 	response := requestBody(`{"expected_revision":"` + initialRevision + `"}`)
-	if poolAuthorizations != 0 || txAuthorizations != 3 {
+	// Detail checks view twice and claim checks both view and change twice.
+	if poolAuthorizations != 0 || txAuthorizations != 6 {
 		t.Fatalf("claim authorizations: pool=%d tx=%d; body=%s", poolAuthorizations, txAuthorizations, response.Body.String())
 	}
 	if response.Code != http.StatusOK {

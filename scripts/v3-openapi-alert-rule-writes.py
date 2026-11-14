@@ -116,6 +116,13 @@ v3_route('post','/alert-rules/import','Import bounded rule YAML as review drafts
     desc='Accepts the frozen frontend {yaml} body; application_id and mode=draft are optional. One selected environment and one application inferred from exact per-rule labels require current alert_rules.change. Parse at most 10 groups and 20 alerting rules from one native Prometheus rule file or limited PrometheusRule CRD document; reject unsupported fields, recording rules, group-level evaluation options, unsafe YAML and mixed or missing application/environment/severity labels. Every candidate expression receives PromQL syntax validation, including duplicates. items is the frozen frontend new/duplicate/note projection; candidates adds group, draft identity and duplicate reason. The parse request immediately creates nondeployable review drafts for new rules, with one pending GitLab MR; an all-duplicate import returns 200 and no MR. No rule is enabled, merged or applied. If Idempotency-Key is omitted, the server reuses the most recent matching operation while remote result is unfinished, or for five minutes after completion when observed provider identities are unchanged; later or changed sources are reclassified. A rejected or stale remote prior draft is reported as an existing local duplicate and is not exported again; other newly eligible rules in the same YAML may still create a separate pending MR. Stale remote candidates include project, branch and known MR for human review. Explicit keys retain durable replay, and changed payload with the same explicit key conflicts. Missing or uncertain GitLab connectivity returns 503 not_connected/upstream.')
 
 for _path, _method in [('/alert-rules','post'),('/alert-rules/{id}','put'),('/alert-rules/import','post')]:
+    P[_path][_method]['description'] += ' Application authorization precedes bound-label and source-readiness checks.'
+    P[_path][_method]['responses']['403'] = {
+        'description':'The application is visible but the actor lacks current authority for the operation',
+        'content':{'application/json':{'schema':ref('Error')}}}
+    P[_path][_method]['responses']['404'] = {
+        'description':'The requested application or draft is missing or outside the current authorized scope',
+        'content':{'application/json':{'schema':ref('Error')}}}
     P[_path][_method].setdefault('parameters', []).append({
         'name':'Idempotency-Key','in':'header','required':_path != '/alert-rules/import',
         'schema':string(minLength=1,maxLength=128),

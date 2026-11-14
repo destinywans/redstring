@@ -127,6 +127,42 @@ func (s *Service) authorizeCurrentKindWrite(ctx context.Context, actor core.User
 	return nil
 }
 
+// authorizePromotionSource preserves the write scope and makes a denied write
+// indistinguishable from a missing source unless the caller could read it.
+func (s *Service) authorizePromotionSource(ctx context.Context, tx pgx.Tx, actor core.User,
+	kind, env, appID, ownerTeam, readableTeam string, readableScope bool) error {
+	module, action, _ := promotionWriteAccess(kind)
+	decision := rbac.V3Decision{Module: module, Action: action, EnvironmentID: env, ApplicationID: appID}
+	writeErr := s.Access.AuthorizeWithTx(ctx, tx, actor, decision)
+	if writeErr == nil && kind == "runbook" && ownerTeam != "" {
+		decision.ApplicationID, decision.TeamID = "", ownerTeam
+		writeErr = s.Access.AuthorizeWithTx(ctx, tx, actor, decision)
+	}
+	if !errors.Is(writeErr, store.ErrForbidden) {
+		return writeErr
+	}
+	if !readableScope {
+		return store.ErrNotFound
+	}
+
+	decision.Action, decision.ApplicationID, decision.TeamID = "view", appID, ""
+	viewErr := s.Access.AuthorizeWithTx(ctx, tx, actor, decision)
+	// Team scope is an additional restriction for Runbooks and an alternative
+	// scope for the Agent detail route.
+	if readableTeam != "" && (kind == "runbook" && viewErr == nil ||
+		kind == "agent_version" && errors.Is(viewErr, store.ErrForbidden)) {
+		decision.ApplicationID, decision.TeamID = "", readableTeam
+		viewErr = s.Access.AuthorizeWithTx(ctx, tx, actor, decision)
+	}
+	if errors.Is(viewErr, store.ErrForbidden) {
+		return store.ErrNotFound
+	}
+	if viewErr != nil {
+		return viewErr
+	}
+	return writeErr
+}
+
 func (s *Service) reserveKindExport(ctx context.Context, actor core.User, kind, env, sourceID string) (exportRecord, string, error) {
 	if _, _, ok := promotionWriteAccess(kind); !ok {
 		return exportRecord{}, "", errInvalid
@@ -193,11 +229,13 @@ func (s *Service) reserveKindExport(ctx context.Context, actor core.User, kind, 
 		return exportRecord{}, "", err
 	}
 	module, action, _ := promotionWriteAccess(kind)
-	err = s.Access.AuthorizeWithTx(ctx, tx, actor, rbac.V3Decision{Module: module, Action: action,
-		EnvironmentID: env, ApplicationID: m.ApplicationID})
-	if errors.Is(err, store.ErrForbidden) && kind == "alert_rule" && ownerTeam != "" {
+	if kind == "alert_rule" {
 		err = s.Access.AuthorizeWithTx(ctx, tx, actor, rbac.V3Decision{Module: module, Action: action,
-			EnvironmentID: env, TeamID: ownerTeam})
+			EnvironmentID: env, ApplicationID: m.ApplicationID})
+		if errors.Is(err, store.ErrForbidden) && ownerTeam != "" {
+			err = s.Access.AuthorizeWithTx(ctx, tx, actor, rbac.V3Decision{Module: module, Action: action,
+				EnvironmentID: env, TeamID: ownerTeam})
+		}
 	}
 	if err != nil {
 		return exportRecord{}, "", err

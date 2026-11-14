@@ -202,7 +202,7 @@ func (s *Service) AlertDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(r.Context())
 	var revision string
-	v, err := scanIncident(tx.QueryRow(r.Context(), incidentSelect+` WHERE i.id=$1 FOR SHARE OF i`, r.PathValue("id")))
+	v, err := s.lockAdmittedAlert(r, tx, r.PathValue("id"), false, true, "view")
 	if err != nil {
 		respondErr(w, err)
 		return

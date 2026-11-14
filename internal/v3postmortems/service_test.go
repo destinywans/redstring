@@ -192,9 +192,9 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 		}); err != nil {
 		t.Fatal(err)
 	}
-	call := func(method, path, env, token, body string) *httptest.ResponseRecorder {
+	callContext := func(ctx context.Context, method, path, env, token, body string) *httptest.ResponseRecorder {
 		t.Helper()
-		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r := httptest.NewRequestWithContext(ctx, method, path, strings.NewReader(body))
 		r.Header.Set("X-AIOps-Environment", env)
 		if token != "" {
 			r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
@@ -202,6 +202,10 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
 		return w
+	}
+	call := func(method, path, env, token, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		return callContext(ctx, method, path, env, token, body)
 	}
 	assertError := func(w *httptest.ResponseRecorder, status int, code string) {
 		t.Helper()
@@ -307,8 +311,21 @@ func TestPostmortemHTTPUsesVerifiedCloseAndScopedTransaction(t *testing.T) {
 		strings.Replace(input, fmt.Sprintf(`"source_close_event_seq":%d`, draftSource.SourceCloseEventSeq), `"source_close_event_seq":999999`, 1)),
 		409, "postmortem_source_changed")
 	assertError(call("POST", "/api/v1/postmortems", "all", adminToken, input), 409, "env_view_only")
-	assertError(call("POST", "/api/v1/postmortems", "dev", viewerToken, input), 403, "forbidden")
-	assertError(call("POST", "/api/v1/postmortems", "dev", teamToken, strings.Replace(input, `"ready"`, `"hidden-1"`, 1)), 403, "forbidden")
+	t.Run("unauthorized create does not wait for the source row", func(t *testing.T) {
+		blocker, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer blocker.Rollback(ctx)
+		if _, err := blocker.Exec(ctx, `SELECT id FROM ops_incidents WHERE id IN ('ready','hidden-1') FOR UPDATE`); err != nil {
+			t.Fatal(err)
+		}
+		requestCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		assertError(callContext(requestCtx, "POST", "/api/v1/postmortems", "dev", viewerToken, input), 403, "forbidden")
+		hidden := strings.Replace(input, `"ready"`, `"hidden-1"`, 1)
+		assertError(callContext(requestCtx, "POST", "/api/v1/postmortems", "dev", teamToken, hidden), 404, "not_found")
+	})
 	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken, strings.Replace(input, `"review"`, `"published"`, 1)), 422, "invalid_postmortem")
 	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken, strings.Replace(input, `"ready"`, `"missing"`, 1)), 409, "postmortem_source_changed")
 	assertError(call("POST", "/api/v1/postmortems", "dev", adminToken, strings.Replace(input, `"ready"`, `"other"`, 1)), 404, "not_found")

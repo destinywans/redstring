@@ -349,7 +349,7 @@ func (s *Service) Incident(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	caseValue, err := scanCase(tx.QueryRow(r.Context(), caseSelect+` WHERE c.id=$1 FOR SHARE OF c`, r.PathValue("id")))
+	caseValue, err := s.lockAdmittedCase(r, tx, r.PathValue("id"), false, "view")
 	if err == nil {
 		s.caseIncidentDetail(w, r, tx, caseValue)
 		return
@@ -358,7 +358,7 @@ func (s *Service) Incident(w http.ResponseWriter, r *http.Request) {
 		respondIncidentDetailError(w, err)
 		return
 	}
-	v, err := scanIncident(tx.QueryRow(r.Context(), incidentSelect+` WHERE i.id=$1 FOR SHARE OF i`, r.PathValue("id")))
+	v, err := s.lockAdmittedAlert(r, tx, r.PathValue("id"), false, true, "view")
 	if err != nil {
 		respondIncidentDetailError(w, err)
 		return

@@ -9,6 +9,17 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const caseSourceScope = ` FROM v3_incident_cases c
+ JOIN applications a ON a.id=c.application_id AND NOT a.archived
+ JOIN application_environments e ON e.id=c.environment_id AND e.application_id=c.application_id
+   AND e.key=c.environment_key AND NOT e.archived
+ JOIN v3_application_environments ve ON ve.application_id=c.application_id AND ve.environment_id=e.key`
+
+const opsSourceScope = ` FROM ops_incidents i
+ JOIN applications a ON a.id=i.application_id AND NOT a.archived
+ JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
+ JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key`
+
 // postmortemSources is the sole mapping from incident lifecycles into review
 // sources. An ops close remains an investigation.closed event; a manual case
 // close is its own human status event. Neither can stand in for the other.
@@ -28,10 +39,7 @@ const postmortemSources = `WITH source AS (
      AND closed.seq IS NOT NULL) eligible,
    (SELECT count(*) FROM evidence ev JOIN branches b ON b.id=ev.branch_id
      WHERE b.investigation_id=i.investigation_id)::int evidence_count
- FROM ops_incidents i
- JOIN applications a ON a.id=i.application_id AND NOT a.archived
- JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
- JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
+` + opsSourceScope + `
  LEFT JOIN investigations inv ON inv.id=i.investigation_id AND inv.application_id=i.application_id
  LEFT JOIN investigation_reports report ON report.investigation_id=i.investigation_id
  LEFT JOIN LATERAL (SELECT ev.seq,ev.created_at FROM events ev
@@ -44,11 +52,7 @@ const postmortemSources = `WITH source AS (
    (se.id IS NOT NULL AND se.to_status='resolved' AND se.revision=c.status_revision
      AND c.resolved_at=se.created_at),
    NULL::int
- FROM v3_incident_cases c
- JOIN applications a ON a.id=c.application_id AND NOT a.archived
- JOIN application_environments e ON e.id=c.environment_id AND e.application_id=c.application_id
-   AND e.key=c.environment_key AND NOT e.archived
- JOIN v3_application_environments ve ON ve.application_id=c.application_id AND ve.environment_id=e.key
+` + caseSourceScope + `
  LEFT JOIN v3_incident_case_status_events se ON se.id=c.resolved_status_event_id
    AND se.case_id=c.id
 )`
@@ -78,10 +82,27 @@ func sourceRevision(kind string, closeSeq, statusEventID *int64) string {
 	return ""
 }
 
+type sourceScope struct {
+	kind, app, team, env string
+}
+
+// Read only the registered scope before attempting to lock the lifecycle.
+func readSourceScope(ctx context.Context, tx pgx.Tx, id string) (sourceScope, error) {
+	var scope sourceScope
+	err := tx.QueryRow(ctx, `SELECT 'case',c.application_id,COALESCE(a.owner_team_id,''),e.key`+caseSourceScope+`
+ WHERE c.id=$1
+ UNION ALL
+ SELECT 'ops',i.application_id,COALESCE(a.owner_team_id,''),e.key`+opsSourceScope+`
+ WHERE i.id=$1 AND NOT EXISTS (SELECT 1 FROM v3_incident_cases WHERE id=$1)`, id).
+		Scan(&scope.kind, &scope.app, &scope.team, &scope.env)
+	return scope, err
+}
+
 type lockedSource struct {
-	kind, app, team, env, investigation string
-	closeSeq, statusEventID             *int64
-	eligible                            bool
+	sourceScope
+	investigation           string
+	closeSeq, statusEventID *int64
+	eligible                bool
 }
 
 func (v lockedSource) revision() string {
@@ -90,26 +111,17 @@ func (v lockedSource) revision() string {
 
 // Lock the lifecycle owner before reading its current source revision. An
 // incident status update must take the same case row lock.
-func lockSource(ctx context.Context, tx pgx.Tx, id string) (lockedSource, error) {
-	var v lockedSource
-	var isCase bool
-	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM v3_incident_cases WHERE id=$1)`, id).Scan(&isCase); err != nil {
-		return v, err
-	}
-	if isCase {
-		v.kind = "case"
+func lockSource(ctx context.Context, tx pgx.Tx, id string, scope sourceScope) (lockedSource, error) {
+	v := lockedSource{sourceScope: scope}
+	if scope.kind == "case" {
 		var status string
 		var revision int64
 		var resolvedAt *time.Time
-		err := tx.QueryRow(ctx, `SELECT c.application_id,COALESCE(a.owner_team_id,''),e.key,
- c.status,c.status_revision,c.resolved_status_event_id,c.resolved_at,COALESCE(c.investigation_id,'')
- FROM v3_incident_cases c
- JOIN applications a ON a.id=c.application_id AND NOT a.archived
- JOIN application_environments e ON e.id=c.environment_id AND e.application_id=c.application_id
-   AND e.key=c.environment_key AND NOT e.archived
- JOIN v3_application_environments ve ON ve.application_id=c.application_id AND ve.environment_id=e.key
- WHERE c.id=$1 FOR UPDATE OF c FOR SHARE OF a,e,ve`, id).
-			Scan(&v.app, &v.team, &v.env, &status, &revision, &v.statusEventID, &resolvedAt, &v.investigation)
+		err := tx.QueryRow(ctx, `SELECT c.status,c.status_revision,c.resolved_status_event_id,c.resolved_at,COALESCE(c.investigation_id,'')
+`+caseSourceScope+`
+ WHERE c.id=$1 AND c.application_id=$2 AND e.key=$3 AND COALESCE(a.owner_team_id,'')=$4
+ FOR UPDATE OF c FOR SHARE OF a,e,ve`, id, scope.app, scope.env, scope.team).
+			Scan(&status, &revision, &v.statusEventID, &resolvedAt, &v.investigation)
 		if err != nil {
 			return v, err
 		}
@@ -131,17 +143,13 @@ func lockSource(ctx context.Context, tx pgx.Tx, id string) (lockedSource, error)
 		v.eligible = eventStatus == "resolved" && eventRevision == revision && eventTime.Equal(*resolvedAt)
 		return v, nil
 	}
-	v.kind = "ops"
 	var status, investigationStatus string
 	var started time.Time
-	err := tx.QueryRow(ctx, `SELECT i.application_id,COALESCE(a.owner_team_id,''),e.key,
- i.investigation_id,i.status,i.starts_at
- FROM ops_incidents i
- JOIN applications a ON a.id=i.application_id AND NOT a.archived
- JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
- JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
- WHERE i.id=$1 FOR UPDATE OF i FOR SHARE OF a,e,ve`, id).
-		Scan(&v.app, &v.team, &v.env, &v.investigation, &status, &started)
+	err := tx.QueryRow(ctx, `SELECT i.investigation_id,i.status,i.starts_at
+`+opsSourceScope+`
+ WHERE i.id=$1 AND i.application_id=$2 AND e.key=$3 AND COALESCE(a.owner_team_id,'')=$4
+ FOR UPDATE OF i FOR SHARE OF a,e,ve`, id, scope.app, scope.env, scope.team).
+		Scan(&v.investigation, &status, &started)
 	if err != nil {
 		return v, err
 	}

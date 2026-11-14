@@ -859,6 +859,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	}, func(ctx context.Context, tx pgx.Tx, user core.User, app, env, action string) error {
 		return policy.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})
 	})
+	events.UseV3ListPrefilter = true
 	events.AuthorizeListTx = func(ctx context.Context, tx pgx.Tx, user core.User, app, env, action string) error {
 		return policy.AuthorizeViewWithTx(ctx, tx, user, rbac.V3Decision{Module: "events", Action: action, ApplicationID: app, EnvironmentID: env})
 	}

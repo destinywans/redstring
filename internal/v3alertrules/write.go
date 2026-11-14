@@ -202,7 +202,6 @@ func (s *WriteService) Create(w http.ResponseWriter, r *http.Request) {
 	if !httpapi.Decode(w, r, &input) {
 		return
 	}
-	input.DraftRuleSpec = s.withScopeLabels(input.DraftRuleSpec, env)
 	switch input.Mode {
 	case "dry_run":
 		s.handleTrial(w, r, env, actor, key, input.DraftRuleSpec)
@@ -215,6 +214,11 @@ func (s *WriteService) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if err := s.admitWrite(r.Context(), actor, env, input.ApplicationID); err != nil {
+		writeError(w, err)
+		return
+	}
+	input.DraftRuleSpec = s.withScopeLabels(input.DraftRuleSpec, env)
 	digest, err := requestHash("create", env, "", input)
 	if err != nil {
 		writeError(w, err)
@@ -222,10 +226,6 @@ func (s *WriteService) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validateDraftSpec(input.DraftRuleSpec, env, input.ApplicationID, s.Reader.ApplicationLabel(env, input.ApplicationID)); err != nil {
 		writeError(w, validationProblem(err))
-		return
-	}
-	if err := s.authorize(r.Context(), actor, env, input.ApplicationID); err != nil {
-		writeError(w, err)
 		return
 	}
 	if err := s.writeSourcesReady(); err != nil {
@@ -302,12 +302,12 @@ func (s *WriteService) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, problem(422, "invalid_version", "Expected draft version is required"))
 		return
 	}
-	if err := validateDraftSpec(input.Rule, env, input.Rule.ApplicationID, s.Reader.ApplicationLabel(env, input.Rule.ApplicationID)); err != nil {
-		writeError(w, validationProblem(err))
+	if err := s.admitWrite(r.Context(), actor, env, input.Rule.ApplicationID); err != nil {
+		writeError(w, err)
 		return
 	}
-	if err := s.authorize(r.Context(), actor, env, input.Rule.ApplicationID); err != nil {
-		writeError(w, err)
+	if err := validateDraftSpec(input.Rule, env, input.Rule.ApplicationID, s.Reader.ApplicationLabel(env, input.Rule.ApplicationID)); err != nil {
+		writeError(w, validationProblem(err))
 		return
 	}
 	if err := s.writeSourcesReady(); err != nil {
@@ -366,18 +366,23 @@ func (s *WriteService) Import(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	app, rules, err := parseRuleImportYAMLWithApp(input.YAML, env, input.ApplicationID, s.Reader)
+	// The application can be inferred from the first rule's label. Check
+	// scope as soon as it is resolved, before validating bound labels.
+	app, rules, err := parseRuleImportYAMLWithApp(input.YAML, env, input.ApplicationID, s.Reader, func(app string) error {
+		return s.admitWrite(r.Context(), actor, env, app)
+	})
 	if err != nil {
+		var authorization *importAuthorizationError
+		if errors.As(err, &authorization) {
+			writeError(w, authorization.err)
+			return
+		}
 		writeError(w, validationProblem(err))
 		return
 	}
 	input.ApplicationID = app
 	digest, err := requestHash("import", env, "", input)
 	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if err := s.authorize(r.Context(), actor, env, app); err != nil {
 		writeError(w, err)
 		return
 	}

@@ -3,10 +3,12 @@ package v3alertrules
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/destinywans/redstring/internal/core"
 	"github.com/destinywans/redstring/internal/httpapi"
@@ -31,7 +33,7 @@ func TestAlertRuleWritesDeniedBeforeWriteSourceCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, viewerToken, err := st.Login(ctx, "viewer@example.invalid", "isolated-viewer-password")
+	viewer, viewerToken, err := st.Login(ctx, "viewer@example.invalid", "isolated-viewer-password")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,10 +41,10 @@ func TestAlertRuleWritesDeniedBeforeWriteSourceCheck(t *testing.T) {
 	for _, statement := range []string{
 		`DELETE FROM v3_role_grants WHERE role_id='viewer'`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
- ('viewer','environment','view','environment','test'),('viewer','alert_rules','view','environment','test')`,
-		`INSERT INTO applications(id,key,name,environment) VALUES('allowed','allowed','allowed','test')`,
-		`INSERT INTO application_environments(id,application_id,key,name) VALUES('allowed-test','allowed','test','Test')`,
-		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES('allowed','test')`,
+ ('viewer','environment','view','environment','test'),('viewer','alert_rules','view','application','allowed')`,
+		`INSERT INTO applications(id,key,name,environment) VALUES('allowed','allowed','allowed','test'),('hidden','hidden','hidden','test')`,
+		`INSERT INTO application_environments(id,application_id,key,name) VALUES('allowed-test','allowed','test','Test'),('hidden-test','hidden','test','Test')`,
+		`INSERT INTO v3_application_environments(application_id,environment_id) VALUES('allowed','test'),('hidden','test')`,
 	} {
 		if _, err := db.Exec(ctx, statement); err != nil {
 			t.Fatal(err)
@@ -56,7 +58,8 @@ func TestAlertRuleWritesDeniedBeforeWriteSourceCheck(t *testing.T) {
 		Labels: map[string]string{"application": "allowed", "environment": "test", "severity": "P2"}, State: "inactive"}
 	policy := &rbac.V3Policy{Store: st}
 	reader := mustService(t, DatabaseCatalog{DB: db}, policy, disableSource{enableIDSource: &enableIDSource{}, rules: []ObservedRule{rule}},
-		RuleGroupBinding{EnvironmentID: "test", ApplicationID: "allowed", File: testRuleFile, Group: "g"})
+		RuleGroupBinding{EnvironmentID: "test", ApplicationID: "allowed", File: testRuleFile, Group: "g"},
+		RuleGroupBinding{EnvironmentID: "test", ApplicationID: "hidden", File: testRuleFile, Group: "private"})
 	// No draft repository, deployment target, approval worker or trial runtime.
 	writer := NewWriteService(db, policy, reader, nil)
 	api := httpapi.New(st, nil, true)
@@ -120,4 +123,63 @@ func TestAlertRuleWritesDeniedBeforeWriteSourceCheck(t *testing.T) {
 			}
 		})
 	}
+	// A guessed hidden application can be fully bound and still must look
+	// exactly like an unknown application, regardless of malformed labels.
+	for _, mode := range []string{"draft", "enabled", "dry_run"} {
+		sendCreate := func(app string) *httptest.ResponseRecorder {
+			return send(viewerToken, "POST", "/api/v1/alert-rules",
+				`{"application_id":"`+app+`","environment_id":"test","group":"private","name":"NewRule",
+				"expr":"up == 0","for":"1m","labels":{"application":"wrong","severity":"P2"},"mode":"`+mode+`","investigation_id":"`+investigation+`"}`)
+		}
+		hidden, missing := sendCreate("hidden"), sendCreate("missing")
+		if hidden.Code != 404 || hidden.Code != missing.Code || hidden.Body.String() != missing.Body.String() {
+			t.Fatalf("%s: hidden and missing applications differ: %d %s vs %d %s", mode, hidden.Code, hidden.Body, missing.Code, missing.Body)
+		}
+		if visible := sendCreate("allowed"); visible.Code != 403 {
+			t.Fatalf("%s: visible application without change grant: %d %s", mode, visible.Code, visible.Body)
+		}
+	}
+	inferredImport := func(label string) *httptest.ResponseRecorder {
+		raw, err := json.Marshal(map[string]string{"yaml": "groups:\n- name: private\n  rules:\n  - alert: NewRule\n    expr: up == 0\n    for: 1m\n" +
+			"    labels:\n      application: " + label + "\n      environment: test\n      severity: P2\n"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return send(viewerToken, "POST", "/api/v1/alert-rules/import", string(raw))
+	}
+	hidden, missing := inferredImport("hidden"), inferredImport("missing")
+	if hidden.Code != 404 || hidden.Code != missing.Code || hidden.Body.String() != missing.Body.String() {
+		t.Fatalf("inferred import: hidden and missing applications differ: %d %s vs %d %s", hidden.Code, hidden.Body, missing.Code, missing.Body)
+	}
+
+	t.Run("hidden draft denies before row lock even with a writable app in the body", func(t *testing.T) {
+		draftID := store.ID()
+		if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id)
+ VALUES('viewer','alert_rules','change','application','allowed')`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(ctx, `INSERT INTO v3_alert_rule_drafts
+ (id,environment_id,application_id,provider_file,provider_group,alert_name,current_version,created_by)
+ VALUES($1,'test','hidden','file','private','LockedRule',1,$2)`, draftID, admin.ID); err != nil {
+			t.Fatal(err)
+		}
+		blocker, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer blocker.Rollback(ctx)
+		if _, err := blocker.Exec(ctx, `SELECT id FROM v3_alert_rule_drafts WHERE id=$1 FOR UPDATE`, draftID); err != nil {
+			t.Fatal(err)
+		}
+		requestCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		input := updateRequest{ExpectedVersion: 1, Rule: DraftRuleSpec{ApplicationID: "allowed"}}
+		for _, id := range []string{draftID, store.ID()} {
+			var denied *writeProblem
+			_, err := writer.reserveUpdate(requestCtx, viewer, "test", "fixture", "", id, input, boundGroup{}, observedIdentity{})
+			if !errors.As(err, &denied) || denied.status != 404 || denied.Error() != "Draft not found" {
+				t.Fatalf("wanted generic draft not found, got %v", err)
+			}
+		}
+	})
 }

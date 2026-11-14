@@ -194,6 +194,30 @@ func postmortemTeam(ctx context.Context, tx pgx.Tx, app string) (string, error) 
 	return team, err
 }
 
+func (s *Service) admitSavedWrite(w http.ResponseWriter, r *http.Request, tx pgx.Tx, id string, envs httpapi.V3EnvironmentScope) (string, sourceScope, bool) {
+	var incident string
+	var scope sourceScope
+	err := tx.QueryRow(r.Context(), `SELECT pm.incident_id,pm.source_kind,pm.application_id,COALESCE(a.owner_team_id,''),pm.environment_id
+ FROM v3_postmortems pm JOIN applications a ON a.id=pm.application_id AND NOT a.archived
+ WHERE pm.id=$1`, id).Scan(&incident, &scope.kind, &scope.app, &scope.team, &scope.env)
+	if err == nil && !inScope(envs, scope.env) {
+		err = pgx.ErrNoRows
+	}
+	if err == nil {
+		err = s.authorizeTx(r.Context(), tx, httpapi.CurrentUser(r), scope.app, scope.team, scope.env, "manage")
+	}
+	return incident, scope, savedWriteAuthorized(w, err)
+}
+
+func savedWriteAuthorized(w http.ResponseWriter, err error) bool {
+	if errors.Is(err, store.ErrForbidden) || errors.Is(err, pgx.ErrNoRows) {
+		httpapi.Error(w, 404, "not_found", "Postmortem not found")
+	} else if err != nil {
+		httpapi.Error(w, 503, "authorization_unavailable", "Postmortem access could not be checked")
+	}
+	return err == nil
+}
+
 // Get returns one postmortem. Like the record list, an unpublished one is
 // visible to its author and to knowledge managers only.
 func (s *Service) Get(w http.ResponseWriter, r *http.Request) {
@@ -300,17 +324,12 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		postmortemReadError(w, err)
 		return
 	}
-	v, err := readSavedPostmortem(r.Context(), tx, id, false)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && !inScope(scope, v.env) {
-		httpapi.Error(w, 404, "not_found", "Postmortem not found")
-		return
-	}
-	if err != nil {
-		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem is unavailable")
+	incident, admitted, ok := s.admitSavedWrite(w, r, tx, id, scope)
+	if !ok {
 		return
 	}
 	// Same lock order as Create and Publish: incident source, then record.
-	source, err := lockSource(r.Context(), tx, v.IncidentID)
+	source, err := lockSource(r.Context(), tx, incident, admitted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		postmortemSourceChanged(w)
 		return
@@ -319,21 +338,17 @@ func (s *Service) Update(w http.ResponseWriter, r *http.Request) {
 		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem source is unavailable")
 		return
 	}
-	if v, err = readSavedPostmortem(r.Context(), tx, id, true); err != nil {
+	v, err := readSavedPostmortem(r.Context(), tx, id, true)
+	if err != nil {
 		httpapi.Error(w, 503, "postmortems_unavailable", "Postmortem is unavailable")
 		return
 	}
-	if source.app != v.app || source.env != v.env || !inScope(scope, v.env) {
+	if source.app != v.app || source.env != v.env || source.kind != v.kind || incident != v.IncidentID {
 		httpapi.Error(w, 404, "not_found", "Postmortem not found")
 		return
 	}
 	user := httpapi.CurrentUser(r)
-	if err = s.authorizeTx(r.Context(), tx, user, v.app, source.team, v.env, "manage"); err != nil {
-		if errors.Is(err, store.ErrForbidden) {
-			httpapi.Error(w, 404, "not_found", "Postmortem not found")
-		} else {
-			httpapi.Error(w, 503, "authorization_unavailable", "Postmortem access could not be checked")
-		}
+	if !savedWriteAuthorized(w, s.authorizeTx(r.Context(), tx, user, v.app, source.team, v.env, "manage")) {
 		return
 	}
 	if v.Status != "draft" {

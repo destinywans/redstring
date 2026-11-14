@@ -152,7 +152,6 @@ type target struct {
 
 const maxTargets = 100
 const targetBatchSize = 128
-const maxCandidateRows = 5000
 const maxIncidents = 1000
 const maxProposals = 500
 
@@ -263,17 +262,30 @@ func (s *Service) allowed(ctx context.Context, tx pgx.Tx, user core.User, module
 }
 
 func (s *Service) targets(ctx context.Context, tx pgx.Tx, user core.User, envs []string) ([]target, error) {
-	const query = `SELECT a.id,ve.environment_id,a.name,COALESCE(a.owner_team_id,''),ep.tier
+	const candidates = `SELECT a.id,ve.environment_id,a.name,COALESCE(a.owner_team_id,''),ep.tier
 	 FROM applications a JOIN v3_application_environments ve ON ve.application_id=a.id
 	 JOIN application_environments e ON e.application_id=a.id AND e.key=ve.environment_id AND NOT e.archived
 	 LEFT JOIN v3_service_environment_profiles ep ON ep.application_id=a.id AND ep.environment_id=ve.environment_id
 	 WHERE NOT a.archived AND ve.environment_id=ANY($1::text[])
-	 AND (a.id,ve.environment_id)>($2,$3)
-	 ORDER BY a.id,ve.environment_id LIMIT $4`
+	 AND (a.id,ve.environment_id)>($2,$3)`
+	query := candidates
+	_, useGrantFilter := s.Access.(*rbac.V3Policy)
+	if useGrantFilter {
+		view := func(module string) string {
+			return "(" + rbac.V3ListScopePredicate("ve.environment_id", "a.id", "a.owner_team_id", module, "view") + ")"
+		}
+		query = "WITH " + rbac.V3ListGrantsCTE("$5") + " " + candidates +
+			" AND (" + view("services") + " OR " + view("events") + " OR " + view("proposals") + ")"
+	}
+	query += " ORDER BY a.id,ve.environment_id LIMIT $4"
 	visible := make([]target, 0)
-	lastID, lastEnv, scanned := "", "", 0
+	lastID, lastEnv := "", ""
 	for {
-		rows, err := tx.Query(ctx, query, envs, lastID, lastEnv, targetBatchSize)
+		args := []any{envs, lastID, lastEnv, targetBatchSize}
+		if useGrantFilter {
+			args = append(args, user.ID)
+		}
+		rows, err := tx.Query(ctx, query, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -294,13 +306,6 @@ func (s *Service) targets(ctx context.Context, tx pgx.Tx, user core.User, envs [
 		}
 		if len(batch) == 0 {
 			return visible, nil
-		}
-		// Hidden rows consume scan work but never the result cap. If the full
-		// authorized view cannot be established within the bound, fail instead
-		// of returning a misleading partial dashboard.
-		scanned += len(batch)
-		if scanned > maxCandidateRows {
-			return nil, errTooMany
 		}
 		for _, row := range batch {
 			row.ServicesView, err = s.allowed(ctx, tx, user, "services", row)

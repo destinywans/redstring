@@ -65,14 +65,15 @@ func (s *WriteService) handleTrial(w http.ResponseWriter, r *http.Request, env s
 		httpapi.Error(w, http.StatusUnprocessableEntity, "invalid_mode", "Choose dry_run mode")
 		return
 	}
+	if err := s.admitWrite(r.Context(), actor, env, spec.ApplicationID); err != nil {
+		writeError(w, err)
+		return
+	}
+	spec = s.withScopeLabels(spec, env)
 	validated := spec
 	validated.Mode = "draft" // Reuse the existing shape validator without allowing draft export.
 	if err := validateDraftSpec(validated, env, spec.ApplicationID, s.Reader.ApplicationLabel(env, spec.ApplicationID)); err != nil {
 		writeError(w, validationProblem(err))
-		return
-	}
-	if err := s.authorize(r.Context(), actor, env, spec.ApplicationID); err != nil {
-		writeError(w, err)
 		return
 	}
 	// Which sources this environment has is said only to an authorized actor (PA-108).

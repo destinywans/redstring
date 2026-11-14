@@ -150,7 +150,7 @@ func isSuppressionConfigKey(key string) bool {
 // parseRuleImportYAML accepts only the alerting-rule subset that maps without
 // loss to DraftRuleSpec. It does not apply or evaluate imported rules.
 func parseRuleImportYAML(raw, env, app string, labels applicationLabels) ([]DraftRuleSpec, error) {
-	_, rules, err := parseRuleImportYAMLWithApp(raw, env, app, labels)
+	_, rules, err := parseRuleImportYAMLWithApp(raw, env, app, labels, nil)
 	return rules, err
 }
 
@@ -164,7 +164,13 @@ type applicationLabels interface {
 // parseRuleImportYAMLWithApp also accepts the Prometheus Operator PrometheusRule
 // envelope. Metadata identifies the imported source, never its deployment
 // target; application and environment binding comes from rule labels.
-func parseRuleImportYAMLWithApp(raw, env, app string, bound applicationLabels) (string, []DraftRuleSpec, error) {
+func parseRuleImportYAMLWithApp(raw, env, app string, bound applicationLabels, authorize func(string) error) (string, []DraftRuleSpec, error) {
+	if authorize != nil && app != "" {
+		if err := authorize(app); err != nil {
+			return "", nil, &importAuthorizationError{err}
+		}
+	}
+
 	if len(raw) == 0 || len(raw) > maxRuleImportBytes {
 		return "", nil, errors.New("invalid alert rule import size")
 	}
@@ -234,11 +240,19 @@ func parseRuleImportYAMLWithApp(raw, env, app string, bound applicationLabels) (
 				return "", nil, err
 			}
 			ruleApp, ok := bound.applicationOfLabel(env, labels["application"])
-			if !ok || (app != "" && ruleApp != app) {
-				return "", nil, errors.New("alert rule application label does not match requested application")
-			}
 			if app == "" {
+				if !ok && authorize != nil {
+					return "", nil, &importAuthorizationError{problem(404, "not_found", "Application not found")}
+				}
+				if ok && authorize != nil {
+					if err := authorize(ruleApp); err != nil {
+						return "", nil, &importAuthorizationError{err}
+					}
+				}
 				app = ruleApp
+			}
+			if !ok || ruleApp != app {
+				return "", nil, errors.New("alert rule application label does not match requested application")
 			}
 			spec := DraftRuleSpec{ApplicationID: app, EnvironmentID: env, Group: name, Name: alert,
 				Expr: expr, For: forText, Labels: labels, Annotations: annotations, Mode: "draft"}
@@ -250,6 +264,10 @@ func parseRuleImportYAMLWithApp(raw, env, app string, bound applicationLabels) (
 	}
 	return app, result, nil
 }
+
+type importAuthorizationError struct{ err error }
+
+func (e *importAuthorizationError) Error() string { return e.err.Error() }
 
 func importGroupsNode(node *yaml.Node) (*yaml.Node, error) {
 	if node == nil || node.Kind != yaml.MappingNode {

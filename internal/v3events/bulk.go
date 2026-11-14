@@ -19,9 +19,8 @@ import (
 )
 
 const (
-	bulkMaxIDs        = 20
-	bulkMaxCandidates = 5000 // Same complete-scan ceiling as GET /alert-groups.
-	bulkMaxMembers    = 100
+	bulkMaxIDs     = 20
+	bulkMaxMembers = 100
 )
 
 var bulkGroupID = regexp.MustCompile(`^group:[0-9a-f]{24}$`)
@@ -131,30 +130,87 @@ type groupKey struct {
 	Fingerprint   string
 }
 
-// resolveBulkGroups scans the same complete, bounded persisted candidate set
-// used by the read page. A truncation is an error, never a false 404.
-func (b *BulkService) resolveBulkGroups(ctx context.Context, env string) (map[string]groupKey, map[string]bool, error) {
-	rows, err := b.DB.Query(ctx, `SELECT e.id,i.application_id,i.source_id,i.fingerprint FROM ops_incidents i
- JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
- JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
- JOIN applications a ON a.id=i.application_id AND NOT a.archived
- WHERE e.key=$1 ORDER BY i.updated_at DESC,i.id DESC LIMIT 5001`, env)
+// resolveBulkGroups counts only groups' underlying occurrences currently
+// visible to the requested change operation. Each later group write still
+// repeats authorization under its member row locks.
+func (b *BulkService) resolveBulkGroups(r *http.Request, env, action string) (map[string]groupKey, map[string]bool, error) {
+	ctx := r.Context()
+	tx, err := b.DB.Begin(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
+	defer tx.Rollback(ctx)
+	user := httpapi.CurrentUser(r)
+	cte, predicate := "", "TRUE"
+	args := []any{env}
+	if _, standardPolicy := b.Access.(*rbac.V3Policy); standardPolicy {
+		cte = "WITH " + rbac.V3ListGrantsCTE("$2") + " "
+		predicate = rbac.V3ListScopePredicate("e.key", "a.id", "a.owner_team_id", "events", "change")
+		if action == "investigate" {
+			predicate += " AND " + rbac.V3ListScopePredicate("e.key", "a.id", "a.owner_team_id", "canvas", "change")
+		}
+		args = append(args, user.ID)
+	}
+	query := cte + `SELECT e.id,i.application_id,i.source_id,i.fingerprint FROM ops_incidents i
+ JOIN application_environments e ON e.id=i.environment_id AND e.application_id=i.application_id AND NOT e.archived
+ JOIN v3_application_environments ve ON ve.application_id=i.application_id AND ve.environment_id=e.key
+ JOIN applications a ON a.id=i.application_id AND NOT a.archived
+ WHERE e.key=$1 AND ` + predicate + ` ORDER BY i.updated_at DESC,i.id DESC`
+	scan := func(row pgx.Row) (groupKey, error) {
+		var key groupKey
+		err := row.Scan(&key.EnvironmentID, &key.ApplicationID, &key.SourceID, &key.Fingerprint)
+		return key, err
+	}
+	heldAuthority := false
+	decisions := make(map[[2]string]bool)
+	token := bulkCookie(r)
+	visible := func(ctx context.Context, key groupKey) (bool, error) {
+		scope := [2]string{key.ApplicationID, key.EnvironmentID}
+		if allowed, ok := decisions[scope]; ok {
+			return allowed, nil
+		}
+		var team string
+		err := tx.QueryRow(ctx, `SELECT COALESCE(a.owner_team_id,'') FROM applications a
+ JOIN application_environments e ON e.application_id=a.id AND e.id=$2 AND NOT e.archived
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=e.key
+ WHERE a.id=$1 AND NOT a.archived AND e.key=$3 FOR SHARE OF a,e,ve`,
+			key.ApplicationID, key.EnvironmentID, env).Scan(&team)
+		if errors.Is(err, pgx.ErrNoRows) {
+			decisions[scope] = false
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if !heldAuthority {
+			if err = store.LockActiveSession(ctx, tx, token, user.ID); err != nil {
+				return false, err
+			}
+			if _, err = tx.Exec(ctx, `LOCK TABLE rbac_user_roles,rbac_department_roles,v3_role_grants IN SHARE MODE`); err != nil {
+				return false, err
+			}
+			heldAuthority = true
+		}
+		err = b.authorizeBulkAction(r.WithContext(ctx), tx, key, team, env, action)
+		if err != nil && !errors.Is(err, store.ErrForbidden) && !errors.Is(err, store.ErrNotFound) {
+			return false, err
+		}
+		decisions[scope] = err == nil
+		return err == nil, nil
+	}
+	keys, err := scanVisibleList(ctx, tx, eventListLimit, scan, visible, query, args...)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err = bulkSessionStillActive(ctx, tx, token, user.ID); err != nil {
+		return nil, nil, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return nil, nil, err
+	}
 	groups := make(map[string]groupKey)
 	ambiguous := make(map[string]bool)
-	count := 0
-	for rows.Next() {
-		count++
-		if count > bulkMaxCandidates {
-			return nil, nil, errTooManyIncidents
-		}
-		var key groupKey
-		if err = rows.Scan(&key.EnvironmentID, &key.ApplicationID, &key.SourceID, &key.Fingerprint); err != nil {
-			return nil, nil, err
-		}
+	for _, key := range keys {
 		id := localAlertGroupID(incidentRecord{EnvironmentID: key.EnvironmentID,
 			ApplicationID: key.ApplicationID, SourceID: key.SourceID, Fingerprint: key.Fingerprint})
 		if old, present := groups[id]; present && old != key {
@@ -162,7 +218,7 @@ func (b *BulkService) resolveBulkGroups(ctx context.Context, env string) (map[st
 		}
 		groups[id] = key
 	}
-	return groups, ambiguous, rows.Err()
+	return groups, ambiguous, nil
 }
 
 func (b *BulkService) Bulk(w http.ResponseWriter, r *http.Request) {
@@ -188,11 +244,14 @@ func (b *BulkService) Bulk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	env := scope.EnvironmentIDs[0]
-	groups, ambiguous, err := b.resolveBulkGroups(r.Context(), env)
+	groups, ambiguous, err := b.resolveBulkGroups(r, env, in.Action)
 	if err != nil {
-		if errors.Is(err, errTooManyIncidents) {
+		switch {
+		case errors.Is(err, errTooManyIncidents):
 			httpapi.Error(w, 503, "pagination_required", "Alert groups exceed the bounded candidate scan")
-		} else {
+		case errors.Is(err, store.ErrSessionRevoked):
+			httpapi.Error(w, 401, "unauthorized", "Session expired")
+		default:
 			httpapi.Error(w, 503, "events_unavailable", "Alert group source is unavailable")
 		}
 		return

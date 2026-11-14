@@ -70,7 +70,7 @@ func (s *Service) OpenInvestigation(w http.ResponseWriter, r *http.Request) {
 func (s *Service) openInvestigationTx(r *http.Request, tx pgx.Tx, id string) error {
 	ctx := r.Context()
 	user := httpapi.CurrentUser(r)
-	caseValue, err := scanCase(tx.QueryRow(ctx, caseSelect+` WHERE c.id=$1 FOR UPDATE OF c`, id))
+	caseValue, err := s.lockAdmittedCase(r, tx, id, true, "view", investigateChange)
 	if err == nil {
 		record := incidentRecord{ApplicationID: caseValue.ApplicationID, EnvironmentID: caseValue.EnvironmentID, EnvironmentKey: caseValue.EnvironmentKey}
 		if err = s.authorizeAlertTx(r, tx, record, "view"); err != nil {
@@ -100,7 +100,7 @@ func (s *Service) openInvestigationTx(r *http.Request, tx pgx.Tx, id string) err
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	v, err := scanIncident(tx.QueryRow(ctx, incidentSelect+` WHERE i.id=$1 FOR UPDATE OF i`, id))
+	v, err := s.lockAdmittedAlert(r, tx, id, true, true, "view", investigateChange)
 	if err != nil {
 		return err
 	}

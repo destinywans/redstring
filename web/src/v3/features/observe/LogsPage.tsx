@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, useGet } from "../../api/client";
+import { serviceApplicationId } from "../../api/ids";
 import { Unavailable, UnknownValue, errorReason } from "../../ui/unknown";
-import type { LogLine, LogSearch, ServiceCatalog } from "../../api/types";
+import type { LogLine, LogSearch } from "../../api/types";
 import { Badge, Brand, Btn, Card, Chip, Col, Icon, Input, Muted, Num, Row, Spacer, Strong, Tile, Toggle, cx } from "../../ui/core";
 import { StackedBars, Sparkline } from "../../charts";
 import { useI18n } from "../../i18n";
@@ -13,6 +14,14 @@ import { useWhen } from "../../ui/when";
 import { useNames } from "../../ui/names";
 
 const LV = { ERROR: "danger", WARN: "warn", INFO: "neutral" } as const;
+const LOG_SOURCE_NAMES = { loki: "Loki", elasticsearch: "Elasticsearch" } as const;
+type LogSource = keyof typeof LOG_SOURCE_NAMES;
+type ExternalTarget = { provider: string; target_kind: string };
+
+function isLogTarget(target: ExternalTarget): target is ExternalTarget & { provider: LogSource } {
+  return (target.provider === "loki" && target.target_kind === "log_stream") ||
+    (target.provider === "elasticsearch" && target.target_kind === "log_index");
+}
 
 export default function LogsPage() {
   const { tx } = useI18n();
@@ -25,11 +34,16 @@ export default function LogsPage() {
   const lists = usePickLists();
   // PA-166: lines name their service by application ID; show the catalog name, or the ID when it doesn't resolve.
   const names = useNames();
-  const { data: catalog } = useGet<ServiceCatalog>(real ? "/services" : null, undefined, { staleTime: 5 * 60_000 });
-  const bound = (catalog?.items.find((s) => s.id === service)?.connectors ?? []).filter((c): c is "loki" | "elasticsearch" => c === "loki" || c === "elasticsearch");
-  const [source, setSource] = useState<string | undefined>(undefined);
-  const activeSource = source && bound.includes(source as "loki") ? source : bound.length === 1 ? bound[0] : undefined;
-  const sourceName = (c: string) => (c === "loki" ? "Loki" : "Elasticsearch");
+  // The service catalog projects connected data for its own views. The target
+  // registry tells us which log source is actually bound to the selected service.
+  const applicationId = real && service ? serviceApplicationId(service) : null;
+  const { data: targets } = useGet<{ items: ExternalTarget[] }>(
+    applicationId && service ? `/services/${encodeURIComponent(service)}/external-targets` : null,
+  );
+  const bound = [...new Set((targets?.items ?? []).filter(isLogTarget).map((target) => target.provider))];
+  const [source, setSource] = useState<LogSource>();
+  const activeSource = source && bound.includes(source) ? source : bound.length === 1 ? bound[0] : undefined;
+  const sourceName = activeSource ? LOG_SOURCE_NAMES[activeSource] : real ? tx("日志来源", "log source") : "Loki";
   const setService = (v: string) => {
     const next = new URLSearchParams(params);
     if (v) next.set("service", v);
@@ -44,7 +58,9 @@ export default function LogsPage() {
   const [levels, setLevels] = useState<Set<LogLine["level"]>>(new Set(["ERROR", "WARN", "INFO"]));
   const [live, setLive] = useState(false);
   const [extra, setExtra] = useState<LogLine[]>([]);
-  const { data, error, isFetching } = useGet<LogSearch>("/logs", { q: applied, levels: [...levels].join(","), service, range, source: real ? activeSource : undefined });
+  // The picker and links use catalog IDs, while log targets are resolved by application ID or key.
+  const logService = applicationId ?? service;
+  const { data, error, isFetching } = useGet<LogSearch>("/logs", { q: applied, levels: [...levels].join(","), service: logService, range, provider: real ? activeSource : undefined });
   const u = data?.unavailable ?? {};
   useEffect(() => {
     // The demo fakes a live tail; real mode has no streaming source yet, so nothing is invented.
@@ -83,8 +99,8 @@ export default function LogsPage() {
             <form className="v3-row" style={{ gap: 8 }} onSubmit={(e) => { e.preventDefault(); setApplied(API_MODE === "mock" && query.includes("checkout") ? "checkout" : query); }}>
               {API_MODE === "mock" && <ChipSelect icon="database" label="" showLabel={false} defaultValue="es" options={[{ value: "es", label: tx("Elasticsearch · 生产", "Elasticsearch · prod") }, { value: "loki", label: "Loki · prod" }]} />}
               {API_MODE === "mock" && <ChipSelect label="" showLabel={false} defaultValue="kql" options={[{ value: "kql", label: "KQL" }, { value: "lucene", label: "Lucene" }]} />}
-              {real && bound.length === 1 && <Chip icon="database">{sourceName(bound[0])}</Chip>}
-              {real && bound.length > 1 && <ChipSelect icon="database" label="" showLabel={false} value={activeSource} onChange={(v) => setSource(v as string)} options={bound.map((b) => ({ value: b, label: sourceName(b) }))} />}
+              {real && bound.length === 1 && <Chip icon="database">{LOG_SOURCE_NAMES[bound[0]]}</Chip>}
+              {real && bound.length > 1 && <ChipSelect icon="database" label="" showLabel={false} value={activeSource} onChange={(v) => setSource(v as LogSource)} options={bound.map((b) => ({ value: b, label: LOG_SOURCE_NAMES[b] }))} />}
               {real && <ChipSelect icon="box" label="" showLabel={false} value={service ?? "all"} onChange={(v) => setService(v === "all" ? "" : (v as string))} options={[{ value: "all", label: tx("全部服务", "All services") }, ...lists.services]} />}
               {real && <RangeChip value={range} onChange={setRange} />}
               <Input mono value={query} onChange={(e) => setQuery(e.target.value)} style={{ flexGrow: 1 }} aria-label={tx("日志查询", "Log query")} placeholder={real ? tx("关键字，例如 timeout（包含匹配）", "Keyword, e.g. timeout (contains)") : undefined} />
@@ -103,7 +119,7 @@ export default function LogsPage() {
                 <Strong>{tx("日志量", "Volume")}</Strong>
                 {data ? (
                   <Muted size={11.5}>
-                    {tx("共", "Total")} {data.total ?? <UnknownValue reason={u.total} source="Loki" />} {tx("条 · 错误", "lines · errors")} {data.errors ?? <UnknownValue reason={u.errors} source="Loki" />}
+                    {tx("共", "Total")} {data.total ?? <UnknownValue reason={u.total} source={sourceName} />} {tx("条 · 错误", "lines · errors")} {data.errors ?? <UnknownValue reason={u.errors} source={sourceName} />}
                   </Muted>
                 ) : (
                   <Muted size={11.5}>{error ? "—" : "…"}</Muted>
@@ -122,14 +138,14 @@ export default function LogsPage() {
                 data && (
                   <Row gap={6} style={{ height: 40 }}>
                     <Muted size={11.5}>{tx("日志量分布", "Volume over time")}</Muted>
-                    <UnknownValue reason={u.histogram} source="Loki" />
+                    <UnknownValue reason={u.histogram} source={sourceName} />
                   </Row>
                 )
               )}
             </Card>
             {error && !isFetching && (
               <Card>
-                <Unavailable reason={errorReason(error)} source="Loki" desc={error instanceof ApiError && error.status === 422 ? error.message : undefined} />
+                <Unavailable reason={errorReason(error)} source={sourceName} desc={error instanceof ApiError && error.status === 422 ? error.message : undefined} />
               </Card>
             )}
             {noSource ? (

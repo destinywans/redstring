@@ -537,6 +537,9 @@ func (c *telemetryClient) send(ctx context.Context, method, path string, body []
 		return nil, failure(source, "limit", "telemetry response exceeds 4 MiB", nil)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if source.Provider == "elasticsearch" && resp.StatusCode == http.StatusForbidden && elasticsearchCategoryLicenseDenied(b) {
+			return nil, failure(source, "http", "Elasticsearch license does not allow log categorization", errElasticsearchCategoryLicense)
+		}
 		message := fmt.Sprintf("telemetry endpoint returned HTTP %d", resp.StatusCode)
 		var upstream struct {
 			ErrorType string `json:"errorType"`

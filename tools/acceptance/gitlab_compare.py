@@ -11,6 +11,7 @@ links independently: a deployment's pipeline from its job, a main pipeline's mer
 merge commit and a branch pipeline's from the MR's source branch, a pipeline's deployments. Writes .local/acceptance/e2e/gitlab-compare-<instance>.json.
 """
 import json
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -61,8 +62,13 @@ def compare(instance, token):
     by_source = {m['source_branch']: m['iid'] for m in mrs}
 
     def pipeline_mr(p):
-        # A main pipeline belongs to the MR it merged; a branch pipeline to the MR from that branch.
-        return by_merge_sha.get(p['sha']) if p['ref'] == 'main' else by_source.get(p['ref'])
+        # GitLab may identify an MR pipeline by its dedicated ref instead of its source branch.
+        merge_request = re.fullmatch(r'refs/merge-requests/([1-9][0-9]{0,18})/(?:head|merge|train)', p['ref'])
+        if merge_request:
+            return int(merge_request.group(1))
+        if p['ref'] == 'main':
+            return by_merge_sha.get(p['sha'])
+        return by_source.get(p['ref'])
     dep_pipeline = {d['iid']: ((d.get('deployable') or {}).get('pipeline') or {}).get('id') for d in deps}
     expect = {
         'deployments': {d['iid']: {'status': d['status'], 'sha': d['sha'], 'ref': d['ref'], 'pipeline_id': dep_pipeline[d['iid']],

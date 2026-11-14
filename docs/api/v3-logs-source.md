@@ -1,6 +1,6 @@
 # V3 日志来源接线
 
-`GET /api/v1/logs` 只查询当前授权应用、环境中持久绑定的日志目标。`provider=elasticsearch` 或 `provider=loki` 可在同一应用和环境绑定了不同来源时明确选择一个来源；不指定且来源有歧义时返回 `409 ambiguous_binding`。范围内没有日志绑定时返回 200，全部字段为 `null`，`unavailable` 均为 `not_configured`；已有绑定但选中的连接器端点未在服务端配置时返回 `503 not_configured`。
+`GET /api/v1/logs` 只查询当前授权应用、环境中持久绑定的日志目标。`provider=elasticsearch` 或 `provider=loki` 可以将查询限制到指定来源。如果同一应用和环境登记了多个日志目标，服务返回 `409 ambiguous_binding`，接线人需修正绑定。范围内没有日志绑定时返回 200，全部字段为 `null`，`unavailable` 均为 `not_configured`。已有绑定但选中的连接器端点未在服务端配置时返回 `503 not_configured`。
 
 2026-10-09 生产验收（PA-05）后，日志行与计数、模式分开证明：日志行总是返回所选来源经等级校验的限量样本；`total`、`errors`、`histogram` 只在每个所选来源和等级都证明了全窗精确计数时给出，`patterns` 只在模板计数与趋势和该总数守恒时给出，否则为 `null`，`unavailable` 注明原因。来源查询本身失败仍是 `503 telemetry_unavailable`。
 
@@ -22,7 +22,7 @@ Elasticsearch 完整模式响应需要服务端登记精确应用范围和专用
 }
 ```
 
-`message_template.keyword` 必须由受信任的日志采集链路提供。接线人需核验该字段在目标索引中是可聚合的精确 `keyword`，每条范围内日志都有稳定、可读且已脱敏的模板值；代码无法从字段名证明这些业务属性。配置不接受其他字段名，避免把集群、用户等属性冒充日志模式。没有配置该字段时，连接器沿用 Elasticsearch `categorize_text` 路径，其可用性取决于实际来源能力。
+`message_template.keyword` 必须由受信任的日志采集链路提供。接线人需核验该字段在目标索引中是可聚合的精确 `keyword`，每条范围内日志都有稳定、可读且已脱敏的模板值；代码无法从字段名证明这些业务属性。配置不接受其他字段名，避免把集群、用户等属性冒充日志模式。没有配置该字段时，连接器使用 Elasticsearch `categorize_text`。如果来源明确报告许可证不支持这项聚合，连接器用相同范围重试并返回日志行和经核验的计数，`patterns` 标记为 `unavailable`。
 
 选定级别的完整接线应让日志在 `_source` 中提供可信的 `log.level`、`level` 或 `severity_text`。运行时只对简单顶层 JSON 消息做有限回退；嵌套业务载荷的 `level` 不代表日志级别。真实来源验收需检查该等级字段覆盖整个查询窗口及返回行的等级一致性。
 

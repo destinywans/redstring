@@ -51,6 +51,8 @@ func TestElasticsearchPatternsRequireCompleteScopedAggregation(t *testing.T) {
 		}
 	}
 	response := makeResponse()
+	var rejectedSearchError map[string]any
+	searchRequests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/lab-logs/_settings/index.mapping.ignore_above" {
 			writeKeywordIndexSettings(w, "lab-logs")
@@ -63,16 +65,26 @@ func TestElasticsearchPatternsRequireCompleteScopedAggregation(t *testing.T) {
 		if r.Method != http.MethodPost || r.URL.Path != "/lab-logs/_search" {
 			t.Errorf("unexpected Elasticsearch request: %s %s", r.Method, r.URL.Path)
 		}
+		searchRequests++
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 			return
 		}
 		raw, _ := json.Marshal(body)
-		for _, required := range []string{`"cluster.keyword":"lab"`, `"aiops_level":"info"`, `"match_phrase":{"message":"checkout"}`, `"categorize_text":{"field":"message"`, `"shard_size":128`, `"track_total_hits":true`} {
+		for _, required := range []string{`"cluster.keyword":"lab"`, `"aiops_level":"info"`, `"match_phrase":{"message":"checkout"}`, `"track_total_hits":true`, `"volume"`, `"errors"`} {
 			if !strings.Contains(string(raw), required) {
-				t.Errorf("missing scoped exact pattern request %s: %s", required, raw)
+				t.Errorf("missing scoped log request %s: %s", required, raw)
 			}
+		}
+		categorize := strings.Contains(string(raw), `"categorize_text":{"field":"message"`) && strings.Contains(string(raw), `"shard_size":128`)
+		if categorize && rejectedSearchError != nil {
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": rejectedSearchError})
+			return
+		}
+		if !categorize && rejectedSearchError == nil {
+			t.Errorf("missing category aggregation: %s", raw)
 		}
 		_ = json.NewEncoder(w).Encode(response)
 	}))
@@ -94,6 +106,19 @@ func TestElasticsearchPatternsRequireCompleteScopedAggregation(t *testing.T) {
 	if out.Summary == nil || out.Summary.Total != 101 || len(out.Entries) != 100 || out.PatternSummary == nil || out.PatternError != "" || len(out.PatternSummary.Patterns) != 2 || len(out.PatternSummary.Patterns[0].Buckets) != 30 {
 		t.Fatalf("101 exact matches with a 100-hit sample should retain complete patterns: %+v", out)
 	}
+	rejectedSearchError = map[string]any{"type": "security_exception", "reason": "current license is non-compliant for [categorize-text-agg]", "license.expired.feature": "categorize-text-agg"}
+	before := searchRequests
+	out = read()
+	if searchRequests != before+2 || out.Source.Failure != nil || out.Source.HTTPStatus != http.StatusOK ||
+		out.Summary == nil || out.Summary.Total != 101 || len(out.Entries) != 100 || out.PatternSummary != nil || out.PatternError == "" {
+		t.Fatalf("denied aggregation should preserve scoped rows and totals, searches=%d, evidence=%+v", searchRequests-before, out)
+	}
+	rejectedSearchError = map[string]any{"type": "security_exception", "reason": "synthetic index search forbidden"}
+	before = searchRequests
+	if _, err := tm.QueryLogsWithPatterns(context.Background(), "app", "elasticsearch", "checkout", "info", window, 100); err == nil || searchRequests != before+1 {
+		t.Fatalf("unexpected retry of forbidden request: %v, searches=%d", err, searchRequests-before)
+	}
+	rejectedSearchError = nil
 	response = makeResponse()
 	response["aggregations"].(map[string]any)["patterns"].(map[string]any)["buckets"].([]any)[1].(map[string]any)["doc_count"] = 40
 	if out = read(); out.PatternSummary != nil || out.PatternError == "" {

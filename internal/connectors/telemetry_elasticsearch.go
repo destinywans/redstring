@@ -18,6 +18,19 @@ var telemetryIndex = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]*$`)
 
 const elasticsearchTemplateField = "message_template.keyword"
 
+var errElasticsearchCategoryLicense = errors.New("Elasticsearch categorize_text requires a different license")
+
+func elasticsearchCategoryLicenseDenied(body []byte) bool {
+	var response struct {
+		Error struct {
+			Type    string `json:"type"`
+			Feature string `json:"license.expired.feature"`
+		} `json:"error"`
+	}
+	return json.Unmarshal(body, &response) == nil &&
+		response.Error.Type == "security_exception" && response.Error.Feature == "categorize-text-agg"
+}
+
 func validateExtendedTelemetry(c TelemetryConfig) error {
 	for _, a := range c.Applications {
 		if a.ElasticsearchIndex != "" && (!telemetryIndex.MatchString(a.ElasticsearchIndex) || len(a.ElasticsearchFilters) == 0) {
@@ -147,6 +160,15 @@ func (t *Telemetry) queryElasticsearchOptionsInternal(ctx context.Context, appID
 	path := "/" + url.PathEscape(a.ElasticsearchIndex) + "/_search"
 	s.URL = strings.TrimRight(t.elasticsearch.config.URL, "/") + path
 	raw, err := t.elasticsearch.request(ctx, "POST", path, body, s)
+	if patterns && a.ElasticsearchPatternField == "" && errors.Is(err, errElasticsearchCategoryLicense) {
+		// Keep the same authorized search and exact count, dropping only the denied aggregation.
+		delete(request["aggs"].(map[string]any), "patterns")
+		body, _ = json.Marshal(request)
+		s.Query = string(body)
+		s.Failure = nil
+		raw, err = t.elasticsearch.request(ctx, "POST", path, body, s)
+		out.PatternError = "Elasticsearch license does not allow log categorization"
+	}
 	if err != nil {
 		return out, err
 	}
@@ -205,7 +227,7 @@ func (t *Telemetry) queryElasticsearchOptionsInternal(ctx context.Context, appID
 			out.SummaryError = "日志统计暂不可用，请重试"
 		}
 	}
-	if patterns {
+	if patterns && out.PatternError == "" {
 		if out.Summary == nil {
 			out.PatternError = "Exact log total is unavailable"
 		} else {
@@ -254,7 +276,9 @@ func (t *Telemetry) elasticsearchScopeFields(ctx context.Context, a ApplicationT
 	if _, ok := indices[a.ElasticsearchIndex]; !ok {
 		return nil, failure(source, "configuration", "Elasticsearch scope requires one concrete index, not a mutable alias or data stream", nil)
 	}
-	settingsPath := "/" + url.PathEscape(a.ElasticsearchIndex) + "/_settings/index.mapping.ignore_above?flat_settings=true"
+	// Elasticsearch can omit the concrete index when the filtered setting is
+	// unset. Ask for defaults so we can still check the index and its effective limit.
+	settingsPath := "/" + url.PathEscape(a.ElasticsearchIndex) + "/_settings/index.mapping.ignore_above?flat_settings=true&include_defaults=true"
 	source.URL = strings.TrimRight(t.elasticsearch.config.URL, "/") + settingsPath
 	settingsRaw, err := t.elasticsearch.request(ctx, "GET", settingsPath, nil, source)
 	if err != nil {
@@ -262,6 +286,7 @@ func (t *Telemetry) elasticsearchScopeFields(ctx context.Context, a ApplicationT
 	}
 	var settings map[string]struct {
 		Settings map[string]string `json:"settings"`
+		Defaults map[string]string `json:"defaults"`
 	}
 	if json.Unmarshal(settingsRaw, &settings) != nil || len(settings) != len(indices) {
 		return nil, failure(source, "protocol", "Invalid Elasticsearch index settings", nil)
@@ -273,7 +298,11 @@ func (t *Telemetry) elasticsearchScopeFields(ctx context.Context, a ApplicationT
 			return nil, failure(source, "protocol", "Elasticsearch index settings do not cover scope mappings", nil)
 		}
 		indexIgnoreAbove := 0
-		if value, ok := indexSettings.Settings["index.mapping.ignore_above"]; ok {
+		value, hasLimit := indexSettings.Settings["index.mapping.ignore_above"]
+		if !hasLimit {
+			value, hasLimit = indexSettings.Defaults["index.mapping.ignore_above"]
+		}
+		if hasLimit {
 			indexIgnoreAbove, err = strconv.Atoi(value)
 			if err != nil || indexIgnoreAbove < 1 {
 				return nil, failure(source, "protocol", "Invalid Elasticsearch index ignore_above setting", err)

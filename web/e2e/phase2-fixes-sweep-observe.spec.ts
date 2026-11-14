@@ -160,6 +160,36 @@ const catalog = (items: unknown[]) => ({
   items,
 });
 
+test("logs use the selected service's application ID and registered log source", async ({ page }) => {
+  const appId = "synthetic-checkout";
+  const serviceId = Buffer.from(appId + "\0prod").toString("base64url");
+  const message = "synthetic checkout log";
+  await page.addInitScript(zh);
+  await page.route(at("/services"), (r) => json(r, 200, catalog([svc({ id: serviceId, connectors: ["prometheus"] })])));
+  await page.route(at(`/services/${serviceId}/external-targets`), (r) => json(r, 200, {
+    items: [
+      { provider: "prometheus", target_kind: "metric_resource" },
+      { provider: "loki", target_kind: "log_stream" },
+    ],
+  }));
+  await page.route(at("/logs"), (r) => {
+    const params = new URL(r.request().url()).searchParams;
+    const service = params.get("service");
+    const filtered = service === appId && params.get("provider") === "loki";
+    return json(r, 200, {
+      items: service === null ? [] : filtered ? [{ service: appId, time: t0, level: "ERROR", message }] : null,
+      unavailable: service && !filtered ? { items: "not_configured" } : {},
+    });
+  });
+
+  await page.goto(origin + "/logs");
+  await page.getByRole("button", { name: "全部服务", exact: true }).click();
+  await page.getByRole("option", { name: /检查用服务/ }).click();
+  await expect(page).toHaveURL((url) => url.searchParams.get("service") === serviceId);
+  await expect(page.getByText("Loki", { exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: message })).toBeVisible();
+});
+
 /**
  * PA-209 (WAN-568): status warn was written "Alerting", but warn also comes from an error budget under half or a 1 h
  * burn ≥ 1 (internal/v3serviceviews/metrics.go), with 0 alerts and the "Alerting" KPI not counting it.

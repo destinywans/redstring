@@ -20,13 +20,15 @@ func TestElasticsearchScopeMappingResolvesExactFieldsOrFailsClosed(t *testing.T)
 		return map[string]any{"mappings": entries}
 	}
 	for _, tc := range []struct {
-		name       string
-		mapping    any
-		queryField string
-		wantSearch bool
-		indexLimit string
+		name         string
+		mapping      any
+		queryField   string
+		wantSearch   bool
+		indexLimit   string
+		defaultLimit string
 	}{
 		{name: "direct keyword", mapping: map[string]any{"lab-logs": mapping(map[string]map[string]any{"cluster": {"type": "keyword"}})}, queryField: "cluster", wantSearch: true},
+		{name: "unset index setting with default", mapping: map[string]any{"lab-logs": mapping(map[string]map[string]any{"cluster": {"type": "keyword"}})}, defaultLimit: "2147483647", queryField: "cluster", wantSearch: true},
 		{name: "keyword multi field", mapping: map[string]any{"lab-logs": mapping(map[string]map[string]any{"cluster.keyword": {"type": "keyword", "ignore_above": 256}})}, queryField: "cluster.keyword", wantSearch: true},
 		{name: "unmapped", mapping: map[string]any{"lab-logs": mapping(nil)}},
 		{name: "text only", mapping: map[string]any{"lab-logs": mapping(map[string]map[string]any{"cluster": {"type": "text"}})}},
@@ -35,6 +37,8 @@ func TestElasticsearchScopeMappingResolvesExactFieldsOrFailsClosed(t *testing.T)
 		{name: "value not indexed", mapping: map[string]any{"lab-logs": mapping(map[string]map[string]any{"cluster.keyword": {"type": "keyword", "ignore_above": 2}})}},
 		{name: "normalized keyword", mapping: map[string]any{"lab-logs": mapping(map[string]map[string]any{"cluster": {"type": "keyword", "normalizer": "lowercase"}})}},
 		{name: "index-level ignore_above", mapping: map[string]any{"lab-logs": mapping(map[string]map[string]any{"cluster": {"type": "keyword"}})}, indexLimit: "2"},
+		{name: "default index-level ignore_above", mapping: map[string]any{"lab-logs": mapping(map[string]map[string]any{"cluster": {"type": "keyword"}})}, defaultLimit: "2"},
+		{name: "explicit index limit overrides default", mapping: map[string]any{"lab-logs": mapping(map[string]map[string]any{"cluster": {"type": "keyword"}})}, indexLimit: "3", defaultLimit: "2", queryField: "cluster", wantSearch: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			searches := 0
@@ -52,7 +56,16 @@ func TestElasticsearchScopeMappingResolvesExactFieldsOrFailsClosed(t *testing.T)
 						if tc.indexLimit != "" {
 							value["index.mapping.ignore_above"] = tc.indexLimit
 						}
-						settings[index] = map[string]any{"settings": value}
+						includeDefaults := r.URL.Query().Get("include_defaults") == "true"
+						// Elasticsearch omits the index from a filtered settings response when the setting is unset.
+						if tc.defaultLimit != "" && tc.indexLimit == "" && !includeDefaults {
+							continue
+						}
+						row := map[string]any{"settings": value}
+						if tc.defaultLimit != "" && includeDefaults {
+							row["defaults"] = map[string]any{"index.mapping.ignore_above": tc.defaultLimit}
+						}
+						settings[index] = row
 					}
 					_ = json.NewEncoder(w).Encode(settings)
 				case "/lab-logs/_search":
@@ -90,7 +103,7 @@ func TestElasticsearchScopeMappingResolvesExactFieldsOrFailsClosed(t *testing.T)
 
 func TestElasticsearchSeverityRuntimeIncludesOTelFallback(t *testing.T) {
 	script := elasticsearchLevelRuntime()["aiops_level"].(map[string]any)["script"].(map[string]string)["source"]
-	for _, part := range []string{"s.containsKey('log.level')", "s.containsKey('level')", "s.containsKey('severity_text')", "for(def candidate:values)", "v=='info'", "emit(v); break;"} {
+	for _, part := range []string{"s.containsKey('log.level')", "s.containsKey('level')", "s.containsKey('severity_text')", "for(def candidate:levelCandidates)", "v=='info'", "emit(v); break;"} {
 		if !strings.Contains(script, part) {
 			t.Fatalf("runtime severity normalization missing %q", part)
 		}

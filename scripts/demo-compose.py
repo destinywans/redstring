@@ -354,8 +354,12 @@ def check_ports():
             return
     for port in APP_PORTS.values():
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            # A recently stopped host process may leave accepted connections in
+            # TIME_WAIT. SO_REUSEADDR still rejects an active TCP listener.
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 listener.bind(("127.0.0.1", port))
+                listener.listen(1)
             except OSError as exc:
                 raise ValueError(f"127.0.0.1:{port} is in use; stop the matching owned host demo process before cutover") from exc
 

@@ -26,7 +26,7 @@ USER 10001:10001
 ENTRYPOINT ["/usr/local/bin/demo-relay"]
 
 FROM alpine:3.23 AS runtime
-RUN apk add --no-cache ca-certificates git openssh-client
+RUN apk add --no-cache ca-certificates git openssh-client tzdata
 ARG REDSTRING_UID=10001
 ARG REDSTRING_GID=10001
 RUN group="$(getent group "$REDSTRING_GID" | cut -d: -f1)" && \

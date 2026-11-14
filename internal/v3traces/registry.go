@@ -184,11 +184,14 @@ func registryObserved(ctx context.Context, groups []traceGroup, q connectors.Com
 		if out.WindowEnd.IsZero() || observed.WindowStart.After(out.WindowStart) {
 			out.WindowStart = observed.WindowStart
 		}
-		if out.WindowEnd.IsZero() {
+		if out.WindowEnd.IsZero() || observed.WindowEnd.Before(out.WindowEnd) {
 			out.WindowEnd = observed.WindowEnd
 		}
 		if !out.WindowStart.IsZero() {
 			q.Window.Start = out.WindowStart
+		}
+		if !out.WindowEnd.IsZero() {
+			q.Window.End = out.WindowEnd
 		}
 		for _, trace := range observed.Traces {
 			if seen[trace.ID] {
@@ -201,7 +204,8 @@ func registryObserved(ctx context.Context, groups []traceGroup, q connectors.Com
 		}
 	}
 	for _, item := range kept {
-		if item.from.Before(out.WindowStart) && traceStart(item.trace).Before(out.WindowStart) {
+		start := traceStart(item.trace)
+		if (item.from.Before(out.WindowStart) && start.Before(out.WindowStart)) || !start.Before(out.WindowEnd) {
 			continue
 		}
 		out.Traces = append(out.Traces, item.trace)

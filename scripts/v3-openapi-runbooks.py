@@ -3,10 +3,10 @@ S['V3RunbookToolDisplay'] = obj(fieldnames('brand text'),['brand','text'])
 S['V3RunbookToolDisplay']['description'] = 'Optional editor display text only; it does not bind or execute a connector.'
 S['V3RunbookStep'] = obj({'n':integer(),'kind':string(enum=['query','check','action','verify']),
     'title':string(),'body':string(),'connectors':arr(string()),'code':string(),
-    'readonly':v3_bool(),'approval':v3_bool(),'tool':ref('V3RunbookToolDisplay')})
+    'readonly':v3_bool(),'approval':v3_bool(),'tool':ref('V3RunbookToolDisplay'),'probe':string(enum=['request_rate'])})
 S['V3RunbookCreateStep'] = obj({'n':integer(),'kind':string(enum=['query','check','action','verify','act','judge']),
     'title':string(),'body':string(),'connectors':arr(string()),'code':string(),
-    'readonly':v3_bool(),'approval':v3_bool(),'tool':ref('V3RunbookToolDisplay')})
+    'readonly':v3_bool(),'approval':v3_bool(),'tool':ref('V3RunbookToolDisplay'),'probe':string(enum=['request_rate'])})
 S['V3RunbookSummary'] = obj({**fieldnames('id title scope owner version application_id team_id'),
     'tags':arr(string()),'status':string(enum=['published','review','draft']),
     'environment_ids':arr(string()),
@@ -58,6 +58,12 @@ v3_route('post','/runbooks','Create governed runbook draft',
         'steps':arr(ref('V3RunbookCreateStep')),
         'status':string(enum=['draft','review'])},['title','source']),response=obj({'id':string()},['id']),status=201,
     desc='Requires one selected environment and current scoped knowledge:manage. A nonblank source requires an explicit authorized reference; blank forbids one. A current session, source state and permissions are rechecked inside the creation transaction. The bounded source identity and content digest saved with structured steps are an observation at save time. A client may pass expected_source_sha256 from GET /runbooks/draft to reject source drift with 409 source_changed; without it, submitted steps are not proven to derive from the saved digest. Initial version, revision history and audit are saved atomically; source text remains in its governed source table. An action step requires approval; review status requires at least one step. A draft is visible only to its maintainer with manage permission; review is visible to current knowledge managers. Neither status publishes or executes a Runbook. The frozen frontend creation payload still needs reconciliation with this request schema.')
+v3_route('patch','/runbooks/{id}','Edit a current Runbook draft',
+    role='viewer with scoped knowledge.manage',
+    body=obj({'expected_version':integer(minimum=1),'title':string(),'when':string(),
+        'steps':arr(ref('V3RunbookCreateStep'))},['expected_version','title','steps']),
+    response=obj({'id':string(),'version':integer(),'status':string(enum=['draft'])},['id','version','status']),
+    desc='The maintainer with current single-environment knowledge.manage may edit the exact draft version. Authorizations, session and draft version are rechecked in a locked transaction. Body, steps, revision, history and audit commit together. Source, scope and prior history are preserved. Published or pending-review versions and stale saves return 409.')
 v3_route('post','/runbooks/{id}/submit','Submit runbook for review',
     desc='Requires scoped knowledge:manage grant and maintainer ownership.',
     response=obj({'ok':v3_bool(),'status':string(enum=['review'])}))
@@ -66,6 +72,15 @@ v3_route('post','/runbooks/{id}/dry-run','Validate runbook without execution',
     response=obj({'steps':integer(),'ok':v3_bool(),'mode':string(enum=['validation_only']),
         'checks':arr({'type':'object','additionalProperties':True})}),
     desc='Requires knowledge.manage because the validation preview and audit are persisted. Performs structural checks on persisted step kind, declared readonly flag and connector presence without a request body. Each check carries reasons, the conditions a step failed in a fixed order: action_step, not_readonly, no_connector (an empty array when it passed, PA-194). It does not verify a connector capability or execute any external step.')
+v3_route('post','/runbooks/{id}/execute-readonly','Execute the published Runbook’s registered read-only query',
+    role='viewer with scoped knowledge.manage',
+    body=obj({'expected_version':integer(minimum=1)},['expected_version']),
+    response=obj({'id':string(),'version':integer(),'mode':string(enum=['read_only']),
+        'status':string(enum=['observed','no_samples']),
+        'steps':arr(obj({'step':integer(),'query_id':string(enum=['request_rate']),'captured_at':string(format='date-time'),
+            'sample_count':integer(),'latest':{'type':['number','null']}},['step','query_id','captured_at','sample_count','latest']))},
+        ['id','version','mode','status','steps']),
+    desc='Runs only the registered request_rate expression once per bounded window for an exact published application-bound Runbook version. Every step must explicitly name the probe and the application’s sole Prometheus connector. Rechecks the Cookie, document version, scoped grants and exact source configuration before committing the result and audit. Only a nonempty observed result establishes last_verified_at. Arbitrary text, connector writes, commands, action steps and models are never executed.')
 v3_route('get','/runbooks/draft','Read a source-validated Runbook outline',
     query=[v3_query('source',string(enum=['template','postmortem','conversation','import'])),v3_query('from')],
     response=obj({'title':string(),'applies_to':arr(string()),'trigger':string(),
@@ -83,12 +98,12 @@ P['/runbooks/draft']['get']['responses']['413'] = {
     'description':'The selected source exceeds the bounded draft input limit',
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/runbooks/{id}/reviews','Review a submitted Runbook',
-    body=obj({'decision':string(enum=['approve','request_changes']),'note':string()},['decision']),
+    body=obj({'decision':string(enum=['approve','request_changes']),'note':string(),'expected_version':integer(minimum=1)},['decision']),
     response=obj({'id':string(),'status':string(enum=['published','draft']),'version':integer(),
         'index_status':string(),'semantic_search_ready':v3_bool(),
         'index_retry_required':v3_bool()},
         ['id','status','version']),
-    desc='Auxiliary governance operation. Requires scoped knowledge.manage and a reviewer other than the maintainer. Requesting changes requires a note. Approval first commits publication, then attempts indexing outside the transaction; optional response fields report actual index status, semantic search readiness and retry need. An unavailable embedder does not undo human publication.')
+    desc='Auxiliary governance operation. Requires scoped knowledge.manage and a reviewer other than the maintainer. Requesting changes requires a note. Clients can pin the draft revision they reviewed with expected_version. Approval first commits publication, then attempts indexing outside the transaction; optional response fields report actual index status, semantic search readiness and retry need. An unavailable embedder does not undo human publication.')
 v3_route('post','/runbooks/{id}/reindex','Retry semantic indexing for one published Runbook',
     role='viewer with scoped knowledge.manage',
     response=obj({'id':string(),'status':string(enum=['published']),'version':integer(),
@@ -116,7 +131,7 @@ v3_route('get','/runbooks/{id}/history','Read bounded Runbook governance history
             ['id','version','actor_id','step_count','readonly_valid','checks','created_at'])),
         'execution_verification_available':v3_bool()},
         ['id','versions','reviews','validation_previews','execution_verification_available']),
-    desc='Auxiliary history; each collection is limited to 100 rows and fails with 413 if larger. Review notes are visible only to the maintainer or knowledge managers. No execution verification producer is connected.')
+    desc='Auxiliary history; each collection is limited to 100 rows and fails with 413 if larger. Review notes are visible only to the maintainer or knowledge managers. Execution verification availability reflects a recorded nonempty read-only observation of the current version in an authorized environment.')
 P['/runbooks/{id}/history']['get']['responses']['413'] = {
     'description':'Runbook history exceeds 100 rows in any unpaged collection',
     'content':{'application/json':{'schema':ref('Error')}}}

@@ -183,6 +183,15 @@ type validationRow struct {
 	CreatedAt     string           `json:"created_at"`
 }
 
+func hasRunbookObservation(ctx context.Context, tx pgx.Tx, doc knowledge.Document, environments []string) (bool, error) {
+	var observed bool
+	err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM management_audit
+ WHERE target=$1 AND application_id=$2 AND action='runbook.readonly_execution' AND outcome='succeeded'
+   AND changes->>'version'=$3 AND changes->>'status'='observed'
+   AND changes->>'environment_id'=ANY($4::text[]))`, doc.ID, doc.ApplicationID, strconv.Itoa(doc.Version), environments).Scan(&observed)
+	return observed, err
+}
+
 func (s *Service) historyHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tx, doc, ok := s.readableRunbook(w, r)
@@ -279,6 +288,16 @@ func (s *Service) historyHandler() http.HandlerFunc {
 			httpapi.Error(w, 413, "history_too_large", "Runbook history exceeds the unpaged response limit")
 			return
 		}
+		allowedEnvs, err := s.authorizedRunbookEnvironmentsWithTx(r, tx, doc)
+		if err != nil {
+			runbookReadAuthorityError(w, err)
+			return
+		}
+		executionAvailable, err := hasRunbookObservation(r.Context(), tx, doc, allowedEnvs)
+		if err != nil {
+			knowledgeError(w, err)
+			return
+		}
 		if err = lockRunbookReadSession(r.Context(), tx, r); err != nil {
 			runbookReadAuthorityError(w, err)
 			return
@@ -289,7 +308,7 @@ func (s *Service) historyHandler() http.HandlerFunc {
 		}
 		httpapi.WriteJSON(w, 200, map[string]any{
 			"id": doc.ID, "versions": versions, "reviews": reviews, "validation_previews": validations,
-			"execution_verification_available": false,
+			"execution_verification_available": executionAvailable,
 		})
 	}
 }

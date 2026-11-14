@@ -27,15 +27,17 @@ type TelemetryConfig struct {
 	Tempo         TelemetryEndpoint `json:"tempo"`
 	// Set only after the target Tempo deployment is verified to fail search
 	// requests on high live-store lag; otherwise HTTP 200 can be incomplete.
-	TempoSearchFailClosed bool                            `json:"tempo_search_fail_closed,omitempty"`
-	Loki                  TelemetryEndpoint               `json:"loki"`
-	Applications          map[string]ApplicationTelemetry `json:"applications"`
-	TimeoutSeconds        int                             `json:"timeout_seconds"`
-	MaxWindowSeconds      int                             `json:"max_window_seconds"`
-	MaxLookbackSeconds    int                             `json:"max_lookback_seconds"`
-	MinStepSeconds        int                             `json:"min_step_seconds"`
-	MaxSamplesPerSeries   int                             `json:"max_samples_per_series"`
-	MaxLogEntries         int                             `json:"max_log_entries"`
+	TempoSearchFailClosed bool `json:"tempo_search_fail_closed,omitempty"`
+	// Explicitly avoid the interval the Tempo frontend omits from searches.
+	TempoSearchDelaySeconds int                             `json:"tempo_search_delay_seconds,omitempty"`
+	Loki                    TelemetryEndpoint               `json:"loki"`
+	Applications            map[string]ApplicationTelemetry `json:"applications"`
+	TimeoutSeconds          int                             `json:"timeout_seconds"`
+	MaxWindowSeconds        int                             `json:"max_window_seconds"`
+	MaxLookbackSeconds      int                             `json:"max_lookback_seconds"`
+	MinStepSeconds          int                             `json:"min_step_seconds"`
+	MaxSamplesPerSeries     int                             `json:"max_samples_per_series"`
+	MaxLogEntries           int                             `json:"max_log_entries"`
 }
 type TelemetryEndpoint struct {
 	URL             string `json:"url"`
@@ -229,7 +231,7 @@ func (c TelemetryConfig) limitsValid() bool {
 	return c.TimeoutSeconds >= 1 && c.TimeoutSeconds <= 60 && c.MaxWindowSeconds >= 1 && c.MaxWindowSeconds <= 86400 &&
 		c.MaxLookbackSeconds >= c.MaxWindowSeconds && c.MaxLookbackSeconds <= 366*86400 && c.MinStepSeconds >= 1 &&
 		c.MinStepSeconds <= c.MaxWindowSeconds && c.MaxSamplesPerSeries >= 2 && c.MaxSamplesPerSeries <= 11000 &&
-		c.MaxLogEntries >= 1 && c.MaxLogEntries <= 5000
+		c.MaxLogEntries >= 1 && c.MaxLogEntries <= 5000 && c.TempoSearchDelaySeconds >= 0 && c.TempoSearchDelaySeconds <= 300
 }
 
 // ValidLimits reports whether the time and result limits of c are in range

@@ -64,3 +64,11 @@ v3_route('get','/topology','Read authorized source-backed topology',
 P['/topology']['get']['responses']['413'] = {
     'description':'Full topology exceeds the bounded candidate or neighborhood limit',
     'content':{'application/json':{'schema':ref('Error')}}}
+
+v3_route('get', '/topology/traffic', 'Read observed service-to-service traffic',
+    response=obj({'observed_at':string(format='date-time'),'source':string(enum=['prometheus']),
+        'sankey':obj({'cols':arr(arr(ref('V3TopologySankeyNode'))),
+                      'links':arr(ref('V3TopologySankeyLink'))},['cols','links'])},
+        ['observed_at','source','sankey']),
+    query=[v3_query('service')],
+    desc='Requires one selected environment and a visible persisted application ID. A reviewed topology_service_traffic query supplies positive finite request rates labelled exactly client and server. Both endpoints must be current registered services with services.view and resources.view. The selected source also requires connectors.view; the original session and application access are rechecked. Empty means no positive current samples among the visible endpoints. Missing or invalid source data returns 503. This observation does not imply topology health or connection capacity.')

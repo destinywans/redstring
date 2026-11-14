@@ -242,7 +242,8 @@ func (s *Service) AgentDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := tx.Query(r.Context(), `SELECT v.version,v.created_at,EXISTS(
  SELECT 1 FROM v3_agent_release_events e WHERE e.agent_id=v.agent_id
- AND e.to_version=v.version AND e.percent=100) FROM v3_agent_versions v
+ AND e.to_version=v.version AND e.percent=100),EXISTS(
+ SELECT 1 FROM v3_agent_execution_configs c WHERE c.agent_id=v.agent_id AND c.version=v.version) FROM v3_agent_versions v
  WHERE v.agent_id=$1 ORDER BY v.created_at DESC,v.version DESC LIMIT 101`, a.ID)
 	if err != nil {
 		unavailable(w)
@@ -253,8 +254,8 @@ func (s *Service) AgentDetail(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var v string
 		var created time.Time
-		var everStable bool
-		if err = rows.Scan(&v, &created, &everStable); err != nil {
+		var everStable, executionConfigured bool
+		if err = rows.Scan(&v, &created, &everStable, &executionConfigured); err != nil {
 			rows.Close()
 			unavailable(w)
 			return
@@ -278,7 +279,7 @@ func (s *Service) AgentDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		versions = append(versions, map[string]any{"version": v, "status": status,
 			"traffic": nil, "configured_traffic": configuredTraffic, "routing_connected": s.ExecutionRuntime() != nil,
-			"score": nil, "success": nil, "tokens": nil, "created": timeString(created)})
+			"score": nil, "success": nil, "tokens": nil, "created": timeString(created), "execution_configured": executionConfigured})
 	}
 	err = rows.Err()
 	rows.Close()

@@ -14,6 +14,7 @@ import "./agents.css";
 import { openForm } from "../../ui/demo";
 import { useMemberNames } from "../../ui/names";
 import { useWhen } from "../../ui/when";
+import { AgentActions, AgentDraftActions } from "./AgentVersionActions";
 
 export default function AgentPage() {
   const { tx } = useI18n();
@@ -80,7 +81,7 @@ export default function AgentPage() {
             {rollbackTo ? tx("回滚到 {v}", "Roll back to {v}", { v: rollbackTo }) : tx("回滚", "Roll back")}
           </Btn>
           </Gate>
-          {/* Real versions need an artifact reference (POST /agents/{id}/versions); this form only pretends, so sample data only (PA-134). */}
+          {!demo && <AgentActions agent={a} />}
           {demo && (
             <Btn
               kind="primary"
@@ -153,6 +154,7 @@ export default function AgentPage() {
                         <th>{tx("成功率", "Success")}</th>
                         <th>{tx("平均 tokens", "Avg tokens")}</th>
                         <th>{tx("创建", "Created")}</th>
+                        {!demo && <th>{tx("操作", "Actions")}</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -178,6 +180,7 @@ export default function AgentPage() {
                           <td>
                             <Muted>{when.at(v.created)}</Muted>
                           </td>
+                          {!demo && <td>{v.status === "draft" && <AgentDraftActions agent={a} version={v} />}</td>}
                         </tr>
                       ))}
                     </tbody>
@@ -241,7 +244,7 @@ export default function AgentPage() {
                       {/* Without a canary in progress there is nothing to promote; starting one from a draft has no entry yet (PA-164). */}
                       <Gated
                         kind={promoteBlocked ? "permission" : "availability"}
-                        reason={promoteBlocked ?? (noCandidate ? tx("没有进行中的灰度版本；界面还不能从草稿版本发起灰度", "No canary in progress; starting one from a draft isn't available here yet") : null)}
+                        reason={promoteBlocked ?? (noCandidate ? tx("没有进行中的灰度版本，请从版本表选择候选版本", "No canary in progress. Select a candidate in the versions table") : null)}
                       >
                         <Btn kind="primary" icon="up" onClick={() => setConfirm(true)}>
                           {tx("推进到 {p}%", "Promote to {p}%", { p: target })}
@@ -255,7 +258,7 @@ export default function AgentPage() {
               </Row>
             )}
             <Row gap={14} align="stretch">
-              <Panel title={tx("{a} → {b} 差异", "{a} → {b} diff", { a: a.release.from, b: a.release.to })} right={<TextLink to="/agents/prompts">{tx("完整对比", "Full diff")}</TextLink>} style={{ flex: "1 1 0", minWidth: 0 }}>
+              <Panel title={a.release.from && a.release.to ? tx("{a} → {b} 差异", "{a} → {b} diff", { a: a.release.from, b: a.release.to }) : tx("版本差异", "Version diff")} right={<TextLink to="/agents/prompts">{tx("查看 Prompt", "View prompts")}</TextLink>} style={{ flex: "1 1 0", minWidth: 0 }}>
                 {!a.diff && <Unavailable reason="not_generated" title={tx("版本差异", "Version diff")} desc={tx("还没有记录这两个版本之间的差异。", "No diff between these versions is recorded yet.")} icon="code" />}
                 <ul className="diff-list">
                   {a.diff?.map((d) => (
@@ -269,7 +272,7 @@ export default function AgentPage() {
                   ))}
                 </ul>
               </Panel>
-              <Panel title={tx("当前配置 · {v}", "Current config · {v}", { v: a.release.from })} style={{ width: 380, flex: "none" }}>
+              <Panel title={a.release.from ? tx("当前配置 · {v}", "Current config · {v}", { v: a.release.from }) : tx("当前配置", "Current config")} style={{ width: 380, flex: "none" }}>
                 {!a.config && <Unavailable reason="not_generated" title={tx("当前配置", "Current config")} desc={tx("还没有可展示的配置记录。", "No configuration record to show yet.")} icon="sliders" />}
                 <div className="cfg-grid">
                   {a.config?.map((c) => (

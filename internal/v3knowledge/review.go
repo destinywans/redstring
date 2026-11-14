@@ -51,8 +51,9 @@ func (s *Service) authorizedRunbookEnvironmentsWithTx(r *http.Request, tx pgx.Tx
 }
 
 type reviewInput struct {
-	Decision string `json:"decision"`
-	Note     string `json:"note"`
+	Decision        string `json:"decision"`
+	Note            string `json:"note"`
+	ExpectedVersion *int   `json:"expected_version,omitempty"`
 }
 
 func (s *Service) reviewHandler() http.HandlerFunc {
@@ -66,6 +67,7 @@ func (s *Service) reviewHandler() http.HandlerFunc {
 		}
 		in.Note = strings.TrimSpace(in.Note)
 		if (in.Decision != "approve" && in.Decision != "request_changes") || len([]rune(in.Note)) > 4000 ||
+			(in.ExpectedVersion != nil && *in.ExpectedVersion < 1) ||
 			(in.Decision == "request_changes" && in.Note == "") {
 			httpapi.Error(w, 422, "invalid_review", "Select a review decision and explain requested changes")
 			return
@@ -117,6 +119,10 @@ func (s *Service) reviewHandler() http.HandlerFunc {
 		}
 		if doc.Lifecycle != "review" {
 			httpapi.Error(w, 409, "invalid_state", "Only a submitted Runbook can be reviewed")
+			return
+		}
+		if in.ExpectedVersion != nil && doc.Version != *in.ExpectedVersion {
+			httpapi.Error(w, 409, "runbook_changed", "Review the current submitted Runbook version")
 			return
 		}
 		next := "published"

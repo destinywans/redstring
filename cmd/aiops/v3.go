@@ -71,6 +71,7 @@ type v3Instance struct {
 	Tier         string `json:"tier"`
 	Name         string `json:"name"`
 	Domain       string `json:"domain"`
+	OIDCEnabled  bool   `json:"oidc_enabled,omitempty"`
 	Environments []struct {
 		ID       string   `json:"id"`
 		Label    string   `json:"label"`
@@ -318,6 +319,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 			return fmt.Errorf("configure OIDC: %w", err)
 		}
 		identity.Register(api)
+		info.OIDCEnabled = true
 	}
 	invitations, err := configureV3Invitations(*info, api)
 	if err != nil {
@@ -616,7 +618,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	// catalog's limits and Tempo search attestations (PA-19 P4) and approved
 	// Vault credentials.
 	sourceClients := &v3telemetry.Clients{Tier: cfg.Tier, Credentials: credentialResolver, Limits: sourceCatalog.Limits.Config(),
-		TempoSearchFailClosed: sourceCatalog.TempoSearchFailClosed}
+		TempoSearchFailClosed: sourceCatalog.TempoSearchFailClosed, TempoSearchDelaySeconds: sourceCatalog.TempoSearchDelaySeconds}
 	metricReader, err := v3integrations.NewPrometheusReader(s.DB, cfg.Tier, connector.Prober.Resolver, metricCatalog)
 	if err != nil {
 		return fmt.Errorf("configure V3 Prometheus reader: %w", err)
@@ -658,6 +660,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 			break
 		}
 	}
+	topology.TrafficReader = metricReader
 	topology.Register(api)
 	// Function-calling support is model-specific. Only models explicitly
 	// verified by the operator are offered V3 read tools; an empty allowlist
@@ -689,7 +692,7 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 		}
 		return false
 	}
-	knowledgeV3 := &v3knowledge.Service{DB: s.DB, Knowledge: know, Policy: policy}
+	knowledgeV3 := &v3knowledge.Service{DB: s.DB, Knowledge: know, Policy: policy, MetricReader: metricReader}
 	currentToolUser := func(ctx context.Context, id string) (core.User, error) {
 		member, err := s.Member(ctx, id)
 		if err != nil {

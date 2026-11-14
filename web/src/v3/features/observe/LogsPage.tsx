@@ -23,6 +23,22 @@ function isLogTarget(target: ExternalTarget): target is ExternalTarget & { provi
     (target.provider === "elasticsearch" && target.target_kind === "log_index");
 }
 
+function logIdentity(row: LogLine) {
+  return JSON.stringify([row.time, row.service, row.level, row.message, row.trace]);
+}
+
+// RFC3339Nano trims trailing zeroes, so normalize the fractional part before sorting.
+function logSortTime(time: string) {
+  return time.replace(/(?:\.(\d{1,9}))?Z$/, (_suffix, nanos: string | undefined) => `.${(nanos ?? "").padEnd(9, "0")}Z`);
+}
+
+function mergeLatestLogs(latest: LogLine[], snapshot: LogLine[]) {
+  const seenInLatest = new Set(latest.map(logIdentity));
+  return [...latest, ...snapshot.filter((line) => !seenInLatest.has(logIdentity(line)))]
+    .sort((a, b) => logSortTime(b.time).localeCompare(logSortTime(a.time)))
+    .slice(0, 100);
+}
+
 export default function LogsPage() {
   const { tx } = useI18n();
   const when = useWhen();
@@ -60,7 +76,19 @@ export default function LogsPage() {
   const [extra, setExtra] = useState<LogLine[]>([]);
   // The picker and links use catalog IDs, while log targets are resolved by application ID or key.
   const logService = applicationId ?? service;
-  const { data, error, isFetching } = useGet<LogSearch>("/logs", { q: applied, levels: [...levels].join(","), service: logService, range, provider: real ? activeSource : undefined });
+  const levelFilter = real && levels.size === 0 ? [""] : [...levels].join(",");
+  const logFilters = { q: applied, levels: levelFilter, service: logService, range, provider: real ? activeSource : undefined };
+  const { data, error, isFetching, refetch } = useGet<LogSearch>("/logs", logFilters, { placeholderData: undefined });
+  const following = real && live && !!logService && levels.size > 0;
+  const { data: liveData, error: liveError, isFetching: liveFetching } = useGet<LogSearch>(
+    following ? "/logs" : null,
+    { ...logFilters, range: "15m", view: "lines" },
+    { refetchInterval: following ? 3000 : false, refetchIntervalInBackground: false, retry: false, placeholderData: undefined },
+  );
+  const toggleLive = (next: boolean) => {
+    setLive(next);
+    if (real && !next) void refetch();
+  };
   const u = data?.unavailable ?? {};
   useEffect(() => {
     // The demo fakes a live tail; real mode has no streaming source yet, so nothing is invented.
@@ -79,9 +107,16 @@ export default function LogsPage() {
       else n.add(l);
       return n;
     });
-  const rows = [...extra.filter((e) => levels.has(e.level)), ...(data?.items ?? [])];
+  // The latest bounded response replaces overlapping rows from the same scope.
+  // A sliding window can still show newly arrived records with older timestamps.
+  const denied = following && liveError instanceof ApiError && (liveError.status === 401 || liveError.status === 403 || liveError.status === 409);
+  const snapshot = data?.items ?? [];
+  const latest = following ? liveData?.items : undefined;
+  const rows = latest === null ? [] : latest ? mergeLatestLogs(latest, snapshot) : [
+    ...extra.filter((e) => levels.has(e.level)), ...snapshot,
+  ];
   // items is null only when no log source is bound at all.
-  const noSource = !!data && data.items === null;
+  const noSource = following && liveData ? liveData.items === null : data?.items === null;
   return (
     <Page
       flush
@@ -113,7 +148,19 @@ export default function LogsPage() {
                   <Toggle on={live} onChange={setLive} label={tx("实时", "Live")} />
                 </>
               )}
+              {real && logService && (
+                <>
+                  <Muted>{tx("跟随最新日志", "Follow latest logs")}</Muted>
+                  <Toggle on={live} onChange={toggleLive} label={tx("跟随最新日志", "Follow latest logs")} />
+                </>
+              )}
             </form>
+            {following && (
+              <Muted size={11.5}>{tx("每 3 秒刷新最近的日志行。统计和模式为上次搜索结果。", "Refreshes the latest lines every 3 seconds. Totals and patterns are from the last search.")}</Muted>
+            )}
+            {following && liveError && !liveFetching && (
+              <Unavailable reason={errorReason(liveError)} title={tx("最新日志刷新失败", "Latest logs could not be refreshed")} source={sourceName} />
+            )}
             <Card style={{ padding: "10px 14px" }}>
               <Row gap={8}>
                 <Strong>{tx("日志量", "Volume")}</Strong>
@@ -150,7 +197,7 @@ export default function LogsPage() {
             )}
             {noSource ? (
               <Card>
-                <Unavailable reason={u.items} source={tx("日志来源", "a log source")} icon="file" />
+                <Unavailable reason={liveData?.unavailable?.items ?? u.items} source={tx("日志来源", "a log source")} icon="file" />
               </Card>
             ) : (
             <Card style={{ overflow: "hidden" }}>
@@ -165,8 +212,8 @@ export default function LogsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={r.time + i} className={cx(i < extra.length && live && "anim-rise")} style={{ height: 34 }}>
+                  {!denied && rows.map((r, i) => (
+                    <tr key={logIdentity(r) + i} className={cx(i < extra.length && live && "anim-rise")} style={{ height: 34 }}>
                       <td className="mono muted" style={{ fontSize: "var(--fs-sub)" }}>{when.precise(r.time)}</td>
                       <td>
                         <Badge tone={LV[r.level]} mono>
@@ -180,7 +227,7 @@ export default function LogsPage() {
                       <td>{r.trace && <button type="button" className="v3-iconbtn" style={{ width: 24, height: 24 }} aria-label={tx("查看链路", "View trace")} onClick={() => nav(`/traces/${r.trace}`)}><Icon name="branch" size={14} color="var(--accent-text)" /></button>}</td>
                     </tr>
                   ))}
-                  {data && !rows.length && (
+                  {data && !denied && !rows.length && (
                     <tr>
                       <td colSpan={5} className="muted" style={{ textAlign: "center", padding: 24 }}>
                         {tx("这个时间范围内没有匹配的日志", "No matching lines in this range")}
@@ -208,7 +255,7 @@ export default function LogsPage() {
           )}
           <ul className="log-patterns">
             {data?.patterns?.map((p) => (
-              <li key={p.template} className={cx(p.new && "new")}>
+              <li key={`${p.level}:${p.template}`} className={cx(p.new && "new")}>
                 <Row gap={6}>
                   <Badge tone={LV[p.level]} mono>
                     {p.level}

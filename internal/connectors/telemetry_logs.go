@@ -458,9 +458,12 @@ func elasticsearchLevelRuntime() map[string]any {
 	return map[string]any{"aiops_level": map[string]any{"type": "keyword", "script": map[string]string{"source": `def s=params._source; def levelCandidates=new ArrayList(); if(s.containsKey('log.level') && s['log.level'] instanceof String) {levelCandidates.add(s['log.level']);} else if(s.containsKey('log') && s.log instanceof Map) {levelCandidates.add(s.log.level);} if(s.containsKey('level')) {levelCandidates.add(s.level);} if(s.containsKey('severity_text')) {levelCandidates.add(s.severity_text);} if(s.containsKey('message') && s.message instanceof String) {def m=/^\s*\{[^{}]*"level"\s*:\s*"([A-Za-z]+)"/.matcher(s.message); if(m.find()) {levelCandidates.add(m.group(1));}} for(def candidate:levelCandidates) {if(!(candidate instanceof String)) {continue;} def v=candidate.toLowerCase(); if(v=='warning') {v='warn';} if(v=='critical'||v=='panic') {v='fatal';} if(v=='trace'||v=='debug'||v=='info'||v=='warn'||v=='error'||v=='fatal') {emit(v); break;}}`}}}
 }
 func elasticsearchLogAggregations(w TimeWindow) map[string]any {
-	step := logBucketSeconds(w)
+	step := time.Duration(logBucketSeconds(w)) * time.Second
+	// Use the exact starts of the first and last buckets. Elasticsearch can
+	// round end-1ms into an extra bucket when it normalizes an offset.
+	last := w.Start.Add(((w.End.Sub(w.Start) - time.Nanosecond) / step) * step)
 	return map[string]any{
-		"volume": map[string]any{"date_histogram": map[string]any{"field": "@timestamp", "fixed_interval": fmt.Sprintf("%ds", step), "offset": fmt.Sprintf("%dms", w.Start.UnixMilli()%int64(step*1000)), "min_doc_count": 0, "extended_bounds": map[string]int64{"min": w.Start.UnixMilli(), "max": w.End.Add(-time.Millisecond).UnixMilli()}}},
+		"volume": map[string]any{"date_histogram": map[string]any{"field": "@timestamp", "fixed_interval": fmt.Sprintf("%ds", step/time.Second), "offset": fmt.Sprintf("%dms", w.Start.UnixMilli()%step.Milliseconds()), "min_doc_count": 0, "extended_bounds": map[string]int64{"min": w.Start.UnixMilli(), "max": last.UnixMilli()}}},
 		"errors": map[string]any{"filter": map[string]any{"terms": map[string]any{"aiops_level": []string{"error", "fatal"}}}},
 	}
 }

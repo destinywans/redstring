@@ -424,6 +424,9 @@ func (s *Service) List(w http.ResponseWriter, r *http.Request) {
 	if !observed.WindowStart.IsZero() && observed.WindowStart.After(covered.Start) {
 		covered.Start = observed.WindowStart
 	}
+	if !observed.WindowEnd.IsZero() && observed.WindowEnd.Before(covered.End) {
+		covered.End = observed.WindowEnd
+	}
 	startAt, endAt := covered.Start.UTC().Format(time.RFC3339), covered.End.UTC().Format(time.RFC3339)
 	if !observed.PopulationComplete {
 		// Search completeness is not attested for this deployment, or an

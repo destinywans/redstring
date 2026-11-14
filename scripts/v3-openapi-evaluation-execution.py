@@ -54,12 +54,12 @@ P['/evals']['post']['description'] = ('Creates pending metadata only. A current 
 _eval_nullable_object = {'oneOf':[{'type':'object','additionalProperties':True},{'type':'null'}]}
 _eval_nullable_array = {'oneOf':[arr({'type':'object','additionalProperties':True}),{'type':'null'}]}
 v3_route('get','/evals/{id}','Read evaluation metadata and explicit single-case membership',
-    response=obj({**fieldnames('id title meta status baseline_version candidate_version created_at'),
+    response=obj({**fieldnames('id agent_id title meta status baseline_version candidate_version created_at'),
         'dataset':{'type':'null'}, 'metrics':_eval_nullable_object, 'radar':{'type':'null'},
         'cases':_eval_nullable_array,'datasets':{'type':'null'},'evaluators':{'type':'null'},
         'result_ref':{'oneOf':[string(),{'type':'null'}]}, 'finished_at':{'oneOf':[string(),{'type':'null'}]},
         'execution':_eval_nullable_object,'missing':arr(string()),'partial':v3_bool()},
-        ['id','title','meta','status','baseline_version','candidate_version','created_at','dataset','metrics',
+        ['id','agent_id','title','meta','status','baseline_version','candidate_version','created_at','dataset','metrics',
          'radar','cases','datasets','evaluators','result_ref','finished_at','execution','missing','partial']),
     desc='Current authorized persisted experiment; execution, when present, identifies its exact single case and result endpoint. Dataset, radar and evaluator catalog remain partial. A passed execution means explicit literal checks matched, never a human correctness label.')
 import copy as _eval_copy

@@ -124,6 +124,11 @@ export default function LoginPage() {
         <Btn kind="primary" type="submit" h={34} loading={busy} disabled={locked || !email.trim() || !password} className="v3-login-submit">
           {locked ? tx("请稍后再试", "Try again shortly") : tx("登录", "Sign in")}
         </Btn>
+        {instance?.oidc_enabled && (
+          <Btn type="button" h={34} onClick={() => location.assign("/api/v1/auth/oidc/start")}>
+            {tx("通过单点登录", "Sign in with SSO")}
+          </Btn>
+        )}
         <p className="v3-login-alt">
           {tx("收到邀请？", "Got an invitation?")} <Link to="/invite">{tx("用邀请码加入", "Join with your code")}</Link>
         </p>

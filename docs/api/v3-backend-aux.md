@@ -47,6 +47,8 @@
 | POST | `/api/v1/knowledge-sources/registrations/{id}/sync` | 单环境、`knowledge.manage` 下通过明确配置的只读 Reader 观察已登记来源；须完整遍历、逐项验证 ACL 与归属，至多 500 项，成功只返回读取 ID、观察数、`index_state: "not_proven"` 和 `complete_v3_dto: false`。V3 显式开启公开 Web Reader 后，仅持久绑定有效应用、无凭据单页 HTTPS Markdown 能把同次 TLS 抓取的最多 128 KiB UTF-8 正文、哈希和观察身份原子保存到独立 V3 正文/修订表；内容变化才增加版本。环境级公开 Web 登记返回 `422 source_application_required`，未开启或其他未配置类型返回 `501 source_reader_unavailable`，带凭据的 Web 来源不能由该 Reader 读取。外部读取前与落库前均重核应用/环境/团队有效性；响应不证明向量索引或完整来源 DTO。 |
 | GET | `/api/v1/knowledge-sources/registrations/{id}/evidence` | 只读当前受权来源最近一次观察及可精确归属到该观察的 ready 文档/分块数量。无观察时 `last_read`、`index` 为 null；即使有归属记录，`index.complete` 仍为 false，不推断完整索引。 |
 | POST | `/api/v1/knowledge-sources/test` | 来源类型有明确配置的只读 Prober 时，成功仅表示当时服务端可读取，不持久化同步或证明应用/团队范围及索引。生产公开 Web Reader 只接受持久应用登记的同步，不实现无登记来源的 Prober；即使开关为 `true`，此路径仍返回 `501 source_connection_test_unavailable`，不会返回模拟成功。其他类型的登记仍需 Vault 引用。此路径在 166 项主契约内，状态仍为 `mock`。 |
+| PATCH | `/api/v1/runbooks/{id}` | 维护人以 `expected_version` 保存当前草稿的标题、适用说明和步骤。保留来源绑定，并在同一事务写入新修订、历史和审计。待审、已发布和过期修订拒绝修改。 |
+| POST | `/api/v1/runbooks/{id}/execute-readonly` | 在单环境执行已发布 Runbook 中显式登记的 `request_rate` 只读查询。每步骤须绑定当前应用唯一的 Prometheus 连接器，动作、脚本和自由文本都不能运行。实际得到有效采样后记录取证时间。 |
 | POST | `/api/v1/runbooks/{id}/reviews` | 独立管理者按已提交版本选择 `approve` 或 `request_changes`，后者必须填写说明；拒绝自审和非法状态。审核、版本历史与审计持久化；批准后才在事务外尝试索引，响应单独报告语义检索就绪和是否需重试。 |
 | POST | `/api/v1/runbooks/{id}/reindex` | 单环境、对象级 `knowledge.manage` 下重试已发布 Runbook 的语义索引；请求审计先落库，索引在事务外执行。响应分别给出 `index_status`、`semantic_search_ready` 与 `index_retry_required`；Embedding 失败不撤销人工发布，关键词检索仍可用。 |
 | GET | `/api/v1/runbooks/{id}/record` | 读取持久化的结构化步骤及版本、维护者、应用/环境、来源类型；返回 `partial: true`，明确缺少用量、事件处置和执行核验。旧文档无结构化步骤时 503，不把全文猜成步骤。 |

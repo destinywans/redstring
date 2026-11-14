@@ -14,6 +14,7 @@ import { useWhen } from "../../ui/when";
 import { Gate } from "../../ui/permission";
 import type { SeverityReason } from "../../api/types";
 import { SeverityBadge } from "./peeks";
+import { ReviewDraftDrawer } from "./ReviewDraftDrawer";
 
 type IncidentDraft = {
   title: string;
@@ -238,7 +239,11 @@ export function NewIncidentDrawer({ open, onClose }: { open: boolean; onClose: (
 /* ---------------- notification route ---------------- */
 type RouteTest = { hit: boolean; text: string; matched_24h: number };
 
-export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function NewRouteDrawer(props: { open: boolean; onClose: () => void }) {
+  return API_MODE === "mock" ? <SampleRouteDrawer {...props} /> : props.open ? <ReviewDraftDrawer kind="route" onClose={props.onClose} /> : null;
+}
+
+function SampleRouteDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { tx } = useI18n();
   const [name, setName] = useState("");
   const [matchers, setMatchers] = useState<Matcher[]>([]);
@@ -379,7 +384,11 @@ export function NewRouteDrawer({ open, onClose }: { open: boolean; onClose: () =
 /* ---------------- inhibition ---------------- */
 type InhibitPreview = { suppressed: number; per_day: number[]; summary: string; samples: { severity: Severity; name: string; suppressed: boolean; reason?: string }[] };
 
-export function NewInhibitDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function NewInhibitDrawer(props: { open: boolean; onClose: () => void }) {
+  return API_MODE === "mock" ? <SampleInhibitDrawer {...props} /> : props.open ? <ReviewDraftDrawer kind="inhibition" onClose={props.onClose} /> : null;
+}
+
+function SampleInhibitDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { tx } = useI18n();
   const curEnv = useCurrentEnv();
   const [src, setSrc] = useState<Matcher[]>([]);

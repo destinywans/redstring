@@ -16,14 +16,16 @@ import (
 	"github.com/destinywans/redstring/internal/knowledge"
 	"github.com/destinywans/redstring/internal/rbac"
 	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3integrations"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Service struct {
-	DB        *pgxpool.Pool
-	Knowledge *knowledge.Service
-	Policy    *rbac.V3Policy
+	DB           *pgxpool.Pool
+	Knowledge    *knowledge.Service
+	Policy       *rbac.V3Policy
+	MetricReader *v3integrations.PrometheusReader
 }
 
 type Step struct {
@@ -33,6 +35,7 @@ type Step struct {
 	Body       string    `json:"body,omitempty"`
 	Connectors []string  `json:"connectors,omitempty"`
 	Code       string    `json:"code,omitempty"`
+	Probe      string    `json:"probe,omitempty"`
 	Readonly   bool      `json:"readonly,omitempty"`
 	Approval   bool      `json:"approval,omitempty"`
 	Tool       *StepTool `json:"tool,omitempty"`
@@ -55,8 +58,10 @@ func (s *Service) Register(api *httpapi.Server) {
 		{"GET /api/v1/runbooks/draft", "view", s.draftHandler()},
 		{"GET /api/v1/runbooks/{id}", "view", s.getHandler()},
 		{"POST /api/v1/runbooks", "manage", s.createHandler(api)},
+		{"PATCH /api/v1/runbooks/{id}", "manage", s.editHandler()},
 		{"POST /api/v1/runbooks/{id}/submit", "manage", s.submitHandler(api)},
 		{"POST /api/v1/runbooks/{id}/dry-run", "manage", s.dryRunHandler(api)},
+		{"POST /api/v1/runbooks/{id}/execute-readonly", "manage", s.executeReadOnlyHandler()},
 		{"POST /api/v1/runbooks/{id}/reviews", "manage", s.reviewHandler()},
 		{"POST /api/v1/runbooks/{id}/reindex", "manage", s.reindexHandler()},
 		{"GET /api/v1/runbooks/{id}/record", "view", s.recordHandler()},
@@ -453,6 +458,9 @@ func validateCreate(in createInput) error {
 		}
 		if step.Kind != "query" && step.Kind != "check" && step.Kind != "action" && step.Kind != "verify" && step.Kind != "act" && step.Kind != "judge" {
 			return fmt.Errorf("unknown step kind %d", i+1)
+		}
+		if step.Probe != "" && step.Probe != runbookRequestRate {
+			return fmt.Errorf("unknown read-only probe in step %d", i+1)
 		}
 		if len(step.Connectors) > 10 {
 			return fmt.Errorf("too many connectors in step %d", i+1)

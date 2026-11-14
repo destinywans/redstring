@@ -2,27 +2,31 @@ package v3settings
 
 import (
 	"net/http"
-	"os"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/destinywans/redstring/internal/inference"
 )
 
-func TestModelsRejectsNativeOllamaUntilCatalogSupportsIt(t *testing.T) {
+func TestModelCatalogReportsNativeOllamaProtocol(t *testing.T) {
 	runtime, err := inference.New(inference.Config{Providers: []inference.Provider{{
 		ID: "ollama:test", Kind: "ollama", API: "ollama", Model: "test",
-		BaseURL: "http://127.0.0.1:11434",
+		BaseURL:       "http://127.0.0.1:11434",
+		ReasoningKind: "ollama_think", ReasoningLevels: []string{"off", "on"},
 	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	service := New(nil, runtime)
-	w := httptest.NewRecorder()
-	service.ModelsHandler(w, httptest.NewRequest(http.MethodGet, "/api/v1/models", nil))
-	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), `"code":"model_catalog_unavailable"`) {
-		t.Fatalf("expected explicit unsupported protocol response, got %d %s", w.Code, w.Body.String())
+	items, err := service.modelCatalogItems(httptest.NewRequest(http.MethodGet, "/api/v1/models", nil), "")
+	if err != nil || len(items) != 1 || items[0]["api"] != "ollama" || items[0]["tools"] != false {
+		t.Fatalf("expected a native Ollama catalog item with tools gated, got %v (%v)", items, err)
+	}
+	reasoning := items[0]["reasoning"].(map[string]any)
+	if reasoning["kind"] != "toggle" {
+		t.Fatalf("expected Ollama thinking toggle, got %v", reasoning)
 	}
 }
 

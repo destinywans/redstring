@@ -11,6 +11,9 @@ import "./knowledge.css";
 import { AddChip, usePickLists } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 import { Gate } from "../../ui/permission";
+import type { ConversationList, RunbookStep } from "../../api/types";
+import { uploadFile } from "../../api/upload";
+import { RunbookStepsForm, runbookSaveSteps } from "./RunbookStepsForm";
 
 type Source = "blank" | "template" | "postmortem" | "conversation" | "import";
 type Draft = {
@@ -18,7 +21,7 @@ type Draft = {
   applies_to: string[];
   trigger: string;
   /** The real draft calls an action step "action"; the sample calls it "act". */
-  steps: { kind: "check" | "act" | "action" | "judge" | "verify"; title: string; body: string; tool?: { brand: string; text: string }; approval?: boolean }[];
+  steps: (Omit<RunbookStep, "kind" | "n"> & { kind: RunbookStep["kind"] | "act" | "judge" })[];
   sources: string[];
   /** Hash of the source the outline came from; saving echoes it so a changed source is caught (409), PA-124. */
   source_sha256?: string;
@@ -44,23 +47,26 @@ export function useRunbookSourceName(enabled: boolean) {
   }, [data, tx]);
 }
 
-const KIND_TONE: Record<Draft["steps"][number]["kind"], Tone> = { check: "info", act: "warn", action: "warn", judge: "neutral", verify: "ok" };
+const KIND_TONE: Record<Draft["steps"][number]["kind"], Tone> = { query: "accent", check: "info", act: "warn", action: "warn", judge: "neutral", verify: "ok" };
 
 /** "新建 Runbook" start dialog: pick a starting point; the AI drafts, a person reviews. */
 export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { open: boolean; onClose: () => void; initial?: Source }) {
   const { tx } = useI18n();
   const when = useWhen();
   const nav = useNavigate();
-  // PA-124: real mode offers only the starting points it can draft from; templates, conversations and imports have
-  // no source picker yet (user decision 10-17), so they stay in the sample.
-  const offered = (key: Source) => API_MODE === "mock" || key === "blank" || key === "postmortem";
-  const [src, setSrc] = useState<Source>(offered(initial) ? initial : "postmortem");
+  const demo = API_MODE === "mock";
+  const [src, setSrc] = useState<Source>(initial);
   // The sample preselects its sample postmortem; real mode preselects the first real candidate.
   const [pm, setPm] = useState(API_MODE === "mock" ? "INC-1042" : "");
+  const [template, setTemplate] = useState("investigation");
+  const [conversation, setConversation] = useState("");
+  const [file, setFile] = useState<File>();
+  const [uploading, setUploading] = useState(false);
   // The sample lists its sample incidents; a real runbook drafts from a published postmortem (PA-124). The candidates
   // endpoint lists incidents that still need a postmortem, which can never be a runbook source.
   const sample = useGet<{ items: Candidate[] }>(open && API_MODE === "mock" ? "/postmortems/candidates" : null);
   const real = useGet<{ items: PostmortemRow[] }>(open && API_MODE !== "mock" ? "/postmortems" : null);
+  const { data: conversations } = useGet<ConversationList>(open && !demo && src === "conversation" ? "/conversations" : null, { tab: "mine" });
   const choices =
     API_MODE === "mock"
       ? (sample.data?.items ?? []).map((c) => ({ id: c.id, label: `${c.id} · ${c.title}`, at: c.resolved }))
@@ -70,15 +76,27 @@ export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { op
   }, [sample.data, real.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const all: { key: Source; icon: IconName; title: string; sub: string; wide?: boolean }[] = [
     { key: "blank", icon: "file", title: tx("空白", "Blank"), sub: tx("从触发条件和第一步开始写", "Start from the trigger and the first step") },
-    { key: "template", icon: "grid", title: tx("从模板", "From template"), sub: tx("服务不可用、容量不足、依赖超时等 8 个模板", "8 templates: outage, capacity, dependency timeouts…") },
+    { key: "template", icon: "grid", title: tx("从模板", "From template"), sub: tx("使用故障调查或变更恢复大纲", "Start with an investigation or recovery outline") },
     { key: "postmortem", icon: "writeback", title: tx("从复盘生成", "From a postmortem"), sub: tx("把复盘里的处置过程整理成可复用的步骤", "Turn the response in a postmortem into reusable steps"), wide: true },
-    { key: "conversation", icon: "message", title: tx("从对话或画布生成", "From a conversation or canvas"), sub: tx("选一次调查，提取有效的取证与处置步骤", "Extract the useful evidence and fix steps from an investigation") },
-    { key: "import", icon: "upload", title: tx("导入", "Import"), sub: tx("Markdown 文件或 Confluence 页面", "Markdown file or Confluence page") },
+    { key: "conversation", icon: "message", title: tx("从我的对话起草", "From my conversation"), sub: tx("选一条含已完成消息的对话", "Choose a conversation with completed messages") },
+    { key: "import", icon: "upload", title: tx("导入", "Import"), sub: tx("上传 Markdown 文件", "Upload a Markdown file") },
   ];
-  const opts = all.filter((o) => offered(o.key));
-  const go = () => {
+  const go = async () => {
+    let from = src === "postmortem" ? pm : src === "template" ? template : src === "conversation" ? conversation : "";
+    if (src === "import" && !demo && file) {
+      setUploading(true);
+      try {
+        const markdown = file.type === "text/markdown" ? file : new File([file], file.name, { type: "text/markdown" });
+        from = (await uploadFile(markdown, "file", () => {})).id;
+      } catch (e) {
+        toast(e instanceof Error ? e.message : tx("无法上传文件", "Couldn't upload the file"), { tone: "danger" });
+        return;
+      } finally {
+        setUploading(false);
+      }
+    }
     onClose();
-    nav(`/runbooks/new?source=${src}${src === "postmortem" ? `&from=${pm}` : ""}`);
+    nav(`/runbooks/new?source=${src}${from ? `&from=${encodeURIComponent(from)}` : ""}`);
   };
   return (
     <Dialog
@@ -90,7 +108,7 @@ export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { op
           <Tile icon="book" tone="t1" size={26} />
           <span className="v3-col" style={{ gap: 0 }}>
             {tx("新建 Runbook", "New runbook")}
-            <Muted size={11.5}>{tx("选一个起点，AI 会先起草，你再逐步修改", "Pick a starting point — the AI drafts, you refine")}</Muted>
+            <Muted size={11.5}>{demo ? tx("选一个起点，AI 会先起草，你再逐步修改", "Pick a starting point — the AI drafts, you refine") : tx("选一个起点，再编辑具体步骤。", "Choose a starting point, then edit the steps.")}</Muted>
           </span>
         </span>
       }
@@ -99,12 +117,12 @@ export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { op
           <Muted size={11.5}>{tx("生成的草稿需要复核后才会被 Agent 使用", "Drafts are used by agents only after review")}</Muted>
           <Spacer />
           <Btn kind="ghost" onClick={onClose}>{tx("取消", "Cancel")}</Btn>
-          <Btn kind="primary" icon={src === "blank" ? "plus" : "sparkles"} onClick={go}>{src === "blank" ? tx("开始编写", "Start writing") : tx("开始起草", "Start drafting")}</Btn>
+          <Btn kind="primary" icon={src === "blank" ? "plus" : "sparkles"} loading={uploading} disabled={uploading || (!demo && ((src === "postmortem" && !pm) || (src === "conversation" && !conversation) || (src === "import" && !file)))} onClick={() => void go()}>{src === "blank" ? tx("开始编写", "Start writing") : tx("开始起草", "Start drafting")}</Btn>
         </>
       }
     >
       <div className="rb-start" role="radiogroup" aria-label={tx("起点", "Starting point")}>
-        {opts.map((o) => (
+        {all.map((o) => (
           <div
             key={o.key}
             role="radio"
@@ -112,7 +130,7 @@ export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { op
             aria-checked={src === o.key}
             className={cx("rb-opt", src === o.key && "on", o.wide && "wide")}
             onClick={() => setSrc(o.key)}
-            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSrc(o.key))}
+            onKeyDown={(e) => e.target === e.currentTarget && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSrc(o.key))}
           >
             <Row gap={10}>
               <Tile icon={o.icon} tone={src === o.key ? "accent" : "neutral"} size={28} />
@@ -133,6 +151,28 @@ export function NewRunbookDialog({ open, onClose, initial = "postmortem" }: { op
                 ))}
               </div>
             )}
+            {!demo && o.key === src && o.key === "template" && <div onClick={(e) => e.stopPropagation()}>
+              <Field label={tx("模板", "Template")}><select value={template} onChange={(e) => setTemplate(e.target.value)}>
+                <option value="investigation">{tx("通用故障调查", "Incident investigation")}</option>
+                <option value="change-recovery">{tx("变更与恢复", "Change and recovery")}</option>
+              </select></Field>
+            </div>}
+            {!demo && o.key === src && o.key === "conversation" && <div onClick={(e) => e.stopPropagation()}>
+              <Field label={tx("我的对话", "My conversations")}><select value={conversation} onChange={(e) => setConversation(e.target.value)}>
+                <option value="">{tx("选择对话", "Choose a conversation")}</option>
+                {(conversations?.items ?? []).filter((c) => c.mode === "chat").map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+              </select></Field>
+            </div>}
+            {!demo && o.key === src && o.key === "import" && <div onClick={(e) => e.stopPropagation()}>
+              <Field label={tx("Markdown 文件", "Markdown file")} hint={tx("最多 64 KiB", "Up to 64 KiB")}><input type="file" accept=".md,text/markdown" onChange={(e) => {
+                const next = e.target.files?.[0];
+                if (!next || !/\.md$/i.test(next.name) || next.size < 1 || next.size > 64 * 1024) {
+                  setFile(undefined);
+                  return;
+                }
+                setFile(next);
+              }} /></Field>
+            </div>}
           </div>
         ))}
       </div>
@@ -156,18 +196,21 @@ export default function NewRunbookPage() {
   // The title is the user's to edit; saving sends what is in the field, not the draft's suggestion (PA-124).
   const [title, setTitle] = useState("");
   useEffect(() => setTitle(draft?.title ?? ""), [source, draft?.title]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [edits, setEdits] = useState<{ key: string; steps: RunbookStep[] }>();
+  const draftKey = `${source}/${from ?? ""}/${draft?.source_sha256 ?? ""}`;
+  const steps = edits?.key === draftKey ? edits.steps : (draft?.steps ?? []).map((s, i): RunbookStep => ({ ...s, n: i + 1, kind: s.kind === "act" ? "action" : s.kind === "judge" ? "check" : s.kind }));
   const [saving, setSaving] = useState<string | null>(null);
-  const kindLabel = { check: tx("检查", "Check"), act: tx("操作", "Action"), action: tx("操作", "Action"), judge: tx("判断", "Decide"), verify: tx("验证", "Verify") };
+  const kindLabel = { query: tx("查询", "Query"), check: tx("检查", "Check"), act: tx("操作", "Action"), action: tx("操作", "Action"), judge: tx("判断", "Decide"), verify: tx("验证", "Verify") };
   const save = async (mode: "draft" | "review") => {
     setSaving(mode);
     try {
       const r = await api<{ id?: string }>("POST", "/runbooks", {
-        body: { title: title.trim() || tx("未命名 Runbook", "Untitled runbook"), source, ...(blank ? {} : { from, expected_source_sha256: draft?.source_sha256 }), steps: draft?.steps ?? [], status: mode },
+        body: { title: title.trim() || tx("未命名 Runbook", "Untitled runbook"), source, ...(blank ? {} : { from, expected_source_sha256: draft?.source_sha256 }), steps: API_MODE === "mock" ? draft?.steps ?? [] : runbookSaveSteps(steps), status: mode },
       });
       toast(mode === "draft" ? tx("草稿已保存", "Draft saved") : tx("已提交复核，复核通过后 Agent 才会使用", "Submitted for review; agents use it only after approval"));
       // PA-243: every POST /runbooks creates a new runbook, so a saved draft leaves this page for its own; staying
       // here let the next save or submit create a second one. Replace, so going back doesn't reopen the unsaved form.
-      if (mode === "review") nav("/runbooks");
+      if (mode === "review" && API_MODE === "mock") nav("/runbooks");
       else nav(r?.id ? `/runbooks/${encodeURIComponent(r.id)}` : "/runbooks", { replace: true });
     } catch (e) {
       toast(e instanceof ApiError ? e.message : tx("保存失败，请稍后重试", "Couldn't save; try again later"), { tone: "danger" });
@@ -211,7 +254,8 @@ export default function NewRunbookPage() {
                     {API_MODE === "mock" && <AddChip label={tx("范围", "Scope")} free placeholder="service=payment-gateway" options={[...lists.services.map((s) => `service=${s.value}`), "env=prod", "team=trade"]} />}
                   </Row>
                 </Field>
-                <ol className="rb-steps">
+                {API_MODE !== "mock" && <RunbookStepsForm steps={steps} onChange={(next) => setEdits({ key: draftKey, steps: next })} disabled={!!saving} />}
+                {API_MODE === "mock" && <ol className="rb-steps">
                   {draft?.steps.map((s, i) => (
                     <li key={i} className="anim-rise">
                       <span className="f-num">{i + 1}</span>
@@ -242,7 +286,7 @@ export default function NewRunbookPage() {
                     {API_MODE === "mock" && <button type="button" className="f-add" onClick={() => toast(tx("已添加一步", "Step added"))}><Icon name="plus" size={12} />{tx("添加步骤", "Add step")}</button>}
                     <Muted size={11.5}>{tx("写操作步骤会自动标记为「需要审批」，由执行器执行", "Write steps are always marked “needs approval” and run by the executor")}</Muted>
                   </li>
-                </ol>
+                </ol>}
               </>
             )}
           </div>
@@ -255,8 +299,8 @@ export default function NewRunbookPage() {
             </Row>
             <p style={{ fontSize: "var(--fs-sm)", lineHeight: 1.6 }}>
               {blank
-                ? tx("先写清楚触发条件，再按「检查 → 判断 → 操作 → 验证」组织步骤。写操作会生成提案，需要人工批准。", "State the trigger first, then order steps as check → decide → act → verify. Write actions become proposals that need approval.")
-                : tx("根据复盘的时间线和证据，把实际有效的取证与处置整理成步骤；写操作已标为需要审批。", "Built from the postmortem timeline and evidence; write actions are marked as needing approval.")}
+                ? tx("写清适用条件与步骤。会改变系统的操作需要单独提交提案和人工批准。", "Describe when each step applies. Any system change requires a separate proposal and human approval.")
+                : tx("根据来源整理步骤，提交前请确认内容和连接器。会改变系统的操作需要单独提交提案和人工批准。", "Review the steps and connector bindings drawn from the source before submitting. Any system change requires a separate proposal and human approval.")}
             </p>
             {!blank && (
               <Col gap={8}>
@@ -278,8 +322,8 @@ export default function NewRunbookPage() {
             )}
             <Row gap={8}>
               {/* POST /runbooks needs knowledge.manage (PA-228). */}
-              <Gate need={["knowledge", "manage"]}><Btn loading={saving === "draft"} onClick={() => save("draft")}>{tx("保存草稿", "Save draft")}</Btn></Gate>
-              <Gate need={["knowledge", "manage"]}><Btn kind="primary" icon="check" loading={saving === "review"} onClick={() => save("review")}>{tx("提交复核", "Submit for review")}</Btn></Gate>
+              <Gate need={["knowledge", "manage"]}><Btn loading={saving === "draft"} disabled={API_MODE !== "mock" && (!!saving || !!error || steps.some((s) => !s.title.trim()))} onClick={() => save("draft")}>{tx("保存草稿", "Save draft")}</Btn></Gate>
+              <Gate need={["knowledge", "manage"]}><Btn kind="primary" icon="check" loading={saving === "review"} disabled={API_MODE !== "mock" && (!!saving || !!error || !steps.length || steps.some((s) => !s.title.trim()))} onClick={() => save("review")}>{tx("提交复核", "Submit for review")}</Btn></Gate>
             </Row>
           </div>
         </aside>

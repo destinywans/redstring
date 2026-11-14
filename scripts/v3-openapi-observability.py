@@ -618,6 +618,9 @@ S['V3MetricsDashboard'] = obj({
     'instances':v3_nullable({'type':'array','minItems':1,'maxItems':12,'items':obj({
         'label':string(),'values':_dashboard_points,'tone':_dashboard_tone},
         ['label','values'])}),
+    'instance_requests':{'type':'array','minItems':1,'maxItems':12,'items':obj({
+        'label':string(),'values':_dashboard_points},['label','values']),
+        'description':'Observed HTTP request P95 in milliseconds per instance, when the registered dashboard query supplies instance_request_p95_ms.'},
     'unavailable':ref('V3Unavailable')},
     ['window','kpis','requests','slo','latency','endpoints','instances','unavailable'])
 v3_route('get','/metrics/dashboard','Read a scoped Prometheus metrics dashboard with explicit unknowns',

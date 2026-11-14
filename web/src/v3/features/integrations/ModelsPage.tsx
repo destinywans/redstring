@@ -8,7 +8,7 @@ import { useI18n } from "../../i18n";
 import { PageHead } from "../conversation/ConversationsPage";
 import "../../ui/forms.css";
 
-const API_LABEL = { responses: "Responses", chat_completions: "Chat Completions", messages: "Messages" } as const;
+const API_LABEL = { responses: "Responses", chat_completions: "Chat Completions", messages: "Messages", ollama: "Ollama · /api/chat" } as const;
 
 /** Integrations › Models: which models exist, which API each uses, effort levels, defaults and who may use them. */
 export default function ModelsPage() {

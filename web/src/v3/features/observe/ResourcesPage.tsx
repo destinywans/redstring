@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Page } from "../../app/Shell";
 import { API_MODE, useGet } from "../../api/client";
 import type { Topology, TopologyNode } from "../../api/types";
-import { Avatar, Bar, Brand, Btn, Chip, Col, Dot, Icon, IconBtn, KV, Muted, Row, Section, Segmented, Skeleton, State, Strong, TextLink, Tile, cx } from "../../ui/core";
+import { serviceApplicationId } from "../../api/ids";
+import { Avatar, Bar, Brand, Btn, Chip, Col, Dot, Icon, IconBtn, KV, Muted, Row, Section, Segmented, Skeleton, Spacer, State, Strong, TextLink, Tile, cx } from "../../ui/core";
 import { toast, MenuButton } from "../../ui/overlays";
 import { Gauge, Lines, Sankey } from "../../charts";
 import { useI18n } from "../../i18n";
@@ -14,6 +15,7 @@ import { openExternal, ChipSelect, usePickLists } from "../../ui/demo";
 import { useNavigate } from "react-router-dom";
 import { Unavailable, UnknownValue } from "../../ui/unknown";
 import { CollectionBanner, CollectionEmpty, useStaleCollectors } from "./CollectionNotice";
+import { useWhen } from "../../ui/when";
 
 const TONE_COLOR = { ok: "var(--c2)", warn: "var(--warn)", danger: "var(--danger)" };
 const NODE_W = 172;
@@ -125,6 +127,7 @@ function visibleRows(tree: Topology["tree"], toggled: Set<number>) {
 
 export default function ResourcesPage() {
   const { tx } = useI18n();
+  const when = useWhen();
   // While a collector is behind, check again every minute so the notice clears (and the minutes tick) on its own.
   const { data: rawTopology, refetch: topoRefetch, error: topoError } = useGet<RawTopology>("/topology", undefined, {
     refetchInterval: (q) => ((q.state.data?.collection ?? []).some((c) => c.state !== "fresh") ? 60_000 : false),
@@ -139,6 +142,14 @@ export default function ResourcesPage() {
   const [blast, setBlast] = useState(true);
   const [sel, setSel] = useState<string | null>(null);
   const lists = usePickLists();
+  const [flowChoice, setFlowChoice] = useState<string>();
+  const flowService = lists.services.some((item) => item.value === flowChoice) ? flowChoice : lists.services[0]?.value;
+  const trafficApp = flowService ? serviceApplicationId(flowService) : null;
+  const traffic = useGet<{ observed_at: string; sankey: NonNullable<Topology["sankey"]> }>(
+    API_MODE !== "mock" && view_ === "sankey" && trafficApp ? "/topology/traffic" : null,
+    { service: trafficApp }, { placeholderData: undefined },
+  );
+  const flowChart = API_MODE === "mock" ? t?.sankey : traffic.data?.sankey;
   const [pinned, setPinned] = usePinned("topology");
   const box = useRef<HTMLDivElement>(null);
   const floating = !!sel && !pinned;
@@ -412,11 +423,24 @@ export default function ResourcesPage() {
             )}
             {t && view_ === "sankey" && (
               <div className="anim-fade" style={{ padding: "24px 48px", display: "flex", flexDirection: "column", gap: 14, background: "var(--panel)", height: "100%" }}>
-                {t.sankey ? (
+                {API_MODE !== "mock" && lists.services.length > 0 && (
+                  <Row>
+                    <ChipSelect icon="box" label={tx("服务", "Service")} value={flowService} options={lists.services} onChange={(v) => setFlowChoice(v as string)} />
+                    <Spacer />
+                    {traffic.data && <Muted size={11}>{tx("观测于 {t}", "Observed at {t}", { t: when.stamp(traffic.data.observed_at) })}</Muted>}
+                  </Row>
+                )}
+                {flowChart && flowChart.links.length > 0 ? (
                   <>
-                    <Sankey cols={t.sankey.cols} links={t.sankey.links} height={520} />
-                    <Muted size={11.5}>{tx("线宽 = 请求量；红色为异常流量。", "Width = volume; red is unhealthy.")}</Muted>
+                    <Sankey cols={flowChart.cols} links={flowChart.links} height={520} />
+                    <Muted size={11.5}>{API_MODE === "mock"
+                      ? tx("线宽 = 请求量；红色为异常流量。", "Width = volume; red is unhealthy.")
+                      : tx("线宽表示近 5 分钟观测到的平均请求速率。", "Width shows the observed average requests per second over the last 5 minutes.")}</Muted>
                   </>
+                ) : traffic.isLoading ? (
+                  <Skeleton h={240} />
+                ) : traffic.data ? (
+                  <Unavailable reason="not_generated" icon="trend" title={tx("可见服务间暂无近期流量", "No recent traffic between visible services")} />
                 ) : (
                   <Unavailable reason="not_connected" icon="trend" title={tx("还没有服务间流量数据", "No service-to-service traffic yet")} desc={tx("流量图需要按服务统计的调用量。接入链路（Tempo）并绑定到服务后，这里显示服务之间的请求流向。", "This view needs per-service call volumes. Connect traces (Tempo) and map them to services to see request flows here.")} />
                 )}

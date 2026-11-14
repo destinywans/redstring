@@ -216,8 +216,11 @@ func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var execution any
-	var executionCase, executionStatus string
-	err = tx.QueryRow(r.Context(), `SELECT case_id,status FROM v3_agent_eval_executions WHERE experiment_id=$1`, v.ID).Scan(&executionCase, &executionStatus)
+	var executionCase, executionStatus, executionTitle string
+	err = tx.QueryRow(r.Context(), `SELECT x.case_id,x.status,COALESCE(c.title,'') FROM v3_agent_eval_executions x
+ LEFT JOIN v3_agent_eval_cases c ON c.id=x.case_id AND c.agent_id=$2
+ AND c.origin_application_id=$3 AND c.origin_environment_id=$4
+ WHERE x.experiment_id=$1`, v.ID, a.ID, a.App, a.Env).Scan(&executionCase, &executionStatus, &executionTitle)
 	if err == nil {
 		execution = map[string]any{"case_id": executionCase, "status": executionStatus, "evaluation_kind": "single_case_literal_checks", "detail_ref": "/api/v1/evals/" + v.ID + "/execution"}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -240,7 +243,7 @@ func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
 	missing := []string{"dataset_content", "experiment_case_membership", "per_case_output", "radar_without_metric_producer", "evaluator_catalog"}
 	var cases any
 	if execution != nil {
-		cases = []any{map[string]any{"id": executionCase, "execution_status": executionStatus}}
+		cases = []any{map[string]any{"id": executionCase, "title": executionTitle, "execution_status": executionStatus}}
 		missing = []string{"dataset_content", "radar_without_metric_producer", "evaluator_catalog"}
 		if executionStatus != "succeeded" {
 			missing = append(missing, "per_case_output")
@@ -259,7 +262,7 @@ func (s *Service) EvalDetail(w http.ResponseWriter, r *http.Request) {
 	if v.ResultRef != "" {
 		resultRef = v.ResultRef
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"id": v.ID, "title": v.Title, "dataset": nil,
+	httpapi.WriteJSON(w, 200, map[string]any{"id": v.ID, "agent_id": v.AgentID, "title": v.Title, "dataset": nil,
 		"meta": v.Status, "status": v.Status, "baseline_version": v.Baseline, "candidate_version": v.Candidate,
 		"metrics": metrics, "radar": nil, "cases": cases, "datasets": nil, "evaluators": nil,
 		"result_ref": resultRef, "created_at": timeString(v.Created), "finished_at": finished,

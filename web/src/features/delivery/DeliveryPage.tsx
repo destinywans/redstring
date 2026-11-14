@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { NavLink, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Play, GitBranch, Box, ArrowRight } from "../../lib/icons";
 import { request } from "../../lib/api";
@@ -146,6 +146,12 @@ export default function DeliveryPage() {
           </div>
         )}
       </header>
+      <nav className="delivery-toolbar" aria-label="交付中心">
+        <NavLink className="btn" to="/delivery/pipelines">流水线</NavLink>
+        <NavLink className="btn" to="/delivery/templates">模板</NavLink>
+        <NavLink className="btn" to="/delivery/runs">运行记录</NavLink>
+        <NavLink className="btn" to="/delivery/releases">发布记录</NavLink>
+      </nav>
       <ScopeFilter />
       {preview && (
         <p className="management-notice">设计预览 · 未连接交付引擎。</p>

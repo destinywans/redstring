@@ -73,6 +73,15 @@ type dashboardInstance struct {
 	Tone   string     `json:"tone,omitempty"`
 }
 
+func dashboardInstances(group map[string][]float64) []dashboardInstance {
+	var items []dashboardInstance
+	for label, values := range group {
+		items = append(items, dashboardInstance{Label: label, Values: v3metricpanels.Nullable(values)})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Label < items[j].Label })
+	return items
+}
+
 type dashboardRequests struct {
 	OK     []*float64 `json:"ok"`
 	Client []*float64 `json:"client"`
@@ -98,14 +107,15 @@ type dashboardLatency struct {
 // metricsDashboard is MetricsDashboard with explicit unknowns: a null block
 // has its reason in Unavailable and is never replaced by zeros.
 type metricsDashboard struct {
-	Window      dashboardWindow     `json:"window"`
-	KPIs        []dashboardKPI      `json:"kpis"`
-	Requests    *dashboardRequests  `json:"requests"`
-	SLO         *dashboardSLO       `json:"slo"`
-	Latency     *dashboardLatency   `json:"latency"`
-	Endpoints   []dashboardRank     `json:"endpoints"`
-	Instances   []dashboardInstance `json:"instances"`
-	Unavailable map[string]string   `json:"unavailable"`
+	Window           dashboardWindow     `json:"window"`
+	KPIs             []dashboardKPI      `json:"kpis"`
+	Requests         *dashboardRequests  `json:"requests"`
+	SLO              *dashboardSLO       `json:"slo"`
+	Latency          *dashboardLatency   `json:"latency"`
+	Endpoints        []dashboardRank     `json:"endpoints"`
+	Instances        []dashboardInstance `json:"instances"`
+	InstanceRequests []dashboardInstance `json:"instance_requests,omitempty"`
+	Unavailable      map[string]string   `json:"unavailable"`
 }
 
 // A nil marker means the platform has no record of that event in the window.
@@ -378,15 +388,12 @@ func (out *metricsDashboard) applyMetrics(result v3integrations.PrometheusMetric
 		missing("endpoints")
 	}
 	if instances := p.Group(v3metricpanels.InstanceWaitP95); instances != nil {
-		out.Instances = []dashboardInstance{}
-		for label, values := range instances {
-			out.Instances = append(out.Instances, dashboardInstance{Label: label, Values: nullable(values)})
-		}
-		sort.Slice(out.Instances, func(i, j int) bool { return out.Instances[i].Label < out.Instances[j].Label })
+		out.Instances = dashboardInstances(instances)
 	} else {
 		out.Instances = nil
 		missing("instances")
 	}
+	out.InstanceRequests = dashboardInstances(p.Group(v3metricpanels.InstanceRequestP95))
 	out.SLO = nil
 	if sloTarget == nil || *sloTarget <= 0 || *sloTarget >= 100 {
 		missing("slo")

@@ -23,6 +23,7 @@ type logLine struct {
 	Service string `json:"service"`
 	Message string `json:"message"`
 	Trace   string `json:"trace,omitempty"`
+	stamp   time.Time
 }
 
 type logPatternKey struct {
@@ -103,6 +104,11 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 	duration, err := v3pagequery.ParseRange(r.URL.Query(), 30*time.Minute)
 	if err != nil {
 		httpapi.Error(w, 422, "invalid_range", "Use one supported time range")
+		return
+	}
+	view, err := v3pagequery.Single(r.URL.Query(), "view", "lines")
+	if err != nil {
+		httpapi.Error(w, 422, "invalid_view", "Choose the lines-only view")
 		return
 	}
 	if values, has := r.URL.Query()["source"]; has {
@@ -226,7 +232,9 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 		for _, level := range levels {
 			var result connectors.LogEvidence
 			var err error
-			if source, ok := readers[i].(logPatternTelemetry); ok {
+			if view == "lines" {
+				result, err = readers[i].QueryLogsOptions(r.Context(), resources[i], target.Provider, search, level, false, window, 100)
+			} else if source, ok := readers[i].(logPatternTelemetry); ok {
 				result, err = source.QueryLogsWithPatterns(r.Context(), resources[i], target.Provider, search, level, window, 100)
 			} else {
 				result, err = readers[i].QueryLogsOptions(r.Context(), resources[i], target.Provider, search, level, true, window, 100)
@@ -246,6 +254,19 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 				logQueryFailure(target, err, result.Source.Failure)
 				httpapi.Error(w, 503, "telemetry_unavailable", "Log query is unavailable")
 				return
+			}
+			for _, entry := range result.Entries {
+				if strings.ToLower(entry.Level) != level {
+					slog.Warn("log query failed", "application_id", target.ApplicationID, "provider", target.Provider,
+						"error", "sample level "+entry.Level+" does not match the requested "+level)
+					httpapi.Error(w, 503, "telemetry_unavailable", "Log sample level does not match the scoped query")
+					return
+				}
+				items = append(items, logLine{Time: entry.Timestamp.UTC().Format(time.RFC3339Nano), Level: strings.ToUpper(level),
+					Service: target.ApplicationID, Message: entry.Line, Trace: entry.TraceID, stamp: entry.Timestamp})
+			}
+			if view == "lines" {
+				continue
 			}
 			if result.Summary == nil || result.SummaryError != "" || result.Summary.Total < 0 {
 				countReason = logReason(countReason, result.SummaryState)
@@ -285,16 +306,6 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			for _, entry := range result.Entries {
-				if strings.ToLower(entry.Level) != level {
-					slog.Warn("log query failed", "application_id", target.ApplicationID, "provider", target.Provider,
-						"error", "sample level "+entry.Level+" does not match the requested "+level)
-					httpapi.Error(w, 503, "telemetry_unavailable", "Log sample level does not match the scoped query")
-					return
-				}
-				items = append(items, logLine{Time: entry.Timestamp.UTC().Format(time.RFC3339Nano), Level: strings.ToUpper(level),
-					Service: target.ApplicationID, Message: entry.Line, Trace: entry.TraceID})
-			}
 		}
 	}
 	// An external aggregation can outlive a grant or binding revision. Resolve
@@ -321,9 +332,17 @@ func (s *Service) logs(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].Time > items[j].Time })
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].stamp.After(items[j].stamp)
+	})
 	if len(items) > 100 {
 		items = items[:100]
+	}
+	if view == "lines" {
+		httpapi.WriteJSON(w, 200, logSearch{Items: items, Unavailable: map[string]string{
+			"total": "not_generated", "errors": "not_generated", "histogram": "not_generated", "patterns": "not_generated",
+		}})
+		return
 	}
 	keys := make([]int64, 0, len(buckets))
 	for key := range buckets {

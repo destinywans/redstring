@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { API_MODE, ApiError, useGet, useSend } from "../../api/client";
+import { API_MODE, ApiError, api, useGet, useSend } from "../../api/client";
 import { Gate } from "../../ui/permission";
 import { LoadError, PageUnavailable, Unavailable } from "../../ui/unknown";
-import type { EvalExperiment, EvalList } from "../../api/types";
+import type { AgentDetail, EvalExperiment, EvalList, Lifecycle } from "../../api/types";
 import { DataTable } from "../../ui/data";
 import { Badge, Brand, Btn, Card, Col, Icon, Legend, Mono, Muted, Num, Panel, Row, Section, Skeleton, Spacer, Tabs, TextLink, Tile, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
@@ -13,6 +13,7 @@ import { useI18n } from "../../i18n";
 import "./agents.css";
 import { openForm } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
+import { EvalActions } from "./EvalActions";
 
 const STATUS: Record<string, [string, string]> = { pending: ["待运行", "Pending"], running: ["运行中", "Running"], passed: ["通过", "Passed"], failed: ["未通过", "Failed"], invalid: ["无效", "Invalid"], cancelled: ["已取消", "Cancelled"] };
 
@@ -28,6 +29,7 @@ export default function EvalsPage() {
   const { data: e, error: expError } = useGet<EvalExperiment>(expId ? `/evals/${expId}` : null);
   // Hooks stay above the early return below: opening a new experiment must not change the hook order.
   const [tab, setTab] = useState("exp");
+  const datasets = useGet<{ items: { id: string; source: string; name: string; count: number }[] }>(API_MODE !== "mock" && tab === "data" ? "/eval-datasets" : null);
   const [selPick, setSel] = useState(API_MODE === "mock" ? "INV-187" : "");
   const sel = selPick || e?.cases?.[0]?.id || "";
   const demo = API_MODE === "mock";
@@ -37,22 +39,37 @@ export default function EvalsPage() {
   const rerun = useSend<void, { id: string }>("POST", "/evals");
   const create = useSend<{ agent_id: string; title: string; baseline_version: string; candidate_version: string }, { id: string; status: string; execution_available: boolean }>("POST", "/evals");
   const newExperiment = async () => {
-    const v = await openForm({
-      title: tx("新建评测实验", "New experiment"),
-      desc: tx("对比同一 Agent 的两个已发布版本。实验先保存为待运行，不会立即调用模型。", "Compare two published versions of one agent. The experiment is saved as pending; no model is called yet."),
-      fields: [
-        { key: "agent", label: tx("Agent ID", "Agent ID"), mono: true, required: true },
-        { key: "title", label: tx("实验名称", "Title"), required: true },
-        { key: "a", label: tx("基线版本", "Baseline version"), mono: true, required: true },
-        { key: "b", label: tx("候选版本", "Candidate version"), mono: true, required: true },
-      ],
-      submit: tx("保存实验", "Save experiment"),
-    });
-    if (!v) return;
-    const r = await create.mutateAsync({ agent_id: v.agent, title: v.title, baseline_version: v.a, candidate_version: v.b }).catch((err: ApiError) => (toast(err.message, { tone: "danger" }), null));
-    if (!r) return;
-    toast(r.execution_available ? tx("实验已保存，待运行", "Experiment saved, ready to run") : tx("实验已保存；运行器未接入，暂不能执行", "Experiment saved; the runner is not connected, so it can't run yet"));
-    setParams({ id: r.id });
+    try {
+      const agents = await api<Lifecycle>("GET", "/agents/lifecycle");
+      if (!agents.agents.length) {
+        toast(tx("请先登记 Agent 及两个可运行的版本。", "Register an Agent with two executable versions first."), { tone: "danger" });
+        return;
+      }
+      const selection = await openForm({ title: tx("选择要评测的 Agent", "Choose an Agent to evaluate"), fields: [{ key: "agent", label: "Agent", type: "select", options: agents.agents.map((a) => ({ value: a.id, label: a.name })), required: true }], submit: tx("选择版本", "Choose versions") });
+      if (!selection) return;
+      const agent = await api<AgentDetail>("GET", `/agents/${encodeURIComponent(selection.agent)}`);
+      if (agent.versions.length < 2) {
+        toast(tx("该 Agent 至少需要两个已登记版本。", "This Agent needs at least two registered versions."), { tone: "danger" });
+        return;
+      }
+      const options = agent.versions.map((v) => ({ value: v.version, label: v.version }));
+      const v = await openForm({
+        title: tx("新建评测实验", "New experiment"),
+        desc: agent.name,
+        fields: [
+          { key: "title", label: tx("实验名称", "Title"), required: true },
+          { key: "a", label: tx("基线版本", "Baseline version"), type: "select", options, initial: agent.release.from || options[1].value, required: true },
+          { key: "b", label: tx("候选版本", "Candidate version"), type: "select", options, initial: options.find((v) => v.value !== (agent.release.from || options[1].value))?.value, required: true },
+        ],
+        submit: tx("保存实验", "Save experiment"),
+      });
+      if (!v) return;
+      const r = await create.mutateAsync({ agent_id: agent.id, title: v.title.trim(), baseline_version: v.a, candidate_version: v.b });
+      toast(r.execution_available ? tx("实验已保存，待运行", "Experiment saved, ready to run") : tx("实验已保存，运行器尚未接入", "Experiment saved. The runner is unavailable."));
+      setParams({ id: r.id });
+    } catch (err) {
+      toast(err instanceof Error ? err.message : tx("无法创建评测", "Couldn't create evaluation"), { tone: "danger" });
+    }
   };
   const EVAL_STATUS = { pending: ["neutral", tx("待运行", "Pending")], running: ["accent", tx("运行中", "Running")], passed: ["ok", tx("通过", "Passed")], failed: ["danger", tx("未通过", "Failed")], invalid: ["warn", tx("无效", "Invalid")] } as const;
   if (API_MODE !== "mock" && !expId) {
@@ -98,7 +115,8 @@ export default function EvalsPage() {
   }
   const Res = ({ ok }: { ok: boolean }) => <Icon name={ok ? "check" : "x"} size={14} color={ok ? "var(--ok)" : "var(--danger)"} />;
   return (
-    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), API_MODE === "mock" ? tx("评测", "Evaluations") : { label: tx("评测", "Evaluations"), to: "/agents/evals" }, ...(API_MODE === "mock" || !e ? [] : [e.title])]} actions={
+    <Page flush crumbs={[tx("Agent 运行台", "Agent console"), API_MODE === "mock" ? tx("评测", "Evaluations") : { label: tx("评测", "Evaluations"), to: "/agents/evals" }, ...(API_MODE === "mock" || !e ? [] : [e.title])]} actions={<>
+        {!demo && e && <EvalActions key={e.id} experiment={e} />}
         <Gate need={["agents", "change"]}>
         <Btn
           kind="primary"
@@ -122,7 +140,7 @@ export default function EvalsPage() {
           {tx("新建实验", "New experiment")}
         </Btn>
         </Gate>
-      }>
+      </>}>
       <Tabs
         value={tab}
         onChange={setTab}
@@ -141,6 +159,17 @@ export default function EvalsPage() {
           ) : !e ? (
             <div className="v3-content">
               <Skeleton h={300} />
+            </div>
+          ) : tab === "data" && !demo ? (
+            <div className="v3-content">
+              <Panel title={tx("运行数据集", "Run datasets")}>
+                {datasets.error && <LoadError error={datasets.error} source={tx("评测数据集", "evaluation datasets")} />}
+                {!datasets.data && !datasets.error && <Skeleton h={64} />}
+                {datasets.data?.items.length === 0 && <Muted>{tx("从已完成的 Agent 运行加入数据集。", "Add completed Agent runs to a dataset from the run detail.")}</Muted>}
+                {datasets.data?.items.map((dataset) => <Row key={dataset.id} gap={10}>
+                  <span>{dataset.name}</span><Spacer /><Muted>{tx("{n} 个可见运行", "{n} visible runs", { n: dataset.count })}</Muted>
+                </Row>)}
+              </Panel>
             </div>
           ) : tab !== "exp" ? (
             <div className="v3-content anim-fade" style={{ padding: "14px 20px" }} key={tab}>

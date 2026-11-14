@@ -4,11 +4,12 @@ import { Page } from "../../app/Shell";
 import { useGet, useSend, API_MODE, ApiError, api } from "../../api/client";
 import { Gate } from "../../ui/permission";
 import type { RunDetail } from "../../api/types";
-import { Badge, Btn, Card, CardHead, Col, Icon, IconBtn, Mono, Muted, Row, Skeleton, Spacer, Tabs, Tile, cx, type IconName, type Tone } from "../../ui/core";
+import { Badge, Btn, Card, CardHead, Col, Icon, IconBtn, Mono, Muted, Panel, Row, Skeleton, Spacer, Tabs, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Axis } from "../../charts";
 import { useI18n } from "../../i18n";
 import { AgentTrace } from "./AgentTrace";
+import { Markdown } from "../../ui/Markdown";
 import "./agents.css";
 import { openForm, openExternal, downloadFile } from "../../ui/demo";
 import { LoadError, Unavailable, UnknownValue } from "../../ui/unknown";
@@ -19,6 +20,7 @@ export default function RunDetailPage() {
   const demo = API_MODE === "mock";
   const { data: r, error } = useGet<RunDetail>(id ? `/agent-runs/${id}` : null);
   const [tab, setTab] = useState("trace");
+  const result = useGet<{ output?: string; status: string; error_code?: string }>(!demo && id && tab === "run" ? `/agent-runs/${id}/result` : null);
   const [stepId, setStepId] = useState(demo ? "s2" : "");
   // The highlight is the viewer's saved vote (feedback.my_vote, PA-237); the sample keeps it on the page.
   const [sampleVote, setSampleVote] = useState<"up" | "down" | null>(null);
@@ -65,8 +67,28 @@ export default function RunDetailPage() {
           <Gate need={["agents", "change"]}>
             <IconBtn icon="x" label={tx("无用", "Not helpful")} active={vote === "down"} onClick={() => rate("down")} />
           </Gate>
-          {/* Adding a run to an eval dataset needs a dataset picker (POST /eval-datasets/{id}/items); sample data only for now. */}
           {demo && <Btn icon="plus" onClick={() => toast(tx("已加入数据集「根因分析 · 回归」", "Added to dataset “Root cause · regression”"))}>{tx("加入数据集", "Add to dataset")}</Btn>}
+          {!demo && r && r.status !== "running" && <Gate need={["agents", "change"]}><Btn icon="plus" onClick={async () => {
+            try {
+              const catalog = await api<{ items: { id: string; name: string }[] }>("GET", "/eval-datasets");
+              const v = await openForm({ title: tx("加入评测数据集", "Add to evaluation dataset"), fields: [
+                { key: "dataset", label: tx("数据集", "Dataset"), type: "select", options: [{ value: "new", label: tx("新建数据集", "New dataset") }, ...catalog.items.map((item) => ({ value: item.id, label: item.name }))], required: true },
+              ], submit: tx("继续", "Continue") });
+              if (!v) return;
+              let idToUse = v.dataset;
+              let name = catalog.items.find((item) => item.id === idToUse)?.name;
+              if (idToUse === "new") {
+                const create = await openForm({ title: tx("新建运行数据集", "New run dataset"), fields: [{ key: "name", label: tx("名称", "Name"), required: true }], submit: tx("创建并加入运行", "Create and add run") });
+                if (!create) return;
+                name = create.name.trim();
+                idToUse = (await api<{ id: string }>("POST", "/eval-datasets", { body: { name, source: "runs" } })).id;
+              }
+              await api("POST", `/eval-datasets/${encodeURIComponent(idToUse)}/items`, { body: { run_id: id } });
+              toast(tx("已加入数据集「{n}」", "Added to dataset “{n}”", { n: name ?? idToUse }));
+            } catch (e) {
+              toast(e instanceof Error ? e.message : tx("无法保存数据集", "Couldn't save dataset"), { tone: "danger" });
+            }
+          }}>{tx("加入数据集", "Add to dataset")}</Btn></Gate>}
           <Gate need={["agents", "change"]}>
           <Btn
             icon="edit"
@@ -130,6 +152,9 @@ export default function RunDetailPage() {
         </div>
       ) : (
         <div className="v3-content anim-fade" style={{ padding: "14px 24px" }} key={tab}>
+          {tab === "run" && result.data && <Panel title={tx("运行结果", "Run result")}>
+            {result.data.output ? <Markdown text={result.data.output} /> : <Muted>{result.data.error_code || tx("未保存输出", "No output was saved")}</Muted>}
+          </Panel>}
           <Card className="run-chain">
             {r.chain.map((c, i) => {
               const last = i === r.chain.length - 2;

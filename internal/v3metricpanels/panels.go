@@ -43,12 +43,13 @@ const (
 
 // Grouped panels and their group label.
 const (
-	LatencyHeat       = "latency_heat"
-	EndpointP99       = "endpoint_p99_ms"
-	InstanceWaitP95   = "instance_wait_p95_ms"
-	maxGroups         = 12
-	maxSeries         = 64
-	maxGroupLabelSize = 100
+	LatencyHeat        = "latency_heat"
+	EndpointP99        = "endpoint_p99_ms"
+	InstanceWaitP95    = "instance_wait_p95_ms"
+	InstanceRequestP95 = "instance_request_p95_ms"
+	maxGroups          = 12
+	maxSeries          = 64
+	maxGroupLabelSize  = 100
 )
 
 // ScalarPanels lists every known single-series panel.
@@ -62,7 +63,7 @@ var scalar = map[string]bool{
 	SLOBudgetRemaining: true, SLOMonthAvailability: true, SLOBurn1h: true, SLOBurn6h: true, SLOBurn3d: true,
 }
 
-var grouped = map[string]string{LatencyHeat: "bucket", EndpointP99: "endpoint", InstanceWaitP95: "instance"}
+var grouped = map[string]string{LatencyHeat: "bucket", EndpointP99: "endpoint", InstanceWaitP95: "instance", InstanceRequestP95: "instance"}
 
 // HeatBuckets are the reviewed latency heat rows, slowest first.
 var HeatBuckets = []string{">2 s", "1 s", "500 ms", "250 ms", "100 ms", "50 ms", "25 ms", "<10 ms"}
@@ -162,7 +163,7 @@ func Parse(series []connectors.MetricSeries, window connectors.TimeWindow) (Set,
 	if groups, ok := out.Groups[LatencyHeat]; ok && len(groups) != len(HeatBuckets) {
 		return out, false
 	}
-	for _, panel := range []string{EndpointP99, InstanceWaitP95} {
+	for _, panel := range []string{EndpointP99, InstanceWaitP95, InstanceRequestP95} {
 		if len(out.Groups[panel]) > maxGroups {
 			return out, false
 		}

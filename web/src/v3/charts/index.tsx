@@ -569,7 +569,7 @@ export function Swimlane({ rows, labelWidth = 120 }: { rows: { label: ReactNode;
   );
 }
 
-export function SmallMultiples({ items, cols = 6, height = 42 }: { items: { label: string; values: number[]; tone?: string; value?: string }[]; cols?: number; height?: number }) {
+export function SmallMultiples({ items, cols = 6, height = 42 }: { items: { label: string; values: (number | null)[]; tone?: string; value?: string }[]; cols?: number; height?: number }) {
   return (
     <div className="ch-multiples" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
       {items.map((it) => {
@@ -580,15 +580,31 @@ export function SmallMultiples({ items, cols = 6, height = 42 }: { items: { labe
             <div className="head">
               <span className="muted">{it.label}</span>
               <b className="tnum" style={{ color }}>
-                {it.value ?? Math.round(it.values[it.values.length - 1])}
+                {it.value ?? (it.values.at(-1) == null ? "—" : Math.round(it.values.at(-1)!))}
               </b>
             </div>
-            <Lines series={[{ values: it.values, color, fill }]} height={height} grid={1} hover={false} draw={false} />
+            {it.values.every((value): value is number => value !== null) ? (
+              <Lines series={[{ values: it.values, color, fill }]} height={height} grid={1} hover={false} draw={false} />
+            ) : (
+              <svg width="100%" height={height} viewBox={`0 0 ${Math.max(1, it.values.length - 1)} ${height}`} preserveAspectRatio="none" aria-hidden="true">
+                <path d={missingAwareLine(it.values, height)} fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+              </svg>
+            )}
           </div>
         );
       })}
     </div>
   );
+}
+
+function missingAwareLine(values: (number | null)[], height: number) {
+  const max = Math.max(1, ...values.map((value) => value ?? 0)) * 1.15;
+  return values.map((value, index) => {
+    if (value === null) return "";
+    const y = height * (1 - value / max);
+    const start = index === 0 || values[index - 1] === null;
+    return start ? `M${index},${y}h0.15` : `L${index},${y}`;
+  }).join(" ");
 }
 
 /** Deterministic demo series (same generator as the design canvas). */

@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { API_MODE, ApiError, api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, newIdempotencyKey, useGet } from "../../api/client";
 import { useEnv } from "../../app/environment";
 import { serviceApplicationId } from "../../api/ids";
 import { PageUnavailable, PartialBanner, Unavailable, UnknownValue, missingParts, unknownLabels } from "../../ui/unknown";
 import type { MetricsDashboard, ServiceSloSettings } from "../../api/types";
-import { AiAvatar, Badge, Bar, Brand, Btn, Card, Chip, Cite, Col, Icon, IconBtn, LabelChip, Legend, Muted, Panel, Row, Segmented, Skeleton, Spacer, Strong, TextLink, cx, type Tone } from "../../ui/core";
+import { AiAvatar, Badge, Bar, Brand, Btn, Card, Chip, Cite, Col, Icon, IconBtn, LabelChip, Legend, Muted, Panel, Row, Segmented, Skeleton, Spacer, Strong, TextLink, Textarea, cx, type Tone } from "../../ui/core";
 import { KBand } from "../../ui/data";
 import { newConversationUrl } from "../../api/stream";
 import { Composer, NextSteps } from "../../ui/Composer";
@@ -48,6 +48,30 @@ export default function MetricsPage() {
   }, [align, error]); // eslint-disable-line react-hooks/exhaustive-deps
   const { data: sloCfg, refetch: refetchSlo } = useGet<ServiceSloSettings>(!demo && service ? `/services/${encodeURIComponent(service)}/slo` : null);
   const [ai, setAi] = useState(false);
+  const [askView, setAskView] = useState<"request_rate" | "http_p95_seconds">("request_rate");
+  const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const lastQuestion = useRef<{ fingerprint: string; key: string } | null>(null);
+  const askAboutMetric = async () => {
+    if (!dashboardService || !question.trim() || askBlocked || asking) return;
+    const payload = { service: dashboardService, view: askView, range: "1h", question: question.trim() };
+    const fingerprint = JSON.stringify({ env, ...payload });
+    if (lastQuestion.current?.fingerprint !== fingerprint) {
+      lastQuestion.current = { fingerprint, key: newIdempotencyKey() };
+    }
+    setAsking(true);
+    try {
+      const { conversation_id } = await api<{ conversation_id: string }>("POST", "/metrics/ask", {
+        body: { ...payload, request_id: lastQuestion.current.key },
+      });
+      lastQuestion.current = null;
+      nav(`/conversations/${encodeURIComponent(conversation_id)}`);
+    } catch (error) {
+      toast(error instanceof ApiError ? error.message : tx("指标提问失败，请重试", "Couldn't ask about the metric. Try again."), { tone: "danger" });
+    } finally {
+      setAsking(false);
+    }
+  };
   const [lat, setLat] = useState<"heat" | "pct" | "box">("heat");
   const [hover, setHover] = useState<number | null>(null);
   const sync = { index: hover, set: setHover };
@@ -332,7 +356,8 @@ export default function MetricsPage() {
             </Panel>
           </div>
           <Panel
-            title={demo ? tx("按实例 · 等待库存 P95（ms）", "By instance · waiting on inventory P95 (ms)") : tx("按实例 · 等待 P95（ms）", "By instance · wait P95 (ms)")}
+            title={demo ? tx("按实例 · 等待库存 P95（ms）", "By instance · waiting on inventory P95 (ms)") : d.instances
+              ? tx("按实例 · 等待 P95（ms）", "By instance · wait P95 (ms)") : tx("按实例 · HTTP 请求 P95（ms）", "By instance · HTTP request P95 (ms)")}
             right={
               demo && (
                 <Row gap={6}>
@@ -344,6 +369,8 @@ export default function MetricsPage() {
           >
             {d.instances ? (
               <SmallMultiples items={d.instances.map((i) => ({ label: i.label, values: i.values, tone: i.tone }))} cols={6} height={42} />
+            ) : d.instance_requests ? (
+              <SmallMultiples items={d.instance_requests} cols={6} height={42} />
             ) : (
               <Unavailable reason={why(u.instances)} source="Prometheus" title={tx("实例", "Instances")} icon="cpu" />
             )}
@@ -354,7 +381,7 @@ export default function MetricsPage() {
             <AiAvatar size={28} />
             <Col gap={0} grow>
               <Strong size={14}>{tx("问 AI", "Ask AI")}</Strong>
-              <Muted size={11.5}>{demo ? tx("已读取当前视图：6 个面板 · 时间范围跟随看板", "Read the current view: 6 panels · same time range") : tx("提问时会带上当前视图", "Your question carries the current view")}</Muted>
+              <Muted size={11.5}>{demo ? tx("已读取当前视图：6 个面板 · 时间范围跟随看板", "Read the current view: 6 panels · same time range") : tx("使用你的默认模型分析最近一小时的实测指标。", "Use your default model to analyze observed metrics from the past hour.")}</Muted>
             </Col>
             <IconBtn icon="x" label={tx("关闭", "Close")} onClick={() => setAi(false)} />
           </Row>
@@ -389,7 +416,18 @@ export default function MetricsPage() {
             )}
           </Col>
           <div style={{ padding: "0 16px 16px" }}>
-            <Composer minRows={1} maxRows={6} blocked={askBlocked} placeholder={tx("继续追问这些图…", "Ask more about these charts…")} attachments={[{ kind: "view", id: "view", label: tx("当前视图", "Current view") }]} viewAttachment={{ kind: "view", id: "view", label: tx("当前视图", "Current view") }} onSend={(t, att, x) => nav(newConversationUrl(t, att, x))} />
+            {demo ? (
+              <Composer minRows={1} maxRows={6} blocked={askBlocked} placeholder={tx("继续追问这些图…", "Ask more about these charts…")} attachments={[{ kind: "view", id: "view", label: tx("当前视图", "Current view") }]} viewAttachment={{ kind: "view", id: "view", label: tx("当前视图", "Current view") }} onSend={(t, att, x) => nav(newConversationUrl(t, att, x))} />
+            ) : (
+              <form className="v3-col" style={{ gap: 8 }} onSubmit={(event) => { event.preventDefault(); void askAboutMetric(); }}>
+                <Segmented label={tx("指标", "Metric")} value={askView} onChange={setAskView} options={[
+                  { value: "request_rate", label: tx("请求速率", "Request rate") },
+                  { value: "http_p95_seconds", label: tx("P95 请求耗时", "P95 request latency") },
+                ]} />
+                <Textarea aria-label={tx("指标问题", "Metric question")} value={question} onChange={(event) => setQuestion(event.target.value)} maxLength={4000} />
+                <Btn type="submit" kind="primary" disabled={!!askBlocked || !question.trim()} loading={asking}>{tx("发送指标问题", "Ask about metric")}</Btn>
+              </form>
+            )}
           </div>
         </aside>
       </div>

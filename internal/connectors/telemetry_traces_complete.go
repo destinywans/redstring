@@ -465,13 +465,19 @@ func (t *Telemetry) searchWindow(source *TelemetrySource, w TimeWindow) (TimeWin
 		err.(*TelemetryError).LimitSeconds = t.config.MaxLookbackSeconds
 		return w, err
 	}
+	if delay := t.config.TempoSearchDelaySeconds; delay > 0 {
+		latest := now.Add(-time.Duration(delay) * time.Second).Truncate(time.Second)
+		if w.End.After(latest) {
+			w.End = latest
+		}
+	}
 	// A window that ends a moment before now may start just past the
 	// lookback; it covers the lookback.
 	if oldest := now.Add(-lookback); w.Start.Before(oldest) {
 		w.Start = oldest
 	}
 	if !w.Start.Before(w.End) {
-		return w, failure(source, "scope", "telemetry window is older than the configured lookback", nil)
+		return w, failure(source, "scope", "telemetry window is outside the searchable interval", nil)
 	}
 	return w, nil
 }

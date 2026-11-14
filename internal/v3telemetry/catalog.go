@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"os"
 	"reflect"
@@ -47,7 +48,8 @@ type Catalog struct {
 	// is verified to fail a search on high live-store lag, so an answered
 	// search is the complete population (the file's
 	// tempo_search_fail_closed, per connector since P4).
-	TempoSearchFailClosed map[string]bool
+	TempoSearchFailClosed   map[string]bool
+	TempoSearchDelaySeconds map[string]int
 }
 
 // Limits are the time and size bounds of the registry clients, in the
@@ -137,12 +139,13 @@ func scopeEntry(key ScopeKey, scope Scope) ScopeEntry {
 // CatalogFile is the private JSON file: {"queries":[...],"scopes":[...]}.
 // A file with only "queries" is the existing Prometheus query catalog.
 type CatalogFile struct {
-	Queries               []QueryEntry    `json:"queries"`
-	Scopes                []ScopeEntry    `json:"scopes,omitempty"`
-	Workloads             []WorkloadEntry `json:"workloads,omitempty"`
-	GitLab                []GitLabEntry   `json:"gitlab,omitempty"`
-	Limits                *Limits         `json:"limits,omitempty"`
-	TempoSearchFailClosed []string        `json:"tempo_search_fail_closed,omitempty"`
+	Queries                 []QueryEntry    `json:"queries"`
+	Scopes                  []ScopeEntry    `json:"scopes,omitempty"`
+	Workloads               []WorkloadEntry `json:"workloads,omitempty"`
+	GitLab                  []GitLabEntry   `json:"gitlab,omitempty"`
+	Limits                  *Limits         `json:"limits,omitempty"`
+	TempoSearchFailClosed   []string        `json:"tempo_search_fail_closed,omitempty"`
+	TempoSearchDelaySeconds map[string]int  `json:"tempo_search_delay_seconds,omitempty"`
 }
 
 const (
@@ -198,6 +201,12 @@ func ParseCatalog(data []byte) (Catalog, error) {
 		}
 		out.TempoSearchFailClosed[id] = true
 	}
+	for id, seconds := range file.TempoSearchDelaySeconds {
+		if !out.TempoSearchFailClosed[id] || seconds < 1 || seconds > 300 {
+			return Catalog{}, fmt.Errorf("invalid search delay for fail-closed Tempo connector")
+		}
+	}
+	out.TempoSearchDelaySeconds = file.TempoSearchDelaySeconds
 	for i, entry := range file.Queries {
 		key := v3integrations.PrometheusQueryKey{ConnectorID: entry.ConnectorID, ApplicationID: entry.ApplicationID,
 			EnvironmentID: entry.EnvironmentID, ResourceID: entry.ResourceID, QueryID: entry.QueryID}
@@ -365,6 +374,7 @@ func (c Catalog) File() CatalogFile {
 		out.TempoSearchFailClosed = append(out.TempoSearchFailClosed, id)
 	}
 	sort.Strings(out.TempoSearchFailClosed)
+	out.TempoSearchDelaySeconds = maps.Clone(c.TempoSearchDelaySeconds)
 	return out
 }
 
@@ -373,7 +383,7 @@ func (c Catalog) File() CatalogFile {
 func (c Catalog) Clone() Catalog {
 	out := Catalog{Queries: make(map[v3integrations.PrometheusQueryKey]string, len(c.Queries)), Scopes: make(map[ScopeKey]Scope, len(c.Scopes)),
 		Workloads: make(map[ScopeKey]WorkloadScope, len(c.Workloads)), GitLab: make(map[ScopeKey]GitLabScope, len(c.GitLab)),
-		Limits: c.Limits, TempoSearchFailClosed: make(map[string]bool, len(c.TempoSearchFailClosed))}
+		Limits: c.Limits, TempoSearchFailClosed: make(map[string]bool, len(c.TempoSearchFailClosed)), TempoSearchDelaySeconds: maps.Clone(c.TempoSearchDelaySeconds)}
 	for key, value := range c.GitLab {
 		out.GitLab[key] = value
 	}

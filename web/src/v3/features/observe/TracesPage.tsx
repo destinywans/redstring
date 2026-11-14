@@ -257,6 +257,9 @@ export default function TracesPage() {
             </Card>
           )}
           {covered && data && !noSource && !blocked && <BudgetNotice count={data.items?.length ?? 0} w={covered} range={range} actions={shortcuts(["svc", "err"])} />}
+          {real && scope === "app" && data?.window_end_at && !noSource && (
+            <Muted size={11}>{tx("数据截至 {t}", "Data through {t}", { t: when.stamp(data.window_end_at) })}</Muted>
+          )}
           {data?.partial && !covered && !noSource && !blocked && (
             <PartialBanner fields={[]}>
               {skipped

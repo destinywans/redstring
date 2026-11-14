@@ -783,6 +783,44 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 		!strings.Contains(historyResponse.Body.String(), `"execution_verification_available":false`) {
 		t.Fatalf("runbook history omitted recorded review or mislabeled validation: %s", historyResponse.Body.String())
 	}
+	mutate := func(method, path, env, token string, input any) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(method, "/api/v1/runbooks/"+path, bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-AIOps-Environment", env)
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	seed("runbook-edit", "app-1", "dev", "draft", maintainer.ID, nil)
+	edit := runbookEdit{ExpectedVersion: 1, Title: "Approved request-rate reading", When: "When checkout needs attention", Steps: []Step{
+		{N: 1, Kind: "query", Title: "Read the request rate", Probe: runbookRequestRate, Readonly: true, Connectors: []string{"prometheus"}},
+	}}
+	assert(mutate(http.MethodPatch, "runbook-edit", "all", maintainerToken, edit), 409, "env_view_only")
+	assert(mutate(http.MethodPatch, "runbook-edit", "dev", otherToken, edit), 404, "not_found")
+	assert(mutate(http.MethodPost, "runbook-edit/execute-readonly", "dev", maintainerToken, runbookExecutionInput{1}), 409, "runbook_execution_unavailable")
+	assert(mutate(http.MethodPatch, "runbook-edit", "dev", maintainerToken, edit), 200, "")
+	assert(mutate(http.MethodPatch, "runbook-edit", "dev", maintainerToken, edit), 409, "runbook_changed")
+	edited := get("runbook-edit", "", "dev", maintainerToken)
+	assert(edited, 200, "")
+	if !strings.Contains(edited.Body.String(), `"version":"v2"`) || !strings.Contains(edited.Body.String(), `"probe":"request_rate"`) || !strings.Contains(edited.Body.String(), edit.When) {
+		t.Fatalf("edited revision omitted persisted fields: %s", edited.Body.String())
+	}
+	assert(request("runbook-edit", "submit", "dev", maintainerToken), 200, "")
+	assert(mutate(http.MethodPost, "runbook-edit/reviews", "dev", otherToken, reviewInput{Decision: "approve", ExpectedVersion: &edit.ExpectedVersion}), 409, "runbook_changed")
+	assert(mutate(http.MethodPost, "runbook-edit/reviews", "dev", otherToken, reviewInput{Decision: "approve"}), 200, "")
+	assert(mutate(http.MethodPost, "runbook-edit/execute-readonly", "dev", readerToken, runbookExecutionInput{2}), 404, "not_found")
+	assert(mutate(http.MethodPost, "runbook-edit/execute-readonly", "dev", maintainerToken, runbookExecutionInput{2}), 409, "runbook_connector_changed")
+	assert(mutate(http.MethodPost, "runbook-main/execute-readonly", "dev", maintainerToken, runbookExecutionInput{1}), 422, "runbook_steps_unsupported")
+	var executions int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='runbook.readonly_execution'`).Scan(&executions); err != nil || executions != 0 {
+		t.Fatalf("invalid execution was recorded as successful: %d, %v", executions, err)
+	}
 	if _, err := db.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id='runbook-reader'`, reader.ID); err != nil {
 		t.Fatal(err)
 	}

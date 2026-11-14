@@ -39,6 +39,7 @@ export default function LifecyclePage() {
           kind="primary"
           icon="plus"
           loading={creating}
+          disabled={creating || (!demo && !lists.services.length)}
           onClick={async () => {
             // Real agents register an ID, name and summary under one application (POST /agents); they start paused at L0.
             if (!demo) {

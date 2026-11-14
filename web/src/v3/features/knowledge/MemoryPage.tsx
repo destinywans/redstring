@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Page } from "../../app/Shell";
-import { API_MODE, ApiError, api, useGet } from "../../api/client";
+import { API_MODE, ApiError, api, newIdempotencyKey, useGet } from "../../api/client";
+import { serviceApplicationId } from "../../api/ids";
+import { useEnv } from "../../app/environment";
 import { UnknownValue } from "../../ui/unknown";
 import type { MemoryFact, MemoryPolicy, MemoryView } from "../../api/types";
 import { Badge, Btn, Card, Chip, Col, Icon, IconBtn, Muted, Num, Row, SearchBox, Section, Spacer, Strong, Tabs, TextLink, Tile, cx, type IconName } from "../../ui/core";
@@ -9,7 +11,10 @@ import { toast } from "../../ui/overlays";
 import { Gated, useNeed } from "../../ui/permission";
 import { useI18n } from "../../i18n";
 import "./knowledge.css";
-import { ChipSelect, useFacet, openForm } from "../../ui/demo";
+import { ChipSelect, useFacet, openForm, usePickLists } from "../../ui/demo";
+
+type MemorySource = { document_id: string; version: number; content_hash: string };
+type SourceDraft = { request_key: string; application_id: string; title: string; body: string };
 
 const LAYER_ICON: Record<string, IconName> = { working: "layers", service: "box", episodic: "clock", semantic: "book", workspace: "globe" };
 // The server names its layers in English; the page names the two it knows (PA-145).
@@ -20,6 +25,7 @@ const LAYER_TEXT: Record<string, { name: [string, string]; desc: [string, string
 
 export default function MemoryPage() {
   const { tx } = useI18n();
+  const environment = useEnv((s) => s.env);
   const [tab, setTab] = useState("service");
   const [layer, setLayer] = useState("service");
   const [svc, setSvc] = useState(API_MODE === "mock" ? "checkout-api" : "");
@@ -30,6 +36,10 @@ export default function MemoryPage() {
   const [facts, setFacts] = useState<Record<string, "confirmed" | "forgotten">>({});
   const [conflict, setConflict] = useState(true);
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const { services } = usePickLists();
+  const [intakeBusy, setIntakeBusy] = useState(false);
+  const [intakeState, setIntake] = useState<{ env: string; draft: SourceDraft; source?: MemorySource; excerpt: string }>();
+  const intake = intakeState?.env === environment ? intakeState : undefined;
   const fSrc = useFacet(data?.facts, (f) => f.source);
   // PA-166: a source reads as its document's title; without one it keeps the document ID.
   const sourceTitles = new Map((data?.facts ?? []).flatMap((f) => (f.source_title ? [[f.source, f.source_title] as const] : [])));
@@ -50,6 +60,56 @@ export default function MemoryPage() {
           ? tx("修改后的内容必须是来源资料里的一段原文。", "The edited text must be an exact excerpt of its source.")
           : e.message;
   const factChanged = tx("这条记忆刚被修改，或正处于未裁决的冲突中；刷新后再试。", "This memory just changed or is in an open conflict; refresh and try again.");
+  const addFact = async () => {
+    if (!services.length && !intake) {
+      toast(tx("请先选择有可用服务的环境。", "Choose an environment with an available service."), { tone: "danger" });
+      return;
+    }
+    const values = await openForm({
+      title: intake ? tx("继续录入记忆", "Continue adding memory") : tx("录入记忆", "Add memory"),
+      desc: intake
+        ? tx("核对原文后提交待确认事实。", "Check the exact wording before submitting a fact for review.")
+        : tx("把资料登记到所选服务，从中摘录一条待确认事实。", "Register a source for the selected service and submit an excerpt for confirmation."),
+      fields: [
+        ...(!intake ? [
+          { key: "service", label: tx("服务", "Service"), type: "select" as const, options: services, required: true },
+          { key: "title", label: tx("资料标题", "Source title"), required: true },
+          { key: "body", label: tx("资料原文", "Source text"), type: "textarea" as const, required: true },
+        ] : []),
+        { key: "excerpt", label: tx("事实摘录", "Fact excerpt"), type: "textarea", required: true, initial: intake?.excerpt, hint: intake?.draft.body },
+      ],
+      submit: tx("提交待确认事实", "Submit fact for confirmation"),
+    });
+    if (!values) return;
+    const applicationId = intake?.draft.application_id ?? serviceApplicationId(values.service ?? "");
+    const body = intake?.draft.body ?? values.body;
+    const excerpt = values.excerpt.trim();
+    if (!applicationId || !body.includes(excerpt) || [...excerpt].length > 4000 || new TextEncoder().encode(body).length > 16384) {
+      toast(tx("请选择有效服务，摘录必须逐字出现在资料里。", "Choose a valid service and enter an exact excerpt from the source."), { tone: "danger" });
+      return;
+    }
+    const draft = intake?.draft ?? { request_key: newIdempotencyKey(), application_id: applicationId, body, title: values.title.trim() };
+    const pending = { env: environment, draft, excerpt, source: intake?.source };
+    setIntakeBusy(true);
+    setIntake(pending);
+    try {
+      // Both server writes are idempotent against the same source identity and exact excerpt.
+      const source = pending.source ?? await api<MemorySource>("POST", "/memory/sources", { body: draft });
+      setIntake({ ...pending, source });
+      await api("POST", "/memory/facts", { body: { document_id: source.document_id, expected_version: source.version, expected_content_hash: source.content_hash, exact_excerpt: excerpt } });
+      setIntake(undefined);
+      setSvc("");
+      setQ("");
+      setTab("pending");
+      void refetch();
+      toast(tx("事实已录入，等待确认。", "Fact added and awaiting confirmation."));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 422 && !pending.source && !intake) setIntake(undefined);
+      toast(e instanceof Error ? e.message : tx("录入失败，请重试。", "Couldn't add the memory. Try again."), { tone: "danger" });
+    } finally {
+      setIntakeBusy(false);
+    }
+  };
   const editPolicy = async () => {
     // Real mode edits the stored policy under its revision; the demo only shows the form.
     const cur = API_MODE === "mock" ? null : await api<MemoryPolicy>("GET", "/memory/policy").catch((e: ApiError) => (toast(why(e, e.message), { tone: "danger" }), undefined));
@@ -111,7 +171,10 @@ export default function MemoryPage() {
     .filter((f) => facts[f.id] !== "forgotten" && (!inLayer || inLayer.has(f.id)) && (!q || f.fact.toLowerCase().includes(q.toLowerCase())) && fSrc.test(f) && fConf.test(f) && (tab !== "pending" || (!f.confirmed && facts[f.id] !== "confirmed")))
     .map((f) => (edits[f.id] ? { ...f, fact: edits[f.id] } : f));
   return (
-    <Page flush crumbs={[tx("知识与记忆", "Knowledge"), tx("记忆", "Memory")]} actions={<Gated reason={denied}><Btn icon="sliders" onClick={editPolicy}>{tx("记忆策略", "Memory policy")}</Btn></Gated>}>
+    <Page flush crumbs={[tx("知识与记忆", "Knowledge"), tx("记忆", "Memory")]} actions={<>
+      {API_MODE !== "mock" && environment !== "all" && <Gated reason={denied}><Btn kind="primary" icon="plus" loading={intakeBusy} disabled={intakeBusy || (!intake && !services.length)} title={!intake && !services.length ? tx("需要当前环境中的服务", "Requires a service in this environment") : undefined} onClick={() => void addFact()}>{intake ? tx("继续录入记忆", "Continue adding memory") : tx("录入记忆", "Add memory")}</Btn></Gated>}
+      <Gated reason={denied}><Btn icon="sliders" onClick={editPolicy}>{tx("记忆策略", "Memory policy")}</Btn></Gated>
+    </>}>
       <Tabs value={tab} onChange={(v) => { setTab(v); if (v !== "pending") setLayer(v); }} options={API_MODE === "mock" ? [{ value: "service", label: tx("服务记忆", "Service"), count: 96 }, { value: "episodic", label: tx("情景记忆", "Episodic"), count: 214 }, { value: "semantic", label: tx("语义记忆", "Semantic"), count: "1,322" }, { value: "pending", label: tx("待确认", "To confirm"), count: 3 }] : [...(data?.layers ?? []).map((l) => ({ value: l.id, label: layerName(l), count: layerCount(l.id) })), { value: "pending", label: tx("待确认", "To confirm"), count: data?.facts.filter((f) => !f.confirmed).length }]} />
       <div className="v3-split">
         <div className="side" style={{ width: 280, padding: 14, display: "flex", flexDirection: "column", gap: 14 }}>

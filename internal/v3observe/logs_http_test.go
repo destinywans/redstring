@@ -76,6 +76,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	var providerCalls atomic.Int32
 	var lastWindow atomic.Int64
 	var lokiCalls atomic.Int32
+	var lokiAggregations atomic.Int32
 	var completePatterns atomic.Bool
 	var zeroMatches atomic.Bool
 	var blockBindingChange, blockRevocation atomic.Bool
@@ -203,6 +204,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 			}
 			_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"streams","result":[]}}`))
 		case "/loki/api/v1/query":
+			lokiAggregations.Add(1)
 			if r.FormValue("time") == "" || !strings.Contains(query, "count_over_time(") {
 				t.Errorf("unbounded Loki aggregation: %s", r.URL)
 			}
@@ -298,6 +300,7 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 		return out
 	}
 	checkError(request("?service=app&levels=DEBUG"), 422, "invalid_levels")
+	checkError(request("?service=app&view=lines&view=lines"), 422, "invalid_view")
 	unbound := decodePartial(request("?service=app&levels=INFO&q=checkout"))
 	if unbound.Total != nil || unbound.Errors != nil || unbound.Histogram != nil || unbound.Items != nil || unbound.Patterns != nil ||
 		unbound.Unavailable["items"] != "not_configured" || unbound.Unavailable["total"] != "not_configured" || len(unbound.Unavailable) != 5 {
@@ -405,6 +408,13 @@ INSERT INTO v3_application_environments(application_id,environment_id) VALUES('a
 	}
 	checkError(request("?service=app&source=loki&provider=elasticsearch"), 422, "conflicting_source")
 	bind(lokiTarget)
+	beforeLines := lokiCalls.Load()
+	beforeAggregations := lokiAggregations.Load()
+	lineView := decodePartial(request("?service=app&levels=INFO&q=checkout&view=lines"))
+	if lineView.Items == nil || lineView.Total != nil || lineView.Patterns != nil || lineView.Unavailable["patterns"] != "not_generated" ||
+		lokiCalls.Load() != beforeLines+1 || lokiAggregations.Load() != beforeAggregations {
+		t.Fatalf("lines-only must read one scoped page without aggregates: %+v", lineView)
+	}
 	before = providerCalls.Load()
 	w = request("?service=app&levels=INFO&q=checkout&provider=loki")
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"total":"0"`) ||

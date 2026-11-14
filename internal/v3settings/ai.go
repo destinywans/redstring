@@ -148,14 +148,8 @@ func (s *Service) modelEnvironment(w http.ResponseWriter, r *http.Request) (stri
 func (s *Service) modelCatalogItems(r *http.Request, env string) ([]map[string]any, error) {
 	items := []map[string]any{}
 	for _, m := range s.models(env) {
-		if m.API == "ollama" {
-			// The frontend currently accepts only responses, chat_completions
-			// and messages. Reporting Ollama's native API as one of those would
-			// misrepresent its wire protocol; fail until the DTO is extended.
-			return nil, errModelCatalogUnavailable
-		}
 		note := localize(r, "已配置；连接状态未验证", "Configured; connection has not been verified")
-		if m.API != "responses" && m.API != "chat_completions" && m.API != "messages" {
+		if m.API != "responses" && m.API != "chat_completions" && m.API != "messages" && m.API != "ollama" {
 			return nil, errModelCatalogUnavailable
 		}
 		levels := []map[string]string{}

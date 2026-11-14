@@ -3,8 +3,8 @@ import { useParams } from "react-router-dom";
 import { useQueryClient, type Query } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import type { Runbook, RunbookStep } from "../../api/types";
-import { Avatar, Badge, Brand, Btn, Code, Col, Icon, Mono, Muted, Num, Row, Section, Skeleton, Spacer, State, TextLink, type Tone } from "../../ui/core";
+import type { Me, Runbook, RunbookStep } from "../../api/types";
+import { Avatar, Badge, Brand, Btn, Code, Col, Field, Icon, Input, Mono, Muted, Num, Row, Section, Skeleton, Spacer, State, Textarea, TextLink, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { VBars } from "../../charts";
 import { useI18n } from "../../i18n";
@@ -13,13 +13,16 @@ import { useRunbookScope } from "./RunbooksPage";
 import { useRunbookSourceName } from "./NewRunbookPage";
 import "../../ui/forms.css";
 import "./knowledge.css";
-import { confirmAction } from "../../ui/demo";
+import { confirmAction, openForm } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 import { UnknownValue } from "../../ui/unknown";
 import { Gate } from "../../ui/permission";
+import { RunbookStepsForm, runbookSaveSteps } from "./RunbookStepsForm";
 
 /** One step's result from POST /runbooks/{id}/dry-run; `reasons` lists the conditions it failed (PA-194). */
 type DryRunCheck = { step: number; validated: boolean; reasons?: string[] };
+type Edit = { version: string; title: string; when: string; steps: RunbookStep[] };
+type ReadOnlyExecution = { id: string; version: number; status: "observed" | "no_samples"; steps: { step: number; query_id: string; sample_count: number; latest: number | null; captured_at: string }[] };
 
 /** Step numbers in order, three or more in a row as a range: [1, 2, 3, 5] → "1–3、5". */
 function stepRuns(steps: number[], sep: string) {
@@ -41,11 +44,19 @@ export default function RunbookEditorPage() {
   const when = useWhen();
   const qc = useQueryClient();
   const { data: rb, error } = useGet<Runbook>(`/runbooks/${id}`);
+  const { data: me } = useGet<Me>(API_MODE === "mock" ? null : "/me");
+  const { data: record } = useGet<{ owner: string }>(API_MODE !== "mock" && !!rb && rb.status !== "published" ? `/runbooks/${id}/record` : null);
+  const { data: history } = useGet<{ reviews: { id: string; version: number; decision: string; note?: string }[] }>(API_MODE !== "mock" && rb?.status === "draft" ? `/runbooks/${id}/history` : null);
   const scopeLabel = useRunbookScope();
   // PA-166: a real record's base is "<source kind>:<source ref>"; a postmortem reads as its title.
   const sourceName = useRunbookSourceName(!!rb?.base?.startsWith("postmortem:"));
   const [accepted, setAccepted] = useState<"pending" | "yes" | "no">("pending");
   const [running, setRunning] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
+  const [editing, setEditing] = useState<Edit>();
+  const [saving, setSaving] = useState(false);
+  const [executing, setExecuting] = useState(false);
+  const [execution, setExecution] = useState<ReadOnlyExecution>();
   const KIND: Record<RunbookStep["kind"], [Tone, string]> = { query: ["accent", tx("查询", "Query")], check: ["neutral", tx("判断", "Check")], action: ["warn", tx("动作", "Action")], verify: ["ok", tx("验证", "Verify")] };
   if (!rb)
     return (
@@ -67,6 +78,65 @@ export default function RunbookEditorPage() {
   const stateBadge: [Tone, string] = states[status] ?? ["neutral", `${rb.version} · ${base}`];
   const submittable = status === "draft";
   const thisRunbook = (q: Query) => q.queryKey[0] === `/runbooks/${id}`;
+  const refreshRunbooks = () => qc.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/runbooks") });
+  const canReview = status === "review" && !!record?.owner && !!me && me.id !== record.owner;
+  const canEdit = status === "draft" && !!me && me.id === record?.owner;
+  const returned = history?.reviews.find((entry) => entry.decision === "request_changes" && entry.note);
+  const canExecute = status === "published" && !!rb.application_id && rb.steps.length > 0 && rb.steps.length <= 10 && rb.steps.every((step) =>
+    step.readonly && step.kind !== "action" && !step.approval && !step.code && !step.tool && step.probe === "request_rate" && step.connectors?.length === 1);
+  const execute = async () => {
+    setExecuting(true);
+    setExecution(undefined);
+    try {
+      const result = await api<ReadOnlyExecution>("POST", `/runbooks/${id}/execute-readonly`, { body: { expected_version: Number(rb.version.replace(/^v/, "")) } });
+      setExecution(result);
+      void refreshRunbooks();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : tx("无法读取服务指标", "Couldn't read the service metric"), { tone: "danger" });
+    } finally {
+      setExecuting(false);
+    }
+  };
+  const saveEdit = async () => {
+    if (!editing) return;
+    setSaving(true);
+    try {
+      await api("PATCH", `/runbooks/${id}`, { body: { title: editing.title.trim(), when: editing.when, expected_version: Number(editing.version.replace(/^v/, "")), steps: runbookSaveSteps(editing.steps) } });
+      await refreshRunbooks();
+      setEditing(undefined);
+      toast(tx("草稿已保存为新修订", "Draft saved as a new revision"));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) void refreshRunbooks();
+      toast(e instanceof Error ? e.message : tx("无法保存草稿", "Couldn't save the draft"), { tone: "danger" });
+    } finally {
+      setSaving(false);
+    }
+  };
+  const review = async (decision: "approve" | "request_changes") => {
+    const approve = decision === "approve";
+    const values = await openForm({
+      title: approve ? tx("批准并发布 Runbook", "Approve and publish runbook") : tx("退回 Runbook 修改", "Request changes to runbook"),
+      desc: rb.title,
+      fields: [{ key: "note", label: approve ? tx("复核说明", "Review note") : tx("修改要求", "Requested changes"), type: "textarea", required: !approve }],
+      submit: approve ? tx("批准并发布", "Approve and publish") : tx("退回修改", "Request changes"),
+    });
+    if (!values) return;
+    setReviewing(true);
+    try {
+      const result = await api<{ status: Runbook["status"]; semantic_search_ready?: boolean }>("POST", `/runbooks/${id}/reviews`, { body: { decision, note: values.note.trim(), expected_version: Number(rb.version.replace(/^v/, "")) } });
+      qc.setQueriesData<Runbook>({ predicate: thisRunbook }, (old) => old && { ...old, status: result.status });
+      toast(approve
+        ? result.semantic_search_ready
+          ? tx("Runbook 已发布并建立语义索引", "Runbook published and indexed for semantic search")
+          : tx("Runbook 已发布，语义索引尚未就绪", "Runbook published. The semantic index is pending.")
+        : tx("已退回维护人修改", "Returned to the maintainer for changes"));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : tx("无法保存复核", "Couldn't save the review"), { tone: "danger" });
+    } finally {
+      void refreshRunbooks();
+      setReviewing(false);
+    }
+  };
   // Why the server refused a submit (internal/v3knowledge/runbooks.go submitHandler), never its English text (PA-233).
   const submitRefusal = (e: unknown) =>
     !(e instanceof ApiError)
@@ -139,12 +209,13 @@ export default function RunbookEditorPage() {
             {tx("预览", "Preview")}
           </Btn>
           <PromoteButton kind="runbooks" id={rb.id} title={rb.title} />
+          {canEdit && !editing && <Gate need={["knowledge", "manage"]}><Btn icon="edit" onClick={() => setEditing({ version: rb.version, title: rb.title, when: rb.when, steps: rb.steps })}>{tx("编辑草稿", "Edit draft")}</Btn></Gate>}
           {/* POST /runbooks/{id}/submit and /dry-run need knowledge.manage (PA-228). */}
           <Gate need={["knowledge", "manage"]}>
           <Btn
             kind="primary"
             icon="check"
-            disabled={!submittable}
+            disabled={!submittable || !!editing}
             title={submittable ? undefined : tx("只有草稿可以提交复核", "Only a draft can be submitted for review")}
             onClick={() =>
               // Say "submitted" only once the server accepted it; the sample data names its sample reviewer.
@@ -153,7 +224,7 @@ export default function RunbookEditorPage() {
                   // PA-233: the badge, the button and the reviewers follow the server at once: its answer says the new
                   // state, and a re-read brings the reviewers.
                   if (r?.status) qc.setQueriesData<Runbook>({ predicate: thisRunbook }, (old) => (old ? { ...old, status: r.status } : old));
-                  void qc.invalidateQueries({ predicate: (q) => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/runbooks") });
+                  void refreshRunbooks();
                   toast(API_MODE === "mock" ? tx("已提交复核，已通知王晨", "Submitted for review; Wang Chen notified") : tx("已提交复核", "Submitted for review"));
                 },
                 (e) => {
@@ -167,6 +238,10 @@ export default function RunbookEditorPage() {
             {tx("提交复核", "Submit for review")}
           </Btn>
           </Gate>
+          {canReview && <>
+            <Gate need={["knowledge", "manage"]}><Btn disabled={reviewing} onClick={() => void review("request_changes")}>{tx("退回修改", "Request changes")}</Btn></Gate>
+            <Gate need={["knowledge", "manage"]}><Btn kind="primary" icon="check" loading={reviewing} onClick={() => void review("approve")}>{tx("批准并发布", "Approve and publish")}</Btn></Gate>
+          </>}
         </>
       }
     >
@@ -189,10 +264,19 @@ export default function RunbookEditorPage() {
               ))}
             </Row>
             <Section title={tx("适用场景", "When to use")}>
-              <p style={{ fontSize: "var(--fs-sm)", lineHeight: 1.6 }}>{rb.when}</p>
+              {editing ? <Col gap={8}>
+                <Field label={tx("标题", "Title")}><Input maxLength={200} disabled={saving} value={editing.title} onChange={(ev) => setEditing({ ...editing, title: ev.target.value })} /></Field>
+                <Field label={tx("适用场景", "When to use")}><Textarea disabled={saving} value={editing.when} onChange={(ev) => setEditing({ ...editing, when: ev.target.value })} /></Field>
+              </Col> : <p style={{ fontSize: "var(--fs-sm)", lineHeight: 1.6 }}>{rb.when}</p>}
             </Section>
             <Section title={tx("排查与处理步骤", "Steps")}>
-              <ol className="rb-steps">
+              {editing ? <Col gap={10}>
+                <RunbookStepsForm steps={editing.steps} disabled={saving} onChange={(steps) => setEditing({ ...editing, steps })} />
+                <Row gap={8}>
+                  <Btn disabled={saving} onClick={() => setEditing(undefined)}>{tx("取消修改", "Discard changes")}</Btn>
+                  <Btn kind="primary" loading={saving} disabled={!canEdit || !editing.title.trim() || editing.steps.some((step) => !step.title.trim())} onClick={() => void saveEdit()}>{tx("保存草稿", "Save draft")}</Btn>
+                </Row>
+              </Col> : <ol className="rb-steps">
                 {rb.steps.map((s) => (
                   <li key={s.n} className="anim-rise">
                     <span className="n">{s.n}</span>
@@ -201,7 +285,7 @@ export default function RunbookEditorPage() {
                         <Badge tone={KIND[s.kind][0]}>{KIND[s.kind][1]}</Badge>
                         <b style={{ fontSize: "var(--fs-body)" }}>{s.title}</b>
                         <Spacer />
-                        {s.readonly && <Muted size={11.5}>{tx("只读 · Agent 可自动执行", "Read-only · agents may run it")}</Muted>}
+                        {s.readonly && <Muted size={11.5}>{s.probe === "request_rate" ? tx("只读 · 服务请求速率", "Read-only · service request rate") : tx("只读步骤", "Read-only step")}</Muted>}
                       </Row>
                       {s.code && (
                         <Row gap={10} align="flex-start">
@@ -254,13 +338,17 @@ export default function RunbookEditorPage() {
                     </Col>
                   </li>
                 ))}
-              </ol>
+              </ol>}
             </Section>
           </div>
         </div>
         <aside className="aside" style={{ width: 320 }}>
           <Col gap={16} style={{ padding: 16 }}>
             <Section title={tx("复核", "Review")}>
+              {returned?.note && <>
+                <Badge tone="warn">{tx("v{v} 已退回", "v{v} returned for changes", { v: returned.version })}</Badge>
+                <Muted size={12}>{returned.note}</Muted>
+              </>}
               {rb.reviewers.map((r) => (
                 <Row key={r.name} gap={8}>
                   <Avatar name={r.name} size={22} accent={r.state === "pending"} />
@@ -278,6 +366,14 @@ export default function RunbookEditorPage() {
                 </Row>
               ))}
             </Section>
+            {canExecute && <Section title={tx("运行只读步骤", "Run read-only steps")}>
+              <Gate need={["knowledge", "manage"]}><Btn icon="play" kind="primary" loading={executing} onClick={() => void execute()}>{tx("查询实时请求速率", "Query live request rate")}</Btn></Gate>
+              {execution && execution.version === Number(rb.version.replace(/^v/, "")) && <Col gap={6} role="status">
+                <Badge tone={execution.status === "observed" ? "ok" : "warn"}>{execution.status === "observed" ? tx("已取得实际指标", "Live metrics received") : tx("查询窗口内无采样", "No samples in the query window")}</Badge>
+                {execution.steps.map((step) => <Muted key={step.step}>{tx("第 {n} 步 · {count} 个采样 · 最新 {rate} req/s", "Step {n} · {count} samples · Latest {rate} req/s", { n: step.step, count: step.sample_count, rate: step.latest === null ? "—" : step.latest.toFixed(3) })}</Muted>)}
+              </Col>}
+              {rb.last_verified && <Muted>{tx("上次取证 {t}", "Last observation {t}", { t: when.at(rb.last_verified) ?? "—" })}</Muted>}
+            </Section>}
             <Section title={tx("版本", "Versions")}>
               {rb.versions.map((v, i) => (
                 <Row key={v.v} gap={10}>

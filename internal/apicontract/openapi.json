@@ -29668,6 +29668,153 @@
         ]
       }
     },
+    "/topology/traffic": {
+      "get": {
+        "summary": "Read observed service-to-service traffic",
+        "operationId": "get_topology_traffic",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and a visible persisted application ID. A reviewed topology_service_traffic query supplies positive finite request rates labelled exactly client and server. Both endpoints must be current registered services with services.view and resources.view. The selected source also requires connectors.view; the original session and application access are rechecked. Empty means no positive current samples among the visible endpoints. Missing or invalid source data returns 503. This observation does not imply topology health or connection capacity.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "observed_at": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "prometheus"
+                      ]
+                    },
+                    "sankey": {
+                      "type": "object",
+                      "properties": {
+                        "cols": {
+                          "type": "array",
+                          "items": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/V3TopologySankeyNode"
+                            }
+                          }
+                        },
+                        "links": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/V3TopologySankeyLink"
+                          }
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "cols",
+                        "links"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "observed_at",
+                    "source",
+                    "sankey"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "topology"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "service",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
+      }
+    },
     "/connector-types/{type}": {
       "get": {
         "summary": "Read one supported connector type",
@@ -39764,6 +39911,163 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "patch": {
+        "summary": "Edit a current Runbook draft",
+        "operationId": "patch_runbooks_id",
+        "description": "Minimum role: viewer with scoped knowledge.manage. V3 instance and environment scope apply. The maintainer with current single-environment knowledge.manage may edit the exact draft version. Authorizations, session and draft version are rechecked in a locked transaction. Body, steps, revision, history and audit commit together. Source, scope and prior history are preserved. Published or pending-review versions and stale saves return 409.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "version",
+                    "status"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "runbooks"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "when": {
+                    "type": "string"
+                  },
+                  "steps": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/V3RunbookCreateStep"
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_version",
+                  "title",
+                  "steps"
+                ]
+              }
+            }
+          }
+        }
       }
     },
     "/runbooks/{id}/submit": {
@@ -40010,6 +40314,198 @@
         ]
       }
     },
+    "/runbooks/{id}/execute-readonly": {
+      "post": {
+        "summary": "Execute the published Runbook’s registered read-only query",
+        "operationId": "post_runbooks_id_execute_readonly",
+        "description": "Minimum role: viewer with scoped knowledge.manage. V3 instance and environment scope apply. Runs only the registered request_rate expression once per bounded window for an exact published application-bound Runbook version. Every step must explicitly name the probe and the application’s sole Prometheus connector. Rechecks the Cookie, document version, scoped grants and exact source configuration before committing the result and audit. Only a nonempty observed result establishes last_verified_at. Arbitrary text, connector writes, commands, action steps and models are never executed.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer"
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "read_only"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "observed",
+                        "no_samples"
+                      ]
+                    },
+                    "steps": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "step": {
+                            "type": "integer"
+                          },
+                          "query_id": {
+                            "type": "string",
+                            "enum": [
+                              "request_rate"
+                            ]
+                          },
+                          "captured_at": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "sample_count": {
+                            "type": "integer"
+                          },
+                          "latest": {
+                            "type": [
+                              "number",
+                              "null"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "step",
+                          "query_id",
+                          "captured_at",
+                          "sample_count",
+                          "latest"
+                        ]
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "id",
+                    "version",
+                    "mode",
+                    "status",
+                    "steps"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "runbooks"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "expected_version"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
     "/runbooks/draft": {
       "get": {
         "summary": "Read a source-validated Runbook outline",
@@ -40199,7 +40695,7 @@
       "post": {
         "summary": "Review a submitted Runbook",
         "operationId": "post_runbooks_id_reviews",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary governance operation. Requires scoped knowledge.manage and a reviewer other than the maintainer. Requesting changes requires a note. Approval first commits publication, then attempts indexing outside the transaction; optional response fields report actual index status, semantic search readiness and retry need. An unavailable embedder does not undo human publication.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary governance operation. Requires scoped knowledge.manage and a reviewer other than the maintainer. Requesting changes requires a note. Clients can pin the draft revision they reviewed with expected_version. Approval first commits publication, then attempts indexing outside the transaction; optional response fields report actual index status, semantic search readiness and retry need. An unavailable embedder does not undo human publication.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40344,6 +40840,10 @@
                   },
                   "note": {
                     "type": "string"
+                  },
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
                   }
                 },
                 "additionalProperties": false,
@@ -40675,7 +41175,7 @@
       "get": {
         "summary": "Read bounded Runbook governance history",
         "operationId": "get_runbooks_id_history",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary history; each collection is limited to 100 rows and fails with 413 if larger. Review notes are visible only to the maintainer or knowledge managers. No execution verification producer is connected.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Auxiliary history; each collection is limited to 100 rows and fails with 413 if larger. Review notes are visible only to the maintainer or knowledge managers. Execution verification availability reflects a recorded nonempty read-only observation of the current version in an authorized environment.",
         "responses": {
           "200": {
             "description": "Success",
@@ -45864,7 +46364,7 @@
       "get": {
         "summary": "List bounded persisted Prompt versions",
         "operationId": "get_prompts",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 visible persisted Prompt identities whose current version body exists. The read rechecks current session, Agent scope and grants in its transaction. Optional q matches ID or name, trimmed and bounded to 160 Unicode characters; excess returns localized 422. More than 200 visible matches or 1000 grant-prefiltered candidates returns 413 prompt_list_too_large rather than silent truncation. Skills and publication status are unavailable fields; runtime binding is not attested. The full Prompt page remains mock.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. At most 200 visible persisted Prompt identities whose current version body exists. Each item includes its scoped Agent ID. The read rechecks current session, Agent scope and grants in its transaction. Optional q matches ID or name, trimmed and bounded to 160 Unicode characters; excess returns localized 422. More than 200 visible matches or 1000 grant-prefiltered candidates returns 413 prompt_list_too_large. Skills and publication status are unavailable fields.",
         "responses": {
           "200": {
             "description": "Success",
@@ -45889,6 +46389,9 @@
                           },
                           "version": {
                             "type": "string"
+                          },
+                          "agent_id": {
+                            "type": "string"
                           }
                         },
                         "additionalProperties": false,
@@ -45896,7 +46399,8 @@
                           "id",
                           "kind",
                           "name",
-                          "version"
+                          "version",
+                          "agent_id"
                         ]
                       }
                     },
@@ -47277,6 +47781,9 @@
                     "id": {
                       "type": "string"
                     },
+                    "agent_id": {
+                      "type": "string"
+                    },
                     "title": {
                       "type": "string"
                     },
@@ -47376,6 +47883,7 @@
                   "additionalProperties": false,
                   "required": [
                     "id",
+                    "agent_id",
                     "title",
                     "meta",
                     "status",
@@ -54671,7 +55179,7 @@
       "get": {
         "summary": "Search configured log provider",
         "operationId": "get_logs",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team binding and current logs.view. A single provider may be selected when more than one source is bound; arbitrary endpoints or unbound sources are never accepted. items are the bounded, level-checked lines (at most 100, newest first) from every selected source and level. total, errors and histogram are exact full-window counts only when every selected source proved them; patterns only when complete pattern counts and trends account for that total. Otherwise each is null and unavailable names it: not_configured when a Loki application has no registered loki_complete_lookback_seconds (counts) or loki_pattern_field (patterns), unavailable when a registered source did not prove them; items stay a sample either way. Loki counts need a declared lookback covering the requested start; Loki patterns also need trusted top-level JSON level and message_template fields. Elasticsearch accepts only a registered message_template.keyword field or its existing categorize_text path on one concrete index. No log binding for the scope returns 200 with every field null and not_configured. A failing source query is 503 telemetry_unavailable. Distinct authorized bindings return 409 ambiguous_binding; changed source or grant is rechecked before response. More than 3 targets or other excessive authorized scope returns 422 scope_limit. The targets are registered log_stream/log_index targets (PA-19 P3 stage 2 step 3; the only source since P4) read through their own connector and Vault credential: legacy bindings are not read (no registered target is the not_configured answer), two registered log targets of one service are 409 ambiguous_binding whichever provider is selected, a registered source that is not ready is 503 source_not_ready with the reason codes in the message (connector_disabled, tool_disabled, options_invalid, credential_missing, credential_not_approved, scope_missing), and an unreadable Vault credential is 503 source_unavailable. source is a compatible alias for provider; both must agree. range changes the actual upstream window (default 30m). Existing provider max-window limits apply and an excess returns 503 without shrinking the requested window; a window beyond the registered Loki lookback leaves counts and patterns null with unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires explicit persisted service/environment/owner-team binding and current logs.view. A single provider may be selected when more than one source is bound; arbitrary endpoints or unbound sources are never accepted. items are the bounded, level-checked lines (at most 100, newest first) from every selected source and level. total, errors and histogram are exact full-window counts only when every selected source proved them; patterns only when complete pattern counts and trends account for that total. Otherwise each is null and unavailable names it: not_configured when a Loki application has no registered loki_complete_lookback_seconds (counts) or loki_pattern_field (patterns), unavailable when a registered source did not prove them; items stay a sample either way. Loki counts need a declared lookback covering the requested start; Loki patterns also need trusted top-level JSON level and message_template fields. Elasticsearch accepts only a registered message_template.keyword field or its existing categorize_text path on one concrete index. No log binding for the scope returns 200 with every field null and not_configured. A failing source query is 503 telemetry_unavailable. Distinct authorized bindings return 409 ambiguous_binding; changed source or grant is rechecked before response. More than 3 targets or other excessive authorized scope returns 422 scope_limit. The targets are registered log_stream/log_index targets (PA-19 P3 stage 2 step 3; the only source since P4) read through their own connector and Vault credential: legacy bindings are not read (no registered target is the not_configured answer), two registered log targets of one service are 409 ambiguous_binding whichever provider is selected, a registered source that is not ready is 503 source_not_ready with the reason codes in the message (connector_disabled, tool_disabled, options_invalid, credential_missing, credential_not_approved, scope_missing), and an unreadable Vault credential is 503 source_unavailable. source is a compatible alias for provider; both must agree. range changes the actual upstream window (default 30m). Existing provider max-window limits apply and an excess returns 503 without shrinking the requested window; a window beyond the registered Loki lookback leaves counts and patterns null with unavailable. view=lines requests only the bounded rows and skips upstream aggregation. For a bound scope with a level selection, unavailable marks total, errors, histogram and patterns as not_generated.",
         "responses": {
           "200": {
             "description": "Scoped LogSearch with proven lines; counts and patterns are null with reasons when unproven, and every field is null when no source is bound",
@@ -54893,6 +55401,16 @@
               "enum": [
                 "elasticsearch",
                 "loki"
+              ]
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "lines"
               ]
             }
           }
@@ -66805,6 +67323,9 @@
               "$ref": "#/components/schemas/V3EnvironmentInfo"
             }
           },
+          "oidc_enabled": {
+            "type": "boolean"
+          },
           "other": {
             "type": "object",
             "properties": {
@@ -67406,7 +67927,8 @@
             "enum": [
               "responses",
               "chat_completions",
-              "messages"
+              "messages",
+              "ollama"
             ]
           },
           "reasoning": {
@@ -72961,7 +73483,8 @@
             "enum": [
               "responses",
               "chat_completions",
-              "messages"
+              "messages",
+              "ollama"
             ]
           },
           "reasoning": {
@@ -81374,6 +81897,12 @@
           },
           "tool": {
             "$ref": "#/components/schemas/V3RunbookToolDisplay"
+          },
+          "probe": {
+            "type": "string",
+            "enum": [
+              "request_rate"
+            ]
           }
         },
         "additionalProperties": false
@@ -81418,6 +81947,12 @@
           },
           "tool": {
             "$ref": "#/components/schemas/V3RunbookToolDisplay"
+          },
+          "probe": {
+            "type": "string",
+            "enum": [
+              "request_rate"
+            ]
           }
         },
         "additionalProperties": false
@@ -90278,6 +90813,41 @@
                 "type": "null"
               }
             ]
+          },
+          "instance_requests": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 12,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "array",
+                  "items": {
+                    "oneOf": [
+                      {
+                        "type": "number",
+                        "minimum": 0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "minItems": 36,
+                  "maxItems": 36
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "label",
+                "values"
+              ]
+            },
+            "description": "Observed HTTP request P95 in milliseconds per instance, when the registered dashboard query supplies instance_request_p95_ms."
           },
           "unavailable": {
             "$ref": "#/components/schemas/V3Unavailable"

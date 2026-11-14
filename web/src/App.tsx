@@ -123,6 +123,8 @@ const MemoryPage = lazy(() => import("./features/memory/MemoryPage"));
 const DeliveryPausedPage = lazy(
   () => import("./features/delivery/DeliveryPausedPage"),
 );
+const DeliveryPage = lazy(() => import("./features/delivery/DeliveryPage"));
+const legacyDeliveryEnabled = import.meta.env.VITE_ENABLE_LEGACY_DELIVERY === "true";
 const AlertsPage = lazy(() => import("./features/alerts/AlertsPage"));
 const previewApp: Application = {
   id: "preview-checkout",
@@ -686,7 +688,7 @@ export default function App() {
                   />
                   <Route path="/ai-extensions/*" element={<ExtensionsPage />} />
                   <Route path="/memory" element={<MemoryPage />} />
-                  <Route path="/delivery/*" element={<DeliveryPausedPage />} />
+                  <Route path="/delivery/*" element={legacyDeliveryEnabled ? <DeliveryPage /> : <DeliveryPausedPage />} />
                   <Route path="/knowledge" element={<KnowledgePage />} />
                   <Route
                     path="/integrations/mcp"

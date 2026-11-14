@@ -29,7 +29,7 @@ v3_route('get','/agents/{id}','Read one persisted Agent and version metadata',
         'scope':{'type':'object','additionalProperties':True}},
         S['V3AgentEvidenceSummary']['required'] +
         ['owner','account','summary','versions','truncated','release','diff','config','scope']),
-    desc='Partial main-contract projection: at most 100 versions are returned and truncated reports whether more exist. Version status may be draft; actual traffic and token counts are unavailable. Null release fields are incompatible with the current Agent page; no live routing is implied.')
+    desc='Partial main-contract projection: at most 100 versions are returned and truncated reports whether more exist. Each row indicates whether its immutable execution configuration exists. Actual traffic and token counts are unavailable. Governed manual runs can consume the configured stable and canary weights.')
 v3_route('post','/agents/{id}/rollout','Save a gated Agent release configuration',
     role='viewer with scoped agents.manage',
     body=obj({'to':string(),'percent':integer(minimum=1,maximum=100),
@@ -38,7 +38,7 @@ v3_route('post','/agents/{id}/rollout','Save a gated Agent release configuration
         'observed_traffic':{'type':'null'},'routing_connected':v3_bool(),
         'gate_experiment_id':string(),'override':v3_bool()},
         ['id','to','configured_percent','observed_traffic','routing_connected','override']),
-    desc='Persists requested release configuration only; no traffic router is connected. Requires the latest passing evaluation for current stable to candidate. Override requires an enabled human administrator, a nonempty override_reason and audit; machine identities cannot override. The current frontend omits that reason. Observed traffic remains null.')
+    desc='Persists requested release configuration and pins the serving revision. Requires the latest passing evaluation for current stable to candidate. Override requires an enabled human administrator, a nonempty override_reason and audit. The first stable release is configured at 100 percent and requires this override. Observed traffic remains null.')
 v3_route('post','/agents/{id}/rollback','Save a rollback release configuration',
     role='viewer with scoped agents.manage',
     response=obj({'id':string(),'to':string()},['id','to']),
@@ -50,11 +50,11 @@ v3_route('patch','/agents/{id}/level','Change an Agent permission level within i
     desc='Requires scoped agents.manage; a requested level above the persisted environment maximum returns 409. This metadata does not grant an unconnected runtime tool execution path.')
 v3_route('get','/prompts','List bounded persisted Prompt versions',
     query=[v3_query('q',string(maxLength=160))],
-    response=obj({'items':arr(obj({**fieldnames('id kind name version')},
-        ['id','kind','name','version'])),'truncated':v3_bool(),
+    response=obj({'items':arr(obj({**fieldnames('id kind name version agent_id')},
+        ['id','kind','name','version','agent_id'])),'truncated':v3_bool(),
         'partial':v3_bool(),'unavailable_fields':arr(string())},
         ['items','truncated','partial','unavailable_fields']),
-    desc='At most 200 visible persisted Prompt identities whose current version body exists. The read rechecks current session, Agent scope and grants in its transaction. Optional q matches ID or name, trimmed and bounded to 160 Unicode characters; excess returns localized 422. More than 200 visible matches or 1000 grant-prefiltered candidates returns 413 prompt_list_too_large rather than silent truncation. Skills and publication status are unavailable fields; runtime binding is not attested. The full Prompt page remains mock.')
+    desc='At most 200 visible persisted Prompt identities whose current version body exists. Each item includes its scoped Agent ID. The read rechecks current session, Agent scope and grants in its transaction. Optional q matches ID or name, trimmed and bounded to 160 Unicode characters; excess returns localized 422. More than 200 visible matches or 1000 grant-prefiltered candidates returns 413 prompt_list_too_large. Skills and publication status are unavailable fields.')
 P['/prompts']['get']['responses']['413'] = {
     'description':'More than 200 visible Prompt identities or 1000 grant-prefiltered candidates; narrow q',
     'content':{'application/json':{'schema':ref('Error')}}}

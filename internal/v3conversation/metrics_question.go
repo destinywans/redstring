@@ -175,6 +175,7 @@ func (s *Service) StartMetricsQuestion(ctx context.Context, in MetricsQuestionIn
 	if selectedModel.InputBudget > 0 && !withinModelInputBudget([]inference.Message{{Role: "user", Content: in.Question + snapshot}}, selectedModel.InputBudget) {
 		return MetricsQuestionResult{}, ErrModelInputTooLarge
 	}
+	reasoning := metricSnapshotReasoning(selectedModel)
 	digest := sha256.Sum256([]byte(in.EvidenceSnapshot))
 	requestHash := metricsPayloadHash(lookup)
 	conversationID, replyID, userID, assistantID := store.ID(), store.ID(), store.ID(), store.ID()
@@ -243,8 +244,8 @@ func (s *Service) StartMetricsQuestion(ctx context.Context, in MetricsQuestionIn
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO v3_conversation_replies
 		(id,conversation_id,user_message_id,assistant_message_id,model_id,reasoning,initiating_session_hash,worker_claim_id,lease_expires_at,state)
-		VALUES($1,$2,$3,$4,$5,'',$6,$1,clock_timestamp()+$7::double precision * interval '1 second','queued')`,
-		replyID, conversationID, userID, assistantID, selectedModel.ID, store.Hash(in.SessionToken), replyLease.Seconds())
+		VALUES($1,$2,$3,$4,$5,$6,$7,$1,clock_timestamp()+$8::double precision * interval '1 second','queued')`,
+		replyID, conversationID, userID, assistantID, selectedModel.ID, reasoning, store.Hash(in.SessionToken), replyLease.Seconds())
 	if err != nil {
 		return MetricsQuestionResult{}, err
 	}
@@ -261,8 +262,19 @@ func (s *Service) StartMetricsQuestion(ctx context.Context, in MetricsQuestionIn
 	if err := tx.Commit(ctx); err != nil {
 		return MetricsQuestionResult{}, err
 	}
-	go s.runTurn(conversationID, replyID, selectedModel, "", in.SessionToken, in.English)
+	go s.runTurn(conversationID, replyID, selectedModel, reasoning, in.SessionToken, in.English)
 	return MetricsQuestionResult{ConversationID: conversationID, ReplyID: replyID}, nil
+}
+
+func metricSnapshotReasoning(model inference.Model) string {
+	if model.ReasoningKind == "ollama_think" {
+		for _, level := range model.ReasoningLevels {
+			if level == "off" {
+				return level
+			}
+		}
+	}
+	return ""
 }
 
 func (s *Service) metricsModel(ctx context.Context, owner, env string) (inference.Model, error) {

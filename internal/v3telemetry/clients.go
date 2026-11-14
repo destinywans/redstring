@@ -33,7 +33,8 @@ type Clients struct {
 	// TempoSearchFailClosed are the Tempo connectors attested to fail a
 	// search on high live-store lag (the catalog's list); only their
 	// searches count as a complete population.
-	TempoSearchFailClosed map[string]bool
+	TempoSearchFailClosed   map[string]bool
+	TempoSearchDelaySeconds map[string]int
 	// CredentialTTL caches a resolved credential; zero is 60 s. A 401 or 403
 	// answer drops it at once.
 	CredentialTTL time.Duration
@@ -127,6 +128,10 @@ func (c *Clients) ForGroup(env string, sources []Source) (*connectors.Telemetry,
 	key := env + "\x00" + s.ConnectorID + "\x00" + strings.Join(resources, "\x00")
 	limits := c.Limits
 	limits.TempoSearchFailClosed = s.Provider == "tempo" && c.TempoSearchFailClosed[s.ConnectorID]
+	limits.TempoSearchDelaySeconds = 0
+	if limits.TempoSearchFailClosed {
+		limits.TempoSearchDelaySeconds = c.TempoSearchDelaySeconds[s.ConnectorID]
+	}
 	digest := clientDigest(env, s, scopes, limits)
 	c.mu.Lock()
 	defer c.mu.Unlock()

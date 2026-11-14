@@ -6,10 +6,11 @@ import { Badge, Brand, Btn, Card, Col, Icon, IconBtn, KV, Mono, Muted, Num, Row,
 import { Kpi, KpiRow } from "../../ui/data";
 import { toast, MenuButton } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
-import { LoadError } from "../../ui/unknown";
+import { LoadError, UnknownValue } from "../../ui/unknown";
 import { Gated, useNeed } from "../../ui/permission";
 import "./integrations.css";
 import { confirmAction } from "../../ui/demo";
+import { McpGovernance, McpRegistration } from "./McpGovernance";
 
 const ST: Record<McpServer["status"], Tone> = { ok: "ok", pending: "warn", error: "danger" };
 
@@ -18,11 +19,12 @@ export default function McpPage() {
   const { data, error } = useGet<McpList>("/mcp-servers");
   const noManage = useNeed(["connectors", "manage"]);
   const [sel, setSel] = useState<string | null>(null);
+  const [registering, setRegistering] = useState(false);
   const [q, setQ] = useState("");
   const [ignored, setIgnored] = useState(false);
   const review = useSend<void>("POST", "/mcp-servers/k8s-mcp/review", ["/mcp-servers"]);
   const stLabel = (s: McpServer["status"]) => ({ ok: tx("正常", "Healthy"), pending: tx("待定", "Pending"), error: tx("异常", "Error") })[s];
-  const items = data?.items.filter((s) => !q || s.name.includes(q) || s.caps.toLowerCase().includes(q.toLowerCase()));
+  const items = data?.items.filter((s) => !q || s.name.includes(q) || s.caps?.toLowerCase().includes(q.toLowerCase()));
   return (
     <Page
       flush
@@ -35,21 +37,22 @@ export default function McpPage() {
           <SearchBox placeholder={tx("搜索服务器或工具", "Search servers or tools")} value={q} onChange={setQ} width={200} />
           {/* Registering and switching tools need connectors.manage, as the MCP routes declare (PA-228). */}
           <Gated reason={noManage}>
-            <Btn kind="primary" icon="plus" to="/integrations/new">
+            <Btn kind="primary" icon="plus" to={API_MODE === "mock" ? "/integrations/new" : undefined} onClick={() => API_MODE !== "mock" && setRegistering(true)}>
               {tx("登记 MCP 服务器", "Register MCP server")}
             </Btn>
           </Gated>
         </>
       }
     >
+      {registering && <McpRegistration onClose={() => setRegistering(false)} onCreated={(id) => { setRegistering(false); setSel(id); }} />}
       <div className="v3-split">
         <div className="main">
           <div className="v3-content" style={{ padding: "16px 20px" }}>
             <Card className="mcp-intro">
               <Brand name="mcp" size={34} />
               <Col gap={2} grow>
-                <Strong size={13}>{tx("把内部系统包装成 MCP 服务器，平台自动发现其中的工具、资源和提示词", "Wrap internal systems as MCP servers — the platform discovers their tools, resources and prompts")}</Strong>
-                <Muted>{tx("工具默认只读；带写入能力的工具默认关闭，开启后也只能生成提案，经人工批准后由执行器调用。平台自身对外提供的只读 MCP 服务在「Webhook 与 API」。", "Tools are read-only by default; write tools start disabled and, once enabled, can only create proposals that an executor runs after human approval. The platform's own read-only MCP service lives under Webhooks & API.")}</Muted>
+                <Strong size={13}>{tx("登记 MCP 服务器并发现其工具、资源和提示词", "Register MCP servers and discover their tools, resources and prompts")}</Strong>
+                <Muted>{tx("审核每个发现的工具，然后设置只读工具开关。查看平台对外接入状态可打开「Webhook 与 API」。", "Review discovered tools individually, then configure read-only tool switches. Open Webhooks & API to check outbound availability.")}</Muted>
               </Col>
               <TextLink to="/integrations/webhooks">{tx("对外 MCP 服务", "Outbound MCP")}</TextLink>
             </Card>
@@ -143,7 +146,7 @@ export default function McpPage() {
             )}
           </div>
         </div>
-        {sel && <McpAside id={sel} onClose={() => setSel(null)} />}
+        {sel && <McpAside key={sel} id={sel} onClose={() => setSel(null)} />}
       </div>
     </Page>
   );
@@ -175,7 +178,7 @@ function McpAside({ id, onClose }: { id: string; onClose: () => void }) {
                 {s.transport} · {s.version} · {s.desc}
               </Muted>
             </Col>
-            <State tone={ST[s.status]}>{s.status === "ok" ? tx("正常", "Healthy") : tx("待定", "Pending")}</State>
+            <State tone={ST[s.status]}>{s.status === "ok" ? tx("正常", "Healthy") : s.status === "error" ? tx("异常", "Error") : tx("待定", "Pending")}</State>
             <IconBtn icon="x" label={tx("关闭", "Close")} onClick={onClose} />
           </Row>
           <Tabs
@@ -183,29 +186,31 @@ function McpAside({ id, onClose }: { id: string; onClose: () => void }) {
             value={tab}
             onChange={setTab}
             options={[
-              { value: "tools", label: tx("工具", "Tools"), count: s.counts.tools },
-              { value: "resources", label: tx("资源", "Resources"), count: s.counts.resources },
-              { value: "prompts", label: tx("提示词", "Prompts"), count: s.counts.prompts },
+              { value: "tools", label: tx("工具", "Tools"), count: s.counts.tools ?? "—" },
+              { value: "resources", label: tx("资源", "Resources"), count: s.counts.resources ?? "—" },
+              { value: "prompts", label: tx("提示词", "Prompts"), count: s.counts.prompts ?? "—" },
               { value: "calls", label: tx("调用记录", "Calls") },
             ]}
           />
           <Col gap={16} style={{ padding: "14px 16px", overflowY: "auto" }} className="anim-fade" key={tab}>
-            {tab === "tools" && (
-              <Section title={tx("工具 · 授权给 Agent", "Tools · granted to agents")} right={<TextLink to="/agents/tools">{tx("全部 {n}", "All {n}", { n: s.counts.tools })}</TextLink>}>
+            {tab === "tools" && API_MODE !== "mock" && !noManage && <McpGovernance id={id} />}
+            {tab === "tools" && (s.tools?.length ?? 0) > 0 && (
+              <Section title={API_MODE === "mock" ? tx("工具 · 授权给 Agent", "Tools · granted to agents") : tx("工具目录", "Tool catalog")}>
                 <ul className="plain-list">
-                  {s.tools.map((t) => {
+                  {s.tools?.map((t) => {
                     const enabled = on[t.name] ?? t.enabled;
                     return (
                       <li key={t.name}>
                         <Col gap={2} grow style={{ minWidth: 0 }}>
                           <Row gap={6}>
                             <Mono color="var(--text)">{t.name}</Mono>
-                            {t.write ? <Badge tone="warn">{tx("写入 · 需审批", "Write · approval")}</Badge> : <Badge tone="ok">{tx("只读", "Read-only")}</Badge>}
+                            {t.write !== undefined && (t.write ? <Badge tone="warn">{tx("写入 · 需审批", "Write · approval")}</Badge> : <Badge tone="ok">{tx("只读", "Read-only")}</Badge>)}
+                            {t.decision === "allow_read_only" && <Badge tone="ok">{tx("已审为只读", "Approved as read-only")}</Badge>}
                           </Row>
                           <Muted size={11.5}>{t.desc}</Muted>
                         </Col>
                         <Muted size={11.5}>{t.calls}</Muted>
-                        <Gated reason={noManage}>
+                        {t.write !== undefined && <Gated reason={noManage}>
                         <Toggle
                           on={enabled}
                           label={t.name}
@@ -233,41 +238,44 @@ function McpAside({ id, onClose }: { id: string; onClose: () => void }) {
                             );
                           }}
                         />
-                        </Gated>
+                        </Gated>}
                       </li>
                     );
                   })}
                 </ul>
               </Section>
             )}
-            {tab === "resources" && (
+            {tab === "resources" && s.resources === null && <UnknownValue reason="not_verified" />}
+            {tab === "resources" && s.resources && (
               <ul className="plain-list">
                 {s.resources.map((r) => (
                   <li key={r.uri}>
                     <Icon name="database" size={14} color="var(--muted)" />
                     <Col gap={0} grow>
                       <Mono color="var(--text)">{r.uri}</Mono>
-                      <Muted size={11.5}>{r.desc}</Muted>
+                      <Muted size={11.5}>{r.description ?? r.desc}</Muted>
                     </Col>
                   </li>
                 ))}
               </ul>
             )}
-            {tab === "prompts" && (
+            {tab === "prompts" && s.prompts === null && <UnknownValue reason="not_verified" />}
+            {tab === "prompts" && s.prompts && (
               <ul className="plain-list">
                 {s.prompts.map((p) => (
                   <li key={p.name}>
                     <Icon name="file" size={14} color="var(--muted)" />
                     <Col gap={0} grow>
                       <Mono color="var(--text)">{p.name}</Mono>
-                      <Muted size={11.5}>{p.desc}</Muted>
+                      <Muted size={11.5}>{p.description ?? p.desc}</Muted>
                     </Col>
-                    <TextLink to="/agents/prompts">{tx("导入为 Skill", "Import as skill")}</TextLink>
+                    {API_MODE === "mock" && <TextLink to="/agents/prompts">{tx("导入为 Skill", "Import as skill")}</TextLink>}
                   </li>
                 ))}
               </ul>
             )}
-            {tab === "calls" && (
+            {tab === "calls" && s.calls === null && <Muted>{tx("平台暂无 MCP 调用记录来源。", "Platform MCP call history is unavailable.")}</Muted>}
+            {tab === "calls" && s.calls && (
               <table className="v3-table">
                 <tbody>
                   {s.calls.map((c, i) => (

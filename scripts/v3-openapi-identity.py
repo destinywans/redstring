@@ -35,6 +35,7 @@ S['V3EnvironmentInfo'] = v3_object('id label note', {
     ['id','label','kind','tone','clusters'])
 S['V3InstanceInfo'] = v3_object('name domain default_env', {
     'tier': string(enum=['production','nonprod']), 'environments': arr(ref('V3EnvironmentInfo')),
+    'oidc_enabled': v3_bool(),
     'other': v3_object('label url domain')}, ['tier','name','domain','environments','default_env'])
 S['V3LowerSource'] = v3_object('id name brand env env_label purpose credential',
     required=['id','name','brand','env','env_label','purpose','credential'])
@@ -65,7 +66,7 @@ S['V3ProfileView'] = v3_object('name display_name department title timezone', {
 S['V3ProfileUpdate'] = dict(S['V3ProfileView'], required=[x for x in S['V3ProfileView']['required'] if x != 'unavailable'])
 S['V3ModelChoice'] = obj({'model': string(), 'reasoning': string()}, ['model'])
 S['V3ModelInfo'] = v3_object('id name provider brand connector cost note unavailable_reason', {
-    'api': string(enum=['responses','chat_completions','messages']),
+    'api': string(enum=['responses','chat_completions','messages','ollama']),
     'reasoning': obj({'kind': string(enum=['levels','toggle','none']),
         'levels': arr(v3_object('id label hint')), 'default': string()}),
     'tools': {'type':'boolean','description':'True only when this configured model is explicitly enabled for V3 read tools by the server operator; not proof of successful remote function calling.'},

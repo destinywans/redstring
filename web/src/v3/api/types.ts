@@ -721,11 +721,13 @@ export type ExecutionDetail = {
 /* ---------------- knowledge & memory ---------------- */
 export type RunbookSummary = { id: string; title: string; tags: string[]; scope: string; owner: string; version: string; status: "published" | "review" | "draft"; refs_30d: number | null; resolve_rate?: number | null; last_verified: string | null; stale: boolean | null };
 export type RunbookSuggestion = { id: string; icon: string; tone: Tone; title: string; body: string; actions: { label: string; kind: "primary" | "secondary" | "ghost"; href?: string }[] };
-export type RunbookStep = { n: number; kind: "query" | "check" | "action" | "verify"; title: string; body?: string; connectors?: string[]; code?: string; readonly?: boolean; suggestion?: { source: string; minus: string; plus: string } };
+export type RunbookStep = { n: number; kind: "query" | "check" | "action" | "verify"; title: string; body?: string; connectors?: string[]; code?: string; probe?: "request_rate"; readonly?: boolean; approval?: boolean; tool?: { brand: string; text: string }; suggestion?: { source: string; minus: string; plus: string } };
 export type Runbook = {
   id: string;
   title: string;
   version: string;
+  application_id?: string;
+  last_verified?: string | null;
   /** Review state of this version (PA-197); the sample data leaves it out and reads as a draft. */
   status?: RunbookSummary["status"];
   base: string;
@@ -930,6 +932,7 @@ export type MetricsDashboard = {
   latency: { p50: number[]; p95: number[]; p99: number[]; heat: number[][] | null; buckets: string[] | null } | null;
   endpoints: { label: string; value: number; tone?: Tone }[] | null;
   instances: { label: string; values: number[]; tone?: Tone }[] | null;
+  instance_requests?: { label: string; values: (number | null)[] }[];
   unavailable: Unavailable;
 };
 export type TraceSummary = { id: string; op: string; duration_ms: number; spans: number; error: boolean; time: string };
@@ -1172,12 +1175,12 @@ export type McpServer = {
 };
 export type McpList = { kpis: Kpi[]; items: McpServer[]; pending_change?: { server: string; title: string; tools: TagChip[]; note: string } };
 export type McpDetail = McpServer & {
-  version: string;
-  counts: { tools: number; resources: number; prompts: number };
-  tools: { name: string; desc: string; write: boolean; enabled: boolean; calls: string }[];
-  resources: { uri: string; desc: string }[];
-  prompts: { name: string; desc: string }[];
-  calls: { time: string; agent: string; tool: string; ms: number; ok: boolean }[];
+  version: string | null;
+  counts: { tools: number | null; resources: number | null; prompts: number | null };
+  tools: { name: string; desc: string; write?: boolean; read_only_hint?: boolean; decision?: string | null; enabled: boolean; calls: string | null }[] | null;
+  resources: { uri: string; desc?: string; description?: string }[] | null;
+  prompts: { name: string; desc?: string; description?: string }[] | null;
+  calls: { time: string; agent: string; tool: string; ms: number; ok: boolean }[] | null;
   trust_info: { readonly_check: string; scope: string[]; limit: string; auth: string };
 };
 
@@ -1292,10 +1295,11 @@ export type Lifecycle = {
   missing?: string[];
 };
 /** Real versions carry configured_traffic; observed traffic, score, success and tokens are null until measured. */
-export type AgentVersion = { version: string; status: "canary" | "stable" | "retired" | "draft"; traffic: string | null; configured_traffic?: string; score: string | null; success: string | null; tokens: string | null; delta?: string; created: string };
+export type AgentVersion = { version: string; status: "canary" | "stable" | "retired" | "draft"; traffic: string | null; configured_traffic?: string; execution_configured?: boolean; score: string | null; success: string | null; tokens: string | null; delta?: string; created: string };
 export type AgentDetail = AgentSummary & {
   /** Real agents: the revision rollout and rollback must name (expected_revision). */
   revision?: number;
+  manual_execution_connected?: boolean;
   owner: string;
   account: string | null;
   summary: string;
@@ -1305,7 +1309,7 @@ export type AgentDetail = AgentSummary & {
   diff: { key: string; before?: string; after: string; added?: boolean }[] | null;
   config: { icon: string; key: string; value: string }[] | null;
 };
-export type PromptItem = { id: string; kind: "prompt" | "skill"; name: string; version: string; status?: string };
+export type PromptItem = { id: string; agent_id?: string; kind: "prompt" | "skill"; name: string; version: string; status?: string };
 export type PromptDetail = {
   id: string;
   name: string;
@@ -1327,6 +1331,7 @@ export type ToolsView = {
 /** Before a run has results, dataset/metrics/radar/cases/datasets/evaluators are null (see missing). */
 export type EvalExperiment = {
   id: string;
+  agent_id?: string;
   title: string;
   dataset: string | null;
   meta: string;
@@ -1524,7 +1529,7 @@ export type ModelInfo = {
   provider: string;
   brand: string;
   connector: string;
-  api: "responses" | "chat_completions" | "messages";
+  api: "responses" | "chat_completions" | "messages" | "ollama";
   reasoning: { kind: "levels" | "toggle" | "none"; levels: ReasoningLevel[]; default?: string };
   tools: boolean;
   vision: boolean;
@@ -1725,6 +1730,7 @@ export type InstanceInfo = {
   domain: string;
   environments: EnvironmentInfo[];
   default_env: string;
+  oidc_enabled?: boolean;
   /** The other instance, reachable only as a link (separate domain and sign-in). */
   other?: { label: string; url: string; domain: string };
 };

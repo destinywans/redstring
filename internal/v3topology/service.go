@@ -24,10 +24,11 @@ type Access interface {
 }
 
 type Service struct {
-	DB           *pgxpool.Pool
-	Access       Access
-	MetricReader MetricReader
-	Now          func() time.Time
+	DB            *pgxpool.Pool
+	Access        Access
+	MetricReader  MetricReader
+	TrafficReader MetricReader
+	Now           func() time.Time
 }
 
 func New(db *pgxpool.Pool, access Access) *Service {
@@ -49,6 +50,8 @@ func NewWithMetrics(db *pgxpool.Pool, access Access, reader MetricReader) *Servi
 func (s *Service) Register(api *httpapi.Server) {
 	api.Register("GET /api/v1/topology", "viewer", s.topology)
 	api.MarkV3ObjectRoute("GET /api/v1/topology", "resources", "view")
+	api.Register("GET /api/v1/topology/traffic", "viewer", s.traffic)
+	api.MarkV3ObjectRoute("GET /api/v1/topology/traffic", "resources", "view")
 }
 
 type appLink struct {

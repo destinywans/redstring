@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -396,6 +397,18 @@ func (s *Service) getHandler() http.HandlerFunc {
 		}
 		usage := map[string]any{"refs": nil, "resolve_rate": nil, "weekly": nil, "highlight": nil}
 		unknown := append([]string(nil), runbookDetailUnknown...)
+		if verifiedAt != nil {
+			// A recorded timestamp may also come from the previous schema. Keep
+			// its origin unknown unless the current scoped observation is audited.
+			observed, err := hasRunbookObservation(r.Context(), tx, doc, allowedEnvironments)
+			if err != nil {
+				knowledgeError(w, err)
+				return
+			}
+			if observed {
+				unknown = slices.DeleteFunc(unknown, func(field string) bool { return field == "execution_verification" })
+			}
+		}
 		if len(versions) == 0 {
 			unknown = append(unknown, "versions")
 		}

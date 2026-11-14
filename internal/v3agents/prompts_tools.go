@@ -135,7 +135,7 @@ func (s *Service) Prompts(w http.ResponseWriter, r *http.Request) {
 	}
 	// The joined revision is the actual current body. An unversioned catalog
 	// row, or a dangling current_version, is not a readable Prompt.
-	rows, err := tx.Query(r.Context(), `SELECT p.id,p.name,p.current_version,a.application_id,a.environment_id
+	rows, err := tx.Query(r.Context(), `SELECT p.id,p.name,p.current_version,a.id,a.application_id,a.environment_id
 	 FROM v3_agent_prompts p JOIN v3_agents a ON a.id=p.agent_id
 	 JOIN v3_agent_prompt_versions v ON v.prompt_id=p.id AND v.version=p.current_version
 	 JOIN v3_application_environments mapped ON mapped.application_id=a.application_id
@@ -151,13 +151,13 @@ func (s *Service) Prompts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type listedPrompt struct {
-		id, name, app, env string
-		version            int
+		id, name, agentID, app, env string
+		version                     int
 	}
 	candidates := make([]listedPrompt, 0, 201)
 	for rows.Next() {
 		var p listedPrompt
-		if err = rows.Scan(&p.id, &p.name, &p.version, &p.app, &p.env); err != nil {
+		if err = rows.Scan(&p.id, &p.name, &p.version, &p.agentID, &p.app, &p.env); err != nil {
 			rows.Close()
 			unavailable(w)
 			return
@@ -196,7 +196,7 @@ func (s *Service) Prompts(w http.ResponseWriter, r *http.Request) {
 			unavailable(w)
 			return
 		}
-		items = append(items, map[string]any{"id": p.id, "kind": "prompt", "name": p.name,
+		items = append(items, map[string]any{"id": p.id, "kind": "prompt", "name": p.name, "agent_id": p.agentID,
 			"version": promptDisplayVersion(p.version)})
 		if len(items) > 200 {
 			break

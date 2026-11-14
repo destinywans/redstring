@@ -3,7 +3,6 @@ package v3canvas
 import (
 	"encoding/json"
 	"errors"
-	"github.com/jackc/pgx/v5"
 	"net/http"
 	"strings"
 
@@ -11,12 +10,16 @@ import (
 	"github.com/destinywans/redstring/internal/rbac"
 	"github.com/destinywans/redstring/internal/store"
 	"github.com/destinywans/redstring/internal/v3interactionaudit"
+	"github.com/jackc/pgx/v5"
 )
 
 func (s *Service) RegisterPageInteractions(api *httpapi.Server) {
 	pattern := "PUT /api/v1/investigation-templates/{id}"
 	v3interactionaudit.Mark(api, s.Store.DB, pattern, "investigation_template.update")
 	api.Register(pattern, "viewer", s.editInvestigationTemplate)
+	api.MarkV3ObjectRoute(pattern, "canvas", "change")
+	pattern = "POST /api/v1/investigation-templates"
+	api.Register(pattern, "viewer", s.createInvestigationTemplate)
 	api.MarkV3ObjectRoute(pattern, "canvas", "change")
 }
 

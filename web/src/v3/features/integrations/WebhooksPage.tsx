@@ -39,6 +39,8 @@ export default function WebhooksPage() {
   // Real tokens are listed and revoked through /api-tokens; /webhooks carries none (PA-161).
   const realTokens = useGet<{ items: { id: string; name: string; scopes: string[]; created_at: string; expires_at: string; revoked_at: string | null }[] }>(API_MODE === "mock" ? null : "/api-tokens");
   const revoke = useSend<{ id: string }>("DELETE", (b) => `/api-tokens/${b.id}`, ["/api-tokens"], () => undefined);
+  const rotate = useSend<{ id: string }, { secret_shown_once: string; old_expires_at: string }>("POST",
+    (b) => `/api-tokens/${encodeURIComponent(b.id)}/rotate`, ["/api-tokens"], () => undefined);
   // PA-241: the server lists unrevoked tokens whether or not they have expired and gives no state, so the page tells
   // them apart by expires_at; an expired token is listed and marked, but no longer counted.
   const now = Date.now();
@@ -267,17 +269,33 @@ export default function WebhooksPage() {
                       </Col>
                       {t.expired && expiredBadge}
                       <Muted size={11.5}>{t.expires}</Muted>
-                      {/* There is no rotate on the server; issue a new token and revoke the old one instead (PA-161). */}
-                      {API_MODE === "mock" && <Btn
+                      {!t.expired && <Gate need={["connectors", "manage"]}><Btn
                         h={26}
                         kind="ghost"
+                        loading={rotate.isPending && rotate.variables?.id === t.id}
+                        disabled={rotate.isPending}
                         onClick={async () => {
-                          const ok = await confirmAction({ title: tx("轮换 {n}？", "Rotate {n}?", { n: t.name }), desc: tx("会生成新令牌，旧令牌 24 小时后失效，期间两者都可用。", "A new token is issued; the old one stops working after 24 hours, and both work until then."), confirm: tx("轮换", "Rotate") });
-                          if (ok) void confirmAction({ title: tx("新令牌", "New token"), desc: <SecretBox label={tx("明文只显示这一次，请立即保存", "Shown only once — save it now")} value={`aiops_pat_${Math.random().toString(36).slice(2, 10)}${Math.random().toString(36).slice(2, 10)}`} />, confirm: tx("我已保存", "I saved it") });
+                          const ok = await confirmAction({ title: tx("轮换 {n}？", "Rotate {n}?", { n: t.name }), desc: tx("会生成新令牌，旧令牌最多保留 24 小时，且不会延长其原有效期。", "A new token is issued. The old one stays valid for up to 24 hours, capped at its original expiry."), confirm: tx("轮换", "Rotate") });
+                          if (!ok) return;
+                          try {
+                            const fresh = t.id ? await rotate.mutateAsync({ id: t.id }) : { secret_shown_once: "synthetic-preview-token", old_expires_at: "" };
+                            if (!fresh.secret_shown_once) throw new Error(tx("服务端未返回新令牌", "The server did not return a new token"));
+                            rotate.reset();
+                            await confirmAction({
+                              title: tx("新令牌", "New token"),
+                              desc: <Col gap={8}>
+                                <SecretBox label={tx("明文只显示这一次，请立即保存", "Shown only once — save it now")} value={fresh.secret_shown_once} />
+                                {fresh.old_expires_at && <Muted>{tx("旧令牌到期：{time}", "Old token expires: {time}", { time: fmt.dateTime(fresh.old_expires_at) })}</Muted>}
+                              </Col>,
+                              confirm: tx("我已保存", "I saved it"),
+                            });
+                          } catch (e) {
+                            toast(e instanceof Error ? e.message : tx("轮换失败", "Rotation failed"), { tone: "danger" });
+                          }
                         }}
                       >
                         {tx("轮换", "Rotate")}
-                      </Btn>}
+                      </Btn></Gate>}
                       <Btn
                         h={26}
                         kind="danger"

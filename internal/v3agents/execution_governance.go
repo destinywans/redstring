@@ -41,6 +41,8 @@ func (s *Service) ExecutionRuntime() inference.Runner {
 	return nil
 }
 func (s *Service) RegisterExecution(api *httpapi.Server) {
+	api.Register("GET /api/v1/agents/{id}/execution-mcp-tools", "viewer", s.executionMCPTools)
+	api.MarkV3ObjectRoute("GET /api/v1/agents/{id}/execution-mcp-tools", "agents", "manage")
 	api.Register("POST /api/v1/guardrails", "viewer", s.RegisterExecutionGuardrail)
 	api.MarkV3ObjectRoute("POST /api/v1/guardrails", "agents", "manage")
 	api.Register("GET /api/v1/agent-runs/{id}/result", "viewer", s.ExecutionResult)
@@ -59,7 +61,7 @@ func executionToolAllowed(name string) bool {
 	case "read_service_profile", "read_service_metrics", "read_service_logs", "search_knowledge":
 		return true
 	}
-	return false
+	return mcpExecutionName.MatchString(name)
 }
 func executionVersion(a agent, runID string) string {
 	if a.Canary != "" && a.Percent > 0 {
@@ -204,6 +206,9 @@ func (s *Service) executionCheckTx(ctx context.Context, tx pgx.Tx, r *http.Reque
 	}
 	if code, _ := g.blocked(c); code != "" {
 		return errExecutionDrift
+	}
+	if _, err := s.resolveMCPToolsTx(ctx, tx, r, current, c); err != nil {
+		return err
 	}
 	return lifecycleSession(ctx, tx, r)
 }
@@ -351,6 +356,15 @@ func (s *Service) ExecuteAgent(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
+	mcpTools, err := s.resolveMCPToolsTx(r.Context(), tx, r, a, c)
+	if err != nil {
+		if errors.Is(err, errMCPReadUnavailable) {
+			lifecycleRejected(w, r, 409, "mcp_tool_unavailable", "这个版本绑定的 MCP 工具已变更或不可用，请审核后登记新版本", "An MCP read pinned to this version changed or is unavailable. Review the tool and register a new version")
+			return
+		}
+		unavailable(w)
+		return
+	}
 	var busy bool
 	err = tx.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM v3_agent_runs r JOIN v3_agent_execution_snapshots x ON x.run_id=r.id WHERE r.agent_id=$1 AND x.actor_id=$2 AND r.status='running')`, a.ID, httpapi.CurrentUser(r).ID).Scan(&busy)
 	if err != nil {
@@ -376,7 +390,7 @@ func (s *Service) ExecuteAgent(w http.ResponseWriter, r *http.Request) {
 	if !s.finishLifecycleWrite(w, r, tx) {
 		return
 	}
-	state := &governedExecution{s: s, r: r, a: a, c: c, g: g, hash: hash, id: id, version: version, steps: map[string]bool{}}
+	state := &governedExecution{s: s, r: r, a: a, c: c, g: g, hash: hash, id: id, version: version, steps: map[string]bool{}, mcpTools: mcpTools}
 	ctx, cancel := context.WithDeadline(r.Context(), deadline)
 	defer cancel()
 	state.r = r.WithContext(ctx)
@@ -393,7 +407,9 @@ func (s *Service) ExecuteAgent(w http.ResponseWriter, r *http.Request) {
 		tools, err = state.tools(ctx, deps.tools)
 		if err == nil {
 			answer, err = deps.runner.Run(ctx, inference.Request{RunID: id, AttemptID: id, BranchID: id, EnvironmentID: a.Env, ModelID: c.ModelID,
-				Messages: []inference.Message{{Role: "system", Content: c.Prompt}, {Role: "user", Content: body.Input}}, Tools: tools, MaxCalls: c.MaxModelCalls, MaxToolCalls: c.MaxToolCalls, MaxOutputTokens: c.MaxOutputTokens, TimeoutSeconds: c.TimeoutSeconds, Deadline: deadline}, state.emit)
+				Messages: []inference.Message{{Role: "system", Content: c.Prompt}, {Role: "user", Content: body.Input}}, Tools: tools,
+				MaxCalls: c.MaxModelCalls, MaxToolCalls: c.MaxToolCalls, AcceptCompletedEvidenceBudget: true,
+				MaxOutputTokens: c.MaxOutputTokens, TimeoutSeconds: c.TimeoutSeconds, Deadline: deadline}, state.emit)
 		}
 		if err == nil {
 			err = ctx.Err()
@@ -442,5 +458,9 @@ func (s *Service) ExecuteAgent(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"id": id, "agent_id": a.ID, "version": version, "model_id": c.ModelID, "prompt_id": c.PromptID, "prompt_version": c.PromptVersion, "config_sha256": c.SHA256, "lifecycle_revision": a.Revision, "status": status, "error_code": code, "output": answer, "read_only": true})
+	evidence := []mcpExecutionEvidence{}
+	if status == "success" {
+		evidence = state.mcpEvidence
+	}
+	httpapi.WriteJSON(w, 200, map[string]any{"id": id, "agent_id": a.ID, "version": version, "model_id": c.ModelID, "prompt_id": c.PromptID, "prompt_version": c.PromptVersion, "config_sha256": c.SHA256, "lifecycle_revision": a.Revision, "status": status, "error_code": code, "output": answer, "read_only": true, "mcp_evidence": evidence})
 }

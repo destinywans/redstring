@@ -23,6 +23,8 @@ type sourceRunbookStep struct {
 	Body       string          `json:"body,omitempty"`
 	Connectors []string        `json:"connectors,omitempty"`
 	Code       string          `json:"code,omitempty"`
+	Probe      string          `json:"probe,omitempty"`
+	Action     string          `json:"action,omitempty"`
 	Readonly   bool            `json:"readonly,omitempty"`
 	Approval   bool            `json:"approval,omitempty"`
 	Tool       json.RawMessage `json:"tool,omitempty"`

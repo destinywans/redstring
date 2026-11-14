@@ -36,6 +36,7 @@ type Step struct {
 	Connectors []string  `json:"connectors,omitempty"`
 	Code       string    `json:"code,omitempty"`
 	Probe      string    `json:"probe,omitempty"`
+	Action     string    `json:"action,omitempty"`
 	Readonly   bool      `json:"readonly,omitempty"`
 	Approval   bool      `json:"approval,omitempty"`
 	Tool       *StepTool `json:"tool,omitempty"`
@@ -81,6 +82,7 @@ type createInput struct {
 	Title                string `json:"title"`
 	Source               string `json:"source"`
 	From                 string `json:"from"`
+	ApplicationID        string `json:"application_id,omitempty"`
 	ExpectedSourceSHA256 string `json:"expected_source_sha256,omitempty"`
 	Steps                []Step `json:"steps"`
 	Status               string `json:"status"`
@@ -171,8 +173,16 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 			httpapi.Error(w, 503, "authorization_unavailable", "Role grants could not be checked")
 			return
 		}
-		if err = s.Policy.AuthorizeWithTx(r.Context(), tx, user, rbac.V3Decision{Module: "knowledge", Action: "manage", EnvironmentID: scopeIDs(r)[0], ApplicationID: binding.ApplicationID}); err != nil {
-			knowledgeError(w, err)
+		app := binding.ApplicationID
+		if in.ApplicationID != "" {
+			app = in.ApplicationID
+		}
+		if err = s.Policy.AuthorizeWithTx(r.Context(), tx, user, rbac.V3Decision{Module: "knowledge", Action: "manage", EnvironmentID: scopeIDs(r)[0], ApplicationID: app}); err != nil {
+			if in.ApplicationID != "" && errors.Is(err, store.ErrForbidden) {
+				httpapi.Error(w, 404, "not_found", "Application is not available in the selected environment")
+			} else {
+				knowledgeError(w, err)
+			}
 			return
 		}
 		if binding.TeamID != "" {
@@ -202,6 +212,22 @@ func (s *Service) createHandler(api *httpapi.Server) http.HandlerFunc {
 		if in.ExpectedSourceSHA256 != "" && in.ExpectedSourceSHA256 != binding.ContentHash {
 			httpapi.Error(w, 409, "source_changed", "Runbook source changed; load a new draft")
 			return
+		}
+		if in.ApplicationID != "" {
+			env := scopeIDs(r)[0]
+			err = tx.QueryRow(r.Context(), `SELECT a.id FROM applications a
+ JOIN v3_application_environments ve ON ve.application_id=a.id AND ve.environment_id=$2
+ JOIN application_environments e ON e.application_id=a.id AND e.key=$2 AND NOT e.archived
+ WHERE a.id=$1 AND NOT a.archived FOR SHARE OF a,ve,e`, in.ApplicationID, env).Scan(&binding.ApplicationID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				httpapi.Error(w, 404, "not_found", "Application is not available in the selected environment")
+				return
+			}
+			if err != nil {
+				knowledgeError(w, err)
+				return
+			}
+			metadata.Visibility = "application"
 		}
 		snapshotJSON, _ := json.Marshal(map[string]string{"source_id": binding.SourceID, "source_kind": in.Source, "content_sha256": binding.ContentHash})
 		metaJSON, _ := json.Marshal(metadata)
@@ -439,6 +465,10 @@ func validateCreate(in createInput) error {
 	if in.Source != "blank" && strings.TrimSpace(in.From) == "" {
 		return errors.New("source reference is required")
 	}
+	if in.ApplicationID != "" && ((in.Source != "blank" && in.Source != "template") || len(in.ApplicationID) > 128 ||
+		strings.TrimSpace(in.ApplicationID) != in.ApplicationID || strings.ContainsRune(in.ApplicationID, 0)) {
+		return errors.New("application scope is only accepted for a blank or template Runbook")
+	}
 	if in.ExpectedSourceSHA256 != "" {
 		if in.Source == "blank" || len(in.ExpectedSourceSHA256) != 64 {
 			return errors.New("invalid expected source digest")
@@ -459,8 +489,11 @@ func validateCreate(in createInput) error {
 		if step.Kind != "query" && step.Kind != "check" && step.Kind != "action" && step.Kind != "verify" && step.Kind != "act" && step.Kind != "judge" {
 			return fmt.Errorf("unknown step kind %d", i+1)
 		}
-		if step.Probe != "" && step.Probe != runbookRequestRate {
+		if step.Probe != "" && !validRunbookProbe(step.Probe) {
 			return fmt.Errorf("unknown read-only probe in step %d", i+1)
+		}
+		if step.Action != "" && (step.Action != "kubernetes_rollback" || (step.Kind != "action" && step.Kind != "act") || step.Code != "" || step.Tool != nil || step.Probe != "") {
+			return fmt.Errorf("invalid governed action in step %d", i+1)
 		}
 		if len(step.Connectors) > 10 {
 			return fmt.Errorf("too many connectors in step %d", i+1)

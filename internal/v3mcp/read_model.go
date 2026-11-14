@@ -163,7 +163,7 @@ func decorateMCPDetail(result map[string]any, obs *mcpObservation, lang string, 
 	}
 	result["trust_info"] = map[string]any{
 		"readonly_check": mcpLocalized(lang, "尚无当前版本人工审核", "No human review of current version"),
-		"scope":          []string{}, "limit": mcpLocalized(lang, "V3 Agent 调用尚不可用", "V3 Agent execution unavailable"), "auth": auth,
+		"scope":          []string{}, "limit": mcpLocalized(lang, "V3 Agent 调用尚不可用", "V3 Agent invocation is unavailable"), "auth": auth,
 	}
 	if obs == nil {
 		return

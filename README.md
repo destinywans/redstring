@@ -123,7 +123,7 @@ make web-build
 AIOPS_WEB_DIR="$PWD/web/dist" make run
 ```
 
-用 Docker Compose 运行整个应用（`--profile app`）目前不可用：`api` 服务不传实例配置，模型也没设 `OLLAMA_API`。请用上面的宿主机方式，数据库照常由 `make db` 起。端口、模型选项、旧库切换等细节见 [运行与部署](docs/getting-started.md)。
+也可以让 Docker Compose 运行 V3 应用和数据库。执行 `make init` 后运行 `docker compose --profile app up -d --build --wait`，打开 [本机登录页](http://127.0.0.1:8080/login)。默认配置是空库 V3 实例。端口、可选模型和实验环境入口见 [运行与部署](docs/getting-started.md#docker-compose)。
 
 ### 最小实例能看到什么，完整闭环还要什么
 

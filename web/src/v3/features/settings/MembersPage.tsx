@@ -1,15 +1,18 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
-import { API_MODE, useGet, useSend } from "../../api/client";
+import { API_MODE, apiWithMeta, useGet, useSend } from "../../api/client";
 import { Gated, useNeed } from "../../ui/permission";
-import type { Member, MembersView, OrgNode, Role } from "../../api/types";
+import type { Member, MembersView, OrgNode, Role, RoleDetail } from "../../api/types";
 import { AiAvatar, Avatar, Badge, Brand, Btn, Card, Chip, Col, Field, Icon, Input, Mono, Muted, Pills, Row, SearchBox, Section, Spacer, State, cx } from "../../ui/core";
 import { DataTable } from "../../ui/data";
 import { Dialog, toast } from "../../ui/overlays";
 import { useI18n } from "../../i18n";
 import "./settings.css";
-import { ChipSelect, useFacet, openForm } from "../../ui/demo";
+import { ChipSelect, useFacet, openForm, confirmAction } from "../../ui/demo";
 import { UnknownValue } from "../../ui/unknown";
+import { useEnv } from "../../app/environment";
+import { updateMemberAccess } from "./memberAccess";
 
 export default function MembersPage() {
   const { tx } = useI18n();
@@ -19,6 +22,9 @@ export default function MembersPage() {
   const [invite, setInvite] = useState(false);
   const [email, setEmail] = useState("");
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [updating, setUpdating] = useState(false);
+  const env = useEnv((s) => s.env);
+  const client = useQueryClient();
   // Without members.view the list is refused (403): the page says so instead of an endless skeleton (PA-200).
   const { data, error } = useGet<MembersView>("/members", { filter, q });
   const { data: roleList } = useGet<{ items: Role[] }>("/roles");
@@ -32,6 +38,55 @@ export default function MembersPage() {
   const send = useSend<{ email: string }>("POST", "/members/invitations", ["/members"]);
   // Sync, invitations and 2FA reminders all need members.manage (PA-200).
   const noManage = useNeed(["members", "manage"]);
+  const noRoles = useNeed(["roles", "manage"]);
+  const changeAccess = async (disable: boolean) => {
+    if (updating) return;
+    const ids = [...checked].filter((id) => data?.items.some((member) => member.id === id && !member.agent));
+    if (!ids.length) return;
+    setUpdating(true);
+    const completed: string[] = [];
+    try {
+      const values: Record<string, string> | null = disable
+        ? (await confirmAction({
+            title: tx("停用所选成员？", "Disable selected members?"),
+            desc: tx("成员的角色会保留，现有会话会被撤销。", "Roles are retained and active sessions are revoked."),
+            confirm: tx("停用", "Disable"), danger: true,
+          })) ? {} : null
+        : await openForm({
+            title: tx("为 {n} 人追加角色", "Add a role to {n} members", { n: ids.length }),
+            desc: tx("保留成员已有角色和启停状态。", "Existing roles and enabled status are retained."),
+            fields: [{ key: "role", label: tx("角色", "Role"), type: "select", required: true, options: (roleList?.items ?? []).filter((role) => role.kind !== "machine").map((role) => ({ value: role.id, label: role.name })) }],
+            submit: tx("分配", "Assign"),
+          });
+      if (!values) return;
+      if (API_MODE === "mock") {
+        setChecked(new Set());
+        toast(tx("已更新示例成员", "Sample members updated"));
+        return;
+      }
+      if (!env || env === "all" || env !== useEnv.getState().env) throw new Error(tx("请先选定单个环境", "Select one environment"));
+      let revision: string | null | undefined;
+      if (!disable) {
+        ({ revision } = await apiWithMeta<RoleDetail>("GET", `/roles/${encodeURIComponent(values.role)}`, {
+          headers: { "X-AIOps-Environment": env },
+        }));
+        if (!revision) throw new Error(tx("角色版本不可用，请刷新后重试", "Role revision unavailable. Refresh and retry."));
+      }
+      for (const id of ids) {
+        await updateMemberAccess(env, id, revision ? { roleId: values.role, revision } : undefined);
+        completed.push(id);
+      }
+      toast(tx("已处理 {n} 名成员", "Processed {n} members", { n: completed.length }));
+    } catch (e) {
+      toast(tx("已处理 {n} 人，随后停止：{error}", "Processed {n} members, then stopped: {error}", {
+        n: completed.length, error: e instanceof Error ? e.message : tx("操作失败", "Operation failed"),
+      }), { tone: "danger" });
+    } finally {
+      if (completed.length) setChecked((previous) => new Set([...previous].filter((id) => !completed.includes(id))));
+      if (API_MODE === "http") void client.invalidateQueries({ predicate: (query) => /^\/(members|roles)(\/|$)/.test(String(query.queryKey[0])) });
+      setUpdating(false);
+    }
+  };
   const mfa = (m: Member["mfa"]) =>
     m === "passkey" ? (
       <Badge tone="ok">
@@ -147,32 +202,12 @@ export default function MembersPage() {
               <div className="member-bulk-bar anim-rise">
                 <b>{tx("已选 {n} 人", "{n} selected", { n: checked.size })}</b>
                 <Spacer />
-                {/* Assigning roles has no real call here yet (PUT /members/{id}/access is API-only); sample data only (PA-134). */}
-                {API_MODE === "mock" && (
-                  <Btn
-                    h={26}
-                    icon="shield"
-                    onClick={async () => {
-                      const v = await openForm({
-                        title: tx("为 {n} 人分配角色", "Assign a role to {n} people", { n: checked.size }),
-                        fields: [{ key: "role", label: tx("角色", "Role"), type: "select", options: (roleList?.items ?? []).filter((r) => r.kind !== "machine").map((r) => ({ value: r.name, label: r.name, hint: tx("{n} 人", "{n} people", { n: r.members }) })) }],
-                        submit: tx("分配", "Assign"),
-                      });
-                      if (v) {
-                        toast(tx("已为 {n} 人分配「{r}」，写入审计", "Assigned “{r}” to {n} people; audited", { n: checked.size, r: v.role }));
-                        setChecked(new Set());
-                      }
-                    }}
-                  >
-                    {tx("分配角色", "Assign role")}
-                  </Btn>
-                )}
-                {/* There is no disable endpoint for members yet; sample data only. */}
-                {API_MODE === "mock" && (
-                  <Btn h={26} kind="danger" onClick={() => { const n = checked.size; setChecked(new Set()); toast(tx("已停用 {n} 名成员", "Disabled {n} members", { n }), { undo: () => undefined }); }}>
-                    {tx("停用", "Disable")}
-                  </Btn>
-                )}
+                <Gated reason={noManage || noRoles}>
+                  <Btn h={26} icon="shield" disabled={updating || env === "all"} onClick={() => void changeAccess(false)}>{tx("分配角色", "Assign role")}</Btn>
+                </Gated>
+                <Gated reason={noManage || noRoles}>
+                  <Btn h={26} kind="danger" disabled={updating || env === "all"} onClick={() => void changeAccess(true)}>{tx("停用", "Disable")}</Btn>
+                </Gated>
               </div>
             )}
             <Card style={{ overflow: "hidden" }}>

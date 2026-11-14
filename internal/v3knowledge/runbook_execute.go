@@ -18,8 +18,21 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-const runbookRequestRate = "request_rate"
-const maxRunbookExecuteSteps = 10
+const (
+	runbookRequestRate     = "request_rate"
+	runbookErrorRate       = "error_rate"
+	runbookP95             = "http_p95_seconds"
+	maxRunbookExecuteSteps = 10
+)
+
+func validRunbookProbe(probe string) bool {
+	switch probe {
+	case runbookRequestRate, runbookErrorRate, runbookP95:
+		return true
+	default:
+		return false
+	}
+}
 
 type runbookExecutionInput struct {
 	ExpectedVersion int `json:"expected_version"`
@@ -36,22 +49,26 @@ type runbookMetricStep struct {
 type runbookExecutionPlan struct {
 	document knowledge.Document
 	steps    []Step
+	skipped  []int
 	binding  string
 }
 
-// A small, typed operation list. Step text, scripts and tool display names
-// have no role in choosing what the server sends to Prometheus.
-func runbookExecutable(steps []Step) bool {
-	if len(steps) < 1 || len(steps) > maxRunbookExecuteSteps {
-		return false
-	}
+// Instructions and governed action steps can coexist with typed probes. They
+// never run as part of this operation, regardless of their prose or code.
+func planRunbookSteps(steps []Step) (executable []Step, skipped []int, ok bool) {
+	skipped = make([]int, 0)
 	for _, step := range steps {
-		if (step.Kind != "query" && step.Kind != "check" && step.Kind != "verify") || !step.Readonly || step.Approval || step.Tool != nil || step.Code != "" ||
-			len(step.Connectors) != 1 || step.Connectors[0] == "" || step.Probe != runbookRequestRate {
-			return false
+		if step.Probe == "" {
+			skipped = append(skipped, step.N)
+			continue
 		}
+		if (step.Kind != "query" && step.Kind != "check" && step.Kind != "verify") || !step.Readonly || step.Approval || step.Tool != nil || step.Code != "" ||
+			len(step.Connectors) != 1 || step.Connectors[0] == "" || !validRunbookProbe(step.Probe) {
+			return nil, nil, false
+		}
+		executable = append(executable, step)
 	}
-	return true
+	return executable, skipped, len(executable) > 0 && len(executable) <= maxRunbookExecuteSteps
 }
 
 func (s *Service) runbookExecutionPlan(w http.ResponseWriter, r *http.Request, tx pgx.Tx, version int, env string) (runbookExecutionPlan, bool) {
@@ -92,12 +109,15 @@ func (s *Service) runbookExecutionPlan(w http.ResponseWriter, r *http.Request, t
 		httpapi.Error(w, 409, "runbook_execution_unavailable", "A current, published, application-bound Runbook is required")
 		return plan, false
 	}
-	if err = tx.QueryRow(ctx, `SELECT steps FROM v3_runbooks WHERE document_id=$1`, doc.ID).Scan(&plan.steps); err != nil {
+	var steps []Step
+	if err = tx.QueryRow(ctx, `SELECT steps FROM v3_runbooks WHERE document_id=$1`, doc.ID).Scan(&steps); err != nil {
 		structuredRunbookError(w, err)
 		return plan, false
 	}
-	if !runbookExecutable(plan.steps) {
-		httpapi.Error(w, 422, "runbook_steps_unsupported", "Every step must use the registered read-only request-rate query and its Prometheus connector")
+	var executable bool
+	plan.steps, plan.skipped, executable = planRunbookSteps(steps)
+	if !executable {
+		httpapi.Error(w, 422, "runbook_steps_unsupported", "Provide one to ten registered read-only metric steps, each with its Prometheus connector")
 		return plan, false
 	}
 	rows, err := tx.Query(ctx, `SELECT t.id,t.connector_id FROM v3_connector_targets t
@@ -148,6 +168,33 @@ func runbookMetricSamples(e v3integrations.PrometheusMetricEvidence, window conn
 	return samples, latest, true
 }
 
+type observedRunbookMetric struct {
+	evidence v3integrations.PrometheusMetricEvidence
+	count    int
+	latest   *float64
+}
+
+func (s *Service) observeRunbookMetrics(r *http.Request, scope httpapi.V3EnvironmentScope, env string, plan runbookExecutionPlan,
+	window connectors.TimeWindow) (map[string]observedRunbookMetric, bool) {
+	metrics := make(map[string]observedRunbookMetric)
+	for _, step := range plan.steps {
+		if _, exists := metrics[step.Probe]; exists {
+			continue
+		}
+		evidence, err := s.MetricReader.QueryService(r.Context(), scope, httpapi.CurrentUser(r), plan.document.ApplicationID, env, step.Probe, window)
+		if err != nil || evidence.ApplicationID != plan.document.ApplicationID || evidence.EnvironmentID != env ||
+			evidence.BindingID != plan.binding || evidence.ConnectorID != step.Connectors[0] || evidence.QueryID != step.Probe {
+			return nil, false
+		}
+		count, latest, valid := runbookMetricSamples(evidence, window)
+		if !valid {
+			return nil, false
+		}
+		metrics[step.Probe] = observedRunbookMetric{evidence: evidence, count: count, latest: latest}
+	}
+	return metrics, true
+}
+
 func (s *Service) executeReadOnlyHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.ready(w) {
@@ -166,7 +213,7 @@ func (s *Service) executeReadOnlyHandler() http.HandlerFunc {
 			httpapi.Error(w, 422, "invalid_runbook", "Expected version is required")
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
 		defer cancel()
 		r = r.WithContext(ctx)
 		env := scope.EnvironmentIDs[0]
@@ -191,20 +238,27 @@ func (s *Service) executeReadOnlyHandler() http.HandlerFunc {
 		user := httpapi.CurrentUser(r)
 		end := time.Now().UTC().Truncate(time.Second)
 		window := connectors.TimeWindow{Start: end.Add(-15 * time.Minute), End: end, StepSeconds: 30}
-		evidence, err := s.MetricReader.QueryService(ctx, scope, user, plan.document.ApplicationID, env, runbookRequestRate, window)
-		if err != nil || evidence.ApplicationID != plan.document.ApplicationID || evidence.EnvironmentID != env || evidence.BindingID != plan.binding ||
-			evidence.ConnectorID != plan.steps[0].Connectors[0] || evidence.QueryID != runbookRequestRate {
-			httpapi.Error(w, 503, "runbook_source_unavailable", "Authorized request-rate evidence could not be read")
+		metrics, observed := s.observeRunbookMetrics(r, scope, env, plan, window)
+		if !observed {
+			httpapi.Error(w, 503, "runbook_source_unavailable", "At least one authorized metric could not be read")
 			return
 		}
-		n, latest, valid := runbookMetricSamples(evidence, window)
-		if !valid {
-			httpapi.Error(w, 503, "runbook_source_unavailable", "The metric result is incomplete")
-			return
-		}
+		status := "no_samples"
+		complete := len(plan.skipped) == 0
+		var capturedAt time.Time
 		results := make([]runbookMetricStep, 0, len(plan.steps))
 		for _, step := range plan.steps {
-			results = append(results, runbookMetricStep{step.N, runbookRequestRate, evidence.CapturedAt, n, latest})
+			metric := metrics[step.Probe]
+			stamp := metric.evidence.CapturedAt
+			results = append(results, runbookMetricStep{step.N, step.Probe, stamp, metric.count, metric.latest})
+			if metric.count == 0 {
+				complete = false
+			} else {
+				status = "observed"
+				if stamp.After(capturedAt) {
+					capturedAt = stamp
+				}
+			}
 		}
 		// Recheck the exact document and connector before publishing or storing results.
 		tx, err = s.DB.Begin(ctx)
@@ -218,20 +272,27 @@ func (s *Service) executeReadOnlyHandler() http.HandlerFunc {
 			return
 		}
 		if current.document.ApplicationID != plan.document.ApplicationID || current.binding != plan.binding ||
-			s.MetricReader.AuthorizeMetricSourceVersionTx(ctx, tx, user.ID, env, evidence.ApplicationID, evidence.BindingID, evidence.ConnectorID,
-				evidence.ResourceID, evidence.QueryID, evidence.SourceFingerprint) != nil {
-			httpapi.Error(w, 409, "runbook_connector_changed", "Source or authorization changed during execution")
+			!slices.Equal(current.skipped, plan.skipped) || !slices.EqualFunc(current.steps, plan.steps, func(a, b Step) bool {
+			return a.Probe == b.Probe && a.N == b.N && slices.Equal(a.Connectors, b.Connectors)
+		}) {
+			httpapi.Error(w, 409, "runbook_connector_changed", "Source or executable steps changed during execution")
 			return
 		}
-		status := "no_samples"
-		if n > 0 {
-			status = "observed"
-			_, err = tx.Exec(ctx, `UPDATE v3_runbooks SET last_verified_at=GREATEST(last_verified_at,$2) WHERE document_id=$1`, plan.document.ID, evidence.CapturedAt)
+		for _, metric := range metrics {
+			evidence := metric.evidence
+			if s.MetricReader.AuthorizeMetricSourceVersionTx(ctx, tx, user.ID, env, evidence.ApplicationID, evidence.BindingID, evidence.ConnectorID,
+				evidence.ResourceID, evidence.QueryID, evidence.SourceFingerprint) != nil {
+				httpapi.Error(w, 409, "runbook_connector_changed", "Source or authorization changed during execution")
+				return
+			}
+		}
+		if complete {
+			_, err = tx.Exec(ctx, `UPDATE v3_runbooks SET last_verified_at=GREATEST(last_verified_at,$2) WHERE document_id=$1`, plan.document.ID, capturedAt)
 		}
 		var id = store.ID()
 		if err == nil {
-			audit, _ := json.Marshal(map[string]any{"execution_id": id, "environment_id": env, "version": in.ExpectedVersion, "source": "prometheus", "binding_id": plan.binding, "steps": results, "status": status})
-			_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes) VALUES($1,$2,'runbook.readonly_execution',$3,'succeeded',$4)`, user.ID, evidence.ApplicationID, plan.document.ID, audit)
+			audit, _ := json.Marshal(map[string]any{"execution_id": id, "environment_id": env, "version": in.ExpectedVersion, "source": "prometheus", "binding_id": plan.binding, "steps": results, "skipped_steps": plan.skipped, "status": status})
+			_, err = tx.Exec(ctx, `INSERT INTO management_audit(actor_id,application_id,action,target,outcome,changes) VALUES($1,$2,'runbook.readonly_execution',$3,'succeeded',$4)`, user.ID, plan.document.ApplicationID, plan.document.ID, audit)
 		}
 		if err == nil {
 			err = tx.Commit(ctx)
@@ -240,6 +301,6 @@ func (s *Service) executeReadOnlyHandler() http.HandlerFunc {
 			knowledgeError(w, err)
 			return
 		}
-		httpapi.WriteJSON(w, 200, map[string]any{"id": id, "version": in.ExpectedVersion, "mode": "read_only", "status": status, "steps": results})
+		httpapi.WriteJSON(w, 200, map[string]any{"id": id, "version": in.ExpectedVersion, "mode": "read_only", "status": status, "steps": results, "skipped_steps": plan.skipped})
 	}
 }

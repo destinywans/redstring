@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page } from "../../app/Shell";
+import { useEnv } from "../../app/environment";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
 import { AiAvatar, Badge, Btn, Col, Field, Icon, LabelChip, Mono, Muted, Row, Skeleton, Spacer, Strong, Tile, cx, type IconName, type Tone } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
@@ -11,7 +12,8 @@ import "./knowledge.css";
 import { AddChip, usePickLists } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 import { Gate } from "../../ui/permission";
-import type { ConversationList, RunbookStep } from "../../api/types";
+import type { ConversationList, RunbookStep, ServiceCatalog } from "../../api/types";
+import { serviceParts } from "../../api/ids";
 import { uploadFile } from "../../api/upload";
 import { RunbookStepsForm, runbookSaveSteps } from "./RunbookStepsForm";
 
@@ -188,6 +190,11 @@ export default function NewRunbookPage() {
   const source = (params.get("source") as Source) ?? "blank";
   const [dlg, setDlg] = useState(!params.get("source"));
   const blank = source === "blank";
+  const env = useEnv((s) => s.env);
+  const appSelectable = API_MODE !== "mock" && (blank || source === "template");
+  const [appSelection, setAppSelection] = useState<{ env: string; id: string }>();
+  const selectedApp = appSelection?.env === env ? appSelection.id : "";
+  const { data: serviceCatalog } = useGet<ServiceCatalog>(appSelectable && env !== "all" ? "/services" : null);
   const from = params.get("from");
   const { data, isLoading, error } = useGet<Draft>(blank ? null : "/runbooks/draft", { source, from });
   const lists = usePickLists();
@@ -205,7 +212,7 @@ export default function NewRunbookPage() {
     setSaving(mode);
     try {
       const r = await api<{ id?: string }>("POST", "/runbooks", {
-        body: { title: title.trim() || tx("未命名 Runbook", "Untitled runbook"), source, ...(blank ? {} : { from, expected_source_sha256: draft?.source_sha256 }), steps: API_MODE === "mock" ? draft?.steps ?? [] : runbookSaveSteps(steps), status: mode },
+        body: { title: title.trim() || tx("未命名 Runbook", "Untitled runbook"), source, ...(blank ? {} : { from, expected_source_sha256: draft?.source_sha256 }), ...(appSelectable && selectedApp ? { application_id: selectedApp } : {}), steps: API_MODE === "mock" ? draft?.steps ?? [] : runbookSaveSteps(steps), status: mode },
       });
       toast(mode === "draft" ? tx("草稿已保存", "Draft saved") : tx("已提交复核，复核通过后 Agent 才会使用", "Submitted for review; agents use it only after approval"));
       // PA-243: every POST /runbooks creates a new runbook, so a saved draft leaves this page for its own; staying
@@ -254,6 +261,15 @@ export default function NewRunbookPage() {
                     {API_MODE === "mock" && <AddChip label={tx("范围", "Scope")} free placeholder="service=payment-gateway" options={[...lists.services.map((s) => `service=${s.value}`), "env=prod", "team=trade"]} />}
                   </Row>
                 </Field>
+                {appSelectable && env !== "all" && <Field label={tx("应用", "Application")} hint={tx("执行查询或提交回滚提案需要绑定应用", "Bind an application to run queries or open a rollback proposal")}>
+                  <select value={selectedApp} disabled={!!saving} onChange={(e) => setAppSelection({ env, id: e.target.value })}>
+                    <option value="">{tx("仅作工作区说明", "Workspace instructions")}</option>
+                    {(serviceCatalog?.items ?? []).flatMap((item) => {
+                      const service = serviceParts(item.id);
+                      return service?.environment === env ? [<option key={item.id} value={service.application}>{item.name}</option>] : [];
+                    })}
+                  </select>
+                </Field>}
                 {API_MODE !== "mock" && <RunbookStepsForm steps={steps} onChange={(next) => setEdits({ key: draftKey, steps: next })} disabled={!!saving} />}
                 {API_MODE === "mock" && <ol className="rb-steps">
                   {draft?.steps.map((s, i) => (

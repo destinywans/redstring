@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/destinywans/redstring/internal/knowledge"
 	"github.com/destinywans/redstring/internal/rbac"
 	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3integrations"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -200,7 +202,8 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	}
 	policy := &rbac.V3Policy{Store: st}
 	api := httpapi.New(st, nil, true)
-	(&Service{DB: db, Knowledge: know, Policy: policy}).Register(api)
+	service := &Service{DB: db, Knowledge: know, Policy: policy}
+	service.Register(api)
 	if err := api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "dev", EnvironmentIDs: []string{"dev", "test"}},
 		policy, st.Session, func(ctx context.Context, u core.User, module, action, environment string) error {
 			return policy.Authorize(ctx, u, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environment})
@@ -789,7 +792,11 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r := httptest.NewRequest(method, "/api/v1/runbooks/"+path, bytes.NewReader(body))
+		endpoint := "/api/v1/runbooks"
+		if path != "" {
+			endpoint += "/" + path
+		}
+		r := httptest.NewRequest(method, endpoint, bytes.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("X-AIOps-Environment", env)
 		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
@@ -821,8 +828,120 @@ func TestRunbookSubmitAndDryRunRegisteredHTTP(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='runbook.readonly_execution'`).Scan(&executions); err != nil || executions != 0 {
 		t.Fatalf("invalid execution was recorded as successful: %d, %v", executions, err)
 	}
+	testRunbookMixedExecution(t, db, service, creator.ID, creatorToken, maintainerToken, otherToken, mutate, assert)
 	if _, err := db.Exec(ctx, `DELETE FROM rbac_user_roles WHERE user_id=$1 AND role_id='runbook-reader'`, reader.ID); err != nil {
 		t.Fatal(err)
 	}
 	assert(get("runbook-public", "", "dev", readerToken), 404, "not_found")
+}
+
+func testRunbookMixedExecution(
+	t *testing.T, db *pgxpool.Pool, service *Service, creatorID, creatorToken, maintainerToken, approverToken string,
+	mutate func(method, path, env, token string, input any) *httptest.ResponseRecorder,
+	assert func(*httptest.ResponseRecorder, int, string),
+) {
+	t.Helper()
+	const app, env, source, resource = "app-1", "dev", "runbook-prometheus", "app-one-metrics"
+	expressions := map[string]string{
+		runbookRequestRate: "sum(synthetic_request_rate)",
+		runbookErrorRate:   "sum(synthetic_error_rate)",
+		runbookP95:         "sum(synthetic_p95_seconds)",
+	}
+	values := map[string]string{
+		expressions[runbookRequestRate]: "8.1", expressions[runbookErrorRate]: "0.05", expressions[runbookP95]: "0.205",
+	}
+	var calls atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		value, valid := values[r.FormValue("query")]
+		start, startErr := time.Parse(time.RFC3339Nano, r.FormValue("start"))
+		end, endErr := time.Parse(time.RFC3339Nano, r.FormValue("end"))
+		if r.URL.Path != "/api/v1/query_range" || !valid || startErr != nil || endErr != nil || end.Sub(start) != 15*time.Minute || r.FormValue("step") != "30" {
+			t.Errorf("unexpected metric request path=%s query=%q step=%q", r.URL.Path, r.FormValue("query"), r.FormValue("step"))
+			w.WriteHeader(400)
+			return
+		}
+		calls.Add(1)
+		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[%d,%q]]}]}}`, end.Unix(), value)
+	}))
+	defer upstream.Close()
+	ctx := t.Context()
+	// A scoped knowledge manager also needs independent service and connector read grants.
+	if _, err := db.Exec(ctx, `INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
+ ('runbook-creator','services','view','application','app-1'),('runbook-creator','connectors','view','environment','dev')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connectors(id,environment_id,provider,name,category,endpoint,auth_method,enabled,tools)
+	 VALUES($1,$2,'prometheus','Isolated Prometheus','observability',$3,'none',true,'[{"name":"query_metrics","enabled":true}]')`, source, env, upstream.URL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `INSERT INTO v3_connector_targets(id,application_id,environment_id,connector_id,target_kind,external_id,bound_by)
+	 VALUES('runbook-metric-target',$1,$2,$3,'metric_resource',$4,$5)`, app, env, source, resource, creatorID); err != nil {
+		t.Fatal(err)
+	}
+	catalog := make(map[v3integrations.PrometheusQueryKey]string, len(expressions))
+	for probe, expression := range expressions {
+		catalog[v3integrations.PrometheusQueryKey{ConnectorID: source, ApplicationID: app, EnvironmentID: env, ResourceID: resource, QueryID: probe}] = expression
+	}
+	var err error
+	service.MetricReader, err = v3integrations.NewPrometheusReader(db, "nonprod", nil, catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	probe := func(id string) Step {
+		return Step{Kind: "query", Title: id, Probe: id, Readonly: true, Connectors: []string{source}}
+	}
+	steps := []Step{
+		probe(runbookRequestRate), probe(runbookErrorRate), probe(runbookP95),
+		{Kind: "action", Title: "Propose recovery", Action: "kubernetes_rollback"},
+		probe(runbookP95),
+	}
+	draft := createInput{Title: "Scoped mixed Runbook", Source: "blank", ApplicationID: app, Steps: steps}
+	assert(mutate(http.MethodPost, "", "test", creatorToken, draft), 403, "forbidden")
+	crossScope := draft
+	crossScope.ApplicationID = "missing-app"
+	assert(mutate(http.MethodPost, "", env, creatorToken, crossScope), 404, "not_found")
+	crossScope.Source, crossScope.From = "conversation", "another-source"
+	assert(mutate(http.MethodPost, "", env, creatorToken, crossScope), 422, "invalid_runbook")
+
+	create := func(in createInput) string {
+		t.Helper()
+		w := mutate(http.MethodPost, "", env, creatorToken, in)
+		assert(w, 201, "")
+		var result struct{ ID string }
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || result.ID == "" {
+			t.Fatalf("draft create: %s, %v", w.Body, err)
+		}
+		assert(mutate(http.MethodPost, result.ID+"/submit", env, creatorToken, nil), 200, "")
+		assert(mutate(http.MethodPost, result.ID+"/reviews", env, approverToken, reviewInput{Decision: "approve"}), 200, "")
+		return result.ID
+	}
+	id := create(draft)
+	assert(mutate(http.MethodPost, id+"/execute-readonly", env, maintainerToken, runbookExecutionInput{1}), 503, "runbook_source_unavailable")
+	w := mutate(http.MethodPost, id+"/execute-readonly", env, creatorToken, runbookExecutionInput{1})
+	assert(w, 200, "")
+	for _, fragment := range []string{`"skipped_steps":[4]`, `"query_id":"error_rate"`, `"latest":0.05`, `"step":5`, `"latest":0.205`} {
+		if !strings.Contains(w.Body.String(), fragment) {
+			t.Fatalf("missing %s from %s", fragment, w.Body)
+		}
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("expected one call per distinct registered query, got %d", calls.Load())
+	}
+	checkVerified := func(id string, want bool) {
+		t.Helper()
+		var verified bool
+		err := db.QueryRow(ctx, `SELECT last_verified_at IS NOT NULL FROM v3_runbooks WHERE document_id=$1`, id).Scan(&verified)
+		if err != nil || verified != want {
+			t.Fatalf("last_verified_at present=%v, want %v (%v)", verified, want, err)
+		}
+	}
+	checkVerified(id, false)
+	var audit int
+	if err := db.QueryRow(ctx, `SELECT count(*) FROM management_audit WHERE action='runbook.readonly_execution' AND target=$1 AND changes->'skipped_steps'='[4]'::jsonb`, id).Scan(&audit); err != nil || audit != 1 {
+		t.Fatalf("expected one audit with skipped action, got %d (%v)", audit, err)
+	}
+	draft.Title, draft.Steps = "Scoped read-only Runbook", steps[:3]
+	id = create(draft)
+	assert(mutate(http.MethodPost, id+"/execute-readonly", env, creatorToken, runbookExecutionInput{1}), 200, "")
+	checkVerified(id, true)
 }

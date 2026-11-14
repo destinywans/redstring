@@ -317,6 +317,7 @@ S['V3InvestigationTemplateBranch'] = obj({
     ['name','step','tools'])
 S['V3InvestigationTemplate'] = obj({
     'id':string(),'name':string(),'owner':string(enum=['official','team']),
+    'application_id':string(),
     'description':string(),'branches':arr(ref('V3InvestigationTemplateBranch')),
     'tools':arr(string()),'uses':string(),'version':string(),
     'maintainer':string(),
@@ -335,13 +336,22 @@ v3_route('get','/investigation-templates','List persisted, scoped investigation 
       'counts':obj({k:integer(minimum=0) for k in ['all','official','team']},
         ['all','official','team'])},['items','counts']),
     desc='An empty configured catalog returns an empty list. Current session, environment and canvas.view grants, active application mappings, team membership and reference grants filter persisted definitions in one bounded read transaction. Owner and q filter items; counts cover the full visible set. At most 500 scoped candidate rows may be read. Definitions are manual outlines only; no auto-triage, model or tool execution is implied. MCP tool names and Runbook IDs are configured references, checked again at start.')
+v3_route('post','/investigation-templates','Create an application-bound team investigation template',
+    body=obj({'id':string(),'application_id':string(),'name':string(),'description':string(),
+      'branches':arr(obj({'name':string(),'step':string()},['name','step']))},
+      ['id','application_id','name','description','branches']),
+    response=ref('V3InvestigationTemplate'),status=201,
+    desc='Requires an active human session, a single environment, canvas view and change authorization, and membership in the selected application owner team. Creates a manual outline with one to eight branches. Caller-generated team-* IDs allow an exact repeat to return 200. It does not execute model or tool calls.')
+P['/investigation-templates']['post']['responses']['200'] = {
+    'description':'The same definition already exists',
+    'content':{'application/json':{'schema':ref('V3InvestigationTemplate')}}}
 v3_route('post','/investigation-templates/{id}/start',
     'Start a persisted investigation from a reviewed template outline',
     body=obj({'inputs':obj({'application_id':string(),
       'template_version':string(),'request_id':string(minLength=8,maxLength=128)},
       ['application_id','template_version','request_id'])},['inputs']),
     response=obj({'investigation_id':string()},['investigation_id']),status=201,
-    desc='Requires one selected environment; all returns 409. Current session, canvas.change on the active mapped application or owner team, team-template membership, listed template version, published application-scoped Runbooks and knowledge.view, and current read-only reviewed MCP tool bindings with connectors.view are checked in the start transaction. A successful start atomically creates an investigation, root and template child branches with empty contexts and source provenance, a frozen definition and budget snapshot, events and audit. It does not run an Agent, model, Runbook or tool. The user-scoped request_id deduplicates concurrent retries; a matching committed start returns 200 after current session and canvas.change rechecks, even if its source template was subsequently disabled. Conflicting inputs return 409. Disabled/stale templates and revoked scopes do not create a new investigation. The frozen frontend currently sends no inputs, so its start button needs application selection, version, request ID and error handling before real-mode use.')
+    desc='Requires one selected environment; all returns 409. Current session, canvas.change on the active mapped application or owner team, team-template membership, listed template version, published application-scoped Runbooks and knowledge.view, and current read-only reviewed MCP tool bindings with connectors.view are checked in the start transaction. A successful start atomically creates an investigation, root and template child branches with empty contexts and source provenance, a frozen definition and budget snapshot, events and audit. It does not run an Agent, model, Runbook or tool. The user-scoped request_id deduplicates concurrent retries; a matching committed start returns 200 after current session and canvas.change rechecks, even if its source template was subsequently disabled. Conflicting inputs return 409. Disabled/stale templates and revoked scopes do not create a new investigation.')
 P['/investigation-templates/{id}/start']['post']['responses']['200'] = {
     'description':'Idempotent replay of an already committed template start',
     'content':{'application/json':{'schema':obj({'investigation_id':string()},['investigation_id'])}}}

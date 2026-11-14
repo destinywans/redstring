@@ -1,12 +1,14 @@
 # Governed runbooks and scoped knowledge search.
+runbook_probe = string(enum=['request_rate','error_rate','http_p95_seconds'])
+runbook_action = string(enum=['kubernetes_rollback'])
 S['V3RunbookToolDisplay'] = obj(fieldnames('brand text'),['brand','text'])
 S['V3RunbookToolDisplay']['description'] = 'Optional editor display text only; it does not bind or execute a connector.'
 S['V3RunbookStep'] = obj({'n':integer(),'kind':string(enum=['query','check','action','verify']),
     'title':string(),'body':string(),'connectors':arr(string()),'code':string(),
-    'readonly':v3_bool(),'approval':v3_bool(),'tool':ref('V3RunbookToolDisplay'),'probe':string(enum=['request_rate'])})
+    'readonly':v3_bool(),'approval':v3_bool(),'tool':ref('V3RunbookToolDisplay'),'probe':runbook_probe,'action':runbook_action})
 S['V3RunbookCreateStep'] = obj({'n':integer(),'kind':string(enum=['query','check','action','verify','act','judge']),
     'title':string(),'body':string(),'connectors':arr(string()),'code':string(),
-    'readonly':v3_bool(),'approval':v3_bool(),'tool':ref('V3RunbookToolDisplay'),'probe':string(enum=['request_rate'])})
+    'readonly':v3_bool(),'approval':v3_bool(),'tool':ref('V3RunbookToolDisplay'),'probe':runbook_probe,'action':runbook_action})
 S['V3RunbookSummary'] = obj({**fieldnames('id title scope owner version application_id team_id'),
     'tags':arr(string()),'status':string(enum=['published','review','draft']),
     'environment_ids':arr(string()),
@@ -54,10 +56,10 @@ P['/runbooks/{id}']['get']['responses']['413'] = {
     'content':{'application/json':{'schema':ref('Error')}}}
 v3_route('post','/runbooks','Create governed runbook draft',
     body=obj({'title':string(),'source':string(enum=['blank','template','postmortem','conversation','import']),
-        'from':string(),'expected_source_sha256':string(pattern='^[0-9a-f]{64}$'),
+        'from':string(),'application_id':string(),'expected_source_sha256':string(pattern='^[0-9a-f]{64}$'),
         'steps':arr(ref('V3RunbookCreateStep')),
         'status':string(enum=['draft','review'])},['title','source']),response=obj({'id':string()},['id']),status=201,
-    desc='Requires one selected environment and current scoped knowledge:manage. A nonblank source requires an explicit authorized reference; blank forbids one. A current session, source state and permissions are rechecked inside the creation transaction. The bounded source identity and content digest saved with structured steps are an observation at save time. A client may pass expected_source_sha256 from GET /runbooks/draft to reject source drift with 409 source_changed; without it, submitted steps are not proven to derive from the saved digest. Initial version, revision history and audit are saved atomically; source text remains in its governed source table. An action step requires approval; review status requires at least one step. A draft is visible only to its maintainer with manage permission; review is visible to current knowledge managers. Neither status publishes or executes a Runbook. The frozen frontend creation payload still needs reconciliation with this request schema.')
+    desc='Requires one selected environment and current scoped knowledge:manage. A nonblank source requires an explicit authorized reference; blank forbids one. Only blank and template drafts accept an explicit application_id, checked against the selected environment and current application grants. A current session, source state and permissions are rechecked inside the creation transaction. The bounded source identity and content digest saved with structured steps are an observation at save time. A client may pass expected_source_sha256 from GET /runbooks/draft to reject source drift with 409 source_changed; without it, submitted steps are not proven to derive from the saved digest. Initial version, revision history and audit are saved atomically; source text remains in its governed source table. An action step requires approval; review status requires at least one step. A draft is visible only to its maintainer with manage permission; review is visible to current knowledge managers. Neither status publishes or executes a Runbook. A typed kubernetes_rollback step is an entry into the existing proposal workflow, with independent approvals and executor.')
 v3_route('patch','/runbooks/{id}','Edit a current Runbook draft',
     role='viewer with scoped knowledge.manage',
     body=obj({'expected_version':integer(minimum=1),'title':string(),'when':string(),
@@ -72,15 +74,16 @@ v3_route('post','/runbooks/{id}/dry-run','Validate runbook without execution',
     response=obj({'steps':integer(),'ok':v3_bool(),'mode':string(enum=['validation_only']),
         'checks':arr({'type':'object','additionalProperties':True})}),
     desc='Requires knowledge.manage because the validation preview and audit are persisted. Performs structural checks on persisted step kind, declared readonly flag and connector presence without a request body. Each check carries reasons, the conditions a step failed in a fixed order: action_step, not_readonly, no_connector (an empty array when it passed, PA-194). It does not verify a connector capability or execute any external step.')
-v3_route('post','/runbooks/{id}/execute-readonly','Execute the published Runbook’s registered read-only query',
+v3_route('post','/runbooks/{id}/execute-readonly','Execute the published Runbook’s registered read-only queries',
     role='viewer with scoped knowledge.manage',
     body=obj({'expected_version':integer(minimum=1)},['expected_version']),
     response=obj({'id':string(),'version':integer(),'mode':string(enum=['read_only']),
         'status':string(enum=['observed','no_samples']),
-        'steps':arr(obj({'step':integer(),'query_id':string(enum=['request_rate']),'captured_at':string(format='date-time'),
-            'sample_count':integer(),'latest':{'type':['number','null']}},['step','query_id','captured_at','sample_count','latest']))},
-        ['id','version','mode','status','steps']),
-    desc='Runs only the registered request_rate expression once per bounded window for an exact published application-bound Runbook version. Every step must explicitly name the probe and the application’s sole Prometheus connector. Rechecks the Cookie, document version, scoped grants and exact source configuration before committing the result and audit. Only a nonempty observed result establishes last_verified_at. Arbitrary text, connector writes, commands, action steps and models are never executed.')
+        'steps':arr(obj({'step':integer(),'query_id':runbook_probe,'captured_at':string(format='date-time'),
+            'sample_count':integer(),'latest':{'type':['number','null']}},['step','query_id','captured_at','sample_count','latest'])),
+        'skipped_steps':arr(integer())},
+        ['id','version','mode','status','steps','skipped_steps']),
+    desc='Runs one to ten explicitly bound read-only metric steps on a shared 15 minute window for an exact published application-bound Runbook version. The reviewed Prometheus catalog provides request_rate, error_rate and http_p95_seconds. Reads each distinct probe once. Action and instruction steps with no probe are reported by number as skipped; invalid executable steps are rejected. Rechecks the session, document version, scoped grants and every private source fingerprint before committing results and audit. Observed means at least one probe has samples. Only complete, nonempty observations for every step establish last_verified_at. The operation never runs text, connector writes, commands, action steps or models.')
 v3_route('get','/runbooks/draft','Read a source-validated Runbook outline',
     query=[v3_query('source',string(enum=['template','postmortem','conversation','import'])),v3_query('from')],
     response=obj({'title':string(),'applies_to':arr(string()),'trigger':string(),

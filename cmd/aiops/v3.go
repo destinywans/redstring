@@ -381,12 +381,17 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	}
 	home.Register(api)
 	mcpService := v3mcp.New(s.DB, policy)
-	mcpService.AuthorizeRegistrationEndpoint, err = loadV3MCPRegistrationBindings(
+	mcpAdmissions, err := loadV3MCPAdmissions(
 		os.Getenv("AIOPS_V3_MCP_REGISTRATION_BINDINGS"), *info)
 	if err != nil {
 		return fmt.Errorf("configure V3 MCP registration: %w", err)
 	}
 	credentialRoot := os.Getenv("AIOPS_MCP_CREDENTIAL_ROOT")
+	mcpService.AuthorizeRegistrationEndpoint = mcpAdmissions.endpoint
+	mcpService.AuthorizeAgentReadTool = mcpAdmissions.readTool
+	mcpService.CallAgentReadTool = func(ctx context.Context, config aiextensions.MCPConfig, name string, verify func(context.Context, aiextensions.MCPCatalog) error) (string, error) {
+		return aiextensions.ReviewedMCPRead(ctx, credentialRoot, config, name, verify)
+	}
 	mcpService.DiscoverTools = func(ctx context.Context, config aiextensions.MCPConfig) ([]aiextensions.ToolInfo, error) {
 		return aiextensions.DiscoverTools(ctx, credentialRoot, config)
 	}
@@ -897,6 +902,8 @@ func configureV3WithNativeSources(ctx context.Context, s *store.Store, runtime i
 	sourceRegistry.Register(api)
 	v3memory.New(s.DB, policy).Register(api)
 	agentService := v3agents.New(s.DB, policy)
+	agentService.MCP = mcpService
+	agentService.MCPModelAllowed = func(modelID string) bool { return toolModels[modelID] }
 	promptTrialAdapter, err := loadV3PromptTrialAdapter(
 		os.Getenv("AIOPS_V3_PROMPT_TRIAL_MODEL_CONFIG"),
 		os.Getenv("AIOPS_V3_PROMPT_TRIAL_ALLOWED_HOSTS"), *info)

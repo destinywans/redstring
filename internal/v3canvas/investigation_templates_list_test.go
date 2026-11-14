@@ -1,6 +1,7 @@
 package v3canvas
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -71,7 +72,8 @@ func TestInvestigationTemplateListUsesPersistedVisibleCatalog(t *testing.T) {
 		`INSERT INTO rbac_roles(id,name) VALUES ('template-reader','Template Reader')`,
 		`INSERT INTO v3_role_grants(role_id,module,action,scope_kind,scope_id) VALUES
  ('template-reader','environment','view','environment','test'),
- ('template-reader','canvas','view','application','template-app')`,
+ ('template-reader','canvas','view','application','template-app'),
+ ('template-reader','canvas','change','application','template-app')`,
 		`INSERT INTO teams(id,name) VALUES ('template-team','Template Team')`,
 		`INSERT INTO applications(id,name,key,owner_team_id) VALUES
  ('template-app','Template App','template-app','template-team')`,
@@ -98,6 +100,7 @@ func TestInvestigationTemplateListUsesPersistedVisibleCatalog(t *testing.T) {
 	api := httpapi.New(st, nil, true)
 	api.Register("GET /api/v1/investigation-templates", "viewer", New(st).listInvestigationTemplates)
 	api.MarkV3ObjectRoute("GET /api/v1/investigation-templates", "canvas", "view")
+	New(st).RegisterPageInteractions(api)
 	if err = api.ConfigureV3Environment(httpapi.V3InstanceConfig{Tier: "nonprod", DefaultEnv: "test", EnvironmentIDs: []string{"test"}},
 		policy, st.Session, func(ctx context.Context, u core.User, module, action, environment string) error {
 			return policy.Authorize(ctx, u, rbac.V3Decision{Module: module, Action: action, EnvironmentID: environment})
@@ -107,6 +110,25 @@ func TestInvestigationTemplateListUsesPersistedVisibleCatalog(t *testing.T) {
 	get := func(path string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodGet, path, nil)
 		r.Header.Set("X-AIOps-Environment", "test")
+		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, r)
+		return w
+	}
+	create := func(name string) *httptest.ResponseRecorder {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{
+			"id": "team-test-template", "application_id": "template-app", "name": name,
+			"description": "Check the release",
+			"branches":    []map[string]string{{"name": "Logs", "step": "Inspect recent errors"}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/investigation-templates", bytes.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("X-AIOps-Environment", "test")
+		r.Header.Set("Origin", "http://example.com")
 		r.AddCookie(&http.Cookie{Name: "aiops_session", Value: token})
 		w := httptest.NewRecorder()
 		api.ServeHTTP(w, r)
@@ -180,6 +202,24 @@ func TestInvestigationTemplateListUsesPersistedVisibleCatalog(t *testing.T) {
 	}
 	if got := decode("/api/v1/investigation-templates"); len(got.Items) != 1 || got.Items[0].ID != "official-check" {
 		t.Fatalf("unrelated templates exhausted scoped catalog: %+v", got)
+	}
+	if w := create("Demo check"); w.Code != 403 {
+		t.Fatalf("nonmember create: HTTP %d %s", w.Code, w.Body)
+	}
+	if _, err = db.Exec(ctx, `INSERT INTO team_members(team_id,user_id) VALUES ('template-team',$1)`, user.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []struct {
+		name string
+		code int
+	}{{"Demo check", 201}, {"Demo check", 200}, {"Different content", 409}} {
+		if w := create(want.name); w.Code != want.code {
+			t.Fatalf("create %q: HTTP %d, want %d, %s", want.name, w.Code, want.code, w.Body)
+		}
+	}
+	if err = db.QueryRow(ctx, `SELECT count(*) FROM management_audit
+ WHERE action='investigation_template.create' AND target='team-test-template'`).Scan(&applied); err != nil || applied != 1 {
+		t.Fatalf("create audit count=%d err=%v", applied, err)
 	}
 	if _, err = db.Exec(ctx, `DELETE FROM v3_investigation_templates WHERE id='official-check'`); err == nil {
 		t.Fatal("configured template ID was deleted and could be reused at the same version")

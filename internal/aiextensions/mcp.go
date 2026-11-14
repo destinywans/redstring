@@ -89,14 +89,18 @@ func (s *Service) connect(ctx context.Context, c MCPConfig) (*mcp.ClientSession,
 	if e != nil {
 		return nil, e
 	}
+	return connectMCP(ctx, c.Endpoint, token)
+}
+
+func connectMCP(ctx context.Context, endpoint, token string) (*mcp.ClientSession, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	// Sessions are deliberately short-lived; don't retain a new idle connection
 	// pool after every evidence read.
 	transport.DisableKeepAlives = true
-	client := &http.Client{Transport: endpointTransport{c.Endpoint, token, transport}, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: endpointTransport{endpoint, token, transport}, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	sdk := mcp.NewClient(&mcp.Implementation{Name: "aiops-canvas", Version: "1"}, nil)
-	session, e := sdk.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: c.Endpoint, HTTPClient: client, MaxRetries: -1, DisableStandaloneSSE: true}, nil)
+	session, e := sdk.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: endpoint, HTTPClient: client, MaxRetries: -1, DisableStandaloneSSE: true}, nil)
 	if e != nil {
 		transport.CloseIdleConnections()
 		return nil, ErrUnavailable

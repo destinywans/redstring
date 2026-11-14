@@ -165,6 +165,9 @@ type Request struct {
 	Messages               []Message
 	Tools                  []EvidenceTool
 	MaxCalls, MaxToolCalls int
+	// AcceptCompletedEvidenceBudget lets a caller that independently enforces
+	// its read budget accept a final answer produced after the last allowed read.
+	AcceptCompletedEvidenceBudget bool
 	// MaxOutputTokens may lower, never raise, the deployment provider ceiling.
 	// Zero retains the configured limit for existing callers.
 	MaxOutputTokens int
@@ -789,7 +792,7 @@ func (r *Runtime) run(ctx context.Context, req Request, emit func(Event) error) 
 	if truncated {
 		notices = append(notices, ErrOutputTruncated)
 	}
-	if budget.closed() {
+	if budget.closed() && !req.AcceptCompletedEvidenceBudget {
 		notices = append(notices, ErrEvidenceLimitReached)
 	}
 	body := answer.String()

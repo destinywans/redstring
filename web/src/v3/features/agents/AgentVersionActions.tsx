@@ -2,12 +2,62 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, useGet } from "../../api/client";
-import type { AgentDetail, AgentVersion, Me, ModelCatalog, PromptItem } from "../../api/types";
+import type { AgentDetail, AgentLevel, AgentVersion, Me, ModelCatalog, PromptItem } from "../../api/types";
+import { useEnv } from "../../app/environment";
 import { useI18n } from "../../i18n";
-import { Badge, Btn, Row } from "../../ui/core";
+import { Badge, Btn, Col, Muted, Panel, Row } from "../../ui/core";
 import { openForm } from "../../ui/demo";
 import { Gate } from "../../ui/permission";
 import { toast } from "../../ui/overlays";
+
+export function AgentLevelActions({ agent }: { agent: AgentDetail }) {
+  const { tx } = useI18n();
+  const client = useQueryClient();
+  const env = useEnv((s) => s.env);
+  const { data: me } = useGet<Me>("/me");
+  const [busy, setBusy] = useState(false);
+  const levels: AgentLevel[] = ["L0", "L1", "L2", "L3"];
+  const path = `/agents/${encodeURIComponent(agent.id)}`;
+  const capPath = "/agents/environment-limit";
+  const adjust = async (environment: boolean) => {
+    if (!agent.revision || !env || env === "all") return;
+    setBusy(true);
+    try {
+      const cap = environment ? await api<{ environment_id: string; max_level: AgentLevel }>("GET", capPath) : undefined;
+      if (cap && cap.environment_id !== env) return;
+      const current = cap?.max_level ?? agent.level;
+      const choice = await openForm({
+        title: environment ? tx("环境执行上限", "Environment execution cap") : tx("Agent 执行级别", "Agent execution level"),
+        desc: environment
+          ? tx("环境 {env} 当前上限为 {level}。调整后适用于此环境内的所有 Agent。", "The current cap for {env} is {level}. Changes apply to every Agent in this environment.", { env, level: current })
+          : tx("{name} 当前为 {level}。配置只读取证工具的版本至少需要 L1。", "{name} is currently {level}. Versions with read-only evidence tools require at least L1.", { name: agent.name, level: current }),
+        fields: [{ key: "level", label: tx("级别", "Level"), type: "select", options: levels.map((level) => ({ value: level, label: level })) }],
+        submit: tx("保存", "Save"),
+      });
+      if (!choice || choice.level === current || useEnv.getState().env !== env) return;
+      if (environment) {
+        await api("PUT", capPath, { body: { max_level: choice.level, expected_max_level: current } });
+      } else {
+        await api("PATCH", `${path}/level`, { body: { level: choice.level, expected_revision: agent.revision } });
+      }
+      await client.invalidateQueries({ queryKey: [path] });
+      await client.invalidateQueries({ queryKey: ["/agents/lifecycle"] });
+      toast(tx("级别已保存", "Level saved"));
+    } catch (error) {
+      toast(error instanceof Error ? error.message : tx("保存失败", "Couldn't save the level"), { tone: "danger" });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const environmentManager = !!env && me?.permissions?.[env]?.agents?.manage === "all";
+  return <Panel title={tx("执行权限", "Execution permissions")}><Col gap={8}>
+    <Muted>{tx("当前 Agent 级别 {level}", "Current Agent level {level}", { level: agent.level })}</Muted>
+    <Row gap={8}>
+      <Gate need={["agents", "manage"]}><Btn disabled={busy || !env || env === "all"} onClick={() => void adjust(false)}>{tx("调整 Agent 级别", "Change Agent level")}</Btn></Gate>
+      {environmentManager && <Btn disabled={busy} onClick={() => void adjust(true)}>{tx("调整环境执行上限", "Change environment execution cap")}</Btn>}
+    </Row>
+  </Col></Panel>;
+}
 
 export function AgentActions({ agent }: { agent: AgentDetail }) {
   const { tx } = useI18n();
@@ -71,7 +121,11 @@ export function AgentDraftActions({ agent, version }: { agent: AgentDetail; vers
   const configure = async () => {
     setBusy(true);
     try {
-      const [models, prompts] = await Promise.all([api<ModelCatalog>("GET", "/models"), api<{ items: PromptItem[] }>("GET", "/prompts")]);
+      const [models, prompts, mcp] = await Promise.all([
+        api<ModelCatalog>("GET", "/models"),
+        api<{ items: PromptItem[] }>("GET", "/prompts"),
+        api<{ items: { id: string; name: string; server: string }[] }>("GET", `${path}/execution-mcp-tools`),
+      ]);
       const options = prompts.items.filter((p) => p.agent_id === agent.id).map((p) => ({ value: p.id, label: p.name, hint: p.version }));
       let promptId: string;
       let promptVersion: number;
@@ -88,11 +142,16 @@ export function AgentDraftActions({ agent, version }: { agent: AgentDetail; vers
             { value: "read_service_metrics", label: tx("读取服务指标", "Read service metrics") },
             { value: "read_service_logs", label: tx("读取服务日志", "Read service logs") },
             { value: "search_knowledge", label: tx("检索知识", "Search knowledge") },
+            ...mcp.items.map((tool) => ({ value: tool.id, label: `MCP · ${tool.name}`, hint: tool.server })),
           ], required: true },
         ],
         submit: tx("继续", "Continue"),
       });
       if (!form) return;
+      if (form.tool.startsWith("mcp_") && !models.items.find((m) => m.id === form.model)?.tools) {
+        toast(tx("MCP 读取需要启用工具能力的模型", "MCP reads require a tool-enabled model"), { tone: "danger" });
+        return;
+      }
       const tokens = Number(form.tokens);
       if (!Number.isInteger(tokens) || tokens < 1 || tokens > 4096) {
         toast(tx("输出 Token 上限须为 1 至 4096 的整数", "Enter a whole token limit from 1 to 4096"), { tone: "danger" });

@@ -14,6 +14,7 @@ import (
 	"github.com/destinywans/redstring/internal/httpapi"
 	"github.com/destinywans/redstring/internal/inference"
 	"github.com/destinywans/redstring/internal/store"
+	"github.com/destinywans/redstring/internal/v3mcp"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -28,6 +29,14 @@ type governedExecution struct {
 	calls, models, outputBytes int
 	steps                      map[string]bool
 	failure                    error
+	mcpTools                   []v3mcp.AgentReadTool
+	mcpEvidence                []mcpExecutionEvidence
+}
+
+type mcpExecutionEvidence struct {
+	SpanID string `json:"span_id"`
+	ToolID string `json:"tool_id"`
+	inference.Evidence
 }
 
 func (x *governedExecution) guard(ctx context.Context, p *executionPolicy, kind, code string) error {
@@ -69,21 +78,28 @@ func (x *governedExecution) tools(ctx context.Context, f ExecutionToolsFactory) 
 	if len(x.c.ToolNames) == 0 {
 		return nil, nil
 	}
-	if f == nil {
-		return nil, errors.New("read tool adapter unavailable")
-	}
-	candidates, err := f(ctx, httpapi.CurrentUser(x.r).ID, x.a.App, x.a.Env, x.c.ModelID)
-	if err != nil {
-		return nil, err
+	var candidates []inference.EvidenceTool
+	if len(x.c.ToolNames) > len(x.mcpTools) {
+		if f == nil {
+			return nil, errors.New("read tool adapter unavailable")
+		}
+		var err error
+		candidates, err = f(ctx, httpapi.CurrentUser(x.r).ID, x.a.App, x.a.Env, x.c.ModelID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	byName := map[string]inference.EvidenceTool{}
 	for _, t := range candidates {
-		if executionToolAllowed(t.Name) && t.Read != nil {
+		if executionToolAllowed(t.Name) && !mcpExecutionName.MatchString(t.Name) && t.Read != nil {
 			if _, ok := byName[t.Name]; ok {
 				return nil, errors.New("duplicate read tool adapter")
 			}
 			byName[t.Name] = t
 		}
+	}
+	for _, tool := range x.mcpTools {
+		byName[tool.ID] = x.s.MCP.AgentEvidenceTool(tool, x.check)
 	}
 	out := make([]inference.EvidenceTool, 0, len(x.c.ToolNames))
 	for _, name := range x.c.ToolNames {
@@ -114,7 +130,7 @@ func (x *governedExecution) tools(ctx context.Context, f ExecutionToolsFactory) 
 			if readErr == nil {
 				readErr = x.check(ctx)
 			}
-			if readErr == nil && !validExecutionEvidence(name, x.a.App, x.a.Env, ev) {
+			if readErr == nil && !x.validEvidence(name, ev) {
 				readErr = errors.New("invalid scoped evidence")
 			}
 			if readErr == nil {
@@ -139,12 +155,28 @@ func (x *governedExecution) tools(ctx context.Context, f ExecutionToolsFactory) 
 			if readErr != nil {
 				return inference.Evidence{}, x.fail(readErr)
 			}
+			if mcpExecutionName.MatchString(name) {
+				x.mcpEvidence = append(x.mcpEvidence, mcpExecutionEvidence{SpanID: spanID, ToolID: name, Evidence: ev})
+			}
 			return ev, nil
 		}
 		out = append(out, t)
 	}
 	return out, nil
 }
+
+func (x *governedExecution) validEvidence(name string, evidence inference.Evidence) bool {
+	if mcpExecutionName.MatchString(name) {
+		for _, tool := range x.mcpTools {
+			if tool.ID == name {
+				return tool.MatchesEvidence(evidence)
+			}
+		}
+		return false
+	}
+	return validExecutionEvidence(name, x.a.App, x.a.Env, evidence)
+}
+
 func validExecutionEvidence(name, app, env string, e inference.Evidence) bool {
 	if !utf8.ValidString(e.Content) || strings.ContainsRune(e.Content, '\x00') || len(e.Content) > 16384 || strings.TrimSpace(e.Content) == "" {
 		return false
@@ -270,7 +302,10 @@ func (x *governedExecution) finish(ctx context.Context, status, code, output str
 		if len(output) > x.c.MaxOutputBytes {
 			return errors.New("result budget exceeded")
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO v3_agent_execution_results(run_id,output_text) VALUES($1,$2)`, x.id, output); err != nil {
+		if x.mcpEvidence == nil {
+			x.mcpEvidence = []mcpExecutionEvidence{}
+		}
+		if _, err = tx.Exec(ctx, `INSERT INTO v3_agent_execution_results(run_id,output_text,mcp_evidence) VALUES($1,$2,$3)`, x.id, output, x.mcpEvidence); err != nil {
 			return err
 		}
 	}

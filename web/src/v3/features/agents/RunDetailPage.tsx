@@ -20,7 +20,12 @@ export default function RunDetailPage() {
   const demo = API_MODE === "mock";
   const { data: r, error } = useGet<RunDetail>(id ? `/agent-runs/${id}` : null);
   const [tab, setTab] = useState("trace");
-  const result = useGet<{ output?: string; status: string; error_code?: string }>(!demo && id && tab === "run" ? `/agent-runs/${id}/result` : null);
+  const result = useGet<{
+    output?: string;
+    status: string;
+    error_code?: string;
+    mcp_evidence?: { span_id: string; source: string; title: string; content: string }[];
+  }>(!demo && id && tab === "run" ? `/agent-runs/${id}/result` : null);
   const [stepId, setStepId] = useState(demo ? "s2" : "");
   // The highlight is the viewer's saved vote (feedback.my_vote, PA-237); the sample keeps it on the page.
   const [sampleVote, setSampleVote] = useState<"up" | "down" | null>(null);
@@ -154,6 +159,13 @@ export default function RunDetailPage() {
         <div className="v3-content anim-fade" style={{ padding: "14px 24px" }} key={tab}>
           {tab === "run" && result.data && <Panel title={tx("运行结果", "Run result")}>
             {result.data.output ? <Markdown text={result.data.output} /> : <Muted>{result.data.error_code || tx("未保存输出", "No output was saved")}</Muted>}
+            {result.data.mcp_evidence?.map((evidence) => (
+              <details key={evidence.span_id}>
+                <summary>{tx("MCP 证据", "MCP evidence")} · {evidence.title}</summary>
+                <Muted>{evidence.source} · {evidence.span_id}</Muted>
+                <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{evidence.content}</pre>
+              </details>
+            ))}
           </Panel>}
           <Card className="run-chain">
             {r.chain.map((c, i) => {

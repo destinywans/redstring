@@ -41,16 +41,17 @@ func (a *runbookPromotionAccess) AuthorizeWithTx(_ context.Context, _ pgx.Tx, _ 
 func TestRunbookSnapshotSanitizesContentAndRejectsUnsafeLabels(t *testing.T) {
 	raw := []byte(`[{"n":1,"kind":"check","title":"Inspect metrics","body":"password=source-only",
 "code":"curl -H 'Bearer source-only'","connectors":["private-connector"],
-"tool":{"brand":"private","text":"source-only"},"readonly":true}]`)
+"tool":{"brand":"private","text":"source-only"},"readonly":true,"probe":"request_rate"},
+{"n":2,"kind":"action","title":"Propose rollback","approval":true,"action":"kubernetes_rollback"}]`)
 	snapshot, err := sanitizeRunbookSnapshot("Inspect traffic", 3, "Error rate rises", raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Version != 3 || len(snapshot.Steps) != 1 || !snapshot.Steps[0].Readonly {
+	if snapshot.Version != 3 || len(snapshot.Steps) != 2 || !snapshot.Steps[0].Readonly || !snapshot.Steps[1].Approval {
 		t.Fatalf("wrong sanitized configuration: %+v", snapshot)
 	}
 	encoded, _ := json.Marshal(snapshot)
-	for _, forbidden := range []string{"source-only", "private-connector", "Bearer", "code", "tool", "body"} {
+	for _, forbidden := range []string{"source-only", "private-connector", "Bearer", "code", "tool", "body", "probe", "request_rate", "kubernetes_rollback"} {
 		if strings.Contains(string(encoded), forbidden) {
 			t.Fatalf("Runbook promotion leaked %s: %s", forbidden, encoded)
 		}

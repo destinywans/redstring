@@ -261,6 +261,7 @@ export type WritebackPreview = {
 /* ---------------- investigation templates ---------------- */
 export type InvestigationTemplate = {
   id: string;
+  application_id?: string;
   name: string;
   owner: "official" | "team";
   description: string;
@@ -721,7 +722,8 @@ export type ExecutionDetail = {
 /* ---------------- knowledge & memory ---------------- */
 export type RunbookSummary = { id: string; title: string; tags: string[]; scope: string; owner: string; version: string; status: "published" | "review" | "draft"; refs_30d: number | null; resolve_rate?: number | null; last_verified: string | null; stale: boolean | null };
 export type RunbookSuggestion = { id: string; icon: string; tone: Tone; title: string; body: string; actions: { label: string; kind: "primary" | "secondary" | "ghost"; href?: string }[] };
-export type RunbookStep = { n: number; kind: "query" | "check" | "action" | "verify"; title: string; body?: string; connectors?: string[]; code?: string; probe?: "request_rate"; readonly?: boolean; approval?: boolean; tool?: { brand: string; text: string }; suggestion?: { source: string; minus: string; plus: string } };
+export type RunbookProbe = "request_rate" | "error_rate" | "http_p95_seconds";
+export type RunbookStep = { n: number; kind: "query" | "check" | "action" | "verify"; title: string; body?: string; connectors?: string[]; code?: string; probe?: RunbookProbe; action?: "kubernetes_rollback"; readonly?: boolean; approval?: boolean; tool?: { brand: string; text: string }; suggestion?: { source: string; minus: string; plus: string } };
 export type Runbook = {
   id: string;
   title: string;
@@ -1127,6 +1129,8 @@ export type TagChip = { label: string; tone?: Tone; mono?: boolean };
 export type Connector = { id: string; brand: string; name: string; kind: string; category: ConnectorCategory; status: ConnectorStatus; tags: TagChip[]; meta: string; /** The last connection test (RFC 3339; null when never tested); meta carries no time (PA-83). */ checked_at?: string | null };
 export type ConnectorList = { items: Connector[]; counts: Record<ConnectorStatus, number>; categories: { id: ConnectorCategory | "all"; label: string; count: number }[] };
 export type ConnectorDetail = Connector & {
+  revision?: number;
+  enabled?: boolean;
   scope: string;
   address: string;
   auth: { brand?: string; text: string };

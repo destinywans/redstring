@@ -28636,13 +28636,169 @@
             "description": "Selected environment; all is a read-only non-production aggregate."
           }
         ]
+      },
+      "post": {
+        "summary": "Create an application-bound team investigation template",
+        "operationId": "post_investigation_templates",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires an active human session, a single environment, canvas view and change authorization, and membership in the selected application owner team. Creates a manual outline with one to eight branches. Caller-generated team-* IDs allow an exact repeat to return 200. It does not execute model or tool calls.",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3InvestigationTemplate"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The same definition already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/V3InvestigationTemplate"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "investigation-templates"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "application_id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "branches": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "step": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "name",
+                        "step"
+                      ]
+                    }
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "id",
+                  "application_id",
+                  "name",
+                  "description",
+                  "branches"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
       }
     },
     "/investigation-templates/{id}/start": {
       "post": {
         "summary": "Start a persisted investigation from a reviewed template outline",
         "operationId": "post_investigation_templates_id_start",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment; all returns 409. Current session, canvas.change on the active mapped application or owner team, team-template membership, listed template version, published application-scoped Runbooks and knowledge.view, and current read-only reviewed MCP tool bindings with connectors.view are checked in the start transaction. A successful start atomically creates an investigation, root and template child branches with empty contexts and source provenance, a frozen definition and budget snapshot, events and audit. It does not run an Agent, model, Runbook or tool. The user-scoped request_id deduplicates concurrent retries; a matching committed start returns 200 after current session and canvas.change rechecks, even if its source template was subsequently disabled. Conflicting inputs return 409. Disabled/stale templates and revoked scopes do not create a new investigation. The frozen frontend currently sends no inputs, so its start button needs application selection, version, request ID and error handling before real-mode use.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment; all returns 409. Current session, canvas.change on the active mapped application or owner team, team-template membership, listed template version, published application-scoped Runbooks and knowledge.view, and current read-only reviewed MCP tool bindings with connectors.view are checked in the start transaction. A successful start atomically creates an investigation, root and template child branches with empty contexts and source provenance, a frozen definition and budget snapshot, events and audit. It does not run an Agent, model, Runbook or tool. The user-scoped request_id deduplicates concurrent retries; a matching committed start returns 200 after current session and canvas.change rechecks, even if its source template was subsequently disabled. Conflicting inputs return 409. Disabled/stale templates and revoked scopes do not create a new investigation.",
         "responses": {
           "201": {
             "description": "Success",
@@ -39646,7 +39802,7 @@
       "post": {
         "summary": "Create governed runbook draft",
         "operationId": "post_runbooks",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and current scoped knowledge:manage. A nonblank source requires an explicit authorized reference; blank forbids one. A current session, source state and permissions are rechecked inside the creation transaction. The bounded source identity and content digest saved with structured steps are an observation at save time. A client may pass expected_source_sha256 from GET /runbooks/draft to reject source drift with 409 source_changed; without it, submitted steps are not proven to derive from the saved digest. Initial version, revision history and audit are saved atomically; source text remains in its governed source table. An action step requires approval; review status requires at least one step. A draft is visible only to its maintainer with manage permission; review is visible to current knowledge managers. Neither status publishes or executes a Runbook. The frozen frontend creation payload still needs reconciliation with this request schema.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires one selected environment and current scoped knowledge:manage. A nonblank source requires an explicit authorized reference; blank forbids one. Only blank and template drafts accept an explicit application_id, checked against the selected environment and current application grants. A current session, source state and permissions are rechecked inside the creation transaction. The bounded source identity and content digest saved with structured steps are an observation at save time. A client may pass expected_source_sha256 from GET /runbooks/draft to reject source drift with 409 source_changed; without it, submitted steps are not proven to derive from the saved digest. Initial version, revision history and audit are saved atomically; source text remains in its governed source table. An action step requires approval; review status requires at least one step. A draft is visible only to its maintainer with manage permission; review is visible to current knowledge managers. Neither status publishes or executes a Runbook. A typed kubernetes_rollback step is an entry into the existing proposal workflow, with independent approvals and executor.",
         "responses": {
           "201": {
             "description": "Success",
@@ -39757,6 +39913,9 @@
                     ]
                   },
                   "from": {
+                    "type": "string"
+                  },
+                  "application_id": {
                     "type": "string"
                   },
                   "expected_source_sha256": {
@@ -40316,9 +40475,9 @@
     },
     "/runbooks/{id}/execute-readonly": {
       "post": {
-        "summary": "Execute the published Runbook’s registered read-only query",
+        "summary": "Execute the published Runbook’s registered read-only queries",
         "operationId": "post_runbooks_id_execute_readonly",
-        "description": "Minimum role: viewer with scoped knowledge.manage. V3 instance and environment scope apply. Runs only the registered request_rate expression once per bounded window for an exact published application-bound Runbook version. Every step must explicitly name the probe and the application’s sole Prometheus connector. Rechecks the Cookie, document version, scoped grants and exact source configuration before committing the result and audit. Only a nonempty observed result establishes last_verified_at. Arbitrary text, connector writes, commands, action steps and models are never executed.",
+        "description": "Minimum role: viewer with scoped knowledge.manage. V3 instance and environment scope apply. Runs one to ten explicitly bound read-only metric steps on a shared 15 minute window for an exact published application-bound Runbook version. The reviewed Prometheus catalog provides request_rate, error_rate and http_p95_seconds. Reads each distinct probe once. Action and instruction steps with no probe are reported by number as skipped; invalid executable steps are rejected. Rechecks the session, document version, scoped grants and every private source fingerprint before committing results and audit. Observed means at least one probe has samples. Only complete, nonempty observations for every step establish last_verified_at. The operation never runs text, connector writes, commands, action steps or models.",
         "responses": {
           "200": {
             "description": "Success",
@@ -40357,7 +40516,9 @@
                           "query_id": {
                             "type": "string",
                             "enum": [
-                              "request_rate"
+                              "request_rate",
+                              "error_rate",
+                              "http_p95_seconds"
                             ]
                           },
                           "captured_at": {
@@ -40383,6 +40544,12 @@
                           "latest"
                         ]
                       }
+                    },
+                    "skipped_steps": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
                     }
                   },
                   "additionalProperties": false,
@@ -40391,7 +40558,8 @@
                     "version",
                     "mode",
                     "status",
-                    "steps"
+                    "steps",
+                    "skipped_steps"
                   ]
                 }
               }
@@ -51388,7 +51556,7 @@
       "put": {
         "summary": "Bind an immutable executable configuration to an Agent version",
         "operationId": "put_agents_id_versions_version_execution",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current human and scoped agents.manage required. Prompt version must belong to this Agent. Configuration hash includes the immutable Prompt body and artifact reference. Identical replay succeeds; a different configuration returns 409 execution_config_immutable and requires a new Agent version. First configuration on an already stable/canary/previous rollback version returns 409 active_version_unconfigured; register a new draft version before release. This does not release the Agent or call a model. Tool names are the reviewed read-only allowlist; write and MCP execution are unavailable.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Current human and scoped agents.manage required. Prompt version must belong to this Agent. Configuration hash includes the immutable Prompt body and artifact reference. Identical replay succeeds while selected tools are current; a different configuration returns 409 execution_config_immutable and requires a new Agent version. First configuration on an already stable/canary/previous rollback version returns 409 active_version_unconfigured; register a new draft version before release. This does not release the Agent or call a model. Built-in tools are read-only. MCP identities are exact approved read aliases returned by the Agent MCP choices endpoint and require explicit model admission.",
         "responses": {
           "200": {
             "description": "Success",
@@ -51415,12 +51583,7 @@
                       "type": "array",
                       "items": {
                         "type": "string",
-                        "enum": [
-                          "read_service_profile",
-                          "read_service_metrics",
-                          "read_service_logs",
-                          "search_knowledge"
-                        ]
+                        "pattern": "^(read_service_profile|read_service_metrics|read_service_logs|search_knowledge|mcp_[0-9a-f]{32})$"
                       }
                     },
                     "max_model_calls": {
@@ -51580,6 +51743,140 @@
             }
           }
         }
+      }
+    },
+    "/agents/{id}/execution-mcp-tools": {
+      "get": {
+        "summary": "List approved no-argument MCP read choices for an Agent",
+        "operationId": "get_agents_id_execution_mcp_tools",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Requires current agents.view and agents.manage on the Agent. Choices only include the selected Agent application and environment with connectors.view, exact deployment admission, current matching reviewed discovery and enabled no-argument reads. The opaque ID pins the discovery, binding and switch revision. Does not contact the MCP endpoint.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "server": {
+                            "type": "string"
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "name",
+                          "server"
+                        ]
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden or cross-origin request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict or stale version",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Dependency unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "agents"
+        ],
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-AIOps-Environment",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Selected environment; all is a read-only non-production aggregate."
+          }
+        ]
       }
     },
     "/agents/environment-limit": {
@@ -51977,7 +52274,7 @@
       "get": {
         "summary": "Read a private governed Agent execution result",
         "operationId": "get_agent_runs_id_result",
-        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only the original run actor with current scoped agents.view and active application/environment mapping may read the bounded delivered snapshot. Other actors and inaccessible runs return 404. Shared run/trace views do not include output. Failed/blocked/running output is null. A delivered private snapshot is not retroactively deleted when a source document changes.",
+        "description": "Minimum role: viewer. V3 instance and environment scope apply. Only the original run actor with current scoped agents.view and active application/environment mapping may read the bounded delivered snapshot. Other actors and inaccessible runs return 404. Shared run/trace views do not include output or raw MCP evidence. Successful MCP evidence links to the corresponding sanitized tool span. Failed/blocked/running output is null and MCP evidence is empty. A delivered private snapshot is not retroactively deleted when a source document changes.",
         "responses": {
           "200": {
             "description": "Success",
@@ -71895,6 +72192,9 @@
               "team"
             ]
           },
+          "application_id": {
+            "type": "string"
+          },
           "description": {
             "type": "string"
           },
@@ -81901,7 +82201,15 @@
           "probe": {
             "type": "string",
             "enum": [
-              "request_rate"
+              "request_rate",
+              "error_rate",
+              "http_p95_seconds"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "kubernetes_rollback"
             ]
           }
         },
@@ -81951,7 +82259,15 @@
           "probe": {
             "type": "string",
             "enum": [
-              "request_rate"
+              "request_rate",
+              "error_rate",
+              "http_p95_seconds"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "kubernetes_rollback"
             ]
           }
         },
@@ -85707,12 +86023,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "enum": [
-                "read_service_profile",
-                "read_service_metrics",
-                "read_service_logs",
-                "search_knowledge"
-              ]
+              "pattern": "^(read_service_profile|read_service_metrics|read_service_logs|search_knowledge|mcp_[0-9a-f]{32})$"
             }
           },
           "max_model_calls": {
@@ -85804,6 +86115,45 @@
           "read_only": {
             "type": "boolean",
             "const": true
+          },
+          "mcp_evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "span_id": {
+                  "type": "string"
+                },
+                "tool_id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "content": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "string"
+                },
+                "target_id": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "span_id",
+                "tool_id",
+                "kind",
+                "title",
+                "content",
+                "source",
+                "target_id"
+              ]
+            }
           }
         },
         "additionalProperties": false,
@@ -85819,7 +86169,8 @@
           "prompt_version",
           "lifecycle_revision",
           "output",
-          "read_only"
+          "read_only",
+          "mcp_evidence"
         ]
       },
       "V3ExecutionApproval": {

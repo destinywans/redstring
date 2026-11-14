@@ -1,0 +1,71 @@
+name: redstring-demo-compose
+
+x-app: &app
+  image: redstring-local-demo:runtime
+  network_mode: service:relay
+  depends_on:
+    relay:
+      condition: service_healthy
+      restart: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  read_only: true
+  tmpfs: [/tmp]
+  restart: "on-failure:5"
+
+x-build: &build
+  context: ../..
+  target: runtime
+
+x-build-args: &build-args
+  REDSTRING_UID: ${DEMO_UID:?Use scripts/demo-compose.py}
+  REDSTRING_GID: ${DEMO_GID:?Use scripts/demo-compose.py}
+  REDSTRING_REVISION: ${DEMO_REVISION:-unknown}
+  REDSTRING_TREE_STATE: ${DEMO_TREE_STATE:-unknown}
+
+services:
+  relay:
+    image: redstring-local-demo:relay
+    build:
+      context: ../..
+      target: demo-relay
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs: [/tmp]
+    restart: "on-failure:5"
+    healthcheck:
+      test: [CMD, test, -f, /tmp/demo-relay.ready]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  prod:
+    <<: *app
+    build:
+      <<: *build
+      args: *build-args
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:18090/healthz"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+  nonprod:
+    <<: *app
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:18091/healthz"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+  delivery:
+    <<: *app
+    image: redstring-local-demo:delivery
+    build:
+      <<: *build
+      args:
+        <<: *build-args
+        VITE_ENABLE_LEGACY_DELIVERY: "true"
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, "http://127.0.0.1:18593/healthz"]
+      interval: 3s
+      timeout: 3s
+      retries: 40

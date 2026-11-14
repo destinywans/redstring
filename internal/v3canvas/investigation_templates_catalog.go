@@ -169,23 +169,24 @@ func loadInvestigationTemplate(ctx context.Context, tx pgx.Tx, id, env string, l
 }
 
 type investigationTemplateItem struct {
-	ID          string                        `json:"id"`
-	Name        string                        `json:"name"`
-	Owner       string                        `json:"owner"`
-	Description string                        `json:"description"`
-	Branches    []investigationTemplateBranch `json:"branches"`
-	Tools       []string                      `json:"tools"`
-	Uses        string                        `json:"uses"`
-	Version     string                        `json:"version"`
-	Maintainer  string                        `json:"maintainer"`
-	Triggers    investigationTemplateTriggers `json:"triggers"`
-	Runbooks    []string                      `json:"runbooks"`
-	Budget      investigationTemplateBudget   `json:"budget"`
+	ID            string                        `json:"id"`
+	ApplicationID string                        `json:"application_id,omitempty"`
+	Name          string                        `json:"name"`
+	Owner         string                        `json:"owner"`
+	Description   string                        `json:"description"`
+	Branches      []investigationTemplateBranch `json:"branches"`
+	Tools         []string                      `json:"tools"`
+	Uses          string                        `json:"uses"`
+	Version       string                        `json:"version"`
+	Maintainer    string                        `json:"maintainer"`
+	Triggers      investigationTemplateTriggers `json:"triggers"`
+	Runbooks      []string                      `json:"runbooks"`
+	Budget        investigationTemplateBudget   `json:"budget"`
 }
 
 func (t investigationTemplateRecord) publicItem() investigationTemplateItem {
 	return investigationTemplateItem{
-		ID: t.ID, Name: t.Name, Owner: t.Owner, Description: t.Description,
+		ID: t.ID, ApplicationID: t.ApplicationID, Name: t.Name, Owner: t.Owner, Description: t.Description,
 		Branches: t.Branches, Tools: t.Tools, Uses: strconv.FormatInt(t.Uses, 10),
 		Version: "v" + strconv.Itoa(t.Version), Maintainer: t.Maintainer,
 		Triggers: t.Triggers, Runbooks: t.Runbooks, Budget: t.Budget,

@@ -8,7 +8,7 @@ README 的「快速开始」只列命令，这里补充各方式的前提、地�
 | --- | --- |
 | Go | 版本以 `go.mod` 为准（1.27.3） |
 | Node 与 pnpm | pnpm 版本以 `web/package.json` 的 `packageManager` 为准（12.4.1） |
-| Docker Compose | 用 `docker compose` 子命令，只用来起 PostgreSQL（pgvector） |
+| Docker Compose | 用 `docker compose` 起 PostgreSQL（pgvector），也可运行 V3 应用 |
 | openssl | `make init` 用它生成随机密码 |
 
 本机开发会用到这些端口，都只监听 `127.0.0.1`：
@@ -125,15 +125,16 @@ pnpm --dir web build
 
 ## Docker Compose
 
-**用 Docker Compose 运行整个应用目前不可用**（原因见本节末尾），请用前两节的宿主机方式；数据库照常由 `make db` 起。下面的命令只作参考：
-
 ```sh
-docker compose --profile app up -d --build
+make init
+docker compose --profile app up -d --build --wait
 ```
 
-数据保存在独立 volume，`docker compose down` 默认保留；不要随意加 `-v`。服务器部署需配置 HTTPS 反向代理、实际 `AIOPS_PUBLIC_ORIGIN` 与 `AIOPS_SECURE_COOKIES=true`，并把代理地址写进 `AIOPS_TRUSTED_PROXY_CIDRS`（否则登录限流按代理 IP 共用）。模型和集群凭据保留在服务端；本地默认端口仅映射回环。
+打开 [本机登录页](http://127.0.0.1:8080/login)，管理员凭据在 `.env`。容器挂载示例非生产实例描述并使用真实 API 构建。要替换实例描述，设置宿主路径 `AIOPS_COMPOSE_INSTANCE_CONFIG`。在未启用宿主 Ollama 时，可在 `.env` 中设置空值 `OLLAMA_MODEL=`。有 Ollama 时需在宿主先拉取模型，容器通过 `host.docker.internal:11434` 走兼容接口。Embedding 可在已拉取模型时用 `EMBEDDING_PROVIDER=ollama` 启用。
 
-容器方式没有做过端到端验收。按 `compose.yaml` 现状，`api` 服务没有传 `AIOPS_V3_INSTANCE_CONFIG`，也没有挂载实例描述，会以旧版模式启动，当前界面的页面会停在加载骨架（同上）；它还总是带原生 Ollama 模型（`.env` 里留空也会回落到 `qwen3.6:latest`）。要跑当前界面，请用前两节的宿主机方式。2026-10 的验收实例是宿主机上的 Go 服务托管真实 API 模式的 Web 产物，前面加 TLS 代理，见 [验收计划](plans/2026-10-09-production-acceptance.md)。
+数据保存在独立 volume，`docker compose down` 默认保留。服务器部署需配置 HTTPS 反向代理、实际 `AIOPS_PUBLIC_ORIGIN` 与 `AIOPS_SECURE_COOKIES=true`，并把实际信任的代理地址写进 `AIOPS_TRUSTED_PROXY_CIDRS`。本地默认端口仅映射回环。
+
+使用完整的本机 `aiops-test` 演示数据时，从已配置的实验环境运行 [演示 Compose 入口](demo-compose.md)。它复用独立实验实例、TLS 和观测依赖。
 
 ## 故障演示环境
 

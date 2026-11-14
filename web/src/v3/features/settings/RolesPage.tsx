@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Page } from "../../app/Shell";
-import { API_MODE, ApiError, api, useGet, useGetWithEtag } from "../../api/client";
+import { API_MODE, ApiError, api, newIdempotencyKey, useGet, useGetWithEtag } from "../../api/client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Role, RoleDetail } from "../../api/types";
+import type { MembersView, Role, RoleDetail } from "../../api/types";
 import { AvatarGroup, Badge, Btn, Card, Chip, Col, Icon, Muted, Row, SearchBox, Section, Skeleton, Tabs, Tile, cx } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { Gated, useNeed } from "../../ui/permission";
@@ -11,6 +11,8 @@ import { useI18n } from "../../i18n";
 import "./settings.css";
 import { openForm, AddChip, usePickLists } from "../../ui/demo";
 import { useFirstSelection } from "../../ui/selection";
+import { useEnv } from "../../app/environment";
+import { addMemberRole } from "./memberAccess";
 
 export default function RolesPage() {
   const { tx } = useI18n();
@@ -19,6 +21,7 @@ export default function RolesPage() {
   const [sel, setSel] = useState("");
   const [q, setQ] = useState("");
   const [tab, setTab] = useState("perm");
+  const env = useEnv((s) => s.env);
   useFirstSelection(list?.items, (x) => x.id, sel, setSel);
   // The matrix is saved against the revision it was read at (If-Role-Matrix-Revision, PA-158).
   const { data: read, error: detailError } = useGetWithEtag<RoleDetail>(sel ? `/roles/${sel}` : null);
@@ -27,6 +30,11 @@ export default function RolesPage() {
   const [matrix, setMatrix] = useState<RoleDetail["matrix"] | null>(null);
   // Saving the matrix needs roles.manage (PA-200).
   const noManage = useNeed(["roles", "manage"]);
+  const noMembers = useNeed(["members", "manage"]);
+  const { data: members } = useGet<MembersView>(API_MODE === "http" && !noManage && !noMembers && r?.kind !== "machine" ? "/members" : null);
+  const memberOptions = (members?.items ?? []).filter((member) => !member.agent).map((member) => ({
+    value: member.id, label: member.name, hint: member.email,
+  }));
   const client = useQueryClient();
   const save = useMutation<unknown, ApiError, { matrix: RoleDetail["matrix"] }>({
     mutationFn: (body) => api("PUT", `/roles/${sel}`, { body, headers: read?.revision ? { "If-Role-Matrix-Revision": read.revision } : undefined }),
@@ -39,6 +47,41 @@ export default function RolesPage() {
     ["business", tx("业务角色", "Business roles")],
     ["machine", tx("机器身份", "Machine identities")],
   ];
+  const create = async () => {
+    const v = await openForm({
+      title: tx("新建角色", "New role"),
+      desc: tx("为所选范围授予环境准入或只读权限。全局角色可在权限矩阵中继续配置。", "Grant environment access or read-only permissions in the selected scope. Global roles can be configured further in the permissions matrix."),
+      fields: [
+        { key: "name", label: tx("名称", "Name"), required: true },
+        { key: "description", label: tx("说明", "Description"), type: "textarea" },
+        { key: "scope", label: tx("范围", "Scope"), type: "select", required: true, initial: "environment", options: [
+          { value: "environment", label: tx("当前环境 · {env}", "Current environment · {env}", { env }) },
+          { value: "global", label: tx("全部环境", "All environments") },
+        ] },
+        { key: "baseline", label: tx("初始权限", "Initial permissions"), type: "select", required: true, initial: "empty", options: [
+          { value: "empty", label: tx("仅环境准入", "Environment access only") },
+          { value: "view", label: tx("全部资源只读", "Read all resources") },
+        ] },
+      ],
+      submit: tx("创建", "Create"),
+    });
+    if (!v) return;
+    if (API_MODE === "mock") return toast(tx("示例角色已创建", "Sample role created"));
+    try {
+      if (!env || env === "all" || env !== useEnv.getState().env || !r?.matrix.length) throw new Error(tx("请先选定单个环境并加载角色目录", "Select one environment and load the role catalogue first"));
+      const id = `custom-${newIdempotencyKey()}`;
+      await api("POST", "/roles", { body: {
+        id, name: v.name, description: v.description,
+        scopes: [{ kind: v.scope, id: v.scope === "global" ? "*" : env }],
+        matrix: r.matrix.map((row) => ({ resource: row.resource, grants: [v.baseline === "view" ? 1 : 0, 0, 0, 0, 0] })),
+      } });
+      await client.invalidateQueries({ queryKey: ["/roles"] });
+      setSel(id);
+      toast(tx("角色已创建", "Role created"));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : tx("创建失败", "Creation failed"), { tone: "danger" });
+    }
+  };
   const toggle = (ri: number, ci: number) => {
     if (!matrix || !r) return;
     // Agent service accounts may never approve; the approve column is locked for them.
@@ -64,27 +107,11 @@ export default function RolesPage() {
               </Btn>
             </Gated>
           )}
-          {/* Creating a role only showed a toast; it stays in the sample until the real form is designed (PA-163, D52). */}
-          {API_MODE === "mock" && (
-          <Btn
-            kind={dirty ? "secondary" : "primary"}
-            icon="plus"
-            onClick={async () => {
-              const v = await openForm({
-                title: tx("新建角色", "New role"),
-                desc: tx("新角色从只读权限开始，在右侧权限矩阵中逐项开启。", "New roles start read-only; grant permissions in the matrix."),
-                fields: [
-                  { key: "name", label: tx("名称", "Name"), required: true, placeholder: tx("例如：支付值班", "e.g. Payments on-call") },
-                  { key: "base", label: tx("复制权限自", "Copy permissions from"), type: "select", options: [{ value: "", label: tx("不复制（只读）", "Nothing (read-only)") }, ...(list?.items ?? []).filter((x) => x.kind !== "machine").map((x) => ({ value: x.id, label: x.name }))] },
-                ],
-                submit: tx("创建", "Create"),
-              });
-              if (v) toast(tx("角色「{n}」已创建，写入审计", "Role “{n}” created; audited", { n: v.name }));
-            }}
-          >
-            {tx("新建角色", "New role")}
-          </Btn>
-          )}
+          <Gated reason={noManage}>
+            <Btn kind={dirty ? "secondary" : "primary"} icon="plus" disabled={API_MODE === "http" && (!r || env === "all")} onClick={create}>
+              {tx("新建角色", "New role")}
+            </Btn>
+          </Gated>
         </>
       }
     >
@@ -129,8 +156,7 @@ export default function RolesPage() {
                   <Muted>{r.desc}</Muted>
                 </Col>
                 <AvatarGroup names={r.member_names} />
-                {/* Adding a member to a role has no real call yet; sample data only (PA-134). */}
-                {API_MODE === "mock" && (
+                {r.kind !== "machine" && <Gated reason={noManage || noMembers}>
                   <Btn
                     h={28}
                     icon="user"
@@ -139,16 +165,26 @@ export default function RolesPage() {
                         title: tx("管理「{r}」的成员", "Members of “{r}”", { r: r.name }),
                         desc: tx("当前成员：{m}", "Current members: {m}", { m: r.member_names.join("、") || "—" }),
                         fields: [
-                          { key: "add", label: tx("添加成员", "Add a member"), type: "select", options: lists.people.filter((p) => !r.member_names.includes(p.value)).slice(0, 8) },
+                          { key: "add", label: tx("添加成员", "Add a member"), type: "select", required: true, options: API_MODE === "mock" ? lists.people : memberOptions },
                         ],
                         submit: tx("添加", "Add"),
                       });
-                      if (v) toast(tx("已将 {p} 加入「{r}」，写入审计", "Added {p} to “{r}”; audited", { p: v.add, r: r.name }));
+                      if (!v) return;
+                      try {
+                        if (API_MODE === "http") {
+                          if (env !== useEnv.getState().env || env === "all") throw new Error(tx("环境已变化，请重新选择成员", "The environment changed. Select the member again."));
+                          await addMemberRole(env, v.add, r.id);
+                          await client.invalidateQueries({ predicate: (query) => /^\/(members|roles)(\/|$)/.test(String(query.queryKey[0])) });
+                        }
+                        toast(tx("成员已拥有该角色", "The member has this role"));
+                      } catch (e) {
+                        toast(e instanceof Error ? e.message : tx("角色分配失败", "Role assignment failed"), { tone: "danger" });
+                      }
                     }}
                   >
                     {tx("管理成员", "Manage members")}
                   </Btn>
-                )}
+                </Gated>}
               </Row>
               <Row gap={6}>
                 <Muted>{tx("范围", "Scope")}</Muted>

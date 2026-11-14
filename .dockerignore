@@ -9,3 +9,11 @@ web/node_modules
 web/dist
 web/tsconfig.tsbuildinfo
 .idea
+.claude
+.agents
+.codex
+.aws
+AGENTS.md
+AGENTS.override.md
+CLAUDE.local.md
+**/__pycache__

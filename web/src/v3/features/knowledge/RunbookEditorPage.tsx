@@ -2,8 +2,9 @@ import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQueryClient, type Query } from "@tanstack/react-query";
 import { Page } from "../../app/Shell";
+import { useEnv } from "../../app/environment";
 import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import type { Me, Runbook, RunbookStep } from "../../api/types";
+import type { Me, Runbook, RunbookProbe, RunbookStep } from "../../api/types";
 import { Avatar, Badge, Brand, Btn, Code, Col, Field, Icon, Input, Mono, Muted, Num, Row, Section, Skeleton, Spacer, State, Textarea, TextLink, type Tone } from "../../ui/core";
 import { toast } from "../../ui/overlays";
 import { VBars } from "../../charts";
@@ -16,13 +17,22 @@ import "./knowledge.css";
 import { confirmAction, openForm } from "../../ui/demo";
 import { useWhen } from "../../ui/when";
 import { UnknownValue } from "../../ui/unknown";
-import { Gate } from "../../ui/permission";
-import { RunbookStepsForm, runbookSaveSteps } from "./RunbookStepsForm";
+import { Gate, Gated } from "../../ui/permission";
+import { useRollbackDrawer } from "../events/RollbackProposal";
+import { serviceIdOf, useRollbackBlocked } from "../events/rollback";
+import { RunbookStepsForm, runbookSaveSteps, useRunbookProbeLabels } from "./RunbookStepsForm";
 
 /** One step's result from POST /runbooks/{id}/dry-run; `reasons` lists the conditions it failed (PA-194). */
 type DryRunCheck = { step: number; validated: boolean; reasons?: string[] };
 type Edit = { version: string; title: string; when: string; steps: RunbookStep[] };
-type ReadOnlyExecution = { id: string; version: number; status: "observed" | "no_samples"; steps: { step: number; query_id: string; sample_count: number; latest: number | null; captured_at: string }[] };
+type ReadOnlyExecution = { id: string; version: number; status: "observed" | "no_samples"; skipped_steps?: number[]; steps: { step: number; query_id: RunbookProbe; sample_count: number; latest: number | null; captured_at: string }[] };
+
+function metricValue(probe: RunbookProbe, latest: number | null) {
+  if (latest === null) return "—";
+  if (probe === "error_rate") return `${(latest * 100).toFixed(2)}%`;
+  if (probe === "http_p95_seconds") return `${(latest * 1000).toFixed(1)} ms`;
+  return `${latest.toFixed(3)} req/s`;
+}
 
 /** Step numbers in order, three or more in a row as a range: [1, 2, 3, 5] → "1–3、5". */
 function stepRuns(steps: number[], sep: string) {
@@ -42,6 +52,10 @@ export default function RunbookEditorPage() {
   const { id = "rb-retry-storm" } = useParams();
   const { tx } = useI18n();
   const when = useWhen();
+  const env = useEnv((s) => s.env);
+  const openRollback = useRollbackDrawer((s) => s.open);
+  const rollbackBlocked = useRollbackBlocked();
+  const probeLabels = useRunbookProbeLabels();
   const qc = useQueryClient();
   const { data: rb, error } = useGet<Runbook>(`/runbooks/${id}`);
   const { data: me } = useGet<Me>(API_MODE === "mock" ? null : "/me");
@@ -56,7 +70,7 @@ export default function RunbookEditorPage() {
   const [editing, setEditing] = useState<Edit>();
   const [saving, setSaving] = useState(false);
   const [executing, setExecuting] = useState(false);
-  const [execution, setExecution] = useState<ReadOnlyExecution>();
+  const [execution, setExecution] = useState<{ result: ReadOnlyExecution; env: string; id: string }>();
   const KIND: Record<RunbookStep["kind"], [Tone, string]> = { query: ["accent", tx("查询", "Query")], check: ["neutral", tx("判断", "Check")], action: ["warn", tx("动作", "Action")], verify: ["ok", tx("验证", "Verify")] };
   if (!rb)
     return (
@@ -82,14 +96,17 @@ export default function RunbookEditorPage() {
   const canReview = status === "review" && !!record?.owner && !!me && me.id !== record.owner;
   const canEdit = status === "draft" && !!me && me.id === record?.owner;
   const returned = history?.reviews.find((entry) => entry.decision === "request_changes" && entry.note);
-  const canExecute = status === "published" && !!rb.application_id && rb.steps.length > 0 && rb.steps.length <= 10 && rb.steps.every((step) =>
-    step.readonly && step.kind !== "action" && !step.approval && !step.code && !step.tool && step.probe === "request_rate" && step.connectors?.length === 1);
+  const metricSteps = rb.steps.filter((step) => step.probe);
+  const canExecute = status === "published" && env !== "all" && !!rb.application_id && metricSteps.length > 0 && metricSteps.length <= 10 && metricSteps.every((step) =>
+    step.readonly && step.kind !== "action" && !step.approval && !step.code && !step.tool && step.connectors?.length === 1 && !!step.connectors[0]);
+  const rollbackService = status === "published" && env !== "all" && rb.application_id ? serviceIdOf(rb.application_id, env) : null;
+  const observation = execution?.env === env && execution.id === id && execution.result.version === Number(rb.version.replace(/^v/, "")) ? execution.result : undefined;
   const execute = async () => {
     setExecuting(true);
     setExecution(undefined);
     try {
       const result = await api<ReadOnlyExecution>("POST", `/runbooks/${id}/execute-readonly`, { body: { expected_version: Number(rb.version.replace(/^v/, "")) } });
-      setExecution(result);
+      setExecution({ result, env, id });
       void refreshRunbooks();
     } catch (e) {
       toast(e instanceof Error ? e.message : tx("无法读取服务指标", "Couldn't read the service metric"), { tone: "danger" });
@@ -285,7 +302,7 @@ export default function RunbookEditorPage() {
                         <Badge tone={KIND[s.kind][0]}>{KIND[s.kind][1]}</Badge>
                         <b style={{ fontSize: "var(--fs-body)" }}>{s.title}</b>
                         <Spacer />
-                        {s.readonly && <Muted size={11.5}>{s.probe === "request_rate" ? tx("只读 · 服务请求速率", "Read-only · service request rate") : tx("只读步骤", "Read-only step")}</Muted>}
+                        {s.readonly && <Muted size={11.5}>{s.probe ? tx("只读 · {query}", "Read-only · {query}", { query: probeLabels[s.probe] }) : tx("只读步骤", "Read-only step")}</Muted>}
                       </Row>
                       {s.code && (
                         <Row gap={10} align="flex-start">
@@ -331,8 +348,13 @@ export default function RunbookEditorPage() {
                               <Icon name="shield" size={11} />
                               {tx("需人工批准", "Needs approval")}
                             </Badge>
-                            <Muted size={11.5}>{tx("由执行器执行 · Agent 只能生成提案", "Run by the executor · agents can only propose")}</Muted>
+                            <Muted size={11.5}>{s.action === "kubernetes_rollback" ? tx("由人工提交提案，两人批准后由执行器回滚", "Submit a proposal for two approvals before the executor rolls back") : tx("人工操作说明", "Manual instructions")}</Muted>
                           </Row>
+                          {s.action === "kubernetes_rollback" && rollbackService && API_MODE !== "mock" && <Gated reason={rollbackBlocked}>
+                            <Btn icon="undo" onClick={() => openRollback({ serviceId: rollbackService })}>
+                              {tx("打开 Kubernetes 回滚提案", "Open Kubernetes rollback proposal")}
+                            </Btn>
+                          </Gated>}
                         </Col>
                       )}
                     </Col>
@@ -367,10 +389,11 @@ export default function RunbookEditorPage() {
               ))}
             </Section>
             {canExecute && <Section title={tx("运行只读步骤", "Run read-only steps")}>
-              <Gate need={["knowledge", "manage"]}><Btn icon="play" kind="primary" loading={executing} onClick={() => void execute()}>{tx("查询实时请求速率", "Query live request rate")}</Btn></Gate>
-              {execution && execution.version === Number(rb.version.replace(/^v/, "")) && <Col gap={6} role="status">
-                <Badge tone={execution.status === "observed" ? "ok" : "warn"}>{execution.status === "observed" ? tx("已取得实际指标", "Live metrics received") : tx("查询窗口内无采样", "No samples in the query window")}</Badge>
-                {execution.steps.map((step) => <Muted key={step.step}>{tx("第 {n} 步 · {count} 个采样 · 最新 {rate} req/s", "Step {n} · {count} samples · Latest {rate} req/s", { n: step.step, count: step.sample_count, rate: step.latest === null ? "—" : step.latest.toFixed(3) })}</Muted>)}
+              <Gate need={["knowledge", "manage"]}><Btn icon="play" kind="primary" loading={executing} onClick={() => void execute()}>{metricSteps.every((step) => step.probe === "request_rate") ? tx("查询实时请求速率", "Query live request rate") : tx("运行实时指标查询", "Run live metric queries")}</Btn></Gate>
+              {observation && <Col gap={6} role="status">
+                <Badge tone={observation.status === "observed" ? "ok" : "warn"}>{observation.status === "observed" ? tx("已取得实际指标", "Live metrics received") : tx("查询窗口内无采样", "No samples in the query window")}</Badge>
+                {observation.steps.map((step) => <Muted key={step.step}>{tx("第 {n} 步 · {query} · {count} 个采样 · 最新 {value}", "Step {n} · {query} · {count} samples · Latest {value}", { n: step.step, query: probeLabels[step.query_id], count: step.sample_count, value: metricValue(step.query_id, step.latest) })}</Muted>)}
+                {!!observation.skipped_steps?.length && <Muted>{tx("本次只读运行跳过第 {steps} 步", "Skipped steps {steps} in this read-only run", { steps: stepRuns(observation.skipped_steps, tx("、", ", ")) })}</Muted>}
               </Col>}
               {rb.last_verified && <Muted>{tx("上次取证 {t}", "Last observation {t}", { t: when.at(rb.last_verified) ?? "—" })}</Muted>}
             </Section>}

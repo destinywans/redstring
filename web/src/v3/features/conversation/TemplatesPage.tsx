@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { Page } from "../../app/Shell";
-import { API_MODE, ApiError, api, useGet } from "../../api/client";
-import type { CanvasSummary, InvestigationTemplate } from "../../api/types";
+import { API_MODE, ApiError, api, newIdempotencyKey, useGet } from "../../api/client";
+import { serviceApplicationId } from "../../api/ids";
+import type { CanvasSummary, InvestigationTemplate, ServiceCatalog } from "../../api/types";
 import { Badge, Brand, Btn, Check, IconBtn, Input, Col, Icon, LabelChip, Muted, Pills, Row, SearchBox, Section, Skeleton, Spacer, Strong, Tile, cx } from "../../ui/core";
 import { Dialog, toast } from "../../ui/overlays";
 import { KindTag } from "../canvas/CanvasesPage";
@@ -11,6 +13,7 @@ import { PageHead } from "./ConversationsPage";
 import "./templates.css";
 import { openForm } from "../../ui/demo";
 import { Gate } from "../../ui/permission";
+import { useEnv } from "../../app/environment";
 
 export default function TemplatesPage() {
   const { tx } = useI18n();
@@ -20,20 +23,75 @@ export default function TemplatesPage() {
   const { data, isLoading, error } = useGet<{ items: InvestigationTemplate[]; counts: Record<string, number> }>("/investigation-templates", { owner: owner === "all" ? undefined : owner, q });
   const [selId, setSel] = useState<string | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const started = useRef<{ selection: string; requestId: string } | null>(null);
+  const env = useEnv((state) => state.env);
+  const client = useQueryClient();
+  const { data: services } = useGet<ServiceCatalog>(API_MODE === "http" ? "/services" : null);
+  const appOptions = (services?.items ?? []).flatMap((service) => {
+    const application = serviceApplicationId(service.id);
+    return application ? [{ value: application, label: service.name }] : [];
+  });
   const sel = data?.items.find((t) => t.id === selId);
   const start = async (t: InvestigationTemplate) => {
+    if (busy) return;
+    setBusy(true);
     let r: { investigation_id: string };
     try {
-      r = await api<{ investigation_id: string }>("POST", `/investigation-templates/${t.id}/start`);
+      let body: { inputs: { application_id: string; template_version: string; request_id: string } } | undefined;
+      if (API_MODE === "http") {
+        const values = await openForm({
+          title: tx("用「{name}」新建调查", "Start from “{name}”", { name: t.name }),
+          fields: [{ key: "application", label: tx("应用", "Application"), type: "select", required: true,
+            options: t.application_id ? appOptions.filter((app) => app.value === t.application_id) : appOptions,
+            initial: t.application_id }],
+          submit: tx("新建调查", "Start investigation"),
+        });
+        if (!values) return;
+        if (env !== useEnv.getState().env || env === "all") throw new Error(tx("请先选定单个环境", "Select one environment"));
+        const selection = JSON.stringify([env, t.id, t.version, values.application]);
+        if (started.current?.selection !== selection) started.current = { selection, requestId: newIdempotencyKey() };
+        body = { inputs: { application_id: values.application, template_version: t.version, request_id: started.current.requestId } };
+      }
+      r = await api<{ investigation_id: string }>("POST", `/investigation-templates/${encodeURIComponent(t.id)}/start`, { body });
+      started.current = null;
     } catch (e) {
-      // Unreachable while the catalog is empty (PA-115); a refusal is said rather than thrown.
-      return toast(e instanceof ApiError ? e.message : tx("没能从模板新建调查，请稍后重试", "Couldn't start from the template; try again later"), { tone: "danger" });
+      return toast(e instanceof Error ? e.message : tx("没能从模板新建调查，请稍后重试", "Couldn't start from the template; try again later"), { tone: "danger" });
+    } finally {
+      setBusy(false);
     }
     toast(tx("已用「{t}」新建调查，自动派生 {n} 个分支", "Started an investigation from “{t}” with {n} branches", { t: t.name, n: t.branches.length }));
     nav(`/canvas/${r.investigation_id}`);
   };
+  const create = async () => {
+    const v = await openForm({
+      title: tx("新建团队调查模板", "New team investigation template"),
+      desc: tx("模板会为所选应用创建初始分支。步骤为排查指引，由调查人员发起实际取证。", "The template creates an initial branch for the selected application. Its instructions guide the investigator's evidence gathering."),
+      fields: [
+        { key: "application", label: tx("应用", "Application"), type: "select", required: true, options: appOptions },
+        { key: "name", label: tx("模板名称", "Template name"), required: true },
+        { key: "description", label: tx("调查目标", "Investigation goal"), required: true },
+        { key: "branch", label: tx("初始分支", "Initial branch"), required: true },
+        { key: "step", label: tx("排查指引", "Investigation instructions"), type: "textarea", required: true },
+      ],
+      submit: tx("创建", "Create"),
+    });
+    if (!v) return;
+    try {
+      if (env !== useEnv.getState().env || env === "all") throw new Error(tx("请先选定单个环境", "Select one environment"));
+      const created = await api<InvestigationTemplate>("POST", "/investigation-templates", { body: {
+        id: `team-${newIdempotencyKey()}`, application_id: v.application, name: v.name, description: v.description,
+        branches: [{ name: v.branch, step: v.step }],
+      } });
+      await client.invalidateQueries({ queryKey: ["/investigation-templates"] });
+      setSel(created.id);
+      toast(tx("团队调查模板已创建", "Team investigation template created"));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : tx("创建失败", "Creation failed"), { tone: "danger" });
+    }
+  };
   return (
-    <Page error={!data ? error : undefined} errorSource={tx("模板", "templates")} crumbs={[tx("对话与画布", "Conversations & canvases"), tx("模板", "Templates")]} actions={<Gate need={["canvas", "change"]}><Btn kind="primary" icon="plus" onClick={() => setSaveOpen(true)}>{tx("新建模板", "New template")}</Btn></Gate>} flush>
+    <Page error={!data ? error : undefined} errorSource={tx("模板", "templates")} crumbs={[tx("对话与画布", "Conversations & canvases"), tx("模板", "Templates")]} actions={<Gate need={["canvas", "change"]}><Btn kind={API_MODE === "mock" ? "primary" : "secondary"} icon="plus" onClick={() => setSaveOpen(true)}>{tx("保存画布模板", "Save canvas template")}</Btn>{API_MODE === "http" && <Btn kind="primary" icon="plus" disabled={!appOptions.length || env === "all"} onClick={create}>{tx("新建调查模板", "New investigation template")}</Btn>}</Gate>} flush>
       <div className="v3-split">
         <div className="main">
           <div className="v3-content">
@@ -51,7 +109,7 @@ export default function TemplatesPage() {
                 </div>
               )}
               {data?.items.map((t) => (
-                <button key={t.id} type="button" className={cx("tpl-card lift", sel?.id === t.id && "on")} onClick={() => setSel(t.id)} onDoubleClick={() => start(t)}>
+                <button key={t.id} type="button" className={cx("tpl-card lift", sel?.id === t.id && "on")} onClick={() => setSel(t.id)}>
                   <Row gap={8} style={{ width: "100%" }}>
                     <b style={{ fontSize: "var(--fs-body)", flexGrow: 1 }}>{t.name}</b>
                     <Badge tone={t.owner === "official" ? "accent" : "neutral"}>{t.owner === "official" ? tx("官方", "Official") : tx("团队", "Team")}</Badge>
@@ -133,12 +191,11 @@ export default function TemplatesPage() {
               </Section>
               <Row gap={8}>
                 <Gate need={["canvas", "change"]}>
-                <Btn kind="primary" icon="branch" onClick={() => start(sel)}>
+                <Btn kind="primary" icon="branch" loading={busy} disabled={busy || (API_MODE === "http" && (!appOptions.length || env === "all"))} onClick={() => start(sel)}>
                   {tx("用此模板新建调查", "Start investigation")}
                 </Btn>
                 </Gate>
-                {/* Editing only showed a toast; there is no save call here yet (PA-135). */}
-                {API_MODE === "mock" && (
+                <Gate need={["canvas", "change"]}>
                   <Btn
                     icon="edit"
                     onClick={async () => {
@@ -151,12 +208,24 @@ export default function TemplatesPage() {
                         ],
                         submit: tx("保存为新版本", "Save as new version"),
                       });
-                      if (v) toast(tx("模板「{n}」已保存为新版本，进行中的调查不受影响", "Template “{n}” saved as a new version; running investigations are unaffected", { n: v.name }));
+                      if (!v) return;
+                      try {
+                        if (API_MODE === "http") {
+                          if (env !== useEnv.getState().env || env === "all") throw new Error(tx("请先选定单个环境", "Select one environment"));
+                          await api("PUT", `/investigation-templates/${encodeURIComponent(sel.id)}`, {
+                            body: { expected_revision: Number(sel.version.slice(1)), name: v.name.trim(), budget: { tools: Number(v.tools), minutes: Number(v.minutes) } },
+                          });
+                          await client.invalidateQueries({ queryKey: ["/investigation-templates"] });
+                        }
+                        toast(tx("模板「{n}」已保存为新版本", "Template “{n}” saved as a new version", { n: v.name }));
+                      } catch (e) {
+                        toast(e instanceof Error ? e.message : tx("保存失败", "Save failed"), { tone: "danger" });
+                      }
                     }}
                   >
                     {tx("编辑", "Edit")}
                   </Btn>
-                )}
+                </Gate>
                 {API_MODE === "mock" && (
                   <Btn kind="ghost" onClick={() => toast(tx("已复制为团队模板", "Duplicated as a team template"))}>
                     {tx("复制", "Duplicate")}

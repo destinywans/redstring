@@ -381,41 +381,68 @@ function ConnectorAside({ id, onClose }: { id: string; onClose: () => void }) {
                   {tx("测试连接", "Test connection")}
                 </Btn>
               </Gated>
-              {/* Editing settings (PUT /connectors/{id}/settings, POST …/activate) and disabling aren't wired; the sample
-                  forms only showed a toast, so they stay in the sample (PA-163, D52). */}
-              {API_MODE === "mock" && <Btn
+              <Gated reason={manage}><Btn
                 icon="edit"
+                disabled={API_MODE === "http" && !c.revision}
                 onClick={async () => {
+                  const env = useEnv.getState().env;
                   const v = await openForm({
                     title: tx("编辑 {n}", "Edit {n}", { n: c.name }),
-                    desc: tx("凭据只填写 Vault 引用，平台不保存明文。", "Credentials are Vault references only; secrets are never stored."),
+                    desc: tx("地址变更后需要重新验证并启用。已登记的范围与凭据引用保留。", "An address change requires verification and reactivation. The registered scope and credential reference are retained."),
                     fields: [
                       { key: "address", label: tx("地址", "Address"), initial: c.address, mono: true, required: true },
-                      { key: "secret", label: tx("凭据引用", "Credential reference"), initial: "vault:secret/aiops/" + c.id, mono: true, required: true },
-                      { key: "scope", label: tx("范围", "Scope"), initial: c.scope },
                     ],
-                    submit: tx("保存并测试连接", "Save and test"),
+                    submit: tx("保存", "Save"),
                   });
-                  if (v) toast(tx("{n} 已更新，连接测试通过", "{n} updated; connection test passed", { n: c.name }));
+                  if (!v) return;
+                  try {
+                    if (API_MODE === "http") {
+                      await api("PUT", `/connectors/${encodeURIComponent(c.id)}/settings`, {
+                        headers: { "X-AIOps-Environment": env },
+                        body: { expected_revision: c.revision, address: v.address.trim(), scope: c.scope },
+                      });
+                    }
+                    toast(tx("{n} 的设置已保存", "Saved settings for {n}", { n: c.name }));
+                  } catch (e) {
+                    toast(e instanceof Error ? e.message : tx("保存失败", "Save failed"), { tone: "danger" });
+                  } finally {
+                    reread();
+                  }
                 }}
               >
                 {tx("编辑", "Edit")}
-              </Btn>}
+              </Btn></Gated>
               <Spacer />
-              {API_MODE === "mock" && <Btn
-                kind="danger"
+              <Gated reason={manage}><Btn
+                kind={c.enabled === false ? "secondary" : "danger"}
                 onClick={async () => {
+                  const env = useEnv.getState().env;
+                  const enable = c.enabled === false;
                   const ok = await confirmAction({
-                    title: tx("停用 {n}？", "Disable {n}?", { n: c.name }),
-                    desc: tx("停用后 Agent 无法再通过它取证，依赖它的告警接入和页面会显示“数据缺失”。凭据引用会保留，可随时重新启用。", "Agents can no longer gather evidence through it, and alerts and pages that depend on it show missing data. The credential reference is kept, so you can re-enable it any time."),
-                    confirm: tx("停用", "Disable"),
-                    danger: true,
+                    title: enable ? tx("启用 {n}？", "Activate {n}?", { n: c.name }) : tx("停用 {n}？", "Disable {n}?", { n: c.name }),
+                    desc: enable
+                      ? tx("服务端将用现有登记验证连接。", "The server verifies the connection using the current registration.")
+                      : tx("停用会停止依赖此连接器的读取。凭据引用会保留。", "Dependent reads stop. The credential reference is retained."),
+                    confirm: enable ? tx("启用", "Activate") : tx("停用", "Disable"),
+                    danger: !enable,
                   });
-                  if (ok) toast(tx("{n} 已停用", "{n} disabled", { n: c.name }), { undo: () => undefined });
+                  if (!ok) return;
+                  try {
+                    if (API_MODE === "http") {
+                      await api("POST", `/connectors/${encodeURIComponent(c.id)}/${enable ? "activate" : "disable"}`, {
+                        headers: { "X-AIOps-Environment": env }, body: {},
+                      });
+                    }
+                    toast(enable ? tx("{n} 已启用", "{n} activated", { n: c.name }) : tx("{n} 已停用", "{n} disabled", { n: c.name }));
+                  } catch (e) {
+                    toast(e instanceof Error ? e.message : tx("操作失败", "Operation failed"), { tone: "danger" });
+                  } finally {
+                    reread();
+                  }
                 }}
               >
-                {tx("停用", "Disable")}
-              </Btn>}
+                {c.enabled === false ? tx("启用", "Activate") : tx("停用", "Disable")}
+              </Btn></Gated>
             </Row>
           </Col>
         </>

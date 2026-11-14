@@ -38,6 +38,8 @@ type Service struct {
 	// Deployment-owned exact application/environment/transport admission. Never
 	// supplied by an HTTP request; nil disables new V3 registrations/discovery.
 	AuthorizeRegistrationEndpoint func(context.Context, string, string, aiextensions.MCPConfig) error
+	AuthorizeAgentReadTool        func(context.Context, string, string, aiextensions.MCPConfig, string) bool
+	CallAgentReadTool             func(context.Context, aiextensions.MCPConfig, string, func(context.Context, aiextensions.MCPCatalog) error) (string, error)
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }
@@ -134,7 +136,11 @@ func (s *Service) ready(w http.ResponseWriter, r *http.Request) ([]string, bool)
 }
 
 func (s *Service) allowedTx(r *http.Request, tx pgx.Tx, v registration, action string) error {
-	err := s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
+	return s.authorizeRegistrationTx(r.Context(), tx, httpapi.CurrentUser(r), v, action)
+}
+
+func (s *Service) authorizeRegistrationTx(ctx context.Context, tx pgx.Tx, user core.User, v registration, action string) error {
+	err := s.Access.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{
 		Module: "connectors", Action: action,
 		EnvironmentID: v.EnvironmentID, ApplicationID: v.ApplicationID,
 	})
@@ -143,7 +149,7 @@ func (s *Service) allowedTx(r *http.Request, tx pgx.Tx, v registration, action s
 	}
 	// The team grant is an alternative object scope only for the persisted
 	// owner of this bound application. Never resolve it from a request field.
-	return s.Access.AuthorizeWithTx(r.Context(), tx, httpapi.CurrentUser(r), rbac.V3Decision{
+	return s.Access.AuthorizeWithTx(ctx, tx, user, rbac.V3Decision{
 		Module: "connectors", Action: action,
 		EnvironmentID: v.EnvironmentID, TeamID: v.OwnerTeamID,
 	})
@@ -424,6 +430,17 @@ func (s *Service) detail(w http.ResponseWriter, r *http.Request) {
 	result := summary(v, lang)
 	decorateMCPSummary(result, v, obs, lang)
 	decorateMCPDetail(result, obs, lang, v.Record.MCP != nil && v.Record.MCP.CredentialRef != "")
+	if obs != nil && obs.reviewed && !obs.dismissed && v.Record.Enabled && s.AuthorizeAgentReadTool != nil && s.CallAgentReadTool != nil {
+		for _, tool := range obs.tools {
+			if tool.Enabled && tool.ReadOnlyHint && tool.Decision == "allow_read_only" && noArgumentSchema(tool.InputSchema) &&
+				s.AuthorizeAgentReadTool(r.Context(), v.ApplicationID, v.EnvironmentID, *v.Record.MCP, tool.Name) {
+				result["trust_info"].(map[string]any)["limit"] = mcpLocalized(lang,
+					"仅部署准入、经审核启用的无参数工具可在同应用、同环境的 Agent 版本中选择",
+					"Only deployment-admitted, reviewed, enabled no-argument reads can be selected for an Agent version in the same application and environment")
+				break
+			}
+		}
+	}
 	result["complete_v3_dto"] = false
 	result["unavailable_fields"] = []string{"connection_health", "agent_tool_grants", "agent_authorized_apps", "call_history", "call_limit"}
 	if !freshMCPReadSession(w, r, tx) {

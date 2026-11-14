@@ -89,6 +89,14 @@ func (s *Service) ConfigureExecution(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if _, err := s.resolveMCPToolsTx(r.Context(), tx, r, a, c); err != nil {
+		if errors.Is(err, errMCPReadUnavailable) {
+			lifecycleRejected(w, r, 422, "mcp_tool_unavailable", "选择已审核、启用且在当前应用和环境获准的 MCP 工具，并使用支持只读工具的模型", "Choose an approved and enabled MCP tool for this application and environment and an admitted tool-capable model")
+			return
+		}
+		unavailable(w)
+		return
+	}
 	err := tx.QueryRow(r.Context(), `SELECT pv.body,av.artifact_ref FROM v3_agent_versions av
  JOIN v3_agent_prompts p ON p.agent_id=av.agent_id AND p.id=$3
  JOIN v3_agent_prompt_versions pv ON pv.prompt_id=p.id AND pv.version=$4

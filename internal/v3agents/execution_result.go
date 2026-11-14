@@ -65,9 +65,10 @@ func (s *Service) ExecutionResult(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var output *string
+	evidence := []mcpExecutionEvidence{}
 	if v.Status == "success" {
 		var body string
-		err = tx.QueryRow(r.Context(), `SELECT output_text FROM v3_agent_execution_results WHERE run_id=$1 FOR SHARE`, v.ID).Scan(&body)
+		err = tx.QueryRow(r.Context(), `SELECT output_text,mcp_evidence FROM v3_agent_execution_results WHERE run_id=$1 FOR SHARE`, v.ID).Scan(&body, &evidence)
 		if err != nil {
 			unavailable(w)
 			return
@@ -82,5 +83,5 @@ func (s *Service) ExecutionResult(w http.ResponseWriter, r *http.Request) {
 		unavailable(w)
 		return
 	}
-	httpapi.WriteJSON(w, 200, map[string]any{"id": v.ID, "agent_id": a.ID, "version": v.Version, "model_id": model, "prompt_id": prompt, "prompt_version": promptVersion, "config_sha256": hash, "lifecycle_revision": revision, "status": v.Status, "error_code": v.ErrorCode, "output": output, "read_only": true})
+	httpapi.WriteJSON(w, 200, map[string]any{"id": v.ID, "agent_id": a.ID, "version": v.Version, "model_id": model, "prompt_id": prompt, "prompt_version": promptVersion, "config_sha256": hash, "lifecycle_revision": revision, "status": v.Status, "error_code": v.ErrorCode, "output": output, "read_only": true, "mcp_evidence": evidence})
 }

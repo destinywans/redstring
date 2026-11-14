@@ -30,6 +30,7 @@
 | GET | `/api/v1/mcp-servers/{id}/review-candidate` | 单环境、显式绑定与当前 `connectors.manage` 下读取最新未信任发现快照的工具名称、描述、只读提示、输入 schema 和各自摘要；已完成同版本人工审核时另返回决定与开关修订。初始一致性读取后，在新事务中重新核账号、会话、授权、应用/绑定、最新快照与审核状态，持锁至有界响应写完；失效/变更不披露候选。`trust=untrusted_observation`、`health_verified=false`、`execution_available=false`，没有 Agent 执行权。 |
 | POST | `/api/v1/mcp-servers/{id}/review-version` | `{ snapshot_id, registration_version, registration_hash, tools_hash, decisions: [{ name, tool_hash, decision: "allow_read_only" | "deny" }] }`；当前人类 `connectors.manage` 审核人须逐个决定最新版本的全部工具，不接受省略、重复或版本漂移。审核、逐工具默认关闭的决定与脱敏审计同事务；远端只读提示不是批准，允许的只读工具也不自动启用或进入 Agent 执行。 |
 | PATCH | `/api/v1/mcp-servers/{id}/reviewed-tools/{name}` | `{ snapshot_id, tools_hash, tool_hash, expected_revision, enabled }`；当前人类 `connectors.manage` 审核人仅能在匹配最新发现及完整审核时修改开关，拒绝开启 `deny` 工具。按修订并发控制并在变化时同事务审计；响应 `execution_available=false`，开关不授予 Agent 调用权。 |
+| GET | `/api/v1/agents/{id}/execution-mcp-tools` | 单环境、当前 Agent 查看和管理权限及所属应用的 `connectors.view`。列出当前部署准入、已审查且已启用的无参数只读工具，供版本运行配置选择。返回固定版本工具 ID、名称和连接器名称，省略端点和凭据；执行时再次校验权限、登记、绑定、审核、开关和实时 MCP 工具声明。详见 [Agent 执行契约](v3-agent-execution.md)。 |
 | GET | `/api/v1/changes/records` | 必填 `service_id`、`binding_id`，可选 `page`（1–1000）；从已显式绑定的同环境 GitLab 项目读取每页 20 条流水线记录。调用前后均复核服务和连接器权限，缺少来源返回未接入，上游错误返回 502。只证明流水线自身状态与时间，不推断部署、风险或告警关联。 |
 | GET | `/api/v1/changes/merge-requests` | 必填 `service_id`、`binding_id`；可选 `page`（1–1000）、`state`（`all`/`opened`/`closed`/`locked`/`merged`）、`target_branch`。在同一明确绑定的 GitLab 项目按页读取 20 条合并请求身份、分支、状态、提交标识和上游时间；须启用 `list_merge_requests`。请求和上游响应均有界，读取前后复核来源和授权；非法筛选 422，变更 409，来源不可用 503，上游失败或损坏 502。无差异、部署或风险判定。 |
 | GET | `/api/v1/changes/commits/{sha}` | 必填 `service_id`、`binding_id` 和完整 40/64 位十六进制 SHA；从同一绑定项目读取标题、作者/提交时间及父 SHA，须单独启用 `get_commit`，不调用差异接口。读取前后复核来源和授权；目标无效 422，缺失 404，变更 409，来源不可用 503，上游失败或损坏 502。无正文、差异、邮箱、部署或风险判定。 |
@@ -48,7 +49,7 @@
 | GET | `/api/v1/knowledge-sources/registrations/{id}/evidence` | 只读当前受权来源最近一次观察及可精确归属到该观察的 ready 文档/分块数量。无观察时 `last_read`、`index` 为 null；即使有归属记录，`index.complete` 仍为 false，不推断完整索引。 |
 | POST | `/api/v1/knowledge-sources/test` | 来源类型有明确配置的只读 Prober 时，成功仅表示当时服务端可读取，不持久化同步或证明应用/团队范围及索引。生产公开 Web Reader 只接受持久应用登记的同步，不实现无登记来源的 Prober；即使开关为 `true`，此路径仍返回 `501 source_connection_test_unavailable`，不会返回模拟成功。其他类型的登记仍需 Vault 引用。此路径在 166 项主契约内，状态仍为 `mock`。 |
 | PATCH | `/api/v1/runbooks/{id}` | 维护人以 `expected_version` 保存当前草稿的标题、适用说明和步骤。保留来源绑定，并在同一事务写入新修订、历史和审计。待审、已发布和过期修订拒绝修改。 |
-| POST | `/api/v1/runbooks/{id}/execute-readonly` | 在单环境执行已发布 Runbook 中显式登记的 `request_rate` 只读查询。每步骤须绑定当前应用唯一的 Prometheus 连接器，动作、脚本和自由文本都不能运行。实际得到有效采样后记录取证时间。 |
+| POST | `/api/v1/runbooks/{id}/execute-readonly` | 在单环境对已发布的应用 Runbook 实跑 1–10 个登记的 Prometheus 指标步骤，查询 ID 为 `request_rate`、`error_rate` 或 `http_p95_seconds`。同一 15 分钟窗口对每个查询 ID 只读取一次，按步骤返回采样数、最新值、取证时间和 `skipped_steps`。未绑定查询的动作及说明步骤仅列出跳过编号。每个步骤均有实际采样时更新最后验证时间。 |
 | POST | `/api/v1/runbooks/{id}/reviews` | 独立管理者按已提交版本选择 `approve` 或 `request_changes`，后者必须填写说明；拒绝自审和非法状态。审核、版本历史与审计持久化；批准后才在事务外尝试索引，响应单独报告语义检索就绪和是否需重试。 |
 | POST | `/api/v1/runbooks/{id}/reindex` | 单环境、对象级 `knowledge.manage` 下重试已发布 Runbook 的语义索引；请求审计先落库，索引在事务外执行。响应分别给出 `index_status`、`semantic_search_ready` 与 `index_retry_required`；Embedding 失败不撤销人工发布，关键词检索仍可用。 |
 | GET | `/api/v1/runbooks/{id}/record` | 读取持久化的结构化步骤及版本、维护者、应用/环境、来源类型；返回 `partial: true`，明确缺少用量、事件处置和执行核验。旧文档无结构化步骤时 503，不把全文猜成步骤。 |
@@ -78,4 +79,4 @@ Runbook/复盘治理新增迁移 `110`；来源观察证据为 `111`–`112`；�
 
 Agent 目录、评测记录、运行上报与护栏策略分别使用迁移 `115`–`118`。护栏事件可附带受信生产者在策略决策时获取的数据库时间与策略修订，晚到记录按该历史区间核对；当前没有实际执行器接入或完整护栏覆盖证据。Agent 的 20 条主路由均为部分治理/上报能力，不计作整页 `implemented`，具体缺失字段和固定不可用响应见 [V3 页面契约](v3-contract.md) 与机器 OpenAPI。
 
-MCP 发现快照由迁移 `070_v3_mcp_discovery_snapshots.sql` 保存，并以新绑定实例 ID 区分解绑后重绑。迁移在 `store.Migrate` 阶段执行；既有业务库尚未执行。快照不可更新或删除，当前没有历史保留期，后续审核与运维设计需要定义容量与留存策略。真实 MCP 服务尚未连接验证。
+MCP 发现快照由迁移 `070_v3_mcp_discovery_snapshots.sql` 保存，并以新绑定实例 ID 区分解绑后重绑。快照不可更新或删除。受治理运行的私有 MCP 证据使用迁移 `183_v3_agent_mcp_evidence.sql`；共享运行 Trace 仅展示工具 ID 和执行状态。

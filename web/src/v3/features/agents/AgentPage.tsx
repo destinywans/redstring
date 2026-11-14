@@ -14,7 +14,7 @@ import "./agents.css";
 import { openForm } from "../../ui/demo";
 import { useMemberNames } from "../../ui/names";
 import { useWhen } from "../../ui/when";
-import { AgentActions, AgentDraftActions } from "./AgentVersionActions";
+import { AgentActions, AgentDraftActions, AgentLevelActions } from "./AgentVersionActions";
 
 export default function AgentPage() {
   const { tx } = useI18n();
@@ -134,6 +134,7 @@ export default function AgentPage() {
         ]}
       />
       <div className="v3-content anim-fade" style={{ padding: "14px 24px" }} key={tab}>
+        {tab === "perm" && !demo && <AgentLevelActions agent={a} />}
         {tab !== "release" && tab !== "config" ? (
           <Muted>
             {tx("在对应模块查看：", "See the dedicated module: ")}

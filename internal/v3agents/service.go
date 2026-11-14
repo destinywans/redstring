@@ -16,6 +16,7 @@ import (
 	"github.com/destinywans/redstring/internal/rbac"
 	"github.com/destinywans/redstring/internal/store"
 	"github.com/destinywans/redstring/internal/v3interactionaudit"
+	"github.com/destinywans/redstring/internal/v3mcp"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -26,8 +27,10 @@ type Access interface {
 }
 
 type Service struct {
-	DB     *pgxpool.Pool
-	Access Access
+	DB              *pgxpool.Pool
+	Access          Access
+	MCP             *v3mcp.Service
+	MCPModelAllowed func(string) bool
 }
 
 func New(db *pgxpool.Pool, access Access) *Service { return &Service{DB: db, Access: access} }

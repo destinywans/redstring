@@ -86616,6 +86616,7 @@
         "enum": [
           "not_connected",
           "not_configured",
+          "query_not_configured",
           "no_authorized_target",
           "not_generated",
           "unavailable",

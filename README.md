@@ -9,7 +9,7 @@
 
 [在线演示](https://redstring.wans.run/)（示例数据） · [产品页](https://wans.run/redstring/)
 
-> **状态：v0.1.0 beta，不建议用于生产环境。** 作为 MVP 和实验环境演示可用，尚未达到生产可用，差距见下方[「还没做」](#还没做)；已知问题见 [docs/KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)。执行器会对接入的系统做写操作，只接测试环境，先读[「安全须知」](#安全须知)。
+> **状态：v0.1.0 beta，不建议用于生产环境。** 使用限制见[已知问题](docs/KNOWN_ISSUES.md#范围与环境限制)。执行器会对接入的系统做写操作，只接测试环境，先读[「安全须知」](#安全须知)。
 
 > **English summary.** Redstring is a self-hosted AIOps workspace: AI investigates in branches, people approve concrete change proposals, and an isolated executor applies and verifies them. **v0.1.0 is a beta and not recommended for production.** Any module you give write credentials to can change external systems, so connect only test environments, and do not expose an instance to the internet (the default development setup is plain HTTP). Report bugs as GitHub issues with steps, instance mode, how you run it, version (tag or `git rev-parse --short HEAD`) and browser; report security problems privately as described in [SECURITY.md](SECURITY.md). The documentation is in Chinese.
 
@@ -39,37 +39,6 @@
 | 平台设置 | 成员、角色权限、模型与 Embedding、生产与非生产实例隔离 |
 
 界面支持中英文和深浅色。记忆、评测案例、Agent 新版本、新建角色、编辑连接器等几项管理操作目前只有接口、没有界面入口，见 [已知问题](docs/KNOWN_ISSUES.md)。
-
-## 当前状态
-
-测试环境是三台 Lima 虚拟机上的 Kubernetes 实验集群，配合实验 GitLab、Prometheus、Loki、Alertmanager、Elasticsearch、Tempo、Vault，以及一生产一非生产两个独立实例。做过两轮：
-
-1. **生产验收**（2026-10-09～10-12）：按页面、角色、演练逐项验收，登记缺陷 PA-01～PA-104。
-2. **缺陷收敛**（2026-10-16～10-19）：每天一轮值班，轮流做故障演练、角色任务卡、数据状态和自由探索，并按类清扫同类问题。登记 PA-105～PA-266 共 162 条（按登记册里不重复的编号计）：P0 38、P1 19、P2 57、P3 40、缺能力 8；P0/P1 全部修复并部署；能在实验数据上复现的在真实数据上核对，当前数据触发不了的用固定接口的检查覆盖（发布前最后一次部署 2488bf3c）。未修的 P2、P3 和缺能力项见 [已知问题](docs/KNOWN_ISSUES.md)。
-
-发布验收轮（第 3 轮，含会话到期、写凭据失效、告警时间、浏览器时钟四项时间注入演练）的结论：通过（发布门槛 G2；全部门槛 G1～G6 见 [发布说明](docs/releases/v0.1.0.md)）。必做内容都已完成，新登记 14 条，其中 4 条 P0 当场修复并复核：只读成员能从事件页发起调查（越权）、覆盖度页筛选写死示例计数、页面开着跨过时间边界不更新、指标区间里一个 NaN 点让看板失败；另有 P2 7 条、P3 2 条、缺能力 1 条。收工后的定级复核把 PA-257 升为 P0、新登记 PA-266（P0），连同 PA-253、PA-259 都在发布前修好。时间注入里，会话到期在列表页和表单中处理正确，流式回复中只提示“回复中断”（PA-254，P2）；写凭据失效时如实说明集群拒绝写入、不盲目重试；告警起始时间跨 24 小时边界的归属正确。
-
-### 已验证
-
-- **发布演练**：在实验环境的生产（prod）实例上从坏版本上线到回滚、修复全程走通（2026-10-12，生产验收期间第二次完整运行，24/24）。
-- **告警规则闭环**：经人工审批合并到配置仓库，执行器加载并读回，启用与停用都验证过（2026-10-12）。
-- **配置提升**：四类配置从非生产导出，经审批合并后在生产导入（2026-10-12）。
-- **生产验收最终回归 19/19（2026-10-12）**：全页面对拍 216 次加载，0 未捕获异常，0 空白页；两个实例的权限矩阵 138 条路由无不一致；登录、凭据、环境隔离等专项全部通过。
-- 生产验收登记的 104 项缺陷（PA-01～PA-104）都已处理：大多数修复并在回归中验证，少数转入后续或经决定保留现状（仍有影响的列在已知问题里）。
-- **缺陷收敛**：第 2 轮起每条修复先写检查、在旧部署上确认失败，修复部署后通过；能在实验数据上复现的再在真实数据上核对，其余用固定接口的检查覆盖；f91966ed 部署后的完整回归 47/49，两项未过分别是回滚写令牌按设计 24 小时到期、`phase1-fixes` 一项里两条检查的按钮定位写法过时（修正后通过）。
-- **v0.1.0 最终回归 53/54（2026-10-19，部署 2488bf3c，`vcs.modified=false`）**：管理员全页面对拍 220 次加载，只读成员与运维人员各 110 次，详情页与标签 104 次，全部 0 未捕获异常、0 空白页、0 示意标记；两个实例的权限矩阵、凭据 9/9、环境隔离 25/25、输入校验 12/12、登录 10/10、链路视图 16/16、非生产告警规则闭环 21/21、GitLab 变更比对 6/6 和真实模型的画布、对话、设置、Agent 黄金路径全部通过。唯一未过的一项是一条检查只读画布列表第一页、找不到通用画布而跳过（检查本身的问题，修正后该文件单项重跑 48/48）。
-
-详见 [验收登记](docs/releases/2026-10-09-production-acceptance.md)、[缺陷收敛登记](docs/releases/2026-10-16-defect-convergence.md) 和 [v0.1.0 发布说明](docs/releases/v0.1.0.md)。
-
-### 还没做
-
-- **生产可用性认证暂缓**：原计划以连续多日无新 P0/P1 作为生产可用的标准，v0.1 改为一组可核对的发布门槛（G1～G6，见发布说明），这项认证以后再做。
-- **性能与 24 小时稳定性**。
-- **环境广度**：只验过一个实验集群、三个服务、单机单进程；大数据量、多副本部署、其他版本的 GitLab/Prometheus 未验证；模型只验过 DeepSeek。
-- **安全**：没有独立安全审查；登录不校验二次验证（身份验证器 TOTP 可以登记，但只用于账号安全设置，登录时不要求）；OIDC 单点登录有实现（`AIOPS_V3_OIDC_*`），没有验收。
-- **运维**：备份恢复、升级迁移、自身监控告警未验收，凭据轮换靠手工。
-
-多租户、长会话自动摘要和完整 CI/CD 不在当前范围；存储默认 PostgreSQL + pgvector，其他向量库尚未实现。
 
 ## 安全须知
 

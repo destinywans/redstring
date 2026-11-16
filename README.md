@@ -19,6 +19,12 @@ Redstring 是一个可自托管的 AI 运维工作区。团队可以从告警发
 2. **追溯证据**。AI 通过只读工具查询已接入的指标、日志和 Runbook，调查结论附有证据来源。
 3. **审批与恢复**。Kubernetes 回滚提案须由发起人之外的两位授权成员批准，随后由独立执行器回滚并检查服务是否恢复。
 
+## 工作区
+
+- **服务与观测**。查看服务目录、资源关系、指标、日志和链路，可接入 Kubernetes、Prometheus、Loki 和 Tempo。
+- **告警与事件**。认领告警、跟进事件处理，在事件解决后撰写复盘。
+- **Runbook 与知识**。维护和检索排查手册，也可以根据已发布的复盘起草 Runbook。
+
 ## 快速开始
 
 在本地预览示例工作区，只需 Git、Node.js、pnpm 和 `make`。
@@ -42,7 +48,7 @@ Beta 版本仅供测试环境试用，请勿暴露到公网。配置了写权限
 
 ## 反馈
 
-[已知问题](docs/KNOWN_ISSUES.md) · [提交缺陷](https://github.com/destinywans/redstring/issues/new/choose) · [私密报告安全漏洞](SECURITY.md)
+[提交缺陷](https://github.com/destinywans/redstring/issues/new/choose) · [私密报告安全漏洞](SECURITY.md)
 
 ## 许可证
 
